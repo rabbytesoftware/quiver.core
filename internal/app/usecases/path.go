@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 type PathUsecase interface {
@@ -18,19 +18,19 @@ type PathUsecase interface {
 }
 
 type pathUsecase struct {
-	shelf shelf.Shelf
+	wizard wizardPkg.Wizard
 }
 
 func NewPathUsecase(
-	s shelf.Shelf,
+	w wizardPkg.Wizard,
 ) PathUsecase {
-	return &pathUsecase{shelf: s}
+	return &pathUsecase{wizard: w}
 }
 
 func (u *pathUsecase) Status(
 	ctx context.Context,
 ) (models.PathStatus, error) {
-	status, err := u.shelf.PathStatus(ctx)
+	status, err := u.wizard.PathStatus(ctx)
 	if err != nil {
 		return models.PathStatus{}, fmt.Errorf("path status: %w", err)
 	}
@@ -40,7 +40,7 @@ func (u *pathUsecase) Status(
 func (u *pathUsecase) Setup(
 	ctx context.Context,
 ) (models.PathStatus, error) {
-	status, err := u.shelf.SetupPath(ctx)
+	status, err := u.wizard.SetupPath(ctx)
 	if err != nil {
 		return models.PathStatus{}, fmt.Errorf("path setup: %w", err)
 	}
@@ -48,7 +48,7 @@ func (u *pathUsecase) Setup(
 }
 
 func pathStatusFrom(
-	status shelf.PathStatus,
+	status wizardPkg.PathStatus,
 ) models.PathStatus {
 	return models.PathStatus{
 		BinDir:     status.BinDir,

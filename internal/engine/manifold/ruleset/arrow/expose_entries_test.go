@@ -14,301 +14,52 @@ func TestExposeEntriesRule_Name(t *testing.T) {
 }
 
 func TestExposeEntriesRule_Validate(t *testing.T) {
+	cli := func(entries ...domain.ExposeEntry) domain.Expose { return domain.Expose{CLI: entries} }
+	desktop := func(entries ...domain.ExposeEntry) domain.Expose { return domain.Expose{Desktop: entries} }
+	auto := func(name string) domain.ExposeEntry { return domain.ExposeEntry{Name: name, Path: domain.ExposeAuto} }
+	icon := func(value string) domain.ExposeEntry {
+		return domain.ExposeEntry{Name: "mytool", Path: domain.ExposeAuto, Icon: value}
+	}
+
 	testCases := []struct {
 		name     string
-		targets  map[domain.OS]domain.Target
+		os       domain.OS
+		expose   domain.Expose
 		wantRule string
-		wantErr  bool
 	}{
-		{
-			name:    "no targets",
-			targets: map[domain.OS]domain.Target{},
-		},
-		{
-			name: "empty expose",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {},
-			},
-		},
-		{
-			name: "valid cli entry with install path",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: "${INSTALL_PATH}/bin/mytool"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "valid cli entry with workdir",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: "${WORKDIR}/mytool"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "valid auto path",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "invalid path prefix",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: "/usr/local/bin/mytool"},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_path",
-		},
-		{
-			name: "path traversal",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: "${INSTALL_PATH}/../escape"},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "path_traversal",
-		},
-		{
-			name: "invalid name empty",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "", Path: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_name",
-		},
-		{
-			name: "invalid name characters",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "my tool!", Path: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_name",
-		},
-		{
-			name: "duplicate names within cli",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto},
-							{Name: "mytool", Path: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "duplicate_name",
-		},
-		{
-			name: "same name allowed across kinds",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI:     []domain.ExposeEntry{{Name: "mytool", Path: domain.ExposeAuto}},
-						Desktop: []domain.ExposeEntry{{Name: "mytool", Path: domain.ExposeAuto}},
-					},
-				},
-			},
-		},
-		{
-			name: "darwin desktop entry auto path allowed",
-			targets: map[domain.OS]domain.Target{
-				domain.OSDarwinARM64: {
-					Expose: domain.Expose{
-						Desktop: []domain.ExposeEntry{
-							{Name: "MyApp", Path: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "darwin desktop entry ends with .app",
-			targets: map[domain.OS]domain.Target{
-				domain.OSDarwinARM64: {
-					Expose: domain.Expose{
-						Desktop: []domain.ExposeEntry{
-							{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp.app"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "darwin desktop entry missing .app suffix",
-			targets: map[domain.OS]domain.Target{
-				domain.OSDarwinARM64: {
-					Expose: domain.Expose{
-						Desktop: []domain.ExposeEntry{
-							{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp"},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_desktop_path",
-		},
-		{
-			name: "linux desktop entry without .app suffix is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						Desktop: []domain.ExposeEntry{
-							{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "empty icon is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: ""},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "http icon is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "http://example.com/icon.png"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "https icon is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "https://example.com/icon.png"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "install-path-anchored icon is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "${INSTALL_PATH}/icon.png"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "workdir-anchored icon is valid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "${WORKDIR}/icon.png"},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "auto icon is invalid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: domain.ExposeAuto},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_expose_icon",
-		},
-		{
-			name: "unanchored icon is invalid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "/etc/icon.png"},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_expose_icon",
-		},
-		{
-			name: "traversal icon is invalid",
-			targets: map[domain.OS]domain.Target{
-				domain.OSLinuxAMD64: {
-					Expose: domain.Expose{
-						CLI: []domain.ExposeEntry{
-							{Name: "mytool", Path: domain.ExposeAuto, Icon: "${INSTALL_PATH}/../etc/icon.png"},
-						},
-					},
-				},
-			},
-			wantErr:  true,
-			wantRule: "invalid_expose_icon",
-		},
+		{name: "empty expose"},
+		{name: "cli entry under install path", expose: cli(domain.ExposeEntry{Name: "mytool", Path: "${INSTALL_PATH}/bin/mytool"})},
+		{name: "cli entry under workdir", expose: cli(domain.ExposeEntry{Name: "mytool", Path: "${WORKDIR}/mytool"})},
+		{name: "auto path", expose: cli(auto("mytool"))},
+		{name: "unanchored path", expose: cli(domain.ExposeEntry{Name: "mytool", Path: "/usr/local/bin/mytool"}), wantRule: "invalid_path"},
+		{name: "path traversal", expose: cli(domain.ExposeEntry{Name: "mytool", Path: "${INSTALL_PATH}/../escape"}), wantRule: "path_traversal"},
+		{name: "empty name", expose: cli(auto("")), wantRule: "invalid_name"},
+		{name: "name with invalid characters", expose: cli(auto("my tool!")), wantRule: "invalid_name"},
+		{name: "duplicate names within a kind", expose: cli(auto("mytool"), auto("mytool")), wantRule: "duplicate_name"},
+		{name: "same name across kinds", expose: domain.Expose{CLI: []domain.ExposeEntry{auto("mytool")}, Desktop: []domain.ExposeEntry{auto("mytool")}}},
+		{name: "darwin desktop auto path", os: domain.OSDarwinARM64, expose: desktop(auto("MyApp"))},
+		{name: "darwin desktop .app path", os: domain.OSDarwinARM64, expose: desktop(domain.ExposeEntry{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp.app"})},
+		{name: "darwin desktop path without .app", os: domain.OSDarwinARM64, expose: desktop(domain.ExposeEntry{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp"}), wantRule: "invalid_desktop_path"},
+		{name: "linux desktop path without .app", expose: desktop(domain.ExposeEntry{Name: "MyApp", Path: "${INSTALL_PATH}/MyApp"})},
+		{name: "http icon", expose: cli(icon("http://example.com/icon.png"))},
+		{name: "https icon", expose: cli(icon("https://example.com/icon.png"))},
+		{name: "install-path icon", expose: cli(icon("${INSTALL_PATH}/icon.png"))},
+		{name: "workdir icon", expose: cli(icon("${WORKDIR}/icon.png"))},
+		{name: "auto icon", expose: cli(icon(domain.ExposeAuto)), wantRule: "invalid_expose_icon"},
+		{name: "unanchored icon", expose: cli(icon("/etc/icon.png")), wantRule: "invalid_expose_icon"},
+		{name: "traversal icon", expose: cli(icon("${INSTALL_PATH}/../etc/icon.png")), wantRule: "invalid_expose_icon"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			rule := ExposeEntriesRule{}
-			m := &domain.Arrow{Targets: tc.targets}
-			errs := rule.Validate(m)
+			os := tc.os
+			if os == "" {
+				os = domain.OSLinuxAMD64
+			}
 
-			if !tc.wantErr {
+			errs := ExposeEntriesRule{}.Validate(&domain.Arrow{Targets: map[domain.OS]domain.Target{os: {Expose: tc.expose}}})
+
+			if tc.wantRule == "" {
 				assert.Empty(t, errs)
 				return
 			}

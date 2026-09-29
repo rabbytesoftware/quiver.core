@@ -750,25 +750,13 @@ func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) 
 	markReadyCalled := false
 	beginInstallCalled := false
 	var markReadyNs domain.Namespace
-	var gotLastReturn *domainRuntime.Return
-	newWorkdir := "/vault/namespaces/test/new@v2"
-	oldReturn := &domainRuntime.Return{
-		Method:    domain.MethodUpdate,
-		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
-		Variables: map[string]string{domain.VarWorkdir: "/vault/namespaces/test/old@v1", "OTHER": "kept"},
-	}
+	oldReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns}, nil
 		},
 		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		WorkDirFn: func(_ context.Context, ns domain.Namespace) (string, error) {
-			if ns != "test/new@v2" {
-				t.Fatalf("expected WorkDir to be resolved for the new namespace, got %v", ns)
-			}
-			return newWorkdir, nil
-		},
 	}
 	rt := &ucmocks.MockRuntime{
 		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
@@ -777,7 +765,9 @@ func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) 
 		MarkReadyFn: func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
 			markReadyCalled = true
 			markReadyNs = ns
-			gotLastReturn = lastReturn
+			if lastReturn != oldReturn {
+				t.Errorf("expected the old row's LastReturn to carry through, got %v", lastReturn)
+			}
 			return nil
 		},
 		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
@@ -799,89 +789,6 @@ func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) 
 	}
 	if beginInstallCalled {
 		t.Fatal("expected no BeginInstall when AlreadyReady is set")
-	}
-	if gotLastReturn == oldReturn {
-		t.Fatal("expected a copy of the old row's LastReturn, not the same pointer")
-	}
-	require.NotNil(t, gotLastReturn)
-	assert.Equal(t, oldReturn.Method, gotLastReturn.Method)
-	assert.Equal(t, oldReturn.Outcome, gotLastReturn.Outcome)
-	assert.Equal(t, newWorkdir, gotLastReturn.Variables[domain.VarWorkdir])
-	assert.Equal(t, newWorkdir, gotLastReturn.Variables[domain.VarInstallPath])
-	assert.Equal(t, "kept", gotLastReturn.Variables["OTHER"])
-	assert.Equal(t, "/vault/namespaces/test/old@v1", oldReturn.Variables[domain.VarWorkdir],
-		"the old aggregate's own Return must not be mutated")
-}
-
-func TestRuntimeOnArrowUpgraded_AlreadyReady_WorkDirError_KeepsOldVariables(t *testing.T) {
-	oldReturn := &domainRuntime.Return{
-		Method:    domain.MethodUpdate,
-		Outcome:   domainRuntime.ExecutionOutcomeSuccess,
-		Variables: map[string]string{domain.VarWorkdir: "/vault/namespaces/test/old@v1"},
-	}
-	var gotLastReturn *domainRuntime.Return
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		WorkDirFn: func(_ context.Context, _ domain.Namespace) (string, error) {
-			return "", errors.New("vault unavailable")
-		},
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady, LastReturn: oldReturn}, nil
-		},
-		MarkReadyFn: func(_ context.Context, _ domain.Namespace, lastReturn *domainRuntime.Return) error {
-			gotLastReturn = lastReturn
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1", AlreadyReady: true,
-	})
-	require.NotNil(t, gotLastReturn)
-	assert.Equal(t, "/vault/namespaces/test/old@v1", gotLastReturn.Variables[domain.VarWorkdir],
-		"a WorkDir failure must fall back to the old row's variables unchanged")
-}
-
-func TestRuntimeOnArrowUpgraded_AlreadyReady_NilLastReturn_NoWorkDirLookup(t *testing.T) {
-	workDirCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-		WorkDirFn: func(_ context.Context, _ domain.Namespace) (string, error) {
-			workDirCalled = true
-			return "", nil
-		},
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
-		},
-		MarkReadyFn: func(_ context.Context, _ domain.Namespace, lastReturn *domainRuntime.Return) error {
-			if lastReturn != nil {
-				t.Fatalf("expected nil LastReturn to stay nil, got %v", lastReturn)
-			}
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1", AlreadyReady: true,
-	})
-	if workDirCalled {
-		t.Fatal("expected no WorkDir lookup when there is no LastReturn to rebase")
 	}
 }
 
@@ -3306,17 +3213,6 @@ func arrowWithUpdateSteps(
 	}
 }
 
-func trackedLike(
-	channels map[string]string,
-) func(context.Context, domain.Arrow) (string, error) {
-	return func(_ context.Context, arrow domain.Arrow) (string, error) {
-		if arrow.PinnedRef != "" {
-			return arrow.PinnedRef, nil
-		}
-		return channels[arrow.Channel], nil
-	}
-}
-
 func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	updateSteps := domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)}
@@ -3324,7 +3220,6 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 	upgradeErr := errors.New("upgrade failed")
 	existsErr := errors.New("catalog closed")
 	noSteps := func(a *domain.Arrow) {}
-	channels := map[string]string{"stable": "v2.0.0", "beta": "v3.0.0-beta.1"}
 
 	testCases := []struct {
 		name                string
@@ -3360,22 +3255,6 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			shape:         func(a *domain.Arrow) { a.RecommendedRef = "v1.5.0" },
 			resolveErr:    resolveErr,
 			wantUpgradeTo: "github.com/u/r@v1.5.0",
-		},
-		{
-			name:          "channel arrow follows its channel",
-			ns:            "github.com/u/r@v3.0.0-beta.0",
-			state:         domain.ArrowStateReady,
-			shape:         func(a *domain.Arrow) { a.Channel = "beta" },
-			wantUpgradeTo: "github.com/u/r@v3.0.0-beta.1",
-		},
-		{
-			name:      "pinned arrow never moves",
-			ns:        "github.com/u/r@v1.0.0",
-			state:     domain.ArrowStateReady,
-			shape:     func(a *domain.Arrow) { a.PinnedRef = "v1.0.0" },
-			wantErrIs: apperrors.ErrStateViolation,
-			wantOp:    "update",
-			wantState: "up to date",
 		},
 		{
 			name:          "outdated without update steps syncs then reinstalls",
@@ -3501,11 +3380,11 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 					tc.shape(arrow)
 					return arrow, nil
 				},
-				ResolveTrackedRefFn: func(ctx context.Context, arrow domain.Arrow) (string, error) {
+				ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
 					if tc.resolveErr != nil {
 						return "", tc.resolveErr
 					}
-					return trackedLike(channels)(ctx, arrow)
+					return map[string]string{"stable": "v2.0.0"}[arrow.Channel], nil
 				},
 				ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
 					existsCheckedNs = ns
@@ -3538,63 +3417,26 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 
 			assert.Equal(t, tc.wantBeginUpd, beginUpdate)
 			assert.Equal(t, tc.wantUpgradeTo, upgradedTo)
-			if tc.wantErrIs != nil {
-				assertUpdateErrorCase(t, updateErrorCase{
-					wantErrIs:           tc.wantErrIs,
-					wantOp:              tc.wantOp,
-					wantState:           tc.wantState,
-					wantExistsCheckedNs: tc.wantExistsCheckedNs,
-				}, err, existsCheckedNs)
-				return
+			if tc.wantErrIs == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErrIs)
 			}
-			require.NoError(t, err)
-			if tc.wantUpgradeTo == "" {
-				return
+			if tc.wantOp != "" {
+				var sve *apperrors.StateViolationError
+				require.ErrorAs(t, err, &sve)
+				assert.Equal(t, tc.wantOp, sve.Op)
+				assert.Equal(t, tc.wantState, sve.State)
 			}
-			assert.False(t, gotRuntimeExists)
-			assert.False(t, gotAlreadyReady)
-			assert.True(t, gotUserInstalled)
+			if tc.wantExistsCheckedNs != "" {
+				assert.Equal(t, tc.wantExistsCheckedNs, existsCheckedNs)
+			}
+			if tc.wantUpgradeTo != "" && tc.wantErrIs == nil {
+				assert.False(t, gotRuntimeExists)
+				assert.False(t, gotAlreadyReady)
+				assert.True(t, gotUserInstalled)
+			}
 		})
-	}
-}
-
-type updateErrorCase struct {
-	wantErrIs           error
-	wantOp              string
-	wantState           string
-	wantExistsCheckedNs domain.Namespace
-}
-
-func assertStateViolation(
-	t *testing.T,
-	tc updateErrorCase,
-	sve *apperrors.StateViolationError,
-) {
-	t.Helper()
-	if tc.wantOp != "" {
-		assert.Equal(t, tc.wantOp, sve.Op)
-	}
-	if tc.wantState != "" {
-		assert.Equal(t, tc.wantState, sve.State)
-	}
-}
-
-func assertUpdateErrorCase(
-	t *testing.T,
-	tc updateErrorCase,
-	err error,
-	existsCheckedNs domain.Namespace,
-) {
-	t.Helper()
-	require.ErrorIs(t, err, tc.wantErrIs)
-
-	if tc.wantOp != "" || tc.wantState != "" {
-		var sve *apperrors.StateViolationError
-		require.ErrorAs(t, err, &sve)
-		assertStateViolation(t, tc, sve)
-	}
-	if tc.wantExistsCheckedNs != "" {
-		assert.Equal(t, tc.wantExistsCheckedNs, existsCheckedNs)
 	}
 }
 

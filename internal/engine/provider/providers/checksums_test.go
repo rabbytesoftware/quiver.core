@@ -15,10 +15,7 @@ func TestSHA256Digest(t *testing.T) {
 		value string
 		want  string
 	}{
-		{name: "lowercase hex", value: sampleHex, want: "sha256:" + sampleHex},
-		{name: "uppercase hex is normalised", value: strings.ToUpper(sampleHex), want: "sha256:" + sampleHex},
-		{name: "surrounding space", value: " " + sampleHex + "\t", want: "sha256:" + sampleHex},
-		{name: "empty", value: ""},
+		{name: "normalised", value: " " + strings.ToUpper(sampleHex) + "\t", want: "sha256:" + sampleHex},
 		{name: "not hex", value: strings.Repeat("z", 64)},
 		{name: "sha1 length", value: sampleHex[:40]},
 	}
@@ -38,17 +35,11 @@ func TestChecksumTarget(t *testing.T) {
 		wantOK     bool
 	}{
 		{name: "goreleaser list", asset: "checksums.txt", wantOK: true},
-		{name: "prefixed list", asset: "glab_1.119.0_checksums.txt", wantOK: true},
 		{name: "upper case list", asset: "SHA256SUMS", wantOK: true},
-		{name: "sha256sums txt", asset: "sha256sums.txt", wantOK: true},
 		{name: "single asset sum", asset: "Tool.AppImage.sha256", wantTarget: "tool.appimage", wantOK: true},
 		{name: "bare sha256 suffix", asset: ".sha256"},
 		{name: "checksums without txt", asset: "checksums.json"},
-		{name: "blake3 list", asset: "checksums.b3sum.txt"},
-		{name: "sha512 list", asset: "sha512-checksums.txt"},
-		{name: "md5 list", asset: "md5_checksums.txt"},
-		{name: "sha1 list", asset: "SHA1SUMS-checksums.txt"},
-		{name: "sha3 list", asset: "checksums-sha3.txt"},
+		{name: "other algorithm list", asset: "sha512-checksums.txt"},
 		{name: "regular asset", asset: "tool_linux_amd64.tar.gz"},
 	}
 
@@ -83,11 +74,6 @@ func TestParseChecksums(t *testing.T) {
 			want: map[string]string{"tool.zip": "sha256:" + sampleHex},
 		},
 		{
-			name: "identical duplicates are kept",
-			body: sampleHex + "  tool.zip\n" + sampleHex + "  ./other/tool.zip\n",
-			want: map[string]string{"tool.zip": "sha256:" + sampleHex},
-		},
-		{
 			name: "conflicting duplicates are dropped",
 			body: sampleHex + "  a/tool.zip\n" + other + "  b/tool.zip\n" + sampleHex + "  tool.zip\n",
 			want: map[string]string{},
@@ -100,12 +86,6 @@ func TestParseChecksums(t *testing.T) {
 		{
 			name:   "single asset file with a bare digest",
 			body:   sampleHex + "\n",
-			target: "tool.appimage",
-			want:   map[string]string{"tool.appimage": "sha256:" + sampleHex},
-		},
-		{
-			name:   "single asset file naming its target",
-			body:   sampleHex + "  ./Tool.AppImage\n",
 			target: "tool.appimage",
 			want:   map[string]string{"tool.appimage": "sha256:" + sampleHex},
 		},

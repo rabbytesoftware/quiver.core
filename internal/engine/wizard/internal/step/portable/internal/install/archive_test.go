@@ -10,26 +10,26 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestInstall_ArchiveOnLinuxRecordsNothing(t *testing.T) {
 	workDir := t.TempDir()
-	from := unpacktest.WriteFile(t, filepath.Join(workDir, "Foo.zip"), unpacktest.ZipFiles(t, map[string]string{
+	from := mocks.WriteFile(t, filepath.Join(workDir, "Foo.zip"), mocks.ZipFiles(t, map[string]string{
 		"Foo.app/Contents/MacOS/foo": "bin",
 	}))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir, OSArch: "linux/amd64"}, "Foo.zip", ".", "")
 
 	require.NoError(t, err)
-	assert.Equal(t, "bin", unpacktest.ReadString(t, filepath.Join(workDir, "Foo.app", "Contents", "MacOS", "foo")))
+	assert.Equal(t, "bin", mocks.ReadString(t, filepath.Join(workDir, "Foo.app", "Contents", "MacOS", "foo")))
 	assert.NoFileExists(t, filepath.Join(workDir, domain.PortableRecordFile))
 	assert.NoFileExists(t, from)
 }
 
 func TestInstall_ArchiveOnDarwinRecordsApp(t *testing.T) {
 	workDir := t.TempDir()
-	from := unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "Foo.zip"), unpacktest.ZipFiles(t, map[string]string{
+	from := mocks.WriteFile(t, filepath.Join(workDir, "dl", "Foo.zip"), mocks.ZipFiles(t, map[string]string{
 		"Foo.app/Contents/MacOS/foo": "bin",
 		"README.txt":                 "readme",
 	}))
@@ -46,14 +46,14 @@ func TestInstall_ArchiveOnDarwinRecordsApp(t *testing.T) {
 
 func TestInstall_ArchiveOnDarwinWithoutBundleRecordsNothing(t *testing.T) {
 	workDir := t.TempDir()
-	unpacktest.WriteFile(t, filepath.Join(workDir, "a.tar"), unpacktest.TarBytes(t,
-		unpacktest.TarEntry{Name: "notes.app", Body: "not a bundle", Mode: 0o644, Flag: tar.TypeReg},
-		unpacktest.TarEntry{Name: "bin/tool", Body: "tool", Mode: 0o755, Flag: tar.TypeReg},
+	mocks.WriteFile(t, filepath.Join(workDir, "a.tar"), mocks.TarBytes(t,
+		mocks.TarEntry{Name: "notes.app", Body: "not a bundle", Mode: 0o644, Flag: tar.TypeReg},
+		mocks.TarEntry{Name: "bin/tool", Body: "tool", Mode: 0o755, Flag: tar.TypeReg},
 	))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir, OSArch: "darwin/amd64"}, "a.tar", ".", "")
 
 	require.NoError(t, err)
-	assert.Equal(t, "not a bundle", unpacktest.ReadString(t, filepath.Join(workDir, "notes.app")))
+	assert.Equal(t, "not a bundle", mocks.ReadString(t, filepath.Join(workDir, "notes.app")))
 	assert.NoFileExists(t, filepath.Join(workDir, domain.PortableRecordFile))
 }

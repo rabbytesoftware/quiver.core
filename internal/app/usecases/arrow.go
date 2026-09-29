@@ -144,7 +144,6 @@ func (u *arrowUsecase) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrDependentsExist)
 	}
 
-	u.runtime.Unexpose(ctx, ns)
 	return u.arrow.Remove(ctx, ns)
 }
 

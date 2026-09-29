@@ -49,124 +49,32 @@ func encodeJPEG(
 	return buf.Bytes()
 }
 
-func TestSniff_DetectsPNGDimensions(
-	t *testing.T,
-) {
-	data := encodePNG(t, 256, 256)
-
-	dim, ok := Sniff(data)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 256, Height: 256}, dim)
-}
-
-func TestSniff_DetectsGIFDimensions(
-	t *testing.T,
-) {
-	data := encodeGIF(t, 64, 32)
-
-	dim, ok := Sniff(data)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 64, Height: 32}, dim)
-}
-
-func TestSniff_DetectsJPEGDimensions(
-	t *testing.T,
-) {
-	data := encodeJPEG(t, 128, 96)
-
-	dim, ok := Sniff(data)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 128, Height: 96}, dim)
-}
-
-func TestSniff_DetectsSVGDimensionsFromWidthHeight(
-	t *testing.T,
-) {
-	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150"><path/></svg>`)
-
-	dim, ok := Sniff(svg)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 150, Height: 150}, dim)
-}
-
-func TestSniff_DetectsSVGDimensionsFromViewBox(
-	t *testing.T,
-) {
-	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><path/></svg>`)
-
-	dim, ok := Sniff(svg)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 200, Height: 100}, dim)
-}
-
-func TestSniff_SVGPrefersWidthHeightOverViewBox(
-	t *testing.T,
-) {
-	svg := []byte(`<svg width="10" height="10" viewBox="0 0 999 999"><path/></svg>`)
-
-	dim, ok := Sniff(svg)
-
-	require.True(t, ok)
-	assert.Equal(t, Dimensions{Width: 10, Height: 10}, dim)
-}
-
-func TestSniff_SVGWithZeroDimensionsFails(
-	t *testing.T,
-) {
-	svg := []byte(`<svg width="0" height="0"><path/></svg>`)
-
-	_, ok := Sniff(svg)
-
-	assert.False(t, ok)
-}
-
-func TestSniff_SVGWithNoDimensionsFails(
-	t *testing.T,
-) {
-	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>`)
-
-	_, ok := Sniff(svg)
-
-	assert.False(t, ok)
-}
-
-func TestSniff_EmptyDataFails(
-	t *testing.T,
-) {
-	_, ok := Sniff(nil)
-
-	assert.False(t, ok)
-}
-
-func TestSniff_GarbageDataFails(
-	t *testing.T,
-) {
-	_, ok := Sniff([]byte("not an image at all"))
-
-	assert.False(t, ok)
-}
-
-func TestIsSVG_DetectsTagWithinFirstBytes(
+func TestSniff_Cases(
 	t *testing.T,
 ) {
 	testCases := []struct {
-		name string
-		data []byte
-		want bool
+		name   string
+		data   []byte
+		want   dimensions
+		wantOK bool
 	}{
-		{name: "svg tag present", data: []byte(`<?xml version="1.0"?><svg></svg>`), want: true},
-		{name: "png header", data: []byte("\x89PNG\r\n\x1a\n"), want: false},
-		{name: "empty", data: []byte(""), want: false},
+		{name: "png", data: encodePNG(t, 256, 256), want: dimensions{Width: 256, Height: 256}, wantOK: true},
+		{name: "gif", data: encodeGIF(t, 64, 32), want: dimensions{Width: 64, Height: 32}, wantOK: true},
+		{name: "jpeg", data: encodeJPEG(t, 128, 96), want: dimensions{Width: 128, Height: 96}, wantOK: true},
+		{name: "svg width and height", data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150"><path/></svg>`), want: dimensions{Width: 150, Height: 150}, wantOK: true},
+		{name: "svg view box", data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><path/></svg>`), want: dimensions{Width: 200, Height: 100}, wantOK: true},
+		{name: "svg prefers width and height", data: []byte(`<svg width="10" height="10" viewBox="0 0 999 999"><path/></svg>`), want: dimensions{Width: 10, Height: 10}, wantOK: true},
+		{name: "svg zero dimensions", data: []byte(`<svg width="0" height="0"><path/></svg>`)},
+		{name: "svg without dimensions", data: []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>`)},
+		{name: "empty", data: nil},
+		{name: "garbage", data: []byte("not an image at all")},
 	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, isSVG(tc.data))
+			got, ok := sniff(tc.data)
+
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

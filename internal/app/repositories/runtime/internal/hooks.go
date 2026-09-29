@@ -10,7 +10,6 @@ import (
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -33,7 +32,6 @@ type CatalogHooks struct {
 	// ReconcileVersionBadge re-derives the runtime state the badge is read
 	// from out of the catalog fact it projects. See reconcileVersionBadge.
 	ReconcileVersionBadge func(ctx context.Context, ns domain.Namespace) error
-	Exposer               exposer.Exposer
 }
 
 // drainExecution translates one wizard execution's events into commands on the
@@ -48,7 +46,6 @@ func drainExecution(
 	ns string,
 	executionID string,
 	method string,
-	workdir string,
 	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
@@ -74,7 +71,7 @@ func drainExecution(
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.
 	outcome := exec.Outcome()
-	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, workdir, outcome) {
+	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
 		return
 	}
 	reconcileVersionBadge(ctx, hooks, ns)
@@ -174,13 +171,11 @@ func sendEndExecution(
 	ns string,
 	executionID string,
 	outcome domainRuntime.ExecutionOutcome,
-	exposed *domainRuntime.ExposeResult,
 ) bool {
 	_, err := axRuntime.Send(ctx, runtimecmds.EndExecution{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Outcome:     outcome,
-		Exposed:     exposed,
 	})
 	if err == nil {
 		return true
@@ -201,34 +196,12 @@ func onEnd(
 	ns string,
 	executionID string,
 	method string,
-	workdir string,
 	outcome domainRuntime.ExecutionOutcome,
 ) bool {
-	var exposed *domainRuntime.ExposeResult
 	if outcome == domainRuntime.ExecutionOutcomeSuccess {
 		stampCatalog(ctx, hooks, ns, method)
-		exposed = shelve(ctx, hooks.Exposer, domain.Namespace(ns), method, workdir)
 	}
-	return sendEndExecution(ctx, axRuntime, ns, executionID, outcome, exposed)
-}
-
-func shelve(
-	ctx context.Context,
-	ex exposer.Exposer,
-	ns domain.Namespace,
-	method string,
-	workdir string,
-) *domainRuntime.ExposeResult {
-	if ex == nil {
-		return nil
-	}
-	switch method {
-	case domain.MethodInstall, domain.MethodUpdate:
-		return ex.Apply(ctx, ns, workdir)
-	case domain.MethodUninstall:
-		ex.Remove(ctx, ns)
-	}
-	return nil
+	return sendEndExecution(ctx, axRuntime, ns, executionID, outcome)
 }
 
 // stampCatalog records what a succeeded lifecycle did to disk: install

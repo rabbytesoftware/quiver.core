@@ -22,7 +22,7 @@ func (o *orderedHost) fetch(
 	if strings.HasSuffix(url, "/"+o.lastPath) {
 		defer close(o.firstWaitsFor)
 	}
-	if strings.HasSuffix(url, "/"+IconProbePaths()[0]) {
+	if strings.HasSuffix(url, "/"+iconProbePaths()[0]) {
 		select {
 		case <-o.firstWaitsFor:
 		case <-ctx.Done():
@@ -33,7 +33,7 @@ func (o *orderedHost) fetch(
 }
 
 func TestProbeIcon_PriorityOrderWinsOverArrivalOrder(t *testing.T) {
-	paths := IconProbePaths()
+	paths := iconProbePaths()
 	host := &orderedHost{
 		stubHost: &stubHost{files: map[string][]byte{
 			paths[0]: encodePNG(t, 256, 256),
@@ -80,93 +80,24 @@ func TestProbeIcon_NoAcceptedCandidate(t *testing.T) {
 	}
 }
 
-func TestIconProbePaths_MatchesSpecOrder(
-	t *testing.T,
-) {
-	want := []string{
-		"src-tauri/icons/icon.png",
-		"build/icon.png",
-		"logo.svg",
-	}
-
-	assert.Equal(t, want, IconProbePaths())
-}
-
-func TestIsRejectedIconPath_Classification(
+func TestAcceptProbedIcon_Cases(
 	t *testing.T,
 ) {
 	testCases := []struct {
 		name string
 		path string
+		data []byte
 		want bool
 	}{
-		{name: "ico rejected", path: "icon.ico", want: true},
-		{name: "icns rejected", path: "icon.icns", want: true},
-		{name: "favicon rejected", path: "favicon.png", want: true},
-		{name: "uppercase favicon rejected", path: "FAVICON.PNG", want: true},
-		{name: "plain png accepted", path: "logo.png", want: false},
-		{name: "svg accepted", path: "logo.svg", want: false},
+		{name: "svg accepted unconditionally", path: "logo.svg", data: []byte(`<svg><path/></svg>`), want: true},
+		{name: "square and large enough png", path: "icon.png", data: encodePNG(t, 128, 128), want: true},
+		{name: "too small png", path: "icon.png", data: encodePNG(t, 64, 64)},
+		{name: "non square png", path: "icon.png", data: encodePNG(t, 256, 128)},
+		{name: "unsniffable data", path: "icon.png", data: []byte("not an image")},
 	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, isRejectedIconPath(tc.path))
+			assert.Equal(t, tc.want, acceptProbedIcon(tc.path, tc.data))
 		})
 	}
-}
-
-func TestAcceptProbedIcon_SVGAcceptedUnconditionally(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("logo.svg", []byte(`<svg><path/></svg>`))
-
-	assert.True(t, accepted)
-}
-
-func TestAcceptProbedIcon_RejectsFavicon(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("favicon.png", encodePNG(t, 256, 256))
-
-	assert.False(t, accepted)
-}
-
-func TestAcceptProbedIcon_RejectsIco(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("icon.ico", []byte{0, 0, 1, 0})
-
-	assert.False(t, accepted)
-}
-
-func TestAcceptProbedIcon_PNGSquareAndLargeEnoughAccepted(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("icon.png", encodePNG(t, 128, 128))
-
-	assert.True(t, accepted)
-}
-
-func TestAcceptProbedIcon_PNGTooSmallRejected(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("icon.png", encodePNG(t, 64, 64))
-
-	assert.False(t, accepted)
-}
-
-func TestAcceptProbedIcon_PNGNonSquareRejected(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("icon.png", encodePNG(t, 256, 128))
-
-	assert.False(t, accepted)
-}
-
-func TestAcceptProbedIcon_UnsniffableDataRejected(
-	t *testing.T,
-) {
-	accepted := acceptProbedIcon("icon.png", []byte("not an image"))
-
-	assert.False(t, accepted)
 }

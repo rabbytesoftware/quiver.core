@@ -67,8 +67,6 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
       last_used_at:
         type: string
-      license:
-        type: string
       name:
         type: string
       namespace:
@@ -349,37 +347,6 @@ definitions:
           PLATFORM and REF are computed by Quiver and rejected with 400 if set.
         type: object
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO:
-    properties:
-      kind:
-        type: string
-      name:
-        type: string
-      reason:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO:
-    properties:
-      entries:
-        items:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO'
-        type: array
-      refused:
-        items:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO'
-        type: array
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO:
-    properties:
-      kind:
-        type: string
-      location:
-        type: string
-      name:
-        type: string
-      target:
-        type: string
-    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO:
     properties:
       confidence:
@@ -435,8 +402,6 @@ definitions:
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO:
     properties:
-      exposed:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO'
       method:
         type: string
       outcome:

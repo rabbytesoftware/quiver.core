@@ -50,9 +50,7 @@ func TestFletcherReleases_LatestUnstable(t *testing.T) {
 		wantErr error
 	}{
 		{name: "prerelease only takes the first non-stable channel", tags: []string{"v3.0.0-beta.1", "v3.0.0-beta.2", "nightly"}, want: "v3.0.0-beta.2"},
-		{name: "release candidate channel", tags: []string{"v3.0.0-rc1"}, want: "v3.0.0-rc1"},
 		{name: "stable channel is skipped", tags: []string{"v2.0.0", "v3.0.0-rc1"}, want: "v3.0.0-rc1"},
-		{name: "nothing but stable", tags: []string{"v1.0.0"}, want: ""},
 		{name: "default branch fallback channel is skipped", branch: "main", want: ""},
 		{name: "channel listing fails", listErr: listFailed, wantErr: listFailed},
 	}

@@ -27,7 +27,7 @@ func New(
 	drafter gather.Drafter,
 ) models.Fletcher {
 	return &fallback{
-		lookup:   hosts.Or(lookup),
+		lookup:   lookup,
 		releases: releases,
 		drafter:  drafter,
 	}
@@ -45,13 +45,13 @@ func (f *fallback) Recover(
 	if err != nil {
 		return nil, "", fmt.Errorf("fletcher: fallback %s: %w", ns, fetchFailure(err))
 	}
-	return draft.Manifest, inferredFilename, nil
+	return draft, inferredFilename, nil
 }
 
 func (f *fallback) draftAcrossTags(
 	ctx context.Context,
 	ns domain.Namespace,
-) (gather.Draft, error) {
+) ([]byte, error) {
 	ref := ns.Ref()
 	if ref == "" {
 		return f.draftFromReleases(ctx, ns, ref)
@@ -68,7 +68,7 @@ func (f *fallback) draftFromReleases(
 	ctx context.Context,
 	ns domain.Namespace,
 	tried string,
-) (gather.Draft, error) {
+) ([]byte, error) {
 	err := error(models.NotFletchableError{Reason: models.ReasonNoReleaseAssets})
 	var lookupErr error
 	seen := map[string]bool{"": true, tried: true}
@@ -89,9 +89,9 @@ func (f *fallback) draftFromReleases(
 	}
 
 	if lookupErr != nil {
-		return gather.Draft{}, lookupErr
+		return nil, lookupErr
 	}
-	return gather.Draft{}, err
+	return nil, err
 }
 
 func (f *fallback) releaseSources() []func(context.Context, domain.Namespace) (string, error) {

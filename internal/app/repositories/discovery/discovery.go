@@ -176,17 +176,10 @@ func capUnmarked(
 		unique = append(unique, candidate)
 	}
 
-	return truncate(unique, limit)
-}
-
-func truncate(
-	candidates []provider.Candidate,
-	limit int,
-) []provider.Candidate {
-	if limit > 0 && len(candidates) > limit {
-		return candidates[:limit]
+	if limit > 0 && len(unique) > limit {
+		return unique[:limit]
 	}
-	return candidates
+	return unique
 }
 
 // search fans out to every provider at once and waits for all of them. A host

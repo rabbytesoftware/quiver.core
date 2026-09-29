@@ -1036,93 +1036,111 @@ func refServingManifold(
 	return m, &asked
 }
 
-// A stable release that ships nothing installable (no manifest, no assets)
-// must not hide the repository's other channels or its default branch.
-func TestResolveForInstall_Refless_StableNotFound_UsesOtherChannel(t *testing.T) {
-	m, asked := refServingManifold(manifoldresolver.ErrNotFound, "tip")
-	m.ResolveLatestInChannelRef = "v1.3.1"
-	m.ListChannelsResult = []manifold.ChannelInfo{
+// Only a definitive not-found on the stable release earns a fallback to the
+// repository's other channels or its default branch.
+func TestResolveForInstall_Refless_StableUnresolvable(t *testing.T) {
+	const ghostty = "github.com/ghostty-org/ghostty"
+	tipChannels := []manifold.ChannelInfo{
 		{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.3.1"},
 		{Name: "tip", Kind: "pointer", Latest: "tip"},
 	}
 
-	r := newTestReaderWithVaultManifold(t, nil, m)
-
-	resolvedNs, got, _, err := r.ResolveForInstall(
-		context.Background(),
-		domain.Namespace("github.com/ghostty-org/ghostty"),
-		"",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, domain.Namespace("github.com/ghostty-org/ghostty@tip"), resolvedNs)
-	require.NotNil(t, got)
-	assert.Equal(t, "tip", got.Channel)
-	assert.False(t, got.RefIsBranch)
-	assert.Equal(
-		t,
-		[]domain.Namespace{
-			"github.com/ghostty-org/ghostty@v1.3.1",
-			"github.com/ghostty-org/ghostty@tip",
+	testCases := []struct {
+		name            string
+		missing         error
+		served          []string
+		channels        []manifold.ChannelInfo
+		defaultBranch   string
+		wantErr         error
+		wantNs          domain.Namespace
+		wantChannel     string
+		wantRefIsBranch bool
+		wantAsked       []domain.Namespace
+	}{
+		{
+			name:        "other channel",
+			missing:     manifoldresolver.ErrNotFound,
+			served:      []string{"tip"},
+			channels:    tipChannels,
+			wantNs:      ghostty + "@tip",
+			wantChannel: "tip",
+			wantAsked:   []domain.Namespace{ghostty + "@v1.3.1", ghostty + "@tip"},
 		},
-		*asked,
-	)
-}
-
-func TestResolveForInstall_Refless_StableNotFound_NoOtherChannel_TakesTheGitDefaultBranch(t *testing.T) {
-	m, asked := refServingManifold(manifoldresolver.ErrNotFound, "main")
-	m.ResolveLatestInChannelRef = "v1.3.1"
-	m.DefaultBranchRef = "main"
-	m.DefaultBranchHash = "abc123def456"
-
-	r := newTestReaderWithVaultManifold(t, nil, m)
-
-	resolvedNs, got, _, err := r.ResolveForInstall(
-		context.Background(),
-		domain.Namespace("github.com/ghostty-org/ghostty"),
-		"",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, domain.Namespace("github.com/ghostty-org/ghostty@main"), resolvedNs)
-	require.NotNil(t, got)
-	assert.True(t, got.RefIsBranch)
-	assert.Equal(t, "abc123def456", got.RefCommitSHA)
-	assert.Equal(
-		t,
-		[]domain.Namespace{
-			"github.com/ghostty-org/ghostty@v1.3.1",
-			"github.com/ghostty-org/ghostty@main",
+		{
+			name:            "git default branch",
+			missing:         manifoldresolver.ErrNotFound,
+			served:          []string{"main"},
+			defaultBranch:   "main",
+			wantNs:          ghostty + "@main",
+			wantRefIsBranch: true,
+			wantAsked:       []domain.Namespace{ghostty + "@v1.3.1", ghostty + "@main"},
 		},
-		*asked,
-	)
-}
-
-func TestResolveForInstall_Refless_StableNotFound_EveryFallbackFails_ReturnsTheStableNotFound(t *testing.T) {
-	m, asked := refServingManifold(manifoldresolver.ErrNotFound)
-	m.ResolveLatestInChannelRef = "v1.3.1"
-	m.ListChannelsResult = []manifold.ChannelInfo{
-		{Name: "tip", Kind: "pointer", Latest: "tip"},
+		{
+			name:          "every fallback fails",
+			missing:       manifoldresolver.ErrNotFound,
+			channels:      tipChannels[1:],
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrNotFound,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked: []domain.Namespace{
+				ghostty + "@v1.3.1",
+				ghostty + "@tip",
+				ghostty + "@main",
+			},
+		},
+		{
+			name:          "fetch failure does not fall back",
+			missing:       manifoldresolver.ErrFetchFailed,
+			served:        []string{"tip", "main"},
+			channels:      tipChannels[1:],
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrFetchFailed,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked:     []domain.Namespace{ghostty + "@v1.3.1"},
+		},
+		{
+			name:          "invalid manifest does not fall back",
+			missing:       manifold.ErrInvalidManifest,
+			served:        []string{"main"},
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrInvalidManifest,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked:     []domain.Namespace{ghostty + "@v1.3.1"},
+		},
 	}
-	m.DefaultBranchRef = "main"
 
-	r := newTestReaderWithVaultManifold(t, nil, m)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, asked := refServingManifold(tc.missing, tc.served...)
+			m.ResolveLatestInChannelRef = "v1.3.1"
+			m.ListChannelsResult = tc.channels
+			m.DefaultBranchRef = tc.defaultBranch
+			m.DefaultBranchHash = "abc123def456"
 
-	resolvedNs, got, _, err := r.ResolveForInstall(
-		context.Background(),
-		domain.Namespace("github.com/ghostty-org/ghostty"),
-		"",
-	)
-	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	assert.Nil(t, got)
-	assert.Equal(t, domain.Namespace("github.com/ghostty-org/ghostty@v1.3.1"), resolvedNs)
-	assert.Equal(
-		t,
-		[]domain.Namespace{
-			"github.com/ghostty-org/ghostty@v1.3.1",
-			"github.com/ghostty-org/ghostty@tip",
-			"github.com/ghostty-org/ghostty@main",
-		},
-		*asked,
-	)
+			r := newTestReaderWithVaultManifold(t, nil, m)
+
+			resolvedNs, got, _, err := r.ResolveForInstall(
+				context.Background(),
+				ghostty,
+				"",
+			)
+
+			assert.Equal(t, tc.wantAsked, *asked)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantNs, resolvedNs)
+			assert.Equal(t, tc.wantChannel, got.Channel)
+			assert.Equal(t, tc.wantRefIsBranch, got.RefIsBranch)
+			if tc.wantRefIsBranch {
+				assert.Equal(t, "abc123def456", got.RefCommitSHA)
+			}
+		})
+	}
 }
 
 // The original stable failure wins even when a fallback fails differently.
@@ -1149,44 +1167,6 @@ func TestResolveForInstall_Refless_StableNotFound_FallbackFailsDifferently_Retur
 	)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
-// Only a definitive not-found earns a fallback: a transport failure says
-// nothing about the release, so it surfaces as it is.
-func TestResolveForInstall_Refless_StableFetchFailed_DoesNotFallBack(t *testing.T) {
-	m, asked := refServingManifold(manifoldresolver.ErrFetchFailed, "tip", "main")
-	m.ResolveLatestInChannelRef = "v1.3.1"
-	m.ListChannelsResult = []manifold.ChannelInfo{
-		{Name: "tip", Kind: "pointer", Latest: "tip"},
-	}
-	m.DefaultBranchRef = "main"
-
-	r := newTestReaderWithVaultManifold(t, nil, m)
-
-	_, got, _, err := r.ResolveForInstall(
-		context.Background(),
-		domain.Namespace("github.com/ghostty-org/ghostty"),
-		"",
-	)
-	require.ErrorIs(t, err, apperrors.ErrFetchFailed)
-	assert.Nil(t, got)
-	assert.Equal(t, []domain.Namespace{"github.com/ghostty-org/ghostty@v1.3.1"}, *asked)
-}
-
-func TestResolveForInstall_Refless_StableInvalidManifest_DoesNotFallBack(t *testing.T) {
-	m, asked := refServingManifold(manifold.ErrInvalidManifest, "main")
-	m.ResolveLatestInChannelRef = "v1.3.1"
-	m.DefaultBranchRef = "main"
-
-	r := newTestReaderWithVaultManifold(t, nil, m)
-
-	_, _, _, err := r.ResolveForInstall(
-		context.Background(),
-		domain.Namespace("github.com/ghostty-org/ghostty"),
-		"",
-	)
-	require.ErrorIs(t, err, apperrors.ErrInvalidManifest)
-	assert.Len(t, *asked, 1)
 }
 
 // GetDetail's live path and ResolveManifest reach the same cascade for an

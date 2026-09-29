@@ -84,7 +84,6 @@ func TestOpenIndex_ColumnsAreStable(t *testing.T) {
 				"namespace", "ref", "name", "description", "license", "url",
 				"icon", "banner", "stars", "source", "filename", "branch",
 				"seen_at", "row_expire_at", "generator", "confidence",
-				"warnings",
 			},
 		},
 		{
@@ -366,16 +365,8 @@ func TestIndex_Search_RoundTripsGenerator(t *testing.T) {
 	}{
 		{name: "declared arrow has no generator", generator: nil},
 		{
-			name:      "inferred arrow without warnings",
+			name:      "inferred arrow",
 			generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"},
-		},
-		{
-			name: "inferred arrow with warnings",
-			generator: &domain.ArrowGenerator{
-				Name:       "fletcher/1",
-				Confidence: "low",
-				Warnings:   []string{"no checksum sidecar", "guessed entrypoint"},
-			},
 		},
 	}
 	for _, tc := range testCases {

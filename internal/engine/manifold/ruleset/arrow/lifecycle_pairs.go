@@ -76,15 +76,9 @@ func isWorkdirAnchoredPlacement(
 	switch v := s.(type) {
 	case step.FetchStep:
 		return isWorkdirAnchoredTo(v.To)
-	case *step.FetchStep:
-		return isWorkdirAnchoredTo(v.To)
 	case step.ExtractStep:
 		return isWorkdirAnchoredTo(v.To)
-	case *step.ExtractStep:
-		return isWorkdirAnchoredTo(v.To)
 	case step.PortableStep:
-		return isWorkdirAnchoredTo(v.To)
-	case *step.PortableStep:
 		return isWorkdirAnchoredTo(v.To)
 	default:
 		return false

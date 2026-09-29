@@ -88,7 +88,6 @@ func TestConfigDTOFrom_MapsEverySection(t *testing.T) {
 	assert.Equal(t, "debug", got.Configured.Logger.Level)
 	assert.Equal(t, "45s", got.Configured.Manifold.FetchTimeout)
 	assert.Equal(t, 25, got.Configured.Search.Unmarked.MinStars)
-	assert.Equal(t, 25, got.Configured.Search.Unmarked.MinStars)
 	assert.Equal(t, "10m", got.Configured.Vault.SweepInterval)
 	assert.Equal(t, "360h", got.Configured.Vault.IndexTTL)
 	assert.Equal(t, 7, got.Configured.Arrows.AutoRetry.Retries)

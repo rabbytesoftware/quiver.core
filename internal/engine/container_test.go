@@ -40,10 +40,9 @@ func TestNew_Success_PopulatesContainer(t *testing.T) {
 	assert.NotNil(t, c.Wizard)
 	assert.NotNil(t, c.Netbridge)
 	assert.NotNil(t, c.DepTree)
-	assert.NotNil(t, c.Shelf)
 }
 
-func TestNew_ShelfUsesTheContainerHome(t *testing.T) {
+func TestNew_WizardUsesTheContainerHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -52,19 +51,19 @@ func TestNew_ShelfUsesTheContainerHome(t *testing.T) {
 	require.NoError(t, err)
 	release(t, c)
 
-	status, err := c.Shelf.PathStatus(context.Background())
+	status, err := c.Wizard.PathStatus(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, metadata.GetBinPathAt(home), status.BinDir)
 }
 
-func TestNew_ShelfResolvesNothingOutsideTheContainerHome(t *testing.T) {
+func TestNew_WizardResolvesNothingOutsideTheContainerHome(t *testing.T) {
 	home := t.TempDir()
 
 	c, err := New(context.Background(), WithHomeDir(home))
 	require.NoError(t, err)
 	release(t, c)
 
-	status, err := c.Shelf.PathStatus(context.Background())
+	status, err := c.Wizard.PathStatus(context.Background())
 	require.NoError(t, err)
 	for _, dir := range append([]string{status.BinDir}, status.Files...) {
 		if !filepath.IsAbs(dir) {
@@ -76,9 +75,9 @@ func TestNew_ShelfResolvesNothingOutsideTheContainerHome(t *testing.T) {
 	}
 }
 
-func TestShelfOptions_DefaultHomeHasNoOptions(t *testing.T) {
-	assert.Empty(t, shelfOptions(engineOpts{}))
-	assert.Len(t, shelfOptions(engineOpts{homeDir: "/h"}), 1)
+func TestWizardOptions_DefaultHomeHasNoOptions(t *testing.T) {
+	assert.Empty(t, wizardOptions(engineOpts{}))
+	assert.Len(t, wizardOptions(engineOpts{homeDir: "/h"}), 1)
 }
 
 func TestNew_Success_CreatesNetbridgeDBFiles(t *testing.T) {

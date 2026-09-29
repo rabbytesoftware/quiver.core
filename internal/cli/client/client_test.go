@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
@@ -685,29 +686,43 @@ func TestRevokeDevice_Success_ReturnsNil(t *testing.T) {
 	assert.NoError(t, c.RevokeDevice(context.Background(), "d1"))
 }
 
-func TestPathStatus_GetsSystemPath(t *testing.T) {
-	srv, rec := fakeDaemon(t, http.StatusOK,
-		`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":["/home/u/.zshrc"]}}`)
-	c := newClient(t, srv)
+func TestSystemPath_StatusGetsAndSetupPosts(t *testing.T) {
+	testCases := []struct {
+		name       string
+		call       func(*client.Client) (apidto.PathStatusDTO, error)
+		wantMethod string
+	}{
+		{
+			name: "status",
+			call: func(c *client.Client) (apidto.PathStatusDTO, error) {
+				return c.PathStatus(context.Background())
+			},
+			wantMethod: http.MethodGet,
+		},
+		{
+			name: "setup",
+			call: func(c *client.Client) (apidto.PathStatusDTO, error) {
+				return c.SetupPath(context.Background())
+			},
+			wantMethod: http.MethodPost,
+		},
+	}
 
-	status, err := c.PathStatus(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, http.MethodGet, rec.method)
-	assert.Equal(t, "/v0/system/path", rec.path)
-	assert.True(t, status.OnPath)
-	assert.Equal(t, []string{"/home/u/.zshrc"}, status.Files)
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, rec := fakeDaemon(t, http.StatusOK,
+				`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":["/home/u/.zshrc"]}}`)
 
-func TestSetupPath_PostsSystemPath(t *testing.T) {
-	srv, rec := fakeDaemon(t, http.StatusOK,
-		`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":[]}}`)
-	c := newClient(t, srv)
+			status, err := tc.call(newClient(t, srv))
 
-	status, err := c.SetupPath(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, http.MethodPost, rec.method)
-	assert.Equal(t, "/v0/system/path", rec.path)
-	assert.True(t, status.Configured)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMethod, rec.method)
+			assert.Equal(t, "/v0/system/path", rec.path)
+			assert.True(t, status.OnPath)
+			assert.True(t, status.Configured)
+			assert.Equal(t, []string{"/home/u/.zshrc"}, status.Files)
+		})
+	}
 }
 
 // TestClient_ConcurrentRequests_TokenAccessDoesNotRace has no assertions of

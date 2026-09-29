@@ -2,7 +2,6 @@ package media
 
 import (
 	"context"
-	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/readme"
@@ -88,7 +87,7 @@ func isBannerImage(
 	if !ok {
 		return false
 	}
-	dim, ok := Sniff(data)
+	dim, ok := sniff(data)
 	return ok && isBannerShaped(dim)
 }
 
@@ -128,7 +127,7 @@ func tryImageCandidate(
 	ctx context.Context,
 	src source,
 	imageSrc string,
-	accept func(Dimensions) bool,
+	accept func(dimensions) bool,
 ) (string, bool) {
 	path, ok := src.urls.resolve(imageSrc)
 	if !ok {
@@ -142,7 +141,7 @@ func tryImageCandidate(
 	if !ok {
 		return "", false
 	}
-	dim, ok := Sniff(data)
+	dim, ok := sniff(data)
 	if !ok || !accept(dim) {
 		return "", false
 	}
@@ -159,32 +158,16 @@ func fetchProbe(
 }
 
 func isSquareDim(
-	dim Dimensions,
+	dim dimensions,
 ) bool {
 	return dim.Width == dim.Height
 }
 
 func isBannerShaped(
-	dim Dimensions,
+	dim dimensions,
 ) bool {
 	if dim.Width >= 2*dim.Height {
 		return true
 	}
 	return dim.Width > dim.Height && dim.Width >= 400 && dim.Height >= 200
-}
-
-func isRelativeSrc(
-	src string,
-) bool {
-	if strings.HasPrefix(src, "//") {
-		return false
-	}
-	return !strings.Contains(src, "://")
-}
-
-func cleanPath(
-	path string,
-) string {
-	path = strings.TrimPrefix(path, "./")
-	return strings.TrimPrefix(path, "/")
 }

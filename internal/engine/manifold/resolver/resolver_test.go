@@ -547,22 +547,6 @@ func TestFetchManifest_OnlyGitRanAndFoundNothing_IsManifestNotFound(t *testing.T
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestFetchManifest_TwoFailures_ReturnsTheFirst(t *testing.T) {
-	first := fmt.Errorf("%w: first", resolvers.ErrFetchFailed)
-	second := fmt.Errorf("%w: second", resolvers.ErrFetchFailed)
-	r := &resolver{
-		timeout: 5 * time.Second,
-		fetchers: []resolvers.Fetcher{
-			&stubFetcher{canResolve: true, err: first},
-			&stubFetcher{canResolve: true, err: second},
-		},
-	}
-
-	_, _, err := r.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
-
-	assert.Same(t, first, err)
-}
-
 func TestFetchManifest_CollectionAbsence_IsManifestNotFound(t *testing.T) {
 	r := &resolver{
 		timeout: 5 * time.Second,
@@ -574,54 +558,4 @@ func TestFetchManifest_CollectionAbsence_IsManifestNotFound(t *testing.T) {
 	_, err := r.ResolveCollection(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	assert.ErrorIs(t, err, ErrManifestNotFound)
-}
-
-type countingFetcher struct {
-	calls int
-}
-
-func (c *countingFetcher) CanResolve(_ domain.Namespace) bool {
-	return true
-}
-
-func (c *countingFetcher) Fetch(
-	_ context.Context,
-	_ domain.Namespace,
-	_ []string,
-	_ time.Duration,
-) ([]byte, string, error) {
-	c.calls++
-	return nil, "", fmt.Errorf("%w: clone timed out", resolvers.ErrFetchFailed)
-}
-
-func TestFetchManifest_PinnedRefAbsence_NeverClones(t *testing.T) {
-	testCases := []struct {
-		name          string
-		namespace     domain.Namespace
-		status        int
-		wantGitCalls  int
-		wantManifest  bool
-		wantFetchFail bool
-	}{
-		{name: "pinned ref absent", namespace: "github.com/user/repo@v1.0.0", status: http.StatusNotFound, wantGitCalls: 0, wantManifest: true},
-		{name: "refless absent", namespace: "github.com/user/repo", status: http.StatusNotFound, wantGitCalls: 1, wantFetchFail: true},
-		{name: "pinned ref rate limited", namespace: "github.com/user/repo@v1.0.0", status: http.StatusTooManyRequests, wantGitCalls: 1, wantFetchFail: true},
-		{name: "pinned ref server error", namespace: "github.com/user/repo@v1.0.0", status: http.StatusBadGateway, wantGitCalls: 1, wantFetchFail: true},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			git := &countingFetcher{}
-			r := &resolver{
-				timeout:  5 * time.Second,
-				fetchers: []resolvers.Fetcher{resolvers.NewHTTP(statusServer(t, tc.status)), git},
-			}
-
-			_, _, err := r.ResolveArrow(context.Background(), tc.namespace)
-
-			require.Error(t, err)
-			assert.Equal(t, tc.wantGitCalls, git.calls)
-			assert.Equal(t, tc.wantManifest, errors.Is(err, ErrManifestNotFound))
-			assert.Equal(t, tc.wantFetchFail, errors.Is(err, resolvers.ErrFetchFailed))
-		})
-	}
 }

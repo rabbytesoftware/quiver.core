@@ -279,64 +279,6 @@ components:
           type: object
           additionalProperties:
             type: string
-        exposed:
-          allOf:
-            - $ref: '#/components/schemas/ExposeResult'
-          description: Present when the execution placed or refused CLI/desktop entries
-
-    ExposeResult:
-      type: object
-      required:
-        - entries
-        - refused
-      properties:
-        entries:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExposedEntry'
-        refused:
-          type: array
-          items:
-            $ref: '#/components/schemas/ExposeRefusal'
-
-    ExposedEntry:
-      type: object
-      required:
-        - kind
-        - name
-        - target
-        - location
-      properties:
-        kind:
-          type: string
-          enum:
-            - cli
-            - desktop
-        name:
-          type: string
-        target:
-          type: string
-          description: Absolute path inside the arrow workdir the entry points at
-        location:
-          type: string
-          description: Absolute path of the placed shim, symlink, bundle or shortcut
-
-    ExposeRefusal:
-      type: object
-      required:
-        - kind
-        - name
-        - reason
-      properties:
-        kind:
-          type: string
-          enum:
-            - cli
-            - desktop
-        name:
-          type: string
-        reason:
-          type: string
 
     ArrowRuntime:
       type: object

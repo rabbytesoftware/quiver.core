@@ -18,7 +18,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -30,7 +29,6 @@ type Container struct {
 	Wizard    wizard.Wizard
 	Netbridge netbridge.Netbridge
 	DepTree   deptree.DepTree
-	Shelf     shelf.Shelf
 	// Providers holds one entry per platform. Search is a capability, not an
 	// entry requirement: a platform without a search API still answers where it
 	// serves a raw file and which refs it defaults to, and discovery skips it.
@@ -146,7 +144,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
-	wiz, err := wizard.New(nil, config.GetArrows().ExtractMaxBytes)
+	wiz, err := wizard.New(nil, config.GetArrows().ExtractMaxBytes, wizardOptions(cfg)...)
 	if err != nil {
 		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
@@ -204,7 +202,6 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
-		Shelf:     shelf.New(shelfOptions(cfg)...),
 		Providers: providers,
 
 		netbridgeEvents:    es,
@@ -212,13 +209,13 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 	}, nil
 }
 
-func shelfOptions(
+func wizardOptions(
 	cfg engineOpts,
-) []shelf.Option {
+) []wizard.Option {
 	if cfg.homeDir == "" {
 		return nil
 	}
-	return []shelf.Option{shelf.WithSandboxHome(cfg.homeDir)}
+	return []wizard.Option{wizard.WithSandboxHome(cfg.homeDir)}
 }
 
 // hostLookup adapts the provider set into the lookup manifold asks its host

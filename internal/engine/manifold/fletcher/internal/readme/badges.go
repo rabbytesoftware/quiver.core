@@ -51,69 +51,29 @@ func IsBadgeSrc(
 	return strings.Contains(lower, "badge")
 }
 
-func classifyImageMatch(
-	src string,
-	sawBadgeHost *bool,
-	sawNonBadge *bool,
-) {
-	if IsBadgeSrc(src) {
-		*sawBadgeHost = true
-		return
-	}
-	*sawNonBadge = true
-}
-
-func stripImageTokens(
+func badgeOnly(
 	line string,
-) (string, bool, bool, bool) {
-	remainder := line
-	sawImage := false
-	sawBadgeHost := false
-	sawNonBadge := false
-
-	remainder = linkedImagePattern.ReplaceAllStringFunc(remainder, func(match string) string {
-		sub := linkedImagePattern.FindStringSubmatch(match)
-		sawImage = true
-		classifyImageMatch(sub[1], &sawBadgeHost, &sawNonBadge)
-		return ""
-	})
-
-	remainder = bareImagePattern.ReplaceAllStringFunc(remainder, func(match string) string {
-		sub := bareImagePattern.FindStringSubmatch(match)
-		sawImage = true
-		classifyImageMatch(sub[1], &sawBadgeHost, &sawNonBadge)
-		return ""
-	})
-
-	return remainder, sawImage, sawBadgeHost, sawNonBadge
-}
-
-func stripHTMLBadgeTokens(
-	line string,
-) (string, bool, bool, bool) {
-	remainder := line
-	sawImage := false
-	sawBadgeHost := false
-	sawNonBadge := false
-
-	remainder = htmlImgTagPattern.ReplaceAllStringFunc(remainder, func(match string) string {
-		sub := htmlImgTagPattern.FindStringSubmatch(match)
-		sawImage = true
-		classifyImageMatch(sub[1], &sawBadgeHost, &sawNonBadge)
-		return ""
-	})
-	remainder = htmlAnchorPattern.ReplaceAllString(remainder, "")
-	remainder = htmlBrPattern.ReplaceAllString(remainder, "")
-
-	return remainder, sawImage, sawBadgeHost, sawNonBadge
-}
-
-func isMarkdownBadgeOnlyLine(
-	line string,
+	images []*regexp.Regexp,
+	noise ...*regexp.Regexp,
 ) bool {
-	remainder, sawImage, sawBadgeHost, sawNonBadge := stripImageTokens(line)
-	if !sawImage || !sawBadgeHost || sawNonBadge {
+	remainder := line
+	sawBadge := false
+	sawOther := false
+	for _, pattern := range images {
+		remainder = pattern.ReplaceAllStringFunc(remainder, func(match string) string {
+			if IsBadgeSrc(pattern.FindStringSubmatch(match)[1]) {
+				sawBadge = true
+			} else {
+				sawOther = true
+			}
+			return ""
+		})
+	}
+	if !sawBadge || sawOther {
 		return false
+	}
+	for _, pattern := range noise {
+		remainder = pattern.ReplaceAllString(remainder, "")
 	}
 	return strings.TrimSpace(remainder) == ""
 }
@@ -121,20 +81,13 @@ func isMarkdownBadgeOnlyLine(
 func isHTMLBadgeOnlyLine(
 	line string,
 ) bool {
-	remainder, sawImage, sawBadgeHost, sawNonBadge := stripHTMLBadgeTokens(line)
-	if !sawImage || !sawBadgeHost || sawNonBadge {
-		return false
-	}
-	return strings.TrimSpace(remainder) == ""
+	return badgeOnly(line, []*regexp.Regexp{htmlImgTagPattern}, htmlAnchorPattern, htmlBrPattern)
 }
 
 func isBadgeOnlyLine(
 	line string,
 ) bool {
-	if isMarkdownBadgeOnlyLine(line) {
-		return true
-	}
-	return isHTMLBadgeOnlyLine(line)
+	return badgeOnly(line, []*regexp.Regexp{linkedImagePattern, bareImagePattern}) || isHTMLBadgeOnlyLine(line)
 }
 
 func stripBadgeLines(
@@ -197,30 +150,6 @@ func findBadgeBlockEnd(
 	return 0, false
 }
 
-func markRemoved(
-	remove []bool,
-	from int,
-	to int,
-) {
-	for k := from; k <= to; k++ {
-		remove[k] = true
-	}
-}
-
-func filterOut(
-	lines []string,
-	remove []bool,
-) []string {
-	out := make([]string, 0, len(lines))
-	for i, line := range lines {
-		if remove[i] {
-			continue
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
 func stripHTMLBadgeBlocks(
 	lines []string,
 ) []string {
@@ -238,8 +167,16 @@ func stripHTMLBadgeBlocks(
 			i++
 			continue
 		}
-		markRemoved(remove, i, end)
+		for k := i; k <= end; k++ {
+			remove[k] = true
+		}
 		i = end + 1
 	}
-	return filterOut(lines, remove)
+	out := make([]string, 0, len(lines))
+	for i, line := range lines {
+		if !remove[i] {
+			out = append(out, line)
+		}
+	}
+	return out
 }

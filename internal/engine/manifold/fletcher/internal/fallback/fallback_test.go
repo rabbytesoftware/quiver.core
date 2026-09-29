@@ -1,6 +1,7 @@
 package fallback_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/fallback"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/forge"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/gather"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
@@ -22,7 +22,7 @@ import (
 const fletchDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
 
 type stubDrafter struct {
-	answer     func(tag string) (gather.Draft, error)
+	answer     func(tag string) ([]byte, error)
 	fletchTags []string
 }
 
@@ -30,7 +30,7 @@ func (s *stubDrafter) Draft(
 	_ context.Context,
 	_ domain.Namespace,
 	tag string,
-) (gather.Draft, error) {
+) ([]byte, error) {
 	s.fletchTags = append(s.fletchTags, tag)
 	return s.answer(tag)
 }
@@ -67,47 +67,11 @@ func (s *stubReleases) ResolveDefaultBranch(
 }
 
 type stubHost struct {
+	hosts.Host
 	branches []string
 }
 
-func (s *stubHost) RawFileURL(
-	_ domain.Namespace,
-	_ string,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (s *stubHost) BlobFileURL(
-	_ domain.Namespace,
-	_ string,
-	_ string,
-) (string, error) {
-	return "", nil
-}
-
-func (s *stubHost) RepoPageURL(
-	_ domain.Namespace,
-) string {
-	return ""
-}
-
 func (s *stubHost) DefaultBranches() []string { return s.branches }
-
-func (s *stubHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", nil
-}
-
-func (s *stubHost) ReleaseAssets(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
-) ([]domain.ReleaseAsset, error) {
-	return nil, nil
-}
 
 func hostedBy(
 	host hosts.Host,
@@ -147,13 +111,13 @@ func inferredManifest(
 func draftAt(
 	t *testing.T,
 	good string,
-) func(tag string) (gather.Draft, error) {
+) func(tag string) ([]byte, error) {
 	manifest := inferredManifest(t)
-	return func(tag string) (gather.Draft, error) {
+	return func(tag string) ([]byte, error) {
 		if tag != good {
-			return gather.Draft{}, models.NotFletchableError{Reason: models.ReasonNoReleaseAssets}
+			return nil, models.NotFletchableError{Reason: models.ReasonNoReleaseAssets}
 		}
-		return gather.Draft{Manifest: manifest}, nil
+		return manifest, nil
 	}
 }
 
@@ -176,7 +140,7 @@ func TestRecover_NeverFletchesOnFailure(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
-			f := fallback.New(nil, &stubReleases{}, drafter)
+			f := fallback.New(hosts.None, &stubReleases{}, drafter)
 
 			raw, filename, err := f.Recover(context.Background(), tc.ns, tc.err)
 
@@ -190,7 +154,7 @@ func TestRecover_NeverFletchesOnFailure(t *testing.T) {
 
 func TestRecover_ManifestNotFound_ForgesInferredArrow(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
-	f := fallback.New(nil, &stubReleases{}, drafter)
+	f := fallback.New(hosts.None, &stubReleases{}, drafter)
 
 	raw, filename, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"), manifestMissing())
 
@@ -202,13 +166,16 @@ func TestRecover_ManifestNotFound_ForgesInferredArrow(t *testing.T) {
 
 func TestRecover_TagFallbackChain(t *testing.T) {
 	testCases := []struct {
-		name     string
-		ns       domain.Namespace
-		stable   string
-		unstable string
-		branch   string
-		good     string
-		wantTags []string
+		name         string
+		ns           domain.Namespace
+		stable       string
+		unstable     string
+		branch       string
+		branchErr    error
+		hostBranches []string
+		good         string
+		wantTags     []string
+		wantMissing  bool
 	}{
 		{
 			name:     "ref release exists",
@@ -224,6 +191,15 @@ func TestRecover_TagFallbackChain(t *testing.T) {
 			branch:   "main",
 			good:     "v2.0.0",
 			wantTags: []string{"main", "v2.0.0"},
+		},
+		{
+			name:         "host default branch falls back",
+			ns:           "github.com/acme/tool@master",
+			stable:       "v2.0.0",
+			hostBranches: []string{"main", "master"},
+			branch:       "trunk",
+			good:         "v2.0.0",
+			wantTags:     []string{"master", "v2.0.0"},
 		},
 		{
 			name:     "refless goes straight to latest stable",
@@ -256,84 +232,45 @@ func TestRecover_TagFallbackChain(t *testing.T) {
 			good:     "v3.0.0-rc1",
 			wantTags: []string{"main", "v3.0.0-rc1"},
 		},
+		{
+			name:        "exact tag without release never falls back",
+			ns:          "github.com/acme/tool@v1.0.0",
+			stable:      "v2.0.0",
+			branch:      "main",
+			good:        "v2.0.0",
+			wantTags:    []string{"v1.0.0"},
+			wantMissing: true,
+		},
+		{
+			name:        "exact tag with unreachable default branch never falls back",
+			ns:          "github.com/acme/tool@v1.0.0",
+			stable:      "v2.0.0",
+			branchErr:   errors.New("ls-remote failed"),
+			good:        "v2.0.0",
+			wantTags:    []string{"v1.0.0"},
+			wantMissing: true,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, tc.good)}
-			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, branch: tc.branch}
-			f := fallback.New(hostedBy(&stubHost{}), releases, drafter)
+			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, branch: tc.branch, branchErr: tc.branchErr}
+			f := fallback.New(hostedBy(&stubHost{branches: tc.hostBranches}), releases, drafter)
 
 			raw, filename, err := f.Recover(context.Background(), tc.ns, manifestMissing())
 
-			require.NoError(t, err)
 			assert.Equal(t, tc.wantTags, drafter.fletchTags)
-			assert.Equal(t, inferredManifest(t), raw)
-			assert.Equal(t, "ARROW.md", filename)
-		})
-	}
-}
-
-func TestRecover_FallbackOnlyForBranchOrEmptyRef(t *testing.T) {
-	testCases := []struct {
-		name         string
-		ns           domain.Namespace
-		hostBranches []string
-		branch       string
-		branchErr    error
-		wantTags     []string
-		wantErr      bool
-	}{
-		{
-			name:     "exact tag without release never falls back",
-			ns:       "github.com/acme/tool@v1.0.0",
-			branch:   "main",
-			wantTags: []string{"v1.0.0"},
-			wantErr:  true,
-		},
-		{
-			name:      "exact tag with unreachable default branch never falls back",
-			ns:        "github.com/acme/tool@v1.0.0",
-			branchErr: errors.New("ls-remote failed"),
-			wantTags:  []string{"v1.0.0"},
-			wantErr:   true,
-		},
-		{
-			name:     "empty ref falls back",
-			ns:       "github.com/acme/tool",
-			wantTags: []string{"v2.0.0"},
-		},
-		{
-			name:     "repository default branch falls back",
-			ns:       "github.com/acme/tool@main",
-			branch:   "main",
-			wantTags: []string{"main", "v2.0.0"},
-		},
-		{
-			name:         "host default branch falls back",
-			ns:           "github.com/acme/tool@master",
-			hostBranches: []string{"main", "master"},
-			branch:       "trunk",
-			wantTags:     []string{"master", "v2.0.0"},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			drafter := &stubDrafter{answer: draftAt(t, "v2.0.0")}
-			releases := &stubReleases{stable: "v2.0.0", branch: tc.branch, branchErr: tc.branchErr}
-			f := fallback.New(hostedBy(&stubHost{branches: tc.hostBranches}), releases, drafter)
-
-			_, _, err := f.Recover(context.Background(), tc.ns, manifestMissing())
-
-			assert.Equal(t, tc.wantTags, drafter.fletchTags)
-			if !tc.wantErr {
-				require.NoError(t, err)
+			if tc.wantMissing {
+				assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
+				var nf models.NotFletchableError
+				require.ErrorAs(t, err, &nf)
+				assert.Equal(t, models.ReasonNoReleaseAssets, nf.Reason)
+				assert.Zero(t, releases.stableCalls)
 				return
 			}
-			assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
-			var nf models.NotFletchableError
-			require.ErrorAs(t, err, &nf)
-			assert.Equal(t, models.ReasonNoReleaseAssets, nf.Reason)
-			assert.Zero(t, releases.stableCalls)
+			require.NoError(t, err)
+			assert.Equal(t, inferredManifest(t), raw)
+			assert.Equal(t, "ARROW.md", filename)
 		})
 	}
 }
@@ -343,7 +280,9 @@ func TestRecover_FailuresSurface(t *testing.T) {
 	listFailed := errors.New("ls-remote failed")
 	testCases := []struct {
 		name       string
-		answer     func(tag string) (gather.Draft, error)
+		ns         domain.Namespace
+		answer     func(tag string) ([]byte, error)
+		stable     string
 		unstable   string
 		listErr    error
 		wantReason models.Reason
@@ -366,8 +305,8 @@ func TestRecover_FailuresSurface(t *testing.T) {
 		},
 		{
 			name: "no usable asset stops the chain",
-			answer: func(string) (gather.Draft, error) {
-				return gather.Draft{}, models.NotFletchableError{Reason: models.ReasonNoUsableAsset}
+			answer: func(string) ([]byte, error) {
+				return nil, models.NotFletchableError{Reason: models.ReasonNoUsableAsset}
 			},
 			unstable:   "v2.0.0-rc1",
 			wantReason: models.ReasonNoUsableAsset,
@@ -375,8 +314,8 @@ func TestRecover_FailuresSurface(t *testing.T) {
 		},
 		{
 			name: "low confidence stops the chain",
-			answer: func(string) (gather.Draft, error) {
-				return gather.Draft{}, models.NotFletchableError{Reason: models.ReasonLowConfidence}
+			answer: func(string) ([]byte, error) {
+				return nil, models.NotFletchableError{Reason: models.ReasonLowConfidence}
 			},
 			unstable:   "v2.0.0-rc1",
 			wantReason: models.ReasonLowConfidence,
@@ -384,27 +323,46 @@ func TestRecover_FailuresSurface(t *testing.T) {
 		},
 		{
 			name: "transient failure stops the chain",
-			answer: func(string) (gather.Draft, error) {
-				return gather.Draft{}, transient
+			answer: func(string) ([]byte, error) {
+				return nil, transient
 			},
 			unstable: "v2.0.0-rc1",
 			wantErr:  transient,
 			wantTags: []string{"main"},
 		},
+		{
+			name:     "channel listing fails after the stable source ran",
+			ns:       "github.com/acme/tool",
+			answer:   draftAt(t, "none"),
+			stable:   "v2.0.0",
+			listErr:  listFailed,
+			wantErr:  listFailed,
+			wantTags: []string{"v2.0.0"},
+		},
+		{
+			name:       "every source ran and found no assets",
+			ns:         "github.com/acme/tool",
+			answer:     draftAt(t, "none"),
+			stable:     "v2.0.0",
+			unstable:   "v3.0.0-rc1",
+			wantReason: models.ReasonNoReleaseAssets,
+			wantTags:   []string{"v2.0.0", "v3.0.0-rc1"},
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: tc.answer}
-			releases := &stubReleases{unstable: tc.unstable, unstableErr: tc.listErr, branch: "main"}
-			f := fallback.New(nil, releases, drafter)
+			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, unstableErr: tc.listErr, branch: "main"}
+			f := fallback.New(hosts.None, releases, drafter)
 
-			_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool@main"), manifestMissing())
+			_, _, err := f.Recover(context.Background(), cmp.Or(tc.ns, domain.Namespace("github.com/acme/tool@main")), manifestMissing())
 
 			require.Error(t, err)
 			assert.Equal(t, tc.wantTags, drafter.fletchTags)
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, err, tc.wantErr)
 				assert.NotErrorIs(t, err, resolver.ErrNotFound)
+				assert.NotErrorIs(t, err, models.ErrNotFletchable)
 				assert.ErrorIs(t, err, resolver.ErrFetchFailed)
 				return
 			}
@@ -417,59 +375,9 @@ func TestRecover_FailuresSurface(t *testing.T) {
 	}
 }
 
-func TestRecover_LookupFailureBeatsNoReleaseAssets(t *testing.T) {
-	listFailed := errors.New("ls-remote failed")
-	testCases := []struct {
-		name       string
-		stable     string
-		unstable   string
-		listErr    error
-		wantErr    error
-		wantReason models.Reason
-		wantTags   []string
-	}{
-		{
-			name:     "stable source ran then channel listing fails",
-			stable:   "v2.0.0",
-			listErr:  listFailed,
-			wantErr:  listFailed,
-			wantTags: []string{"v2.0.0"},
-		},
-		{
-			name:       "every source ran and found no assets",
-			stable:     "v2.0.0",
-			unstable:   "v3.0.0-rc1",
-			wantReason: models.ReasonNoReleaseAssets,
-			wantTags:   []string{"v2.0.0", "v3.0.0-rc1"},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			drafter := &stubDrafter{answer: draftAt(t, "none")}
-			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, unstableErr: tc.listErr}
-			f := fallback.New(hostedBy(&stubHost{}), releases, drafter)
-
-			_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
-
-			require.Error(t, err)
-			assert.Equal(t, tc.wantTags, drafter.fletchTags)
-			if tc.wantErr != nil {
-				assert.ErrorIs(t, err, tc.wantErr)
-				assert.NotErrorIs(t, err, models.ErrNotFletchable)
-				assert.NotErrorIs(t, err, resolver.ErrNotFound)
-				return
-			}
-			assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
-			var nf models.NotFletchableError
-			require.ErrorAs(t, err, &nf)
-			assert.Equal(t, tc.wantReason, nf.Reason)
-		})
-	}
-}
-
 func TestRecover_NoReleaseTagFletchesNothing(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "main")}
-	f := fallback.New(nil, &stubReleases{branch: "main"}, drafter)
+	f := fallback.New(hosts.None, &stubReleases{branch: "main"}, drafter)
 
 	_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
 

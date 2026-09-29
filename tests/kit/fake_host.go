@@ -152,7 +152,7 @@ func (f *fakeHost) release(
 	t.Helper()
 	assets := make([]domain.ReleaseAsset, 0, len(domain.AllOS()))
 	for _, platform := range domain.AllOS() {
-		archive := tarball(t, repo.entryName(tag, platform), repo.script(tag))
+		archive := tarball(t, repo.Binary, repo.script(tag))
 		sum := sha256.Sum256(archive)
 		name := repo.assetName(tag, platform)
 		f.files["/download/"+tag+"/"+name] = archive

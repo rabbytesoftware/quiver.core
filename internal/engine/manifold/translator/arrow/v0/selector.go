@@ -478,22 +478,11 @@ func resolveExtractStep(
 	s step.ExtractStep,
 	os domain.OS,
 ) (step.Step, error) {
-	from, err := resolveField(s.From, os, "from")
+	var err error
+	s.From, s.To, s.Timeout, err = resolveFromToTimeout(s.From, s.To, s.Timeout, os)
 	if err != nil {
 		return nil, err
 	}
-	to, err := resolveField(s.To, os, "to")
-	if err != nil {
-		return nil, err
-	}
-	timeout, err := resolveField(s.Timeout, os, "timeout")
-	if err != nil {
-		return nil, err
-	}
-
-	s.From = from
-	s.To = to
-	s.Timeout = timeout
 	return s, nil
 }
 
@@ -501,23 +490,35 @@ func resolvePortableStep(
 	s step.PortableStep,
 	os domain.OS,
 ) (step.Step, error) {
-	from, err := resolveField(s.From, os, "from")
+	var err error
+	s.From, s.To, s.Timeout, err = resolveFromToTimeout(s.From, s.To, s.Timeout, os)
 	if err != nil {
 		return nil, err
 	}
-	to, err := resolveField(s.To, os, "to")
-	if err != nil {
-		return nil, err
-	}
-	timeout, err := resolveField(s.Timeout, os, "timeout")
-	if err != nil {
-		return nil, err
-	}
-
-	s.From = from
-	s.To = to
-	s.Timeout = timeout
 	return s, nil
+}
+
+func resolveFromToTimeout(
+	from step.Overrideable[string],
+	to step.Overrideable[string],
+	timeout step.Overrideable[string],
+	os domain.OS,
+) (step.Overrideable[string], step.Overrideable[string], step.Overrideable[string], error) {
+	var none step.Overrideable[string]
+
+	from, err := resolveField(from, os, "from")
+	if err != nil {
+		return none, none, none, err
+	}
+	to, err = resolveField(to, os, "to")
+	if err != nil {
+		return none, none, none, err
+	}
+	timeout, err = resolveField(timeout, os, "timeout")
+	if err != nil {
+		return none, none, none, err
+	}
+	return from, to, timeout, nil
 }
 
 func resolveSignalStep(s step.SignalStep, os domain.OS) (step.Step, error) {

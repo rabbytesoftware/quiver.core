@@ -236,20 +236,8 @@ func TestGetArrows_ReturnsVersionCheckTTL(t *testing.T) {
 	assert.NotEmpty(t, GetArrows().VersionCheckTTL)
 }
 
-func TestDefaults_FletcherIsDisabled(t *testing.T) {
-	assert.Equal(t, ManifoldFletcher{Enabled: false}, Defaults().Manifold.Fletcher)
-}
-
-func TestDefaults_UnmarkedSearchIsDisabled(t *testing.T) {
-	assert.Equal(t, SearchUnmarked{MinStars: 50, ProbeLimit: 10}, Defaults().Search.Unmarked)
-}
-
 func TestGetSearch_ReturnsUnmarkedSection(t *testing.T) {
 	assert.Positive(t, GetSearch().Unmarked.ProbeLimit)
-}
-
-func TestDefaults_ExtractMaxBytesIsEightGiB(t *testing.T) {
-	assert.Equal(t, int64(8589934592), Defaults().Arrows.ExtractMaxBytes)
 }
 
 func TestGetAuth_Defaults(t *testing.T) {

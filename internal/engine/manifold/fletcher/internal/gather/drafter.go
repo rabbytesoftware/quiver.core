@@ -21,18 +21,7 @@ type Drafter interface {
 		ctx context.Context,
 		ns domain.Namespace,
 		tag string,
-	) (Draft, error)
-}
-
-type Draft struct {
-	Manifest []byte
-	Report   Report
-}
-
-type Report struct {
-	Heuristics string
-	Confidence confidence.Confidence
-	Warnings   []string
+	) ([]byte, error)
 }
 
 const (
@@ -52,7 +41,7 @@ func New(
 	timeout time.Duration,
 ) Drafter {
 	return &drafter{
-		lookup: hosts.Or(lookup),
+		lookup: lookup,
 		picker: pk,
 		fetch:  fetcher{timeout: timeout},
 	}
@@ -62,14 +51,14 @@ func (d *drafter) Draft(
 	ctx context.Context,
 	ns domain.Namespace,
 	tag string,
-) (Draft, error) {
+) ([]byte, error) {
 	host, ok := d.lookup(ns)
 	if !ok {
-		return Draft{}, models.NotFletchableError{Reason: models.ReasonHostUnsupported}
+		return nil, models.NotFletchableError{Reason: models.ReasonHostUnsupported}
 	}
 	src, err := d.gather(ctx, host, ns, tag)
 	if err != nil {
-		return Draft{}, err
+		return nil, err
 	}
 	_, repo := coordinates(ns)
 	return draft(forge.Input{
@@ -161,10 +150,10 @@ func (d *drafter) usablePick(
 
 func draft(
 	in forge.Input,
-) (Draft, error) {
+) ([]byte, error) {
 	level, warnings := confidence.Assess(in.Picks)
 	if level == confidence.ConfidenceLow {
-		return Draft{}, models.NotFletchableError{Reason: models.ReasonLowConfidence}
+		return nil, models.NotFletchableError{Reason: models.ReasonLowConfidence}
 	}
 	in.Generator = domain.ArrowGenerator{
 		Name:       heuristics,
@@ -173,16 +162,9 @@ func draft(
 	}
 	manifest, err := forge.Render(in)
 	if err != nil {
-		return Draft{}, fmt.Errorf("fletcher: render: %w", err)
+		return nil, fmt.Errorf("fletcher: render: %w", err)
 	}
-	return Draft{
-		Manifest: manifest,
-		Report: Report{
-			Heuristics: heuristics,
-			Confidence: level,
-			Warnings:   warnings,
-		},
-	}, nil
+	return manifest, nil
 }
 
 func coordinates(

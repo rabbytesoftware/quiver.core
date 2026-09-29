@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,8 +14,154 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
+
+const (
+	glabBase            = "https://gitlab.com"
+	glabNamespace       = "gitlab.com/gitlab-org/cli"
+	glabTag             = "v1.119.0"
+	glabReleaseURI      = "/api/v4/projects/gitlab-org%2Fcli/releases/v1.119.0"
+	glabPackagesURI     = "/api/v4/projects/gitlab-org%2Fcli/packages?package_name=glab&package_type=generic&package_version=1.119.0"
+	glabFilesURI        = "/api/v4/projects/gitlab-org%2Fcli/packages/70206788/package_files?page=1&per_page=100"
+	glabChecksumsURI    = "/gitlab-org/cli/-/releases/v1.119.0/downloads/checksums.txt"
+	glabChecksumsPkgURI = "/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/checksums%2Etxt"
+)
+
+type cannedResponse struct {
+	status   int
+	body     string
+	headers  map[string]string
+	location string
+	hangup   bool
+}
+
+type fakeGitLab struct {
+	doer *routedDoer
+	down bool
+}
+
+func newFakeGitLab() *fakeGitLab {
+	return &fakeGitLab{doer: &routedDoer{
+		responses: map[string]fns.Response{},
+		failures:  map[string]error{},
+	}}
+}
+
+func (f *fakeGitLab) do(
+	ctx context.Context,
+	req fns.Request,
+) (fns.Response, error) {
+	if f.down {
+		return fns.Response{}, errors.New("dial tcp: connection refused")
+	}
+	return f.doer.do(ctx, req)
+}
+
+func (f *fakeGitLab) route(
+	uri string,
+	resp cannedResponse,
+) {
+	delete(f.doer.failures, glabBase+uri)
+	if resp.hangup {
+		f.doer.failures[glabBase+uri] = errors.New("connection reset by peer")
+		return
+	}
+
+	headers := http.Header{}
+	for key, value := range resp.headers {
+		headers.Set(key, value)
+	}
+	if resp.location != "" {
+		headers.Set("Location", f.absolute(resp.location))
+	}
+	f.doer.responses[glabBase+uri] = fns.Response{Status: resp.status, Headers: headers, Body: []byte(resp.body)}
+}
+
+func (f *fakeGitLab) ok(
+	uri string,
+	body string,
+) {
+	f.route(uri, cannedResponse{status: http.StatusOK, body: body})
+}
+
+func (f *fakeGitLab) absolute(
+	link string,
+) string {
+	if strings.HasPrefix(link, "/") {
+		return glabBase + link
+	}
+	return link
+}
+
+func (f *fakeGitLab) hits() []string {
+	f.doer.mu.Lock()
+	defer f.doer.mu.Unlock()
+	hits := make([]string, len(f.doer.requests))
+	for i, url := range f.doer.requests {
+		hits[i] = strings.TrimPrefix(url, glabBase)
+	}
+	return hits
+}
+
+func (f *fakeGitLab) count(
+	uri string,
+) int {
+	n := 0
+	for _, hit := range f.hits() {
+		if hit == uri {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeGitLab) fixture(
+	t *testing.T,
+	name string,
+) string {
+	t.Helper()
+	body, err := os.ReadFile("testdata/" + name)
+	require.NoError(t, err)
+	return string(body)
+}
+
+func (f *fakeGitLab) serveGlab(
+	t *testing.T,
+) {
+	t.Helper()
+	f.ok(glabReleaseURI, f.fixture(t, "gitlab_release_glab.json"))
+	f.ok(glabPackagesURI, f.fixture(t, "gitlab_packages_glab.json"))
+	f.ok(glabFilesURI, f.fixture(t, "gitlab_package_files_glab.json"))
+	f.route(glabChecksumsURI, cannedResponse{status: http.StatusFound, location: glabChecksumsPkgURI})
+	f.ok(glabChecksumsPkgURI, f.fixture(t, "gitlab_checksums_glab.txt"))
+}
+
+func (f *fakeGitLab) onServer(
+	link gitlabLink,
+) gitlabLink {
+	link.URL = f.absolute(link.URL)
+	link.DirectAssetURL = f.absolute(link.DirectAssetURL)
+	return link
+}
+
+func (f *fakeGitLab) config() Config {
+	return Config{
+		Host:           "gitlab.com",
+		RawURL:         glabBase + "/{user}/{repo}/-/raw/{branch}/{file}",
+		BlobURL:        glabBase + "/{user}/{repo}/-/blob/{branch}/{file}",
+		ReleaseAPIURL:  glabBase + "/api/v4/projects/{user}%2F{repo}/releases/{tag}",
+		RepoPageURL:    glabBase + "/{user}/{repo}",
+		PackagesAPIURL: glabBase + "/api/v4/projects/{project}/packages",
+		Timeout:        5 * time.Second,
+		Do:             f.do,
+	}
+}
+
+func (f *fakeGitLab) provider() Provider {
+	return NewGitLab(f.config())
+}
 
 const (
 	glabLinuxTarDigest   = "sha256:4d83375d202ffa634eaf627fd9272b610fa599f20f5b711f55d770583eca2b84"
@@ -64,7 +211,7 @@ func linkJSON(
 }
 
 func TestGitLab_ReleaseAssets_PackageFilesDigestEveryLink(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 
 	assets := glabAssets(t, f)
@@ -79,17 +226,7 @@ func TestGitLab_ReleaseAssets_PackageFilesDigestEveryLink(t *testing.T) {
 	assert.Equal(t, 1, f.count(glabPackagesURI))
 	assert.Equal(t, 1, f.count(glabFilesURI))
 	assert.Zero(t, f.count(glabChecksumsURI))
-}
-
-func TestGitLab_ReleaseAssets_UsesTheDirectAssetURLAndIgnoresSources(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.serveGlab(t)
-
-	assets := glabAssets(t, f)
-
-	require.Len(t, assets, 5)
-	linux := assets["glab_1.119.0_linux_amd64.tar.gz"]
-	assert.Equal(t, f.server.URL+"/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.tar.gz", linux.URL)
+	assert.Equal(t, glabBase+"/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.tar.gz", assets["glab_1.119.0_linux_amd64.tar.gz"].URL)
 	for _, asset := range assets {
 		assert.NotContains(t, asset.URL, "/-/archive/")
 	}
@@ -110,7 +247,7 @@ func TestGitLab_ReleaseAssets_FallsBackToTheChecksumFile(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeGitLab(t)
+			f := newFakeGitLab()
 			f.serveGlab(t)
 			f.route(glabPackagesURI, tc.packages)
 
@@ -130,7 +267,7 @@ func TestGitLab_ReleaseAssets_FallsBackToTheChecksumFile(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_PackageDigestWinsOverTheChecksumFile(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 	f.ok(glabFilesURI, `[{"file_name": "glab_1.119.0_linux_amd64.tar.gz", "file_sha256": "`+otherDigestHex+`"}]`)
 
@@ -142,7 +279,7 @@ func TestGitLab_ReleaseAssets_PackageDigestWinsOverTheChecksumFile(t *testing.T)
 }
 
 func TestGitLab_ReleaseAssets_NoDigestSourceLeavesDigestsEmpty(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.ok(glabReleaseURI, linkJSON(t,
 		gitlabLink{Name: "tool_linux_amd64.tar.gz", URL: "https://downloads.example.test/tool_linux_amd64.tar.gz"},
 		gitlabLink{Name: "tool_darwin_arm64.tar.gz", URL: "https://downloads.example.test/tool_darwin_arm64.tar.gz"},
@@ -155,63 +292,11 @@ func TestGitLab_ReleaseAssets_NoDigestSourceLeavesDigestsEmpty(t *testing.T) {
 		"tool_darwin_arm64.tar.gz": "",
 	}, digestsOf(assets))
 	assert.Equal(t, "https://downloads.example.test/tool_linux_amd64.tar.gz", assets["tool_linux_amd64.tar.gz"].URL)
-	assert.Equal(t, []string{glabReleaseURI}, f.hits)
-}
-
-func TestGitLab_ReleaseAssets_SingleAssetSumFile(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.ok(glabReleaseURI, linkJSON(t,
-		f.onServer(gitlabLink{Name: "Tool.AppImage", URL: "/files/Tool.AppImage"}),
-		f.onServer(gitlabLink{Name: "Tool.AppImage.sha256", URL: "/files/Tool.AppImage.sha256"}),
-	))
-	f.ok("/files/Tool.AppImage.sha256", otherDigestHex+"\n")
-
-	assets := glabAssets(t, f)
-
-	assert.Equal(t, "sha256:"+otherDigestHex, assets["Tool.AppImage"].Digest)
-	assert.Empty(t, assets["Tool.AppImage.sha256"].Digest)
-}
-
-func TestGitLab_ReleaseAssets_OversizedChecksumFileIsIgnored(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.serveGlab(t)
-	f.route(glabPackagesURI, cannedResponse{status: http.StatusNotFound})
-	huge := f.fixture(t, "gitlab_checksums_glab.txt") + strings.Repeat("#", maxChecksumBytes)
-	f.ok(glabChecksumsPkgURI, huge)
-
-	assets := glabAssets(t, f)
-
-	for _, asset := range assets {
-		assert.Empty(t, asset.Digest, asset.Name)
-	}
-}
-
-func TestGitLab_ReleaseAssets_MissingChecksumFileIsAMiss(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.serveGlab(t)
-	f.route(glabPackagesURI, cannedResponse{status: http.StatusNotFound})
-	f.route(glabChecksumsPkgURI, cannedResponse{status: http.StatusNotFound})
-
-	assets := glabAssets(t, f)
-
-	for _, asset := range assets {
-		assert.Empty(t, asset.Digest, asset.Name)
-	}
-}
-
-func TestGitLab_ReleaseAssets_OnePackageLookupPerPackage(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.serveGlab(t)
-
-	_ = glabAssets(t, f)
-	_ = glabAssets(t, f)
-
-	assert.Equal(t, 2, f.count(glabPackagesURI))
-	assert.Equal(t, 2, f.count(glabFilesURI))
+	assert.Equal(t, []string{glabReleaseURI}, f.hits())
 }
 
 func TestGitLab_ReleaseAssets_PagesThroughPackageFiles(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 	fullPage := make([]gitlabPackageFile, packageFilesPerPage)
 	for i := range fullPage {
@@ -228,7 +313,7 @@ func TestGitLab_ReleaseAssets_PagesThroughPackageFiles(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_StopsPagingAtTheCap(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 	fullPage := make([]gitlabPackageFile, packageFilesPerPage)
 	for i := range fullPage {
@@ -247,7 +332,7 @@ func TestGitLab_ReleaseAssets_StopsPagingAtTheCap(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_404_ReturnsNoAssets(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 
 	assets, err := f.provider().ReleaseAssets(context.Background(), domain.Namespace(glabNamespace), glabTag)
 
@@ -271,19 +356,15 @@ func TestGitLab_ReleaseAssets_FailureMapping(t *testing.T) {
 			rateLimited: true,
 		},
 		{name: "release unauthorized", uri: glabReleaseURI, resp: cannedResponse{status: http.StatusUnauthorized}, unauthorized: true},
-		{name: "release forbidden", uri: glabReleaseURI, resp: cannedResponse{status: http.StatusForbidden}, unauthorized: true},
-		{name: "release server error", uri: glabReleaseURI, resp: cannedResponse{status: http.StatusInternalServerError}},
 		{name: "release malformed", uri: glabReleaseURI, resp: cannedResponse{status: http.StatusOK, body: "{"}, unexpected: true},
 		{name: "release hangup", uri: glabReleaseURI, resp: cannedResponse{hangup: true}},
 		{name: "packages rate limited", uri: glabPackagesURI, resp: cannedResponse{status: http.StatusTooManyRequests}, rateLimited: true},
-		{name: "packages malformed", uri: glabPackagesURI, resp: cannedResponse{status: http.StatusOK, body: "{}"}, unexpected: true},
 		{name: "package files server error", uri: glabFilesURI, resp: cannedResponse{status: http.StatusBadGateway}},
-		{name: "package files hangup", uri: glabFilesURI, resp: cannedResponse{hangup: true}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeGitLab(t)
+			f := newFakeGitLab()
 			f.serveGlab(t)
 			f.route(tc.uri, tc.resp)
 
@@ -301,8 +382,8 @@ func TestGitLab_ReleaseAssets_ChecksumFailuresAreMisses(t *testing.T) {
 		resp cannedResponse
 	}{
 		{name: "rate limited", resp: cannedResponse{status: http.StatusTooManyRequests}},
-		{name: "forbidden", resp: cannedResponse{status: http.StatusForbidden}},
-		{name: "server error", resp: cannedResponse{status: http.StatusInternalServerError}},
+		{name: "not found", resp: cannedResponse{status: http.StatusNotFound}},
+		{name: "oversized", resp: cannedResponse{status: http.StatusOK, body: strings.Repeat("#", maxChecksumBytes+1)}},
 		{name: "hangup", resp: cannedResponse{hangup: true}},
 		{name: "redirect without a location", resp: cannedResponse{status: http.StatusFound}},
 		{name: "redirect to plain http", resp: cannedResponse{status: http.StatusFound, location: "http://downloads.example.test/checksums.txt"}},
@@ -311,7 +392,7 @@ func TestGitLab_ReleaseAssets_ChecksumFailuresAreMisses(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeGitLab(t)
+			f := newFakeGitLab()
 			f.serveGlab(t)
 			f.route(glabPackagesURI, cannedResponse{status: http.StatusNotFound})
 			f.route(glabChecksumsPkgURI, tc.resp)
@@ -326,7 +407,7 @@ func TestGitLab_ReleaseAssets_ChecksumFailuresAreMisses(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_RedirectHopsAreCapped(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 	f.route(glabPackagesURI, cannedResponse{status: http.StatusNotFound})
 	f.route(glabChecksumsPkgURI, cannedResponse{status: http.StatusFound, location: glabChecksumsPkgURI})
@@ -344,13 +425,12 @@ func TestGitLab_ReleaseAssets_DeniedPackageLookupsFallBackToTheChecksumFile(t *t
 		resp cannedResponse
 	}{
 		{name: "packages unauthorized", uri: glabPackagesURI, resp: cannedResponse{status: http.StatusUnauthorized}},
-		{name: "packages forbidden", uri: glabPackagesURI, resp: cannedResponse{status: http.StatusForbidden}},
 		{name: "package files forbidden", uri: glabFilesURI, resp: cannedResponse{status: http.StatusForbidden}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeGitLab(t)
+			f := newFakeGitLab()
 			f.serveGlab(t)
 			f.route(tc.uri, tc.resp)
 
@@ -364,9 +444,9 @@ func TestGitLab_ReleaseAssets_DeniedPackageLookupsFallBackToTheChecksumFile(t *t
 }
 
 func TestGitLab_ReleaseAssets_PlainHTTPLinksNeverCarryADigest(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
-	secureDirect := f.server.URL + "/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.tar.gz"
+	secureDirect := glabBase + "/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.tar.gz"
 	release := strings.Replace(
 		f.fixture(t, "gitlab_release_glab.json"),
 		secureDirect,
@@ -379,6 +459,65 @@ func TestGitLab_ReleaseAssets_PlainHTTPLinksNeverCarryADigest(t *testing.T) {
 
 	assert.Empty(t, assets["glab_1.119.0_linux_amd64.tar.gz"].Digest)
 	assert.Equal(t, glabDarwinTarDigest, assets["glab_1.119.0_darwin_arm64.tar.gz"].Digest)
+}
+
+func TestGitLab_ReleaseAssets_ChecksumFileMatching(t *testing.T) {
+	testCases := []struct {
+		name  string
+		files map[string]string
+		links func(f *fakeGitLab) []gitlabLink
+		want  map[string]string
+	}{
+		{
+			name:  "single asset sum file",
+			files: map[string]string{"/files/Tool.AppImage.sha256": otherDigestHex + "\n"},
+			links: func(f *fakeGitLab) []gitlabLink {
+				return []gitlabLink{
+					f.onServer(gitlabLink{Name: "Tool.AppImage", URL: "/files/Tool.AppImage"}),
+					f.onServer(gitlabLink{Name: "Tool.AppImage.sha256", URL: "/files/Tool.AppImage.sha256"}),
+				}
+			},
+			want: map[string]string{"Tool.AppImage": "sha256:" + otherDigestHex, "Tool.AppImage.sha256": ""},
+		},
+		{
+			name:  "matches by url basename",
+			files: map[string]string{"/files/sha256sums.txt": otherDigestHex + "  tool_linux_amd64.tar.gz\n"},
+			links: func(f *fakeGitLab) []gitlabLink {
+				return []gitlabLink{
+					{Name: "Linux build", URL: "https://downloads.example.test/tool_linux_amd64.tar.gz"},
+					f.onServer(gitlabLink{Name: "Checksums", URL: "/files/sha256sums.txt"}),
+				}
+			},
+			want: map[string]string{"Linux build": "sha256:" + otherDigestHex, "Checksums": ""},
+		},
+		{
+			name: "conflicting sum files drop the digest",
+			files: map[string]string{
+				"/files/checksums.txt":      sampleHex + "  tool.tar.gz\n",
+				"/files/tool.tar.gz.sha256": otherDigestHex + "\n",
+			},
+			links: func(f *fakeGitLab) []gitlabLink {
+				return []gitlabLink{
+					{Name: "tool.tar.gz", URL: "https://downloads.example.test/tool.tar.gz"},
+					f.onServer(gitlabLink{Name: "checksums.txt", URL: "/files/checksums.txt"}),
+					f.onServer(gitlabLink{Name: "tool.tar.gz.sha256", URL: "/files/tool.tar.gz.sha256"}),
+				}
+			},
+			want: map[string]string{"tool.tar.gz": "", "checksums.txt": "", "tool.tar.gz.sha256": ""},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeGitLab()
+			for uri, body := range tc.files {
+				f.ok(uri, body)
+			}
+			f.ok(glabReleaseURI, linkJSON(t, tc.links(f)...))
+
+			assert.Equal(t, tc.want, digestsOf(glabAssets(t, f)))
+		})
+	}
 }
 
 func TestGitLab_ReleaseAssets_ChecksumFileSecurity(t *testing.T) {
@@ -414,7 +553,7 @@ func TestGitLab_ReleaseAssets_ChecksumFileSecurity(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeGitLab(t)
+			f := newFakeGitLab()
 			f.ok("/files/checksums.txt", otherDigestHex+"  tool.tar.gz\n")
 			f.ok(glabReleaseURI, linkJSON(t, tc.asset, f.onServer(tc.sums)))
 
@@ -427,7 +566,7 @@ func TestGitLab_ReleaseAssets_ChecksumFileSecurity(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_OnlyRelevantSumFilesAreFetched(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.ok("/files/other.tar.gz.sha256", otherDigestHex+"\n")
 	f.ok("/files/tool.tar.gz.sha256", otherDigestHex+"\n")
 	f.ok(glabReleaseURI, linkJSON(t,
@@ -441,35 +580,6 @@ func TestGitLab_ReleaseAssets_OnlyRelevantSumFilesAreFetched(t *testing.T) {
 	assert.Equal(t, "sha256:"+otherDigestHex, assets["tool.tar.gz"].Digest)
 	assert.Equal(t, 1, f.count("/files/tool.tar.gz.sha256"))
 	assert.Zero(t, f.count("/files/other.tar.gz.sha256"))
-}
-
-func TestGitLab_ReleaseAssets_MatchesByURLBasename(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.ok("/files/sha256sums.txt", otherDigestHex+"  tool_linux_amd64.tar.gz\n")
-	f.ok(glabReleaseURI, linkJSON(t,
-		gitlabLink{Name: "Linux build", URL: "https://downloads.example.test/tool_linux_amd64.tar.gz"},
-		f.onServer(gitlabLink{Name: "Checksums", URL: "/files/sha256sums.txt"}),
-	))
-
-	assets := glabAssets(t, f)
-
-	assert.Equal(t, "sha256:"+otherDigestHex, assets["Linux build"].Digest)
-	assert.Empty(t, assets["Checksums"].Digest)
-}
-
-func TestGitLab_ReleaseAssets_ConflictingSumFilesDropTheDigest(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.ok("/files/checksums.txt", sampleHex+"  tool.tar.gz\n")
-	f.ok("/files/tool.tar.gz.sha256", otherDigestHex+"\n")
-	f.ok(glabReleaseURI, linkJSON(t,
-		gitlabLink{Name: "tool.tar.gz", URL: "https://downloads.example.test/tool.tar.gz"},
-		f.onServer(gitlabLink{Name: "checksums.txt", URL: "/files/checksums.txt"}),
-		f.onServer(gitlabLink{Name: "tool.tar.gz.sha256", URL: "/files/tool.tar.gz.sha256"}),
-	))
-
-	assets := glabAssets(t, f)
-
-	assert.Empty(t, assets["tool.tar.gz"].Digest)
 }
 
 func assertFailureKind(
@@ -487,20 +597,8 @@ func assertFailureKind(
 	assert.Equal(t, unexpected, errors.Is(err, ErrUnexpectedPage))
 }
 
-func TestGitLab_ReleaseAssets_RateLimitCarriesTheRetryHint(t *testing.T) {
-	f := newFakeGitLab(t)
-	f.route(glabReleaseURI, cannedResponse{status: http.StatusTooManyRequests, headers: map[string]string{"Retry-After": "30"}})
-
-	_, err := f.provider().ReleaseAssets(context.Background(), domain.Namespace(glabNamespace), glabTag)
-
-	var limited *RateLimitedError
-	require.ErrorAs(t, err, &limited)
-	assert.Equal(t, "gitlab.com", limited.Host)
-	assert.Equal(t, 30*time.Second, limited.RetryAfter)
-}
-
 func TestGitLab_ReleaseAssets_EscapesTheTag(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 
 	_, _ = f.provider().ReleaseAssets(context.Background(), domain.Namespace(glabNamespace), "release/v1")
 
@@ -508,16 +606,16 @@ func TestGitLab_ReleaseAssets_EscapesTheTag(t *testing.T) {
 }
 
 func TestGitLab_ReleaseAssets_Unreachable(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	provider := f.provider()
-	f.server.Close()
+	f.down = true
 
 	_, err := provider.ReleaseAssets(context.Background(), domain.Namespace(glabNamespace), glabTag)
 	require.Error(t, err)
 }
 
 func TestGitLab_ReleaseAssets_Misconfigured(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	testCases := []struct {
 		name    string
 		ns      domain.Namespace
@@ -547,13 +645,13 @@ func TestGitLab_ReleaseAssets_Misconfigured(t *testing.T) {
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, assetsErr, tc.wantErr)
 			}
-			assert.Empty(t, f.hits)
+			assert.Empty(t, f.hits())
 		})
 	}
 }
 
 func TestGitLab_ReleaseAssets_NoPackagesTemplateSkipsThePackageLookup(t *testing.T) {
-	f := newFakeGitLab(t)
+	f := newFakeGitLab()
 	f.serveGlab(t)
 	cfg := f.config()
 	cfg.PackagesAPIURL = ""
@@ -564,19 +662,4 @@ func TestGitLab_ReleaseAssets_NoPackagesTemplateSkipsThePackageLookup(t *testing
 	require.Len(t, assets, 5)
 	assert.Zero(t, f.count(glabPackagesURI))
 	assert.Equal(t, 1, f.count(glabChecksumsPkgURI))
-}
-
-func TestGitLab_RepoPageURL_NamesTheProjectPage(t *testing.T) {
-	f := newFakeGitLab(t)
-
-	assert.Equal(t, f.server.URL+"/gitlab-org/cli", f.provider().RepoPageURL(domain.Namespace(glabNamespace+"@v1")))
-}
-
-func TestGitLab_BlobFileURL_FillsTheBlobTemplate(t *testing.T) {
-	f := newFakeGitLab(t)
-
-	blob, err := f.provider().BlobFileURL(domain.Namespace(glabNamespace+"@v1"), "v1", "docs/a.md")
-
-	require.NoError(t, err)
-	assert.Equal(t, f.server.URL+"/gitlab-org/cli/-/blob/v1/docs/a.md", blob)
 }

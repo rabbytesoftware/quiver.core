@@ -768,149 +768,78 @@ func TestSelectTarget_OverrideableResolution(t *testing.T) {
 	}
 }
 
-func TestSelectTarget_ExtractStep_OverrideableResolution(t *testing.T) {
-	from := step.Overrideable[string]{
-		Default: "./archive.tar.gz",
-		OSArch: map[string]string{
-			"linux/amd64": "./archive-linux-amd64.tar.gz",
+type fromToKind struct {
+	name  string
+	build func(from, to step.Overrideable[string]) step.Step
+	from  func(step.Step) string
+}
+
+func fromToSteps() []fromToKind {
+	return []fromToKind{
+		{
+			name:  "extract",
+			build: func(from, to step.Overrideable[string]) step.Step { return step.ExtractStep{From: from, To: to} },
+			from:  func(s step.Step) string { return s.(step.ExtractStep).From.Default },
+		},
+		{
+			name:  "portable",
+			build: func(from, to step.Overrideable[string]) step.Step { return step.PortableStep{From: from, To: to} },
+			from:  func(s step.Step) string { return s.(step.PortableStep).From.Default },
 		},
 	}
-	targets := makeTargets(map[string]models.PrecompiledTarget{
-		"linux/*": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{
-					step.ExtractStep{
-						From:    from,
-						To:      step.Overrideable[string]{Default: "./"},
-						Timeout: step.Overrideable[string]{Default: "5m"},
+}
+
+func TestSelectTarget_FromToSteps_OverrideableResolution(t *testing.T) {
+	for _, tc := range fromToSteps() {
+		t.Run(tc.name, func(t *testing.T) {
+			from := step.Overrideable[string]{
+				Default: "./default",
+				OSArch:  map[string]string{"linux/amd64": "./linux-amd64"},
+			}
+			targets := makeTargets(map[string]models.PrecompiledTarget{
+				"linux/*": {
+					Lifecycle: domain.TargetLifecycle{
+						Install: step.StepList{tc.build(from, step.Overrideable[string]{Default: "./"})},
 					},
 				},
-			},
-		},
-	})
+			})
 
-	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
-	if err != nil {
-		t.Fatalf("linux/amd64: unexpected error: %v", err)
-	}
-	got := rt.Lifecycle.Install[0].(step.ExtractStep).From.Default
-	if got != "./archive-linux-amd64.tar.gz" {
-		t.Fatalf("linux/amd64: expected ./archive-linux-amd64.tar.gz, got %q", got)
-	}
-
-	rt2, err := v0.SelectTarget(targets, domain.OSLinuxARM64)
-	if err != nil {
-		t.Fatalf("linux/arm64: unexpected error: %v", err)
-	}
-	got2 := rt2.Lifecycle.Install[0].(step.ExtractStep).From.Default
-	if got2 != "./archive.tar.gz" {
-		t.Fatalf("linux/arm64: expected ./archive.tar.gz, got %q", got2)
+			for os, want := range map[domain.OS]string{domain.OSLinuxAMD64: "./linux-amd64", domain.OSLinuxARM64: "./default"} {
+				rt, err := v0.SelectTarget(targets, os)
+				if err != nil {
+					t.Fatalf("%s: unexpected error: %v", os, err)
+				}
+				if got := tc.from(rt.Lifecycle.Install[0]); got != want {
+					t.Fatalf("%s: expected %s, got %q", os, want, got)
+				}
+			}
+		})
 	}
 }
 
-func TestSelectTarget_PortableStep_OverrideableResolution(t *testing.T) {
-	from := step.Overrideable[string]{
-		Default: "./bruno.AppImage",
-		OSArch: map[string]string{
-			"linux/amd64": "./bruno-linux-amd64.AppImage",
-		},
-	}
-	targets := makeTargets(map[string]models.PrecompiledTarget{
-		"linux/*": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{
-					step.PortableStep{
-						From:    from,
-						To:      step.Overrideable[string]{Default: "./"},
-						Timeout: step.Overrideable[string]{Default: "5m"},
+func TestSelectTarget_FromToSteps_AmbiguousOSArch_ReturnsError(t *testing.T) {
+	for _, tc := range fromToSteps() {
+		t.Run(tc.name, func(t *testing.T) {
+			to := step.Overrideable[string]{OSArch: map[string]string{"linux/*": "./by-os/", "*/amd64": "./by-arch/"}}
+			targets := makeTargets(map[string]models.PrecompiledTarget{
+				"linux/*": {
+					Lifecycle: domain.TargetLifecycle{
+						Install:   step.StepList{tc.build(step.Overrideable[string]{Default: "./in"}, to)},
+						Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
 					},
 				},
-			},
-		},
-	})
+			})
 
-	rt, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
-	if err != nil {
-		t.Fatalf("linux/amd64: unexpected error: %v", err)
-	}
-	got := rt.Lifecycle.Install[0].(step.PortableStep).From.Default
-	if got != "./bruno-linux-amd64.AppImage" {
-		t.Fatalf("linux/amd64: expected ./bruno-linux-amd64.AppImage, got %q", got)
-	}
+			_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
 
-	rt2, err := v0.SelectTarget(targets, domain.OSLinuxARM64)
-	if err != nil {
-		t.Fatalf("linux/arm64: unexpected error: %v", err)
-	}
-	got2 := rt2.Lifecycle.Install[0].(step.PortableStep).From.Default
-	if got2 != "./bruno.AppImage" {
-		t.Fatalf("linux/arm64: expected ./bruno.AppImage, got %q", got2)
-	}
-}
-
-func TestSelectTarget_AmbiguousPortableStepFieldOSArch_ReturnsError(t *testing.T) {
-	portable := step.PortableStep{
-		From: step.Overrideable[string]{Default: "./bruno.AppImage"},
-		To: step.Overrideable[string]{
-			OSArch: map[string]string{
-				"linux/*": "./by-os/",
-				"*/amd64": "./by-arch/",
-			},
-		},
-	}
-
-	targets := makeTargets(map[string]models.PrecompiledTarget{
-		"linux/*": {
-			Lifecycle: domain.TargetLifecycle{
-				Install:   step.StepList{portable},
-				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
-			},
-		},
-	})
-
-	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
-	var ambig *models.AmbiguousTargetError
-	if !errors.As(err, &ambig) {
-		t.Fatalf("expected *AmbiguousTargetError for tied PortableStep OSArch keys, got %v", err)
-	}
-	if ambig.OS != string(domain.OSLinuxAMD64) {
-		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
-	}
-	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
-		t.Errorf("tied keys = %q, %q, want linux/* and */amd64 in either order", ambig.Key1, ambig.Key2)
-	}
-}
-
-func TestSelectTarget_AmbiguousExtractStepFieldOSArch_ReturnsError(t *testing.T) {
-	extract := step.ExtractStep{
-		From: step.Overrideable[string]{Default: "./archive.tar.gz"},
-		To: step.Overrideable[string]{
-			OSArch: map[string]string{
-				"linux/*": "./by-os/",
-				"*/amd64": "./by-arch/",
-			},
-		},
-	}
-
-	targets := makeTargets(map[string]models.PrecompiledTarget{
-		"linux/*": {
-			Lifecycle: domain.TargetLifecycle{
-				Install:   step.StepList{extract},
-				Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "", true)},
-			},
-		},
-	})
-
-	_, err := v0.SelectTarget(targets, domain.OSLinuxAMD64)
-	var ambig *models.AmbiguousTargetError
-	if !errors.As(err, &ambig) {
-		t.Fatalf("expected *AmbiguousTargetError for tied ExtractStep OSArch keys, got %v", err)
-	}
-	if ambig.OS != string(domain.OSLinuxAMD64) {
-		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
-	}
-	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
-		t.Errorf("tied keys = %q, %q, want linux/* and */amd64 in either order", ambig.Key1, ambig.Key2)
+			var ambig *models.AmbiguousTargetError
+			if !errors.As(err, &ambig) {
+				t.Fatalf("expected *AmbiguousTargetError for tied OSArch keys, got %v", err)
+			}
+			if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
+				t.Errorf("tied keys = %q, %q, want linux/* and */amd64 in either order", ambig.Key1, ambig.Key2)
+			}
+		})
 	}
 }
 

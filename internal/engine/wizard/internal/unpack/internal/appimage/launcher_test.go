@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/appimage"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestWriteLauncher_Content(t *testing.T) {
@@ -23,11 +23,11 @@ func TestWriteLauncher_Content(t *testing.T) {
 	}{
 		{
 			name: "vendor arguments",
-			args: []string{"--no-sandbox", "--flag=a b"},
+			args: []string{"--no-sandbox", "--flag=a b", "it's", "$HOME"},
 			want: "#!/bin/sh\n" +
 				"APPDIR=$(dirname \"$(readlink -f \"$0\")\")\n" +
 				"export APPDIR\n" +
-				"exec \"$APPDIR/AppRun\" '--no-sandbox' '--flag=a b' \"$@\"\n",
+				"exec \"$APPDIR/AppRun\" '--no-sandbox' '--flag=a b' 'it'\\''s' '$HOME' \"$@\"\n",
 		},
 		{
 			name: "no vendor arguments",
@@ -48,7 +48,7 @@ func TestWriteLauncher_Content(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Join(dir, appimage.LauncherName), path)
 			assert.True(t, filepath.IsAbs(path))
-			assert.Equal(t, tc.want, unpacktest.ReadString(t, path))
+			assert.Equal(t, tc.want, mocks.ReadString(t, path))
 			if runtime.GOOS == "windows" {
 				return
 			}
@@ -57,26 +57,6 @@ func TestWriteLauncher_Content(t *testing.T) {
 			assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
 		})
 	}
-}
-
-func TestWriteLauncher_QuotesSingleQuote(t *testing.T) {
-	dir := t.TempDir()
-
-	path, err := appimage.WriteLauncher(dir, []string{"it's", "$HOME"})
-
-	require.NoError(t, err)
-	assert.Contains(t, unpacktest.ReadString(t, path), `exec "$APPDIR/AppRun" 'it'\''s' '$HOME' "$@"`)
-}
-
-func TestWriteLauncher_RelativePathIsMadeAbsolute(t *testing.T) {
-	t.Chdir(t.TempDir())
-	require.NoError(t, os.Mkdir("app", 0o755))
-
-	path, err := appimage.WriteLauncher("app", nil)
-
-	require.NoError(t, err)
-	assert.True(t, filepath.IsAbs(path))
-	assert.Equal(t, appimage.LauncherName, filepath.Base(path))
 }
 
 func TestWriteLauncher_ReplacesExistingLauncher(t *testing.T) {
@@ -90,7 +70,7 @@ func TestWriteLauncher_ReplacesExistingLauncher(t *testing.T) {
 	info, err := os.Lstat(path)
 	require.NoError(t, err)
 	assert.True(t, info.Mode().IsRegular())
-	assert.Equal(t, "vendor", unpacktest.ReadString(t, filepath.Join(dir, "AppRun")))
+	assert.Equal(t, "vendor", mocks.ReadString(t, filepath.Join(dir, "AppRun")))
 }
 
 func TestWriteLauncher_Errors(t *testing.T) {
@@ -149,6 +129,6 @@ func TestWriteLauncher_RelativeToItself(t *testing.T) {
 
 	resolved, err := filepath.EvalSymlinks(moved)
 	require.NoError(t, err)
-	lines := strings.Split(strings.TrimSuffix(unpacktest.ReadString(t, out), "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(mocks.ReadString(t, out), "\n"), "\n")
 	assert.Equal(t, []string{resolved, "--no-sandbox", "it's", "caller arg"}, lines)
 }

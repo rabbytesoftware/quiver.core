@@ -43,8 +43,8 @@ func (u fileURLs) pinned(
 func (u fileURLs) resolve(
 	src string,
 ) (string, bool) {
-	if isRelativeSrc(src) {
-		return cleanPath(src), true
+	if readme.IsRelativePath(src) {
+		return readme.CleanRelativePath(src), true
 	}
 	if path, ok := pathUnder(src, u.rawAny); ok {
 		return path, true

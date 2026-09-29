@@ -299,54 +299,6 @@ func TestArrowRemove_HasDependents_Blocked(t *testing.T) {
 	}
 }
 
-func TestArrowRemove_UnexposesBeforeRemoving(t *testing.T) {
-	testCases := []struct {
-		name       string
-		state      domain.ArrowState
-		dependents bool
-		wantErrIs  error
-		wantSteps  []string
-	}{
-		{name: "installed arrow is unexposed then removed", state: domain.ArrowStateReady, wantSteps: []string{"unexpose test/arrow@v1", "remove test/arrow@v1"}},
-		{name: "absent arrow still sweeps its entries", state: domain.ArrowStateAbsent, wantSteps: []string{"unexpose test/arrow@v1", "remove test/arrow@v1"}},
-		{name: "active arrow keeps its entries", state: domain.ArrowStateRunning, wantErrIs: apperrors.ErrStateViolation, wantSteps: []string{}},
-		{name: "arrow with dependents keeps its entries", state: domain.ArrowStateReady, dependents: true, wantErrIs: apperrors.ErrDependentsExist, wantSteps: []string{}},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			steps := []string{}
-			rt := &ucmocks.MockRuntime{
-				GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-					return tc.state, nil
-				},
-				UnexposeFn: func(_ context.Context, ns domain.Namespace) {
-					steps = append(steps, "unexpose "+ns.String())
-				},
-			}
-			a := &ucmocks.MockArrow{
-				RemoveFn: func(_ context.Context, ns domain.Namespace) error {
-					steps = append(steps, "remove "+ns.String())
-					return nil
-				},
-			}
-			g := &ucmocks.MockGraph{
-				HasDependentsFn: func(_ context.Context, _, _ domain.Namespace) (bool, error) {
-					return tc.dependents, nil
-				},
-			}
-
-			err := NewArrowUsecase(a, g, rt).Remove(context.Background(), "test/arrow@v1")
-
-			assert.Equal(t, tc.wantSteps, steps)
-			if tc.wantErrIs != nil {
-				require.ErrorIs(t, err, tc.wantErrIs)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
 func TestArrowList_PropagatesError(t *testing.T) {
 	expected := errors.New("list error")
 	a := &ucmocks.MockArrow{

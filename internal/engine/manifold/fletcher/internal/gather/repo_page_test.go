@@ -1,69 +1,65 @@
 package gather
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestParsePage_Goldens(t *testing.T) {
+func TestParsePage_Cases(
+	t *testing.T,
+) {
 	testCases := []struct {
 		name            string
-		file            string
+		body            string
 		pageURL         string
 		slug            string
 		wantDescription string
 		wantImage       string
 	}{
 		{
-			name:            "generated social card names the repository",
-			file:            "repo_page_ripgrep.html",
+			name: "generated social card names the repository",
+			body: `<meta property="og:image" content="https://opengraph.githubassets.com/3e15/BurntSushi/ripgrep" />` +
+				`<meta property="og:description" content="ripgrep recursively searches directories - BurntSushi/ripgrep" />`,
 			pageURL:         "https://github.com/BurntSushi/ripgrep",
 			slug:            "burntsushi/ripgrep",
-			wantDescription: "ripgrep recursively searches directories for a regex pattern while respecting your gitignore",
+			wantDescription: "ripgrep recursively searches directories",
 		},
 		{
-			name:            "custom social image",
-			file:            "repo_page_nextjs_custom_image.html",
+			name: "custom social image",
+			body: `<meta property="og:image" content="https://repository-images.githubusercontent.com/70107786/4602445c" />` +
+				`<meta property="og:description" content="The React Framework. Contribute to vercel/next.js development by creating an account on GitHub." />`,
 			pageURL:         "https://github.com/vercel/next.js",
 			slug:            "vercel/next.js",
 			wantDescription: "The React Framework.",
-			wantImage:       "https://repository-images.githubusercontent.com/70107786/4602445c-10a2-4903-a360-c96d70531f67",
+			wantImage:       "https://repository-images.githubusercontent.com/70107786/4602445c",
+		},
+		{
+			name: "content before property and first tag wins",
+			body: `<meta content="A GitLab CLI tool" property="og:description">` +
+				`<meta content="later" property="og:description">` +
+				`<meta content="/uploads/avatar/1/logo.png" property="og:image">` +
+				`<meta name="description" content="ignored">`,
+			pageURL:         "https://gitlab.com/gitlab-org/cli",
+			slug:            "gitlab-org/cli",
+			wantDescription: "A GitLab CLI tool",
+			wantImage:       "https://gitlab.com/uploads/avatar/1/logo.png",
+		},
+		{
+			name:    "no open graph",
+			body:    "<p>nothing</p>",
+			pageURL: "https://h.test/u/r",
+			slug:    "u/r",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body, err := os.ReadFile("testdata/" + tc.file)
-			require.NoError(t, err)
-
-			page := parsePage(body, tc.pageURL, tc.slug)
+			page := parsePage([]byte("<html><head>"+tc.body+"</head></html>"), tc.pageURL, tc.slug)
 
 			assert.Equal(t, tc.wantDescription, page.description)
 			assert.Equal(t, tc.wantImage, page.socialImage)
 		})
 	}
-}
-
-func TestParsePage_ContentBeforePropertyAndFirstTagWins(t *testing.T) {
-	body := `<html><head>
-		<meta content="A GitLab CLI tool" property="og:description">
-		<meta content="later" property="og:description">
-		<meta content="/uploads/avatar/1/logo.png" property="og:image">
-		<meta name="description" content="ignored">
-	</head></html>`
-
-	page := parsePage([]byte(body), "https://gitlab.com/gitlab-org/cli", "gitlab-org/cli")
-
-	assert.Equal(t, "A GitLab CLI tool", page.description)
-	assert.Equal(t, "https://gitlab.com/uploads/avatar/1/logo.png", page.socialImage)
-}
-
-func TestParsePage_NoOpenGraph(t *testing.T) {
-	page := parsePage([]byte("<html><body><p>nothing</p></body></html>"), "https://h.test/u/r", "u/r")
-
-	assert.Equal(t, repoPage{}, page)
 }
 
 func TestCleanDescription(t *testing.T) {

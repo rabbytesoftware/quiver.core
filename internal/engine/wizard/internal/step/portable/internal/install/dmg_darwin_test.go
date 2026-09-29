@@ -13,7 +13,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func buildDmg(
@@ -34,15 +34,15 @@ func buildDmg(
 func TestInstall_DmgRecordsBundles(t *testing.T) {
 	workDir := t.TempDir()
 	src := filepath.Join(t.TempDir(), "src")
-	unpacktest.WriteFile(t, filepath.Join(src, "Foo.app", "Contents", "MacOS", "foo"), []byte("bin"))
-	unpacktest.WriteFile(t, filepath.Join(src, "README.txt"), []byte("readme"))
+	mocks.WriteFile(t, filepath.Join(src, "Foo.app", "Contents", "MacOS", "foo"), []byte("bin"))
+	mocks.WriteFile(t, filepath.Join(src, "README.txt"), []byte("readme"))
 	from := filepath.Join(workDir, "Foo.dmg")
 	buildDmg(t, src, from)
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir, OSArch: "darwin/arm64"}, "Foo.dmg", "apps", "5m")
 
 	require.NoError(t, err)
-	assert.Equal(t, "bin", unpacktest.ReadString(t, filepath.Join(workDir, "apps", "Foo.app", "Contents", "MacOS", "foo")))
+	assert.Equal(t, "bin", mocks.ReadString(t, filepath.Join(workDir, "apps", "Foo.app", "Contents", "MacOS", "foo")))
 	assert.Equal(t, domain.PortableRecord{Apps: []domain.PortableApp{{
 		Name:  "Foo",
 		Entry: "apps/Foo.app",
@@ -55,11 +55,11 @@ func TestInstall_DmgDestinationIsAFile(t *testing.T) {
 	workDir := t.TempDir()
 	data := make([]byte, 1024)
 	copy(data[512:], "koly")
-	unpacktest.WriteFile(t, filepath.Join(workDir, "Foo.dmg"), data)
-	unpacktest.WriteFile(t, filepath.Join(workDir, "apps"), []byte("x"))
+	mocks.WriteFile(t, filepath.Join(workDir, "Foo.dmg"), data)
+	mocks.WriteFile(t, filepath.Join(workDir, "apps"), []byte("x"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "Foo.dmg", "apps", "")
 
 	require.Error(t, err)
-	assert.Equal(t, "x", unpacktest.ReadString(t, filepath.Join(workDir, "apps")))
+	assert.Equal(t, "x", mocks.ReadString(t, filepath.Join(workDir, "apps")))
 }

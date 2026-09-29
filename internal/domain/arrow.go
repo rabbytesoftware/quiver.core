@@ -75,6 +75,11 @@ type Arrow struct {
 	PinnedRef string `json:"pinned_ref,omitempty"`
 }
 
+// ArrowMeta carries gorm tags so read models can embed it instead of restating
+// its columns. Maintainers, Credits and Tags are ignored on purpose: they are
+// slices, which cannot be columns, so a read model that needs them normalises
+// them into a table of its own.
+//
 // There is no version here. An arrow's version is the ref its namespace names,
 // and that ref is already the key every read model, cache entry and aggregate
 // is filed under; a copy of it on the manifest could only ever disagree.

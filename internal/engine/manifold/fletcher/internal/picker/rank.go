@@ -161,7 +161,6 @@ const (
 	binaryRank
 	exeRank
 	dmgRank
-	unknownRank
 )
 
 func score(
@@ -177,29 +176,25 @@ func score(
 func formatScore(
 	format Format,
 ) int {
-	switch format {
-	case FormatArchive, FormatBinary, FormatAppImage:
-		return portableScore
-	case FormatDMG:
+	if format == FormatDMG {
 		return dmgScore
 	}
-	return 0
+	return portableScore
 }
 
 func tieRank(
 	c classification,
 ) int {
-	switch c.format {
-	case FormatArchive:
+	if c.format == FormatArchive {
 		return archiveRank
-	case FormatAppImage:
-		return appImageRank
-	case FormatBinary:
-		return binaryRankOf(c)
-	case FormatDMG:
-		return dmgRank
 	}
-	return unknownRank
+	if c.format == FormatAppImage {
+		return appImageRank
+	}
+	if c.format == FormatBinary {
+		return binaryRankOf(c)
+	}
+	return dmgRank
 }
 
 func binaryRankOf(

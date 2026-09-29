@@ -196,6 +196,27 @@ func (h host) releaseURLFor(
 	).Replace(h.releaseURL), nil
 }
 
+func tagURL(
+	template string,
+	ns domain.Namespace,
+	tag string,
+) (string, error) {
+	if template == "" {
+		return "", ErrNoRawURL
+	}
+
+	user, repo, err := repositoryOf(ns)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.NewReplacer(
+		"{user}", url.PathEscape(user),
+		"{repo}", url.PathEscape(repo),
+		"{tag}", url.PathEscape(tag),
+	).Replace(template), nil
+}
+
 // repositoryOf splits a namespace into the two segments every host addresses a
 // repository by. The ref is dropped: it names a revision, not a repository.
 func repositoryOf(

@@ -449,41 +449,28 @@ func TestHTTPFetcher_EmptyBranchList_ReturnsNotFoundWithoutRequesting(t *testing
 	}
 }
 
-func TestHTTPFetcher_Fetch_FailureOnOneCandidateIsNotMaskedByAbsence(t *testing.T) {
+func TestHTTPFetcher_Fetch_ClassifiesCandidateStatuses(t *testing.T) {
+	both := func(a, b int) map[string]int {
+		return map[string]int{"ARROW.md": a, "arrow.yaml": b}
+	}
+
 	testCases := []struct {
 		name       string
+		namespace  domain.Namespace
 		statuses   map[string]int
 		wantErr    error
-		wantPath   string
 		notWantErr error
+		wantAbsent bool
+		wantPath   string
 	}{
-		{
-			name:       "server error then not found",
-			statuses:   map[string]int{"ARROW.md": http.StatusInternalServerError, "arrow.yaml": http.StatusNotFound},
-			wantErr:    ErrFetchFailed,
-			notWantErr: ErrNotFound,
-		},
-		{
-			name:       "rate limited then not found",
-			statuses:   map[string]int{"ARROW.md": http.StatusTooManyRequests, "arrow.yaml": http.StatusNotFound},
-			wantErr:    ErrFetchFailed,
-			notWantErr: ErrNotFound,
-		},
-		{
-			name:     "not found then server error",
-			statuses: map[string]int{"ARROW.md": http.StatusNotFound, "arrow.yaml": http.StatusBadGateway},
-			wantErr:  ErrFetchFailed,
-		},
-		{
-			name:     "server error then found",
-			statuses: map[string]int{"ARROW.md": http.StatusInternalServerError, "arrow.yaml": http.StatusOK},
-			wantPath: "arrow.yaml",
-		},
-		{
-			name:     "both absent",
-			statuses: map[string]int{"ARROW.md": http.StatusNotFound, "arrow.yaml": http.StatusNotFound},
-			wantErr:  ErrNotFound,
-		},
+		{name: "server error then not found", statuses: both(http.StatusInternalServerError, http.StatusNotFound), wantErr: ErrFetchFailed, notWantErr: ErrNotFound},
+		{name: "rate limited then not found", statuses: both(http.StatusTooManyRequests, http.StatusNotFound), wantErr: ErrFetchFailed, notWantErr: ErrNotFound},
+		{name: "not found then server error", statuses: both(http.StatusNotFound, http.StatusBadGateway), wantErr: ErrFetchFailed},
+		{name: "server error then found", statuses: both(http.StatusInternalServerError, http.StatusOK), wantPath: "arrow.yaml"},
+		{name: "both absent", statuses: both(http.StatusNotFound, http.StatusNotFound), wantErr: ErrNotFound},
+		{name: "pinned both absent", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusNotFound, http.StatusNotFound), wantErr: ErrNotFound, wantAbsent: true},
+		{name: "pinned rate limited then not found", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusTooManyRequests, http.StatusNotFound), wantErr: ErrFetchFailed},
+		{name: "pinned not found then unavailable", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusNotFound, http.StatusServiceUnavailable), wantErr: ErrFetchFailed},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -492,13 +479,12 @@ func TestHTTPFetcher_Fetch_FailureOnOneCandidateIsNotMaskedByAbsence(t *testing.
 			}))
 			defer server.Close()
 			fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
+			ns := tc.namespace
+			if ns == "" {
+				ns = "example.com/user/repo"
+			}
 
-			_, path, err := fetcher.Fetch(
-				context.Background(),
-				domain.Namespace("example.com/user/repo"),
-				[]string{"ARROW.md", "arrow.yaml"},
-				5*time.Second,
-			)
+			_, path, err := fetcher.Fetch(context.Background(), ns, []string{"ARROW.md", "arrow.yaml"}, 5*time.Second)
 
 			if tc.wantErr == nil && err != nil {
 				t.Fatalf("Fetch() error = %v, want nil", err)
@@ -509,46 +495,11 @@ func TestHTTPFetcher_Fetch_FailureOnOneCandidateIsNotMaskedByAbsence(t *testing.
 			if tc.notWantErr != nil && errors.Is(err, tc.notWantErr) {
 				t.Fatalf("Fetch() error = %v, must not be %v", err, tc.notWantErr)
 			}
+			if got := errors.Is(err, ErrAbsentAtRef); got != tc.wantAbsent {
+				t.Errorf("errors.Is(err, ErrAbsentAtRef) = %v, want %v", got, tc.wantAbsent)
+			}
 			if path != tc.wantPath {
 				t.Errorf("path = %q, want %q", path, tc.wantPath)
-			}
-		})
-	}
-}
-
-func TestHTTPFetcher_Fetch_AbsentAtRefOnlyWhenPinnedAndEveryCandidate404s(t *testing.T) {
-	testCases := []struct {
-		name       string
-		namespace  domain.Namespace
-		statuses   map[string]int
-		filePaths  []string
-		wantAbsent bool
-		wantFailed bool
-	}{
-		{name: "pinned both absent", namespace: "example.com/user/repo@v1.0.0", statuses: map[string]int{"ARROW.md": http.StatusNotFound, "arrow.yaml": http.StatusNotFound}, filePaths: []string{"ARROW.md", "arrow.yaml"}, wantAbsent: true},
-		{name: "pinned one rate limited", namespace: "example.com/user/repo@v1.0.0", statuses: map[string]int{"ARROW.md": http.StatusTooManyRequests, "arrow.yaml": http.StatusNotFound}, filePaths: []string{"ARROW.md", "arrow.yaml"}, wantFailed: true},
-		{name: "pinned one server error", namespace: "example.com/user/repo@v1.0.0", statuses: map[string]int{"ARROW.md": http.StatusNotFound, "arrow.yaml": http.StatusServiceUnavailable}, filePaths: []string{"ARROW.md", "arrow.yaml"}, wantFailed: true},
-		{name: "refless both absent", namespace: "example.com/user/repo", statuses: map[string]int{"ARROW.md": http.StatusNotFound, "arrow.yaml": http.StatusNotFound}, filePaths: []string{"ARROW.md", "arrow.yaml"}},
-		{name: "pinned no candidates", namespace: "example.com/user/repo@v1.0.0", statuses: map[string]int{}},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tc.statuses[r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]])
-			}))
-			defer server.Close()
-			fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
-
-			_, _, err := fetcher.Fetch(context.Background(), tc.namespace, tc.filePaths, 5*time.Second)
-
-			if err == nil {
-				t.Fatal("Fetch() error = nil, want an error")
-			}
-			if got := errors.Is(err, ErrAbsentAtRef); got != tc.wantAbsent {
-				t.Errorf("errors.Is(err, ErrAbsentAtRef) = %v, want %v (err = %v)", got, tc.wantAbsent, err)
-			}
-			if got := errors.Is(err, ErrFetchFailed); got != tc.wantFailed {
-				t.Errorf("errors.Is(err, ErrFetchFailed) = %v, want %v (err = %v)", got, tc.wantFailed, err)
 			}
 		})
 	}

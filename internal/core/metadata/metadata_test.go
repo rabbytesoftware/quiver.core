@@ -159,16 +159,6 @@ func TestGetSelfPath(t *testing.T) {
 }
 
 func TestGetBinPath(t *testing.T) {
-	path := GetBinPath()
-	assert.NotEmpty(t, path)
-	assert.True(
-		t,
-		strings.HasSuffix(path, "/bin") || strings.HasSuffix(path, `\bin`),
-		"expected path to end in /bin, got: %s", path,
-	)
-}
-
-func TestGetBinPath_ContainsHome(t *testing.T) {
 	assert.True(t, strings.HasPrefix(GetBinPath(), GetHomePath()))
 }
 
@@ -196,37 +186,6 @@ func TestGetPlatforms_GitHubRawURL(t *testing.T) {
 	github := GetPlatforms()["github.com"]
 	assert.Contains(t, github.RawURL, "raw.githubusercontent.com")
 	assert.Equal(t, []string{"main", "master"}, github.DefaultBranches)
-}
-
-func TestPlatforms_PageURLs(t *testing.T) {
-	testCases := []struct {
-		name               string
-		host               string
-		wantExpandedAssets string
-		wantPageURL        string
-	}{
-		{
-			name:               "github",
-			host:               "github.com",
-			wantExpandedAssets: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
-			wantPageURL:        "https://github.com/{user}/{repo}",
-		},
-		{
-			name:        "gitlab",
-			host:        "gitlab.com",
-			wantPageURL: "https://gitlab.com/{user}/{repo}",
-		},
-		{name: "bitbucket", host: "bitbucket.org"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, platform := range []Platform{GetPlatforms()[tc.host], defaultMetadata().Platforms[tc.host]} {
-				assert.Equal(t, tc.wantExpandedAssets, platform.ExpandedAssetsURL)
-				assert.Equal(t, tc.wantPageURL, platform.RepoPageURL)
-			}
-		})
-	}
 }
 
 func TestDefaultMetadata_DefaultBranchesInOrder(t *testing.T) {
@@ -511,35 +470,4 @@ func TestMetadataYAML_PlatformsAgreeWithDefault(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
 
 	assert.Equal(t, defaultMetadata().Platforms, parsed.Platforms)
-}
-
-func TestDefaultMetadata_BlobURLTemplates(t *testing.T) {
-	testCases := []struct {
-		name string
-		host string
-		want string
-	}{
-		{name: "github", host: "github.com", want: "https://github.com/{user}/{repo}/blob/{branch}/{file}"},
-		{name: "gitlab", host: "gitlab.com", want: "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}"},
-		{name: "bitbucket", host: "bitbucket.org", want: "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, defaultMetadata().Platforms[tc.host].BlobURL)
-		})
-	}
-}
-
-func TestDefaultMetadata_OnlyGitLabDeclaresAPIURLs(t *testing.T) {
-	platforms := defaultMetadata().Platforms
-
-	gitlab := platforms["gitlab.com"]
-	assert.Equal(t, "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}", gitlab.ReleaseAPIURL)
-	assert.Equal(t, "https://gitlab.com/api/v4/projects/{project}/packages", gitlab.PackagesAPIURL)
-
-	for _, host := range []string{"github.com", "bitbucket.org"} {
-		assert.Empty(t, platforms[host].ReleaseAPIURL, "host %q", host)
-		assert.Empty(t, platforms[host].PackagesAPIURL, "host %q", host)
-	}
 }

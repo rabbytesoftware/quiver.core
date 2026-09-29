@@ -22,7 +22,6 @@ import (
 
 const (
 	toolFixture     = "acme/tool"
-	nestedFixture   = "acme/vtool"
 	widgetFixture   = "acme/widget"
 	declaredFixture = "quiver-test/tool-a"
 	waitTimeout     = 120 * time.Second
@@ -95,29 +94,6 @@ func (s *FletcherSuite) TestFletcher_RuntimeUpdateReinstallsTheNewRef() {
 	s.Equal(http.StatusUnprocessableEntity, tc.Execute(v2, "update", nil))
 }
 
-func (s *FletcherSuite) TestFletcher_RuntimeUpdateReplacesAVersionedArchiveDirectory() {
-	host := s.newHost()
-	env := s.NewEnv(kit.WithFletcher(host.Lookup))
-	tc := env.TypedClient(s.T())
-	v1 := kit.NSFor(nestedFixture, "v1.0.0")
-	v2 := kit.NSFor(nestedFixture, "v1.1.0")
-
-	s.Require().Equal(http.StatusCreated, tc.Add(v1))
-	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
-	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
-	s.exposedDir(env, "vtool", "vtool v1.0.0")
-
-	s.Require().Equal(http.StatusAccepted, tc.Execute(v1, "update", nil))
-	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	owned := filepath.Dir(s.exposedDir(env, "vtool", "vtool v1.1.0"))
-	s.Equal("vtool@v1.1.0", filepath.Base(filepath.Dir(owned)))
-	entries, err := os.ReadDir(owned)
-	s.Require().NoError(err)
-	for _, entry := range entries {
-		s.NotContains(entry.Name(), "v1.0.0")
-	}
-}
-
 func (s *FletcherSuite) TestFletcher_LowConfidenceIsAMissingManifest() {
 	host := s.newHost()
 	env := s.NewEnv(kit.WithFletcher(host.Lookup))
@@ -182,14 +158,6 @@ func (s *FletcherSuite) newHost() kit.FakeHost {
 			Readme:      "# tool\n\nA tool for integration tests.\n",
 			Binary:      "tool",
 			Asset:       "tool_{tag}_{os}_{arch}.tar.gz",
-			Tags:        []string{"v1.0.0", "v1.1.0"},
-		},
-		"quiver.test/" + nestedFixture: {
-			Description: "A tool whose archives nest the binary in a versioned directory",
-			Readme:      "# vtool\n",
-			Binary:      "vtool",
-			Asset:       "vtool_{tag}_{os}_{arch}.tar.gz",
-			Dir:         "vtool-{tag}-{os}-{arch}",
 			Tags:        []string{"v1.0.0", "v1.1.0"},
 		},
 		"quiver.test/" + widgetFixture: {

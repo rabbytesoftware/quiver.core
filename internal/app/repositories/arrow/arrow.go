@@ -116,10 +116,6 @@ type Arrow interface {
 		ns domain.Namespace,
 		at time.Time,
 	) error
-	WorkDir(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
 	// SetChannel changes which release channel ns tracks. ref, when
 	// non-empty, pins ns to that exact ref within channel rather than the
 	// channel's own latest; empty clears any previously pinned ref.
@@ -876,13 +872,6 @@ func (s *arrowService) MarkLastUsed(
 		LastUsedAt: at,
 	})
 	return err
-}
-
-func (s *arrowService) WorkDir(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	return s.vault.WorkDir(ctx, ns)
 }
 
 // SetChannel stays on Send for the same reason MarkInstalled does: it needs

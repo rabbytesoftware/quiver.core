@@ -3,6 +3,10 @@ package arrow
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
@@ -243,47 +247,6 @@ func TestVariableRefsRule_FetchStep_ToUnresolvedVar(t *testing.T) {
 	}
 }
 
-func TestVariableRefsRule_ExtractStep_FromUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewExtractStep("extract", "${UNKNOWN_ARCHIVE}/file.tar.gz", "./", "10s", true),
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for unresolved var in extract step from field, got none")
-	}
-	if errs[0].Rule != "unresolved_variable" {
-		t.Fatalf("expected rule %q, got %q", "unresolved_variable", errs[0].Rule)
-	}
-}
-
-func TestVariableRefsRule_ExtractStep_ToUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewExtractStep("extract", "./file.tar.gz", "${UNKNOWN_DEST}/", "10s", true),
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for unresolved var in extract step to field, got none")
-	}
-}
-
 func TestVariableRefsRule_MethodStep_UnresolvedVar(t *testing.T) {
 	rule := VariableRefsRule{}
 	m := &domain.Arrow{
@@ -372,103 +335,6 @@ func TestVariableRefsRule_FetchStep_OSArchVariantUnresolvedVar(t *testing.T) {
 	errs := rule.Validate(manifest)
 	if len(errs) == 0 {
 		t.Fatal("expected error for unknown variable in FetchStep URL OSArch variant, got none")
-	}
-}
-
-func TestVariableRefsRule_ExtractStep_OSArchVariantUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	manifest := &domain.Arrow{
-		ArrowMeta: domain.ArrowMeta{Name: "test"},
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.ExtractStep{
-							BasicStep: step.BasicStep{},
-							From: step.Overrideable[string]{
-								Default: "./default.tar.gz",
-								OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}.tar.gz"},
-							},
-							To:      step.Overrideable[string]{Default: "./"},
-							Timeout: step.Overrideable[string]{Default: "30s"},
-						},
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(manifest)
-	if len(errs) == 0 {
-		t.Fatal("expected error for unknown variable in ExtractStep From OSArch variant, got none")
-	}
-}
-
-func TestVariableRefsRule_PortableStep_FromUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewPortableStep("portable", "${UNKNOWN_ARCHIVE}/app.AppImage", "./", "10s", true),
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for unresolved var in portable step from field, got none")
-	}
-	if errs[0].Rule != "unresolved_variable" {
-		t.Fatalf("expected rule %q, got %q", "unresolved_variable", errs[0].Rule)
-	}
-}
-
-func TestVariableRefsRule_PortableStep_ToUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewPortableStep("portable", "./app.AppImage", "${UNKNOWN_DEST}/", "10s", true),
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for unresolved var in portable step to field, got none")
-	}
-}
-
-func TestVariableRefsRule_PortableStep_OSArchVariantUnresolvedVar(t *testing.T) {
-	rule := VariableRefsRule{}
-	manifest := &domain.Arrow{
-		ArrowMeta: domain.ArrowMeta{Name: "test"},
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.PortableStep{
-							BasicStep: step.BasicStep{},
-							From: step.Overrideable[string]{
-								Default: "./default.AppImage",
-								OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}.AppImage"},
-							},
-							To:      step.Overrideable[string]{Default: "./"},
-							Timeout: step.Overrideable[string]{Default: "30s"},
-						},
-					},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(manifest)
-	if len(errs) == 0 {
-		t.Fatal("expected error for unknown variable in PortableStep From OSArch variant, got none")
 	}
 }
 
@@ -663,5 +529,52 @@ func TestVariableRefsRule_OSArchVariantKnownVar(t *testing.T) {
 	errs := rule.Validate(manifest)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for known variable in OSArch variant, got: %v", errs)
+	}
+}
+
+func TestVariableRefsRule_Validate_FromToSteps(t *testing.T) {
+	testCases := []struct {
+		name string
+		from step.Overrideable[string]
+		to   step.Overrideable[string]
+	}{
+		{
+			name: "from",
+			from: step.Overrideable[string]{Default: "${UNKNOWN_ARCHIVE}/file"},
+			to:   step.Overrideable[string]{Default: "./"},
+		},
+		{
+			name: "to",
+			from: step.Overrideable[string]{Default: "./file"},
+			to:   step.Overrideable[string]{Default: "${UNKNOWN_DEST}/"},
+		},
+		{
+			name: "from os variant",
+			from: step.Overrideable[string]{
+				Default: "./file",
+				OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}"},
+			},
+			to: step.Overrideable[string]{Default: "./"},
+		},
+	}
+
+	for _, kind := range fromToKinds() {
+		for _, tc := range testCases {
+			t.Run(kind+" "+tc.name, func(t *testing.T) {
+				built := fromToStep(kind, tc.from, tc.to, step.Overrideable[string]{Default: "30s"})
+				m := &domain.Arrow{
+					Targets: map[domain.OS]domain.Target{
+						domain.OSLinuxAMD64: {
+							Lifecycle: domain.TargetLifecycle{Install: step.StepList{built}},
+						},
+					},
+				}
+
+				errs := VariableRefsRule{}.Validate(m)
+
+				require.NotEmpty(t, errs)
+				assert.Equal(t, "unresolved_variable", errs[0].Rule)
+			})
+		}
 	}
 }

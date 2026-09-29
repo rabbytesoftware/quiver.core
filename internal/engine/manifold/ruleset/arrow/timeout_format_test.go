@@ -3,6 +3,8 @@ package arrow
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 )
@@ -164,86 +166,6 @@ func TestTimeoutFormatRule_FetchStep_InvalidTimeout(t *testing.T) {
 	}
 }
 
-func TestTimeoutFormatRule_ExtractStep_ValidTimeout(t *testing.T) {
-	rule := TimeoutFormatRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewExtractStep("extract", "./file.tar.gz", "./", "1m", true),
-					},
-					Uninstall: step.StepList{},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors for valid ExtractStep timeout, got: %v", errs)
-	}
-}
-
-func TestTimeoutFormatRule_ExtractStep_InvalidTimeout(t *testing.T) {
-	rule := TimeoutFormatRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewExtractStep("extract", "./file.tar.gz", "./", "invalid", true),
-					},
-					Uninstall: step.StepList{},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for invalid ExtractStep timeout")
-	}
-}
-
-func TestTimeoutFormatRule_PortableStep_ValidTimeout(t *testing.T) {
-	rule := TimeoutFormatRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewPortableStep("portable", "./app.AppImage", "./", "1m", true),
-					},
-					Uninstall: step.StepList{},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors for valid PortableStep timeout, got: %v", errs)
-	}
-}
-
-func TestTimeoutFormatRule_PortableStep_InvalidTimeout(t *testing.T) {
-	rule := TimeoutFormatRule{}
-	m := &domain.Arrow{
-		Targets: map[domain.OS]domain.Target{
-			domain.OSLinuxAMD64: {
-				Lifecycle: domain.TargetLifecycle{
-					Install: step.StepList{
-						step.NewPortableStep("portable", "./app.AppImage", "./", "invalid", true),
-					},
-					Uninstall: step.StepList{},
-				},
-			},
-		},
-	}
-	errs := rule.Validate(m)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for invalid PortableStep timeout")
-	}
-}
-
 func TestTimeoutFormatRule_SignalStep_ValidTimeout(t *testing.T) {
 	rule := TimeoutFormatRule{}
 	m := &domain.Arrow{
@@ -331,5 +253,42 @@ func TestTimeoutFormatRule_Preinstalled_InvalidTimeout(t *testing.T) {
 	}
 	if errs[0].Rule != "invalid_timeout" {
 		t.Fatalf("expected rule %q, got %q", "invalid_timeout", errs[0].Rule)
+	}
+}
+
+func TestTimeoutFormatRule_Validate_FromToSteps(t *testing.T) {
+	testCases := []struct {
+		timeout string
+		wantErr bool
+	}{
+		{timeout: "1m"},
+		{timeout: "invalid", wantErr: true},
+	}
+
+	for _, kind := range fromToKinds() {
+		for _, tc := range testCases {
+			t.Run(kind+" "+tc.timeout, func(t *testing.T) {
+				built := fromToStep(
+					kind,
+					step.Overrideable[string]{Default: "./file"},
+					step.Overrideable[string]{Default: "./"},
+					step.Overrideable[string]{Default: tc.timeout},
+				)
+				m := &domain.Arrow{
+					Targets: map[domain.OS]domain.Target{
+						domain.OSLinuxAMD64: {
+							Lifecycle: domain.TargetLifecycle{
+								Install:   step.StepList{built},
+								Uninstall: step.StepList{},
+							},
+						},
+					},
+				}
+
+				errs := TimeoutFormatRule{}.Validate(m)
+
+				assert.Equal(t, tc.wantErr, len(errs) > 0)
+			})
+		}
 	}
 }

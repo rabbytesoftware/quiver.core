@@ -17,7 +17,7 @@ func ProbeIcon(
 	ref string,
 ) string {
 	urls := fileURLsOf(host, ns, ref)
-	paths := IconProbePaths()
+	paths := iconProbePaths()
 	accepted := make([]string, len(paths))
 
 	var wg sync.WaitGroup
@@ -45,7 +45,7 @@ func ProbeIcon(
 	return ""
 }
 
-func IconProbePaths() []string {
+func iconProbePaths() []string {
 	return []string{
 		"src-tauri/icons/icon.png",
 		"build/icon.png",
@@ -59,27 +59,14 @@ func isSVGPath(
 	return strings.HasSuffix(strings.ToLower(path), ".svg")
 }
 
-func isRejectedIconPath(
-	path string,
-) bool {
-	lower := strings.ToLower(path)
-	if strings.HasSuffix(lower, ".ico") || strings.HasSuffix(lower, ".icns") {
-		return true
-	}
-	return strings.Contains(lower, "favicon")
-}
-
 func acceptProbedIcon(
 	path string,
 	data []byte,
 ) bool {
-	if isRejectedIconPath(path) {
-		return false
-	}
 	if isSVGPath(path) {
 		return true
 	}
-	dim, ok := Sniff(data)
+	dim, ok := sniff(data)
 	if !ok {
 		return false
 	}

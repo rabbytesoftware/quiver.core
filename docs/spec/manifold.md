@@ -265,7 +265,7 @@ body over the cap is `resolver.ErrFetchFailed`.
 
 The forged target installs every format, bare binaries included, with `fetch` (checksum-pinned)
 plus `portable`. `fetch` always saves the asset as `${INSTALL_PATH}/.<name>.download` (the
-expose name, hidden at the workdir root so its parent always exists and shelf's scan skips it;
+expose name, hidden at the workdir root so its parent always exists and the wizard's expose scan skips it;
 `portable` detects the format from content, not the extension), and `portable` installs it into
 `${INSTALL_PATH}/<name>`, a directory it owns and replaces on every run (see
 [manifests/v0/arrow.md §8.5](./manifests/v0/arrow.md#portable--portable-app)), with

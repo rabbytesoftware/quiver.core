@@ -94,14 +94,39 @@ func TestGitHub_ReleaseAssets_EscapesTheTagInTheURL(t *testing.T) {
 	}
 }
 
-func TestGitHub_ReleaseAssets_TransportFailure_ReturnsError(t *testing.T) {
-	doer := &routedDoer{failures: map[string]error{
-		"https://github.com/u/r/releases/expanded_assets/v1": errors.New("dial tcp: connection refused"),
-	}}
-	provider := NewGitHub(githubReleaseConfig(doer))
+func TestGitHub_ReleaseAssets_Responses(t *testing.T) {
+	const page = "https://github.com/u/r/releases/expanded_assets/v1"
 
-	_, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
-	require.Error(t, err)
+	testCases := []struct {
+		name    string
+		doer    *routedDoer
+		wantErr bool
+	}{
+		{name: "not found is no assets", doer: &routedDoer{}},
+		{
+			name: "server error",
+			doer: &routedDoer{responses: map[string]fns.Response{
+				page: {Status: http.StatusInternalServerError, Headers: http.Header{}},
+			}},
+			wantErr: true,
+		},
+		{
+			name:    "transport failure",
+			doer:    &routedDoer{failures: map[string]error{page: errors.New("dial tcp: connection refused")}},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := NewGitHub(githubReleaseConfig(tc.doer))
+
+			assets, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
+
+			assert.Equal(t, tc.wantErr, err != nil)
+			assert.Empty(t, assets)
+		})
+	}
 }
 
 func TestGitHub_ReleaseAssets_InvalidNamespace_ReturnsError(t *testing.T) {
@@ -116,24 +141,6 @@ func TestGitHub_ReleaseAssets_NoExpandedAssetsURLConfigured_ReturnsErrNoRawURL(t
 
 	_, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
 	assert.ErrorIs(t, err, ErrNoRawURL)
-}
-
-func TestGitHub_ReleaseAssets_404_ReturnsNoAssets(t *testing.T) {
-	provider := NewGitHub(githubReleaseConfig(&routedDoer{}))
-
-	assets, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "missing")
-	require.NoError(t, err)
-	assert.Empty(t, assets)
-}
-
-func TestGitHub_ReleaseAssets_ServerError_ReturnsAGenericError(t *testing.T) {
-	doer := &routedDoer{responses: map[string]fns.Response{
-		"https://github.com/u/r/releases/expanded_assets/v1": {Status: http.StatusInternalServerError, Headers: http.Header{}},
-	}}
-	provider := NewGitHub(githubReleaseConfig(doer))
-
-	_, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
-	require.Error(t, err)
 }
 
 func TestGitHub_ReleaseAssets_GoldenFragment_ParsesAssets(t *testing.T) {
@@ -156,10 +163,4 @@ func TestGitHub_ReleaseAssets_MalformedFragment_ReturnsErrUnexpectedPage(t *test
 
 	_, err := provider.ReleaseAssets(context.Background(), domain.Namespace("github.com/u/r"), "v1")
 	assert.ErrorIs(t, err, ErrUnexpectedPage)
-}
-
-func TestGitHub_RepoPageURL_FillsTheTemplate(t *testing.T) {
-	p := NewGitHub(githubReleaseConfig(&routedDoer{}))
-
-	assert.Equal(t, "https://github.com/u/r", p.RepoPageURL(domain.Namespace("github.com/u/r@v1")))
 }

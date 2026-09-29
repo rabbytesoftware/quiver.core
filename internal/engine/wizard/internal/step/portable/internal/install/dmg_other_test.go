@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestInstall_DmgUnsupportedOffDarwin(t *testing.T) {
 	workDir := t.TempDir()
 	data := make([]byte, 1024)
 	copy(data[512:], "koly")
-	from := unpacktest.WriteFile(t, filepath.Join(workDir, "Foo.dmg"), data)
+	from := mocks.WriteFile(t, filepath.Join(workDir, "Foo.dmg"), data)
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir, OSArch: "darwin/arm64"}, "Foo.dmg", ".", "")
 

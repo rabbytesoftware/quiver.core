@@ -688,8 +688,9 @@ defines an `exports:` section.
 ### 7.4 `expose:` — CLI and desktop registration
 
 `expose:` declares CLI commands and desktop entries this Arrow wants registered on the host
-system. Quiver — not this Arrow — applies and removes these registrations (`engine/shelf`,
-outside the scope of this document); the manifest only declares intent.
+system. Quiver — not this Arrow — applies and removes these registrations (the wizard, as the
+last steps of `_install`/`_update` and the first of `_uninstall`; outside the scope of this
+document); the manifest only declares intent.
 
 ```yaml
 targets:
@@ -770,12 +771,12 @@ Per-OS meaning:
 because it cannot tell declared bytes from synthesized ones; hand-written manifests should
 spell the path out.
 
-**When it happens.** Quiver applies the entries after a successful `install` or `update` and
-removes them after a successful `uninstall`. An update re-points existing entries at the new
-workdir in one swap; a failed update leaves the previous entries in place. What was applied
-and what was refused (with a reason such as `owned by <ns>`, `exists and is not managed by
-quiver`, `ambiguous auto resolution`) is reported on the execution's return value as
-`exposed`.
+**When it happens.** Quiver applies the entries as the last steps of `install` and `update`
+and removes them with the first step of `uninstall`. An update replaces the previous ref's
+entries of the same name in one pass; a run that fails before its expose steps leaves the
+previous entries in place. Each entry is reported as an ordinary step result of the run,
+`completed` when placed, `failed` when refused (with a reason such as `owned by <ns>`, `exists
+and is not managed by quiver`, `ambiguous auto resolution`); a refusal never fails the run.
 
 Both lists follow the same glob-target inheritance as every other target field (§5.2): a
 child target's `cli`/`desktop` list replaces the parent's when declared (even as `[]`); when
@@ -850,12 +851,8 @@ installation directory, preserving user data and runtime artifacts. If the curre
 target omits `update:`, `quiver update` updates by reinstall instead: it resolves the ref the
 arrow tracks (the recommended ref when a version check already found one, else the installed
 constraint, a pinned ref, or the latest ref of its channel), moves the catalog row onto it and
-runs that ref's `install:`. The old ref's workdir moves to the new ref first, so a declared
-arrow's `install:` runs on top of whatever the old ref left in `${INSTALL_PATH}` (user data
-survives, except inside a `portable` step's owned `to`, which the reinstall replaces, §8.5;
-stale files survive too). A synthesized arrow (§3.2) installs through `portable` into a
-directory it owns (§8.5), which the reinstall replaces, so nothing of the old release lingers.
-An arrow already at that ref is refused with
+runs that ref's `install:` in the new ref's own workdir. The old ref's row is removed, and its
+workdir with it, without running its `uninstall:`. An arrow already at that ref is refused with
 `cannot update: arrow is up to date`, unless it is `outdated` (its dependency set changed), in
 which case the update only syncs its dependencies. A reinstall takes no variables (refused with
 `cannot update with variables`), and a target ref that is already catalogued is refused as
@@ -1022,7 +1019,7 @@ For an AppImage, `portable` reads the AppDir's root `.desktop` file for a displa
 (`Name=`), a launch command (`Exec=`, desktop-entry-quoted, vendor arguments preserved), and an
 icon (`Icon=`, resolved against the standard hicolor/`.DirIcon` search order), then writes
 `<AppDir>/.quiver-run` — a small, relocatable launcher script that sets `APPDIR` and execs
-`AppRun` with the vendor arguments, so it keeps working after a workdir move (`RenameArrow`).
+`AppRun` with the vendor arguments, so it keeps working wherever the AppDir is moved.
 
 `portable` records what it learned in `${WORKDIR}/.quiver-apps.json` (`domain.PortableRecord`,
 `domain.PortableRecordFile`): an AppImage yields one app whose `entry` is the launcher; a DMG,

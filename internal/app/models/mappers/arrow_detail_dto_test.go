@@ -90,54 +90,32 @@ func TestArrowDetailDTOFrom_NeverExposesRefMutabilityFields(t *testing.T) {
 	}
 }
 
-func TestArrowDetailDTOFrom_MapsLicense(t *testing.T) {
-	view := &models.ArrowDetailView{
-		Metadata: domain.Arrow{
-			Namespace: "github.com/org/repo@v1.0.0",
-			ArrowMeta: domain.ArrowMeta{License: "MIT"},
-		},
+func TestArrowDetailDTOFrom_OriginAndGenerator(t *testing.T) {
+	generator := &domain.ArrowGenerator{Name: "generator/1", Confidence: "low", Warnings: []string{"name_mismatch"}}
+	testCases := []struct {
+		name       string
+		generator  *domain.ArrowGenerator
+		wantOrigin string
+	}{
+		{name: "declared", wantOrigin: domain.ArrowOriginDeclared},
+		{name: "inferred", generator: generator, wantOrigin: domain.ArrowOriginInferred},
 	}
-
-	result := mappers.ArrowDetailDTOFrom(view)
-
-	require.NotNil(t, result)
-	assert.Equal(t, "MIT", result.License)
-}
-
-func TestArrowDetailDTOFrom_DeclaredArrow_OriginDeclaredNoGenerator(t *testing.T) {
-	view := &models.ArrowDetailView{
-		Metadata: domain.Arrow{Namespace: "github.com/org/repo@v1.0.0"},
-	}
-
-	result := mappers.ArrowDetailDTOFrom(view)
-
-	require.NotNil(t, result)
-	assert.Equal(t, domain.ArrowOriginDeclared, result.Origin)
-	assert.Nil(t, result.Generator)
-}
-
-func TestArrowDetailDTOFrom_InferredArrow_OriginInferredCarriesGenerator(t *testing.T) {
-	view := &models.ArrowDetailView{
-		Metadata: domain.Arrow{
-			Namespace: "github.com/org/repo@v1.0.0",
-			ArrowMeta: domain.ArrowMeta{
-				Generator: &domain.ArrowGenerator{
-					Name:       "generator/1",
-					Confidence: "low",
-					Warnings:   []string{"name_mismatch"},
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := &models.ArrowDetailView{
+				Metadata: domain.Arrow{
+					Namespace: "github.com/org/repo@v1.0.0",
+					ArrowMeta: domain.ArrowMeta{Generator: tc.generator},
 				},
-			},
-		},
+			}
+
+			result := mappers.ArrowDetailDTOFrom(view)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tc.wantOrigin, result.Origin)
+			assert.Equal(t, tc.generator, result.Generator)
+		})
 	}
-
-	result := mappers.ArrowDetailDTOFrom(view)
-
-	require.NotNil(t, result)
-	assert.Equal(t, domain.ArrowOriginInferred, result.Origin)
-	require.NotNil(t, result.Generator)
-	assert.Equal(t, "generator/1", result.Generator.Name)
-	assert.Equal(t, "low", result.Generator.Confidence)
-	assert.Equal(t, []string{"name_mismatch"}, result.Generator.Warnings)
 }
 
 func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {

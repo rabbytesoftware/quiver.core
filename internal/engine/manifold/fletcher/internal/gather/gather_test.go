@@ -71,11 +71,11 @@ func TestDrafter_Draft_FetchesPageReadmeAndIconsConcurrently(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), deadlockGuard)
 	defer cancel()
 
-	draft, err := newDrafter(t, host, picker.New()).Draft(ctx, testNS, testTag)
+	manifest, err := newDrafter(t, host, picker.New()).Draft(ctx, testNS, testTag)
 
 	require.NoError(t, err)
 	require.NoError(t, <-meet.pageSaw)
-	assert.Contains(t, parse(t, draft.Manifest).Readme, "Fast.")
+	assert.Contains(t, parse(t, manifest).Readme, "Fast.")
 }
 
 func TestDrafter_Draft_AssetFailureCancelsTheOtherFetches(t *testing.T) {

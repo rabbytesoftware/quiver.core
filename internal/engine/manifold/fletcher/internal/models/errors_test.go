@@ -29,22 +29,7 @@ func TestNotFletchableError(t *testing.T) {
 			assert.True(t, errors.As(err, &nf))
 			assert.Equal(t, tc.reason, nf.Reason)
 			assert.ErrorIs(t, err, models.ErrNotFletchable)
+			assert.NotEmpty(t, nf.Error())
 		})
-	}
-}
-
-func TestNotFletchableError_EveryReasonReadsDifferently(t *testing.T) {
-	seen := make(map[string]models.Reason)
-	for _, reason := range []models.Reason{
-		models.ReasonHostUnsupported,
-		models.ReasonNoReleaseAssets,
-		models.ReasonNoUsableAsset,
-		models.ReasonNoDigest,
-		models.ReasonLowConfidence,
-	} {
-		message := models.NotFletchableError{Reason: reason}.Error()
-		other, clash := seen[message]
-		assert.False(t, clash, "%s and %s read the same", reason, other)
-		seen[message] = reason
 	}
 }

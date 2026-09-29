@@ -10,18 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestArchive_Extract_KeepsLinksResolvingInside(t *testing.T) {
 	testCases := []struct {
 		name    string
-		entries []unpacktest.TarEntry
+		entries []mocks.TarEntry
 		check   string
 	}{
 		{
 			name: "chain through directories and links",
-			entries: []unpacktest.TarEntry{
+			entries: []mocks.TarEntry{
 				{Name: "a/b/c/", Mode: 0o755, Flag: tar.TypeDir},
 				{Name: "a/b/c/l", Mode: 0o777, Flag: tar.TypeSymlink, Link: "../../.."},
 				{Name: "hello.txt", Body: "hello\n", Mode: 0o644, Flag: tar.TypeReg},
@@ -31,7 +31,7 @@ func TestArchive_Extract_KeepsLinksResolvingInside(t *testing.T) {
 		},
 		{
 			name: "dangling through a dangling link",
-			entries: []unpacktest.TarEntry{
+			entries: []mocks.TarEntry{
 				{Name: "l", Mode: 0o777, Flag: tar.TypeSymlink, Link: "missing/deeper"},
 				{Name: "y", Mode: 0o777, Flag: tar.TypeSymlink, Link: "l/../z"},
 			},
@@ -39,7 +39,7 @@ func TestArchive_Extract_KeepsLinksResolvingInside(t *testing.T) {
 		},
 		{
 			name: "link replaced by a file",
-			entries: []unpacktest.TarEntry{
+			entries: []mocks.TarEntry{
 				{Name: "x", Mode: 0o777, Flag: tar.TypeSymlink, Link: "hello.txt"},
 				{Name: "x", Body: "file", Mode: 0o644, Flag: tar.TypeReg},
 			},
@@ -50,10 +50,10 @@ func TestArchive_Extract_KeepsLinksResolvingInside(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, "a.tar", unpacktest.TarBytes(t, tc.entries...))
+			from := mocks.WriteFile(t, filepath.Join(dir, "a.tar"), mocks.TarBytes(t, tc.entries...))
 			to := filepath.Join(dir, "out")
 
-			require.NoError(t, runUnpack(t, unpacktest.TestMaxBytes, from, to, 0))
+			require.NoError(t, runUnpack(t, mocks.TestMaxBytes, from, to, 0))
 
 			_, err := os.Lstat(filepath.Join(to, tc.check))
 			assert.NoError(t, err)
@@ -68,11 +68,11 @@ func TestArchive_Extract_RejectsLinkThroughPreexistingAbsoluteSymlink(t *testing
 	to := filepath.Join(dir, "out")
 	require.NoError(t, os.MkdirAll(to, 0o755))
 	require.NoError(t, os.Symlink(outside, filepath.Join(to, "ext")))
-	from := unpacktest.WriteArchive(t, dir, "a.tar", unpacktest.TarBytes(t,
-		unpacktest.TarEntry{Name: "x", Mode: 0o777, Flag: tar.TypeSymlink, Link: "ext/secret"},
+	from := mocks.WriteFile(t, filepath.Join(dir, "a.tar"), mocks.TarBytes(t,
+		mocks.TarEntry{Name: "x", Mode: 0o777, Flag: tar.TypeSymlink, Link: "ext/secret"},
 	))
 
-	err := runUnpack(t, unpacktest.TestMaxBytes, from, to, 0)
+	err := runUnpack(t, mocks.TestMaxBytes, from, to, 0)
 
 	require.ErrorIs(t, err, models.ErrEscape)
 	_, statErr := os.Lstat(filepath.Join(to, "x"))

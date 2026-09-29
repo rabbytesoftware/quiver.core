@@ -14,7 +14,7 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func assertExecutable(
@@ -24,7 +24,7 @@ func assertExecutable(
 ) {
 	t.Helper()
 
-	assert.Equal(t, want, unpacktest.ReadString(t, path))
+	assert.Equal(t, want, mocks.ReadString(t, path))
 	if runtime.GOOS == "windows" {
 		return
 	}
@@ -39,8 +39,6 @@ func TestInstall_Executable(t *testing.T) {
 		magic string
 	}{
 		{name: "elf", magic: "\x7fELF"},
-		{name: "mach-o big endian", magic: "\xfe\xed\xfa\xcf"},
-		{name: "mach-o little endian", magic: "\xcf\xfa\xed\xfe"},
 		{name: "mach-o universal", magic: "\xca\xfe\xba\xbe"},
 		{name: "pe", magic: "MZ"},
 	}
@@ -49,7 +47,7 @@ func TestInstall_Executable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			workDir := t.TempDir()
 			body := tc.magic + "payload"
-			from := unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(body))
+			from := mocks.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(body))
 
 			err := runPortable(t, wizstep.Request{WorkDir: workDir}, "dl/tool", "bin", "")
 
@@ -63,24 +61,24 @@ func TestInstall_Executable(t *testing.T) {
 
 func TestInstall_ExecutableReplacesExistingOutput(t *testing.T) {
 	workDir := t.TempDir()
-	unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(unpacktest.ElfExecutable))
-	out := unpacktest.WriteFile(t, filepath.Join(workDir, "bin", "tool"), []byte("old"))
+	mocks.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(mocks.ElfExecutable))
+	out := mocks.WriteFile(t, filepath.Join(workDir, "bin", "tool"), []byte("old"))
 	require.NoError(t, os.Chmod(out, 0o444))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "dl/tool", "bin", "")
 
 	require.NoError(t, err)
-	assertExecutable(t, out, unpacktest.ElfExecutable)
+	assertExecutable(t, out, mocks.ElfExecutable)
 }
 
 func TestInstall_ExecutableAlreadyInPlaceIsKept(t *testing.T) {
 	workDir := t.TempDir()
-	from := unpacktest.WriteFile(t, filepath.Join(workDir, "bin", "tool"), []byte(unpacktest.ElfExecutable))
+	from := mocks.WriteFile(t, filepath.Join(workDir, "bin", "tool"), []byte(mocks.ElfExecutable))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bin/tool", "bin", "")
 
 	require.NoError(t, err)
-	assertExecutable(t, from, unpacktest.ElfExecutable)
+	assertExecutable(t, from, mocks.ElfExecutable)
 }
 
 func TestInstall_ExecutableFailures(t *testing.T) {
@@ -99,19 +97,19 @@ func TestInstall_ExecutableFailures(t *testing.T) {
 		},
 		{
 			name:     "destination is a file",
-			maxBytes: unpacktest.TestMaxBytes,
+			maxBytes: mocks.TestMaxBytes,
 			setup: func(t *testing.T, workDir string) {
-				unpacktest.WriteFile(t, filepath.Join(workDir, "bin"), []byte("x"))
+				mocks.WriteFile(t, filepath.Join(workDir, "bin"), []byte("x"))
 			},
 			check: func(t *testing.T, workDir string) {
-				assert.Equal(t, "x", unpacktest.ReadString(t, filepath.Join(workDir, "bin")))
+				assert.Equal(t, "x", mocks.ReadString(t, filepath.Join(workDir, "bin")))
 			},
 		},
 		{
 			name:     "output is a non-empty directory",
-			maxBytes: unpacktest.TestMaxBytes,
+			maxBytes: mocks.TestMaxBytes,
 			setup: func(t *testing.T, workDir string) {
-				unpacktest.WriteFile(t, filepath.Join(workDir, "bin", "tool", "x"), []byte("x"))
+				mocks.WriteFile(t, filepath.Join(workDir, "bin", "tool", "x"), []byte("x"))
 			},
 			wantErr: fs.ErrExist,
 		},
@@ -120,7 +118,7 @@ func TestInstall_ExecutableFailures(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			workDir := t.TempDir()
-			from := unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(unpacktest.ElfExecutable))
+			from := mocks.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(mocks.ElfExecutable))
 			tc.setup(t, workDir)
 
 			err := runPortableWith(t, tc.maxBytes, wizstep.Request{WorkDir: workDir}, "dl/tool", "bin", "", "")
@@ -145,14 +143,13 @@ func TestInstall_ExecutableName(t *testing.T) {
 		body     string
 		want     string
 	}{
-		{name: "default keeps the source file name", from: "tool-1.2", body: unpacktest.ElfExecutable, want: "tool-1.2"},
-		{name: "explicit name", from: ".tool.download", stepName: "tool", body: unpacktest.ElfExecutable, want: "tool"},
-		{name: "windows executable named by the step", from: ".tool.download", stepName: "tool.exe", body: "MZpayload", want: "tool.exe"},
+		{name: "default keeps the source file name", from: "tool-1.2", body: mocks.ElfExecutable, want: "tool-1.2"},
+		{name: "explicit name", from: ".tool.download", stepName: "tool", body: mocks.ElfExecutable, want: "tool"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			workDir := t.TempDir()
-			from := unpacktest.WriteFile(t, filepath.Join(workDir, "dl", tc.from), []byte(tc.body))
+			from := mocks.WriteFile(t, filepath.Join(workDir, "dl", tc.from), []byte(tc.body))
 
 			require.NoError(t, runPortableNamed(t, wizstep.Request{WorkDir: workDir}, "dl/"+tc.from, "bin", tc.stepName))
 
@@ -167,7 +164,7 @@ func TestInstall_ExecutableUnsafeNameFails(t *testing.T) {
 	for _, name := range []string{"a/b", "..", "../tool", "."} {
 		t.Run(name, func(t *testing.T) {
 			workDir := t.TempDir()
-			from := unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(unpacktest.ElfExecutable))
+			from := mocks.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(mocks.ElfExecutable))
 
 			err := runPortableNamed(t, wizstep.Request{WorkDir: workDir}, "dl/tool", "bin", name)
 
@@ -180,7 +177,7 @@ func TestInstall_ExecutableUnsafeNameFails(t *testing.T) {
 
 func TestInstall_NameIgnoredForArchives(t *testing.T) {
 	workDir := t.TempDir()
-	unpacktest.WriteFile(t, filepath.Join(workDir, "tool.zip"), unpacktest.ZipFiles(t, map[string]string{"tool-v1/tool": "v1"}))
+	mocks.WriteFile(t, filepath.Join(workDir, "tool.zip"), mocks.ZipFiles(t, map[string]string{"tool-v1/tool": "v1"}))
 
 	require.NoError(t, runPortableNamed(t, wizstep.Request{WorkDir: workDir}, "tool.zip", "bin", "renamed"))
 

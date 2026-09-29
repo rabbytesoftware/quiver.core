@@ -26,5 +26,4 @@ type Return struct {
 	Outcome   ExecutionOutcome  `json:"outcome"`
 	Steps     []StepProgress    `json:"steps"`
 	Variables map[string]string `json:"variables"`
-	Exposed   *ExposeResult     `json:"exposed,omitempty"`
 }

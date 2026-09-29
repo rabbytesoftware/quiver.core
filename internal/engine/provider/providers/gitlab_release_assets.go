@@ -27,7 +27,7 @@ func (p *gitlabProvider) ReleaseAssets(
 	ns domain.Namespace,
 	tag string,
 ) ([]domain.ReleaseAsset, error) {
-	releaseURL, err := p.apiURL(p.releaseAPIURL, ns, tag)
+	releaseURL, err := tagURL(p.releaseAPIURL, ns, tag)
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
 	}
@@ -46,27 +46,6 @@ func (p *gitlabProvider) ReleaseAssets(
 		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
 	}
 	return assets, nil
-}
-
-func (p *gitlabProvider) apiURL(
-	template string,
-	ns domain.Namespace,
-	tag string,
-) (string, error) {
-	if template == "" {
-		return "", ErrNoRawURL
-	}
-
-	user, repo, err := repositoryOf(ns)
-	if err != nil {
-		return "", err
-	}
-
-	return strings.NewReplacer(
-		"{user}", url.PathEscape(user),
-		"{repo}", url.PathEscape(repo),
-		"{tag}", url.PathEscape(tag),
-	).Replace(template), nil
 }
 
 func (p *gitlabProvider) getJSON(

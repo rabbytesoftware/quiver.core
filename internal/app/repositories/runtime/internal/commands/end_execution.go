@@ -9,7 +9,6 @@ type EndExecution struct {
 	Namespace   domain.Namespace
 	ExecutionID string
 	Outcome     domainRuntime.ExecutionOutcome
-	Exposed     *domainRuntime.ExposeResult
 }
 
 func (c EndExecution) AggregateID() string {
@@ -36,7 +35,6 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 		Outcome:   c.Outcome,
 		Steps:     exec.Steps,
 		Variables: exec.Variables,
-		Exposed:   c.Exposed,
 	}
 
 	newState := stateAfterEnd(exec.Method, c.Outcome)

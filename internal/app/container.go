@@ -244,7 +244,6 @@ func New(
 		axDevice,
 		deviceDB,
 		repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
-		repositories.WithShelf(engines.Shelf),
 	)
 	if err != nil {
 		discardDB(db)
@@ -257,7 +256,7 @@ func New(
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
-	uc, err := usecases.New(repos, engines.Manifold, engines.Vault, engines.Shelf)
+	uc, err := usecases.New(repos, engines.Manifold, engines.Vault, engines.Wizard)
 	if err != nil {
 		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: usecases: %w", err)

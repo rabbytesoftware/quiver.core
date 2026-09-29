@@ -1,11 +1,13 @@
 package system
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 )
 
 func (c *commands) pathCmd() *cobra.Command {
@@ -18,31 +20,21 @@ func (c *commands) pathCmd() *cobra.Command {
 }
 
 func (c *commands) pathStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "status",
-		Short: "Report whether ~/.quiver/bin is on PATH",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cli, err := c.sess.Client(cmd.Context(), cmd)
-			if err != nil {
-				return err
-			}
-
-			status, err := cli.PathStatus(cmd.Context())
-			if err != nil {
-				return err
-			}
-
-			printPathStatus(cmd, status)
-			return nil
-		},
-	}
+	return c.pathSubCmd("status", "Report whether ~/.quiver/bin is on PATH", (*client.Client).PathStatus)
 }
 
 func (c *commands) pathSetupCmd() *cobra.Command {
+	return c.pathSubCmd("setup", "Add ~/.quiver/bin to PATH", (*client.Client).SetupPath)
+}
+
+func (c *commands) pathSubCmd(
+	use string,
+	short string,
+	call func(*client.Client, context.Context) (apidto.PathStatusDTO, error),
+) *cobra.Command {
 	return &cobra.Command{
-		Use:   "setup",
-		Short: "Add ~/.quiver/bin to PATH",
+		Use:   use,
+		Short: short,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cli, err := c.sess.Client(cmd.Context(), cmd)
@@ -50,7 +42,7 @@ func (c *commands) pathSetupCmd() *cobra.Command {
 				return err
 			}
 
-			status, err := cli.SetupPath(cmd.Context())
+			status, err := call(cli, cmd.Context())
 			if err != nil {
 				return err
 			}

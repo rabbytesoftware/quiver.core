@@ -13,7 +13,7 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func runPortable(
@@ -25,7 +25,7 @@ func runPortable(
 ) error {
 	t.Helper()
 
-	h := portable.NewHandler(unpacktest.TestMaxBytes)
+	h := portable.NewHandler(mocks.TestMaxBytes)
 	s := domainstep.NewPortableStep("portable", from, to, timeout, true)
 
 	return h.Execute(context.Background(), req, s)

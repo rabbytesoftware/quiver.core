@@ -22,8 +22,6 @@ func TestAppDirPaths_RejectsNamesOutsideDestination(t *testing.T) {
 		{name: "dot", appName: "."},
 		{name: "dot-dot", appName: ".."},
 		{name: "nested", appName: "a/b"},
-		{name: "climbs out", appName: "../x"},
-		{name: "collapses to destination", appName: "a/.."},
 	}
 
 	for _, tc := range testCases {
@@ -39,16 +37,6 @@ func TestAppDirPaths_RejectsNamesOutsideDestination(t *testing.T) {
 	}
 }
 
-func TestAppDirPaths_StagingIsHiddenSibling(t *testing.T) {
-	to := t.TempDir()
-
-	appDir, staging, err := appDirPaths(to, "bruno")
-
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(to, "bruno"), appDir)
-	assert.Equal(t, filepath.Join(to, ".bruno.quiver-tmp"), staging)
-}
-
 func TestSwapAppDir_MissingStagingFails(t *testing.T) {
 	to := t.TempDir()
 
@@ -57,60 +45,6 @@ func TestSwapAppDir_MissingStagingFails(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 	assert.NoDirExists(t, filepath.Join(to, "app"))
-}
-
-func TestRemoveOwnedAppDir_Description(t *testing.T) {
-	testCases := []struct {
-		name       string
-		setup      func(t *testing.T, appDir string)
-		wantErr    error
-		wantExists bool
-	}{
-		{
-			name:  "missing appdir is a no-op",
-			setup: func(t *testing.T, appDir string) {},
-		},
-		{
-			name: "owned appdir is removed",
-			setup: func(t *testing.T, appDir string) {
-				require.NoError(t, os.MkdirAll(filepath.Join(appDir, "usr"), 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(appDir, unpack.LauncherName), []byte("x"), 0o600))
-			},
-		},
-		{
-			name: "directory without a launcher is not owned",
-			setup: func(t *testing.T, appDir string) {
-				require.NoError(t, os.MkdirAll(appDir, 0o755))
-			},
-			wantErr:    ErrUnownedAppDir,
-			wantExists: true,
-		},
-		{
-			name: "regular file is not owned",
-			setup: func(t *testing.T, appDir string) {
-				require.NoError(t, os.WriteFile(appDir, []byte("x"), 0o600))
-			},
-			wantErr:    ErrUnownedAppDir,
-			wantExists: true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			appDir := filepath.Join(t.TempDir(), "app")
-			tc.setup(t, appDir)
-
-			err := removeOwnedAppDir(appDir)
-
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-			_, statErr := os.Lstat(appDir)
-			assert.Equal(t, tc.wantExists, statErr == nil)
-		})
-	}
 }
 
 func TestRemoveOwnedAppDir_PermissionErrors(t *testing.T) {

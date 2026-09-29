@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -141,9 +140,9 @@ func (p *githubProvider) ReleaseAssets(
 	ns domain.Namespace,
 	tag string,
 ) ([]domain.ReleaseAsset, error) {
-	rawURL, err := p.expandedAssetsURLFor(ns, tag)
+	rawURL, err := tagURL(p.expandedAssetsURL, ns, tag)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
 	}
 
 	resp, err := p.transport.fetch(ctx, rawURL, nil)
@@ -162,24 +161,4 @@ func (p *githubProvider) ReleaseAssets(
 		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
 	}
 	return assets, nil
-}
-
-func (p *githubProvider) expandedAssetsURLFor(
-	ns domain.Namespace,
-	tag string,
-) (string, error) {
-	if p.expandedAssetsURL == "" {
-		return "", fmt.Errorf("provider %s: release assets: %w", p.name, ErrNoRawURL)
-	}
-
-	user, repo, err := repositoryOf(ns)
-	if err != nil {
-		return "", fmt.Errorf("provider %s: release assets: %w", p.name, err)
-	}
-
-	return strings.NewReplacer(
-		"{user}", url.PathEscape(user),
-		"{repo}", url.PathEscape(repo),
-		"{tag}", url.PathEscape(tag),
-	).Replace(p.expandedAssetsURL), nil
 }

@@ -12,8 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-var digestPattern = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
-
 func parseExpandedAssets(
 	body []byte,
 	pageURL string,
@@ -33,9 +31,10 @@ func parseExpandedAssets(
 		return nil, ErrUnexpectedPage
 	}
 
+	digest := regexp.MustCompile(`sha256:[0-9a-f]{64}`)
 	assets := make([]domain.ReleaseAsset, 0)
 	for _, item := range findListItems(list) {
-		asset, ok := assetFromItem(item, base)
+		asset, ok := assetFromItem(item, base, digest)
 		if ok {
 			assets = append(assets, asset)
 		}
@@ -73,6 +72,7 @@ func findListItems(
 func assetFromItem(
 	item *html.Node,
 	base *url.URL,
+	digestPattern *regexp.Regexp,
 ) (domain.ReleaseAsset, bool) {
 	href, text := firstAssetLink(item)
 	if href == "" || strings.Contains(href, "/archive/") {
@@ -85,10 +85,8 @@ func assetFromItem(
 	}
 
 	digest := ""
-	for _, line := range itemTextLines(item) {
-		if match := digestPattern.FindString(line); match != "" {
-			digest = match
-		}
+	if matches := digestPattern.FindAllString(textContent(item), -1); len(matches) > 0 {
+		digest = matches[len(matches)-1]
 	}
 
 	return domain.ReleaseAsset{
@@ -137,30 +135,6 @@ func attrValue(
 		}
 	}
 	return ""
-}
-
-func itemTextLines(
-	n *html.Node,
-) []string {
-	var lines []string
-	collectTextLines(n, &lines)
-	return lines
-}
-
-func collectTextLines(
-	n *html.Node,
-	lines *[]string,
-) {
-	if n.Type == html.TextNode {
-		trimmed := strings.TrimSpace(n.Data)
-		if trimmed != "" {
-			*lines = append(*lines, trimmed)
-		}
-	}
-
-	for child := n.FirstChild; child != nil; child = child.NextSibling {
-		collectTextLines(child, lines)
-	}
 }
 
 func textContent(

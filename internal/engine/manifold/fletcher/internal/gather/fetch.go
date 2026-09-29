@@ -11,6 +11,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	fnsconfig "github.com/rabbytesoftware/quiver.core/internal/core/fns/config"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/media"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 )
 
@@ -18,11 +19,6 @@ const (
 	maxPageBytes  = 1 << 20
 	maxProbeBytes = 64 << 10
 )
-
-type fetchFunc = func(
-	ctx context.Context,
-	url string,
-) ([]byte, error)
 
 type fetcher struct {
 	timeout time.Duration
@@ -53,7 +49,7 @@ func (f fetcher) document(
 
 func (f fetcher) prefixOf(
 	limit int64,
-) fetchFunc {
+) media.Fetch {
 	return func(ctx context.Context, rawURL string) ([]byte, error) {
 		return f.prefix(ctx, rawURL, limit)
 	}

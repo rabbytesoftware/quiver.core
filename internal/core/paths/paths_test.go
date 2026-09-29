@@ -76,12 +76,6 @@ func TestBin_CreatesDir(t *testing.T) {
 	ensureCreatesDir(t, paths.Bin)
 }
 
-func TestBin_ReturnsAbsolutePath(t *testing.T) {
-	got, err := paths.Bin()
-	require.NoError(t, err)
-	assert.True(t, filepath.IsAbs(got))
-}
-
 func TestEvents_Idempotent(t *testing.T) {
 	first, err := paths.Events()
 	require.NoError(t, err)

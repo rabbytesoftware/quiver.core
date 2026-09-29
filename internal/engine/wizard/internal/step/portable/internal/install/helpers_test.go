@@ -13,8 +13,7 @@ import (
 
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/record"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func runPortable(
@@ -26,7 +25,7 @@ func runPortable(
 ) error {
 	t.Helper()
 
-	return runPortableWith(t, unpacktest.TestMaxBytes, req, from, to, timeout, "")
+	return runPortableWith(t, mocks.TestMaxBytes, req, from, to, timeout, "")
 }
 
 func runPortableNamed(
@@ -38,7 +37,7 @@ func runPortableNamed(
 ) error {
 	t.Helper()
 
-	return runPortableWith(t, unpacktest.TestMaxBytes, req, from, to, "", name)
+	return runPortableWith(t, mocks.TestMaxBytes, req, from, to, "", name)
 }
 
 func runPortableWith(
@@ -66,7 +65,7 @@ func runPortableWith(
 	if err != nil {
 		return err
 	}
-	if err := record.Apps(ctx, req.NSKey, req.WorkDir, apps); err != nil {
+	if err := installer.Record(ctx, req.NSKey, req.WorkDir, apps); err != nil {
 		return err
 	}
 

@@ -38,7 +38,7 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | `domain/` | No I/O. No imports from other internal packages. Pure types + state machines. |
 | `core/` | Config, embedded metadata, path resolution, logger, FetchNShare I/O. |
 | `adapter/` | Asynx event store (SQLite) + generic `Store[T,K]` (sqlite/memory). |
-| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge, Shelf. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
+| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
 | `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
 
@@ -345,10 +345,9 @@ Each engine is an interface received through DI. Read the interface definitions 
 |--------|---------|-------------|
 | `Manifold` | `engine/manifold` | Fetch + parse + compile arrow/collection manifests from namespaces |
 | `Vault` | `engine/vault` | Cache manifests to disk; manage workdirs; TTL sweep |
-| `Wizard` | `engine/wizard` | Spawn and supervise processes for lifecycle steps |
+| `Wizard` | `engine/wizard` | Spawn and supervise processes for lifecycle steps; expose an arrow's `expose` entries on the OS (`~/.quiver/bin`, desktop entries) as part of its `_install`/`_update`/`_uninstall` runs; report and set up `PATH` |
 | `DepTree` | `engine/deptree` | Topological sort of dependency graphs |
 | `Netbridge` | `engine/netbridge` | Allocate/deallocate ephemeral ports |
-| `Shelf` | `engine/shelf` | Apply/remove an arrow's `expose` entries on the OS (`~/.quiver/bin`, desktop entries); report and set up `PATH` |
 
 ---
 
@@ -452,7 +451,7 @@ Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+c
 
 **Fletcher** (`engine/manifold/fletcher`) is manifold's subengine that synthesizes an `arrow@v0` manifest from a repository's release assets when it ships no `ARROW.md`/`arrow.yaml`. Its root is only the public API — `fletcher.go` (`Fletcher.Recover`, the `Releases` questions it asks manifold, `New`) and `errors.go` (`NotFletchableError`, reasons, `ErrNotFletchable`); the implementation lives in `fletcher/internal/{fallback,gather,confidence,picker,readme,forge,media,models}` (`fallback` holds the trigger, ref/tag policy and error mapping). Manifold builds it itself with `manifold.WithFletcher(enabled)` from its own host lookup and fetch timeout; `engine/container.go` passes only `config.manifold.fletcher.enabled` (default `false`). It runs only inside `ResolveArrow`, only on `resolver.ErrManifestNotFound` (every fetcher definitively reported absence — never on a transport or rate-limit error). Its output is manifest bytes that go through the normal pipeline; origin and confidence travel as `metadata.generator`, as data exposed for debugging — no code outside Fletcher branches on them. Fletcher refuses a low-confidence build itself (not fletchable, reason `low_confidence`), and every not-fletchable outcome leaves `ResolveArrow` as `resolver.ErrManifestNotFound` — to the app layer, exactly a repository without a manifest. There is one Fletcher build: search results, details and adds all come from it and are cached by Vault like any other manifest — the arrow store's resolver reads the vault first, else calls `ResolveArrow` and `PutArrow`s the result; discovery calls `ResolveArrow` at the default branch the search response named, then `PutArrow`s it. See `docs/spec/manifold.md` §4.1.
 
-**Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually, call Fletcher directly from the app layer, build a Fletcher anywhere but inside manifold (the engine container and `tests/kit` pass only the enabled flag) or import `fletcher/internal/...` from outside the fletcher tree, make GitHub API calls (`api.github.com`) from Fletcher — on GitHub it uses only unmetered pages and raw files named by `hosts.Host` (GitLab's anonymous public REST API, 500/min, is allowed inside the GitLab provider), hardcode a host's raw/blob/page URLs in Fletcher — use `hosts.Host.RawFileURL`, `BlobFileURL` and `RepoPageURL`, parse a repo page with host-specific rules — Fletcher reads its Open Graph tags generically.
+**Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually, call Fletcher directly from the app layer, build a Fletcher anywhere but inside manifold (the engine container and `tests/kit` pass only the enabled flag and a host lookup) or import `fletcher/internal/...` from outside the fletcher tree, make GitHub API calls (`api.github.com`) from Fletcher — on GitHub it uses only unmetered pages and raw files named by `hosts.Host` (GitLab's anonymous public REST API, 500/min, is allowed inside the GitLab provider), hardcode a host's raw/blob/page URLs in Fletcher — use `hosts.Host.RawFileURL`, `BlobFileURL` and `RepoPageURL`, parse a repo page with host-specific rules — Fletcher reads its Open Graph tags generically.
 
 ### 15.7 Manifest cache + workdirs — `engine/vault`
 
@@ -462,9 +461,9 @@ Injected via DI. Use vault to: store resolved manifests, retrieve cached manifes
 
 ### 15.8 Running steps — `engine/wizard`
 
-Injected via DI. Call from inside the `runtime` repository's reaction goroutine ONLY — never from usecases or handlers. `wizard.Start(ctx, RunRequest)` returns a channel of WizardEvents. Drain the channel: step progress → AdvanceStep command, PID → RecordPID command, outcome → EndExecution command. Read `internal/engine/wizard/` for current types.
+Injected via DI. Call `Start` from inside the `runtime` repository's reaction goroutine ONLY — never from usecases or handlers; the one usecase that holds the wizard is `PathUsecase`, and only for `PathStatus`/`SetupPath`. `wizard.Start(ctx, RunRequest)` returns a channel of WizardEvents. Drain the channel: step progress → AdvanceStep command, PID → RecordPID command, outcome → EndExecution command. Read `internal/engine/wizard/` for current types.
 
-**Do NOT:** call wizard from usecases, check process state via `os.FindProcess`.
+**Do NOT:** call wizard lifecycle methods from usecases, check process state via `os.FindProcess`.
 
 ### 15.9 Dependency graph — `app/repositories/graph`
 
@@ -476,11 +475,11 @@ From usecases, always use the app-layer `graph.Graph` (not `engine/deptree` dire
 
 Called internally by the variable assembler when resolving port variables. You will rarely call this directly. New features needing ports should declare them as `netbridge` entries in the manifest.
 
-### 15.11 OS exposure + PATH — `engine/shelf`
+### 15.11 OS exposure + PATH — inside `engine/wizard`
 
-Injected via DI. `Apply`/`Remove` register and unregister an arrow's `expose` entries (CLI entries in `~/.quiver/bin`, desktop entries per OS); call them only from the `runtime` repository's end-of-execution hook (`app/repositories/runtime/internal/exposer`), the same rule as the wizard. `PathStatus`/`SetupPath` back `PathUsecase` (`/v0/system/path`). Ownership lives on each entry itself (symlink target, `.desktop` marker, xattr, Start Menu folder), so there is no store. Tests pass `shelf.WithSandboxHome(t.TempDir())` (the engine container does this for `WithHomeDir`); the bin dir comes from `paths.Bin()` / `paths.BinAt(home)`.
+Exposing an arrow's `expose` entries (CLI entries in `~/.quiver/bin`, desktop entries per OS) is a side effect of running its lifecycle, so it lives in the wizard (`engine/wizard/internal/shelf`, bridged by `internal/step/expose`). `wizard.Plan` (applied by the runtime repository's `plannedAssembler` to every assembled run, so the steps are recorded like any other) appends one synthetic, never-fatal `expose` step per entry to `_install`/`_update` and prepends one `unexpose` step to `_uninstall`; the wizard applies a run's `expose` steps in one pass after the lifecycle steps and reports each entry as its own step result (a refusal fails its step, never the run), and `unexpose` removes only the entries pointing into that run's workdir (plus same-namespace entries whose workdir is gone). Ownership lives on each entry itself (symlink target, `.desktop`/`.cmd` marker lines with namespace + workdir, shortcut description, bundle xattr), so there is no store. `wizard.PathStatus`/`SetupPath` back `PathUsecase` (`/v0/system/path`). The app, usecase and API layers never see the shelf: no exposure types cross the wizard boundary. Tests build the wizard with `wizard.WithSandboxHome(t.TempDir())` (the engine container does this for `WithHomeDir`); the bin dir comes from `paths.Bin()` / `paths.BinAt(home)`.
 
-**Do NOT:** call `Apply`/`Remove` from usecases or handlers, overwrite or delete an entry Quiver does not own, edit `PATH` outside `SetupPath` (it runs only on explicit user action and appends, never prepends), touch the real home or `/Applications` from tests.
+**Do NOT:** import `wizard/internal/shelf` from outside the wizard, add exposure results to `Return`/DTOs (they are step results), place or remove entries outside a wizard run, overwrite or delete an entry Quiver does not own, edit `PATH` outside `SetupPath` (it runs only on explicit user action and appends, never prepends), touch the real home or `/Applications` from tests.
 
 ### 15.12 Arrow catalog — `app/repositories/arrow`
 
@@ -519,7 +518,7 @@ Injected into repositories. Fire-and-forget. Three broadcast methods, each accep
 | Topological dep sort | `internal/app/repositories/graph` |
 | Port allocation | `internal/engine/netbridge` (via assembler) |
 | Synthesize a manifest for a repo without one | `internal/engine/manifold` (Fletcher, via `ResolveArrow`) |
-| Expose entries / `PATH` setup | `internal/engine/shelf` (runtime repo / `PathUsecase` only) |
+| Expose entries / `PATH` setup | `internal/engine/wizard` (`expose`/`unexpose` steps from `wizard.Plan`; `PathStatus`/`SetupPath` from `PathUsecase` only) |
 | Read/write arrow catalog | `internal/app/repositories/arrow` |
 | Read/write runtime state | `internal/app/repositories/runtime` |
 | Broadcast to WS clients | `internal/app/hub` |

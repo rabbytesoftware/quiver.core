@@ -7,8 +7,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 )
 
 // MockArrow is a test double for arrowrepo.Arrow.
@@ -316,99 +314,4 @@ func (m *MockAssembler) Assemble(
 		return m.AssembleFn(ctx, ns, method, userVars)
 	}
 	return assembler.ResolvedExecution{}, nil
-}
-
-type MockShelf struct {
-	ApplyFn      func(ctx context.Context, ns domain.Namespace, workdir string, expose domain.Expose, media domain.ArrowMedia) (shelf.Applied, error)
-	RemoveFn     func(ctx context.Context, ns domain.Namespace) error
-	PathStatusFn func(ctx context.Context) (shelf.PathStatus, error)
-	SetupPathFn  func(ctx context.Context) (shelf.PathStatus, error)
-}
-
-func (m *MockShelf) Apply(
-	ctx context.Context,
-	ns domain.Namespace,
-	workdir string,
-	expose domain.Expose,
-	media domain.ArrowMedia,
-) (shelf.Applied, error) {
-	if m.ApplyFn != nil {
-		return m.ApplyFn(ctx, ns, workdir, expose, media)
-	}
-	return shelf.Applied{}, nil
-}
-
-func (m *MockShelf) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if m.RemoveFn != nil {
-		return m.RemoveFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockShelf) PathStatus(
-	ctx context.Context,
-) (shelf.PathStatus, error) {
-	if m.PathStatusFn != nil {
-		return m.PathStatusFn(ctx)
-	}
-	return shelf.PathStatus{}, nil
-}
-
-func (m *MockShelf) SetupPath(
-	ctx context.Context,
-) (shelf.PathStatus, error) {
-	if m.SetupPathFn != nil {
-		return m.SetupPathFn(ctx)
-	}
-	return shelf.PathStatus{}, nil
-}
-
-type MockExposer struct {
-	ApplyFn          func(ctx context.Context, ns domain.Namespace, workdir string) *domainRuntime.ExposeResult
-	ReapplyFn        func(ctx context.Context, ns domain.Namespace) *domainRuntime.ExposeResult
-	ApplyVersionedFn func(ctx context.Context, ns domain.Namespace) *domainRuntime.ExposeResult
-	RemoveFn         func(ctx context.Context, ns domain.Namespace)
-}
-
-func (m *MockExposer) Apply(
-	ctx context.Context,
-	ns domain.Namespace,
-	workdir string,
-) *domainRuntime.ExposeResult {
-	if m.ApplyFn != nil {
-		return m.ApplyFn(ctx, ns, workdir)
-	}
-	return nil
-}
-
-func (m *MockExposer) Reapply(
-	ctx context.Context,
-	ns domain.Namespace,
-) *domainRuntime.ExposeResult {
-	if m.ReapplyFn != nil {
-		return m.ReapplyFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockExposer) ApplyVersioned(
-	ctx context.Context,
-	ns domain.Namespace,
-) *domainRuntime.ExposeResult {
-	if m.ApplyVersionedFn != nil {
-		return m.ApplyVersionedFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockExposer) Remove(
-	ctx context.Context,
-	ns domain.Namespace,
-) {
-	if m.RemoveFn != nil {
-		m.RemoveFn(ctx, ns)
-	}
 }

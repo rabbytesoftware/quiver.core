@@ -22,7 +22,7 @@ var mdLinkOrImagePattern = regexp.MustCompile(`(!?)\[([^\]]*)\]\(([^)\s]+)(\s+"[
 
 var htmlImgSrcPattern = regexp.MustCompile(`(<img\s+[^>]*?src=")([^"]+)(")`)
 
-func isRelativePath(
+func IsRelativePath(
 	url string,
 ) bool {
 	if strings.Contains(url, "://") {
@@ -40,26 +40,12 @@ func isRelativePath(
 	return true
 }
 
-func cleanRelativePath(
+func CleanRelativePath(
 	path string,
 ) string {
 	path = strings.TrimPrefix(path, "./")
 	path = strings.TrimPrefix(path, "/")
 	return path
-}
-
-func RawImageURL(
-	base RawBase,
-	path string,
-) string {
-	return fileURL(base.Raw, path)
-}
-
-func BlobLinkURL(
-	base RawBase,
-	path string,
-) string {
-	return fileURL(base.Blob, path)
 }
 
 func fileURL(
@@ -69,7 +55,7 @@ func fileURL(
 	if template == "" {
 		return path
 	}
-	return strings.ReplaceAll(template, FilePlaceholder, cleanRelativePath(path))
+	return strings.ReplaceAll(template, FilePlaceholder, CleanRelativePath(path))
 }
 
 func rewriteLine(
@@ -82,21 +68,21 @@ func rewriteLine(
 		alt := sub[2]
 		url := sub[3]
 		title := sub[4]
-		if !isRelativePath(url) {
+		if !IsRelativePath(url) {
 			return match
 		}
 		if isImage {
-			return fmt.Sprintf("![%s](%s)%s", alt, RawImageURL(base, url), title)
+			return fmt.Sprintf("![%s](%s)%s", alt, fileURL(base.Raw, url), title)
 		}
-		return fmt.Sprintf("[%s](%s)%s", alt, BlobLinkURL(base, url), title)
+		return fmt.Sprintf("[%s](%s)%s", alt, fileURL(base.Blob, url), title)
 	})
 
 	line = htmlImgSrcPattern.ReplaceAllStringFunc(line, func(match string) string {
 		sub := htmlImgSrcPattern.FindStringSubmatch(match)
-		if !isRelativePath(sub[2]) {
+		if !IsRelativePath(sub[2]) {
 			return match
 		}
-		return sub[1] + RawImageURL(base, sub[2]) + sub[3]
+		return sub[1] + fileURL(base.Raw, sub[2]) + sub[3]
 	})
 
 	return line

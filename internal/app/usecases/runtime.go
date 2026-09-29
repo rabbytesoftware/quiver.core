@@ -343,9 +343,12 @@ func (u *runtimeUsecase) updateByReinstall(
 	current *domain.Arrow,
 	userVars map[string]string,
 ) error {
-	latestRef, err := u.trackedRef(ctx, current)
-	if err != nil {
-		return fmt.Errorf("execute: update %s: resolve tracked ref: %w", ns, err)
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		var err error
+		if latestRef, err = u.arrow.ResolveTrackedRef(ctx, *current); err != nil {
+			return fmt.Errorf("execute: update %s: resolve tracked ref: %w", ns, err)
+		}
 	}
 
 	newNs := ns.WithRef(latestRef)
@@ -375,16 +378,6 @@ func (u *runtimeUsecase) updateByReinstall(
 		return fmt.Errorf("execute: update %s: upgrade to %s: %w", ns, newNs, err)
 	}
 	return nil
-}
-
-func (u *runtimeUsecase) trackedRef(
-	ctx context.Context,
-	current *domain.Arrow,
-) (string, error) {
-	if current.RecommendedRef != "" {
-		return current.RecommendedRef, nil
-	}
-	return u.arrow.ResolveTrackedRef(ctx, *current)
 }
 
 func updatesInPlace(
@@ -613,7 +606,10 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	_ = u.arrow.Remove(ctx, oldNs)
 
 	if arrow.AlreadyReady {
-		lastReturn := u.rebaseLastReturn(ctx, newNs, oldRuntime)
+		var lastReturn *domainRuntime.Return
+		if oldRuntime != nil {
+			lastReturn = oldRuntime.LastReturn
+		}
 		_ = u.runtime.MarkReady(ctx, newNs, lastReturn)
 		return
 	}
@@ -627,34 +623,6 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 	} else {
 		_ = u.runtime.BeginInstall(ctx, newNs, nil)
 	}
-}
-
-func (u *runtimeUsecase) rebaseLastReturn(
-	ctx context.Context,
-	newNs domain.Namespace,
-	oldRuntime *domainRuntime.ArrowRuntime,
-) *domainRuntime.Return {
-	if oldRuntime == nil || oldRuntime.LastReturn == nil {
-		return nil
-	}
-
-	copied := *oldRuntime.LastReturn
-
-	newWorkdir, err := u.arrow.WorkDir(ctx, newNs)
-	if err != nil {
-		slog.WarnContext(ctx, "rebase last return: workdir", "ns", newNs, "err", err)
-		return &copied
-	}
-
-	vars := make(map[string]string, len(copied.Variables)+2)
-	for k, v := range copied.Variables {
-		vars[k] = v
-	}
-	vars[domain.VarWorkdir] = newWorkdir
-	vars[domain.VarInstallPath] = newWorkdir
-	copied.Variables = vars
-
-	return &copied
 }
 
 // onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
@@ -680,9 +648,12 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	latestRef, err := u.trackedRef(ctx, current)
-	if err != nil || latestRef == "" {
-		return
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		latestRef, err = u.arrow.ResolveTrackedRef(ctx, *current)
+		if err != nil || latestRef == "" {
+			return
+		}
 	}
 
 	newNs := ns.WithRef(latestRef)

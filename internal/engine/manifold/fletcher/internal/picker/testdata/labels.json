@@ -1,268 +1,54 @@
 [
- {
-  "repo": "dbeaver/dbeaver",
-  "os": "darwin/arm64",
-  "want": "dbeaver-ce-26.2.1-macos-aarch64.dmg"
- },
- {
-  "repo": "PrismLauncher/PrismLauncher",
-  "os": "linux/arm64",
-  "want": "PrismLauncher-Linux-aarch64.AppImage"
- },
- {
-  "repo": "go-gitea/gitea",
-  "os": "darwin/arm64",
-  "want": "gitea-1.27.3-darwin-10.12-arm64.xz"
- },
- {
-  "repo": "prometheus/prometheus",
-  "os": "linux/arm64",
-  "want": "prometheus-3.15.0.linux-arm64.tar.gz"
- },
- {
-  "repo": "CherryHQ/cherry-studio",
-  "os": "linux/amd64",
-  "want": "Cherry-Studio-2.1.3-linux-x64.AppImage"
- },
- {
-  "repo": "etcd-io/etcd",
-  "os": "windows/arm64",
-  "want": "etcd-v3.7.2-windows-amd64.zip"
- },
- {
-  "repo": "anomalyco/opencode",
-  "os": "darwin/arm64",
-  "want": "opencode-darwin-arm64.zip"
- },
- {
-  "repo": "Byron/dua-cli",
-  "os": "linux/amd64",
-  "want": "dua-v2.45.0-x86_64-unknown-linux-musl.tar.gz"
- },
- {
-  "repo": "Genymobile/scrcpy",
-  "os": "darwin/amd64",
-  "want": "scrcpy-macos-x86_64-v4.1.tar.gz"
- },
- {
-  "repo": "jesseduffield/lazydocker",
-  "os": "windows/arm64",
-  "want": "lazydocker_0.25.2_Windows_arm64.zip"
- },
- {
-  "repo": "astral-sh/uv",
-  "os": "linux/amd64",
-  "want": "uv-x86_64-unknown-linux-musl.tar.gz"
- },
- {
-  "repo": "mudler/edgevpn",
-  "os": "windows/amd64",
-  "want": "edgevpn-v0.35.5-Windows-x86_64.tar.gz"
- },
- {
-  "repo": "jamiepine/voicebox",
-  "os": "darwin/amd64",
-  "want": "Voicebox_0.5.0_x64.dmg"
- },
- {
-  "repo": "neovim/neovim",
-  "os": "linux/arm64",
-  "want": "nvim-linux-arm64.tar.gz"
- },
- {
-  "repo": "pgrok/pgrok",
-  "os": "windows/amd64",
-  "want": "pgrok_1.7.0_windows_amd64.zip"
- },
- {
-  "repo": "pgrok/pgrok",
-  "os": "linux/arm64",
-  "want": "pgrok_1.7.0_linux_arm64.tar.gz"
- },
- {
-  "repo": "ollama/ollama",
-  "os": "linux/arm64",
-  "want": "ollama-linux-arm64.tar.zst"
- },
- {
-  "repo": "anthropics/claude-code",
-  "os": "windows/amd64",
-  "want": "claude-win32-x64.zip"
- },
- {
-  "repo": "microsoft/TypeScript",
-  "os": "windows/arm64",
-  "want": "typescript-win32-arm64.tgz"
- },
- {
-  "repo": "colbymchenry/codegraph",
-  "os": "windows/arm64",
-  "want": "codegraph-win32-arm64.zip"
- },
- {
-  "repo": "nektos/act",
-  "os": "linux/arm64",
-  "want": "act_Linux_arm64.tar.gz"
- },
- {
-  "repo": "typst/typst",
-  "os": "windows/arm64",
-  "want": "typst-aarch64-pc-windows-msvc.zip"
- },
- {
-  "repo": "aaif-goose/goose",
-  "os": "linux/amd64",
-  "want": "goose-x86_64-unknown-linux-musl.tar.bz2"
- },
- {
-  "repo": "fatedier/frp",
-  "os": "linux/amd64",
-  "want": "frp_0.71.0_linux_amd64.tar.gz"
- },
- {
-  "repo": "sharkdp/bat",
-  "os": "linux/amd64",
-  "want": "bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz"
- },
- {
-  "repo": "Eugeny/tabby",
-  "os": "linux/amd64",
-  "want": "tabby-1.0.237-linux-x64.tar.gz"
- },
- {
-  "repo": "anthropics/claude-code",
-  "os": "darwin/arm64",
-  "want": "claude-darwin-arm64.tar.gz"
- },
- {
-  "repo": "sharkdp/bat",
-  "os": "darwin/arm64",
-  "want": "bat-v0.26.1-aarch64-apple-darwin.tar.gz"
- },
- {
-  "repo": "oven-sh/bun",
-  "os": "darwin/arm64",
-  "want": "bun-darwin-aarch64.zip"
- },
- {
-  "repo": "traefik/traefik",
-  "os": "darwin/arm64",
-  "want": "traefik_v3.7.13_darwin_arm64.tar.gz"
- },
- {
-  "repo": "ghostty-org/ghostty",
-  "os": "darwin/arm64",
-  "want": "ghostty-macos-universal.zip"
- },
- {
-  "repo": "usememos/memos",
-  "os": "darwin/arm64",
-  "want": "memos_0.31.0_darwin_arm64.tar.gz"
- },
- {
-  "repo": "astral-sh/ruff",
-  "os": "darwin/arm64",
-  "want": "ruff-aarch64-apple-darwin.tar.gz"
- },
- {
-  "repo": "openai/codex",
-  "os": "darwin/arm64",
-  "want": "codex-aarch64-apple-darwin.tar.gz"
- },
- {
-  "repo": "BurntSushi/ripgrep",
-  "os": "darwin/arm64",
-  "want": "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz"
- },
- {
-  "repo": "rtk-ai/rtk",
-  "os": "darwin/arm64",
-  "want": "rtk-aarch64-apple-darwin.tar.gz"
- },
- {
-  "repo": "rustdesk/rustdesk",
-  "os": "darwin/arm64",
-  "want": "rustdesk-1.4.9-aarch64.dmg"
- },
- {
-  "repo": "agalwood/Motrix",
-  "os": "darwin/arm64",
-  "want": "Motrix-2.0.0-beta.40-arm64.dmg"
- },
- {
-  "repo": "clash-verge-rev/clash-verge-rev",
-  "os": "darwin/arm64",
-  "want": "Clash.Verge_2.5.6_aarch64.dmg"
- },
- {
-  "repo": "zed-industries/zed",
-  "os": "darwin/arm64",
-  "reject": "zed-remote-server-macos-aarch64.gz",
-  "strict": true
- },
- {
-  "repo": "zed-industries/zed",
-  "os": "linux/amd64",
-  "reject": "zed-remote-server-linux-x86_64.gz",
-  "strict": true
- },
- {
-  "repo": "infiniflow/ragflow",
-  "os": "linux/amd64",
-  "reject": "ragflow-cli-v0.27.2-linux-amd64"
- },
- {
-  "repo": "xtekky/gpt4free",
-  "os": "linux/arm64",
-  "reject": "g4f-go-v8.5.8-linux-arm64.zip"
- },
- {
-  "repo": "obsproject/obs-studio",
-  "os": "darwin/arm64",
-  "reject": "OBS-Studio-32.2.2-macOS-Apple-dSYMs.tar.xz",
-  "strict": true
- },
- {
-  "repo": "tw93/Pake",
-  "os": "darwin/arm64",
-  "reject": "Grok.dmg",
-  "strict": true
- },
- {
-  "repo": "ryanoasis/nerd-fonts",
-  "os": "linux/amd64",
-  "reject": "Ubuntu.tar.xz",
-  "strict": true
- },
- {
-  "repo": "wadey/node-microtime",
-  "os": "linux/amd64",
-  "reject": "linux-x64.tar.gz",
-  "strict": true
- },
- {
-  "repo": "OpenHands/OpenHands",
-  "os": "linux/arm64",
-  "want": "none"
- },
- {
-  "repo": "Marekkon5/onetagger",
-  "os": "linux/arm64",
-  "want": "none"
- },
- {
-  "repo": "premake/premake-core",
-  "os": "linux/arm64",
-  "want": "none"
- },
- {
-  "repo": "char2cs/crowbar",
-  "os": "darwin/arm64",
-  "want": "Crowbar_nightly_universal.dmg"
- },
- {
-  "repo": "char2cs/crowbar",
-  "os": "linux/amd64",
-  "want": "Crowbar_nightly_amd64.AppImage"
- }
+ {"repo": "dbeaver/dbeaver", "os": "darwin/arm64", "want": "dbeaver-ce-26.2.1-macos-aarch64.dmg"},
+ {"repo": "PrismLauncher/PrismLauncher", "os": "linux/arm64", "want": "PrismLauncher-Linux-aarch64.AppImage"},
+ {"repo": "go-gitea/gitea", "os": "darwin/arm64", "want": "gitea-1.27.3-darwin-10.12-arm64.xz"},
+ {"repo": "prometheus/prometheus", "os": "linux/arm64", "want": "prometheus-3.15.0.linux-arm64.tar.gz"},
+ {"repo": "CherryHQ/cherry-studio", "os": "linux/amd64", "want": "Cherry-Studio-2.1.3-linux-x64.AppImage"},
+ {"repo": "etcd-io/etcd", "os": "windows/arm64", "want": "etcd-v3.7.2-windows-amd64.zip"},
+ {"repo": "anomalyco/opencode", "os": "darwin/arm64", "want": "opencode-darwin-arm64.zip"},
+ {"repo": "Byron/dua-cli", "os": "linux/amd64", "want": "dua-v2.45.0-x86_64-unknown-linux-musl.tar.gz"},
+ {"repo": "Genymobile/scrcpy", "os": "darwin/amd64", "want": "scrcpy-macos-x86_64-v4.1.tar.gz"},
+ {"repo": "jesseduffield/lazydocker", "os": "windows/arm64", "want": "lazydocker_0.25.2_Windows_arm64.zip"},
+ {"repo": "astral-sh/uv", "os": "linux/amd64", "want": "uv-x86_64-unknown-linux-musl.tar.gz"},
+ {"repo": "mudler/edgevpn", "os": "windows/amd64", "want": "edgevpn-v0.35.5-Windows-x86_64.tar.gz"},
+ {"repo": "jamiepine/voicebox", "os": "darwin/amd64", "want": "Voicebox_0.5.0_x64.dmg"},
+ {"repo": "neovim/neovim", "os": "linux/arm64", "want": "nvim-linux-arm64.tar.gz"},
+ {"repo": "pgrok/pgrok", "os": "windows/amd64", "want": "pgrok_1.7.0_windows_amd64.zip"},
+ {"repo": "pgrok/pgrok", "os": "linux/arm64", "want": "pgrok_1.7.0_linux_arm64.tar.gz"},
+ {"repo": "ollama/ollama", "os": "linux/arm64", "want": "ollama-linux-arm64.tar.zst"},
+ {"repo": "anthropics/claude-code", "os": "windows/amd64", "want": "claude-win32-x64.zip"},
+ {"repo": "microsoft/TypeScript", "os": "windows/arm64", "want": "typescript-win32-arm64.tgz"},
+ {"repo": "colbymchenry/codegraph", "os": "windows/arm64", "want": "codegraph-win32-arm64.zip"},
+ {"repo": "nektos/act", "os": "linux/arm64", "want": "act_Linux_arm64.tar.gz"},
+ {"repo": "typst/typst", "os": "windows/arm64", "want": "typst-aarch64-pc-windows-msvc.zip"},
+ {"repo": "aaif-goose/goose", "os": "linux/amd64", "want": "goose-x86_64-unknown-linux-musl.tar.bz2"},
+ {"repo": "fatedier/frp", "os": "linux/amd64", "want": "frp_0.71.0_linux_amd64.tar.gz"},
+ {"repo": "sharkdp/bat", "os": "linux/amd64", "want": "bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz"},
+ {"repo": "Eugeny/tabby", "os": "linux/amd64", "want": "tabby-1.0.237-linux-x64.tar.gz"},
+ {"repo": "anthropics/claude-code", "os": "darwin/arm64", "want": "claude-darwin-arm64.tar.gz"},
+ {"repo": "sharkdp/bat", "os": "darwin/arm64", "want": "bat-v0.26.1-aarch64-apple-darwin.tar.gz"},
+ {"repo": "oven-sh/bun", "os": "darwin/arm64", "want": "bun-darwin-aarch64.zip"},
+ {"repo": "traefik/traefik", "os": "darwin/arm64", "want": "traefik_v3.7.13_darwin_arm64.tar.gz"},
+ {"repo": "ghostty-org/ghostty", "os": "darwin/arm64", "want": "ghostty-macos-universal.zip"},
+ {"repo": "usememos/memos", "os": "darwin/arm64", "want": "memos_0.31.0_darwin_arm64.tar.gz"},
+ {"repo": "astral-sh/ruff", "os": "darwin/arm64", "want": "ruff-aarch64-apple-darwin.tar.gz"},
+ {"repo": "openai/codex", "os": "darwin/arm64", "want": "codex-aarch64-apple-darwin.tar.gz"},
+ {"repo": "BurntSushi/ripgrep", "os": "darwin/arm64", "want": "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz"},
+ {"repo": "rtk-ai/rtk", "os": "darwin/arm64", "want": "rtk-aarch64-apple-darwin.tar.gz"},
+ {"repo": "rustdesk/rustdesk", "os": "darwin/arm64", "want": "rustdesk-1.4.9-aarch64.dmg"},
+ {"repo": "agalwood/Motrix", "os": "darwin/arm64", "want": "Motrix-2.0.0-beta.40-arm64.dmg"},
+ {"repo": "clash-verge-rev/clash-verge-rev", "os": "darwin/arm64", "want": "Clash.Verge_2.5.6_aarch64.dmg"},
+ {"repo": "zed-industries/zed", "os": "darwin/arm64", "reject": "zed-remote-server-macos-aarch64.gz", "strict": true},
+ {"repo": "zed-industries/zed", "os": "linux/amd64", "reject": "zed-remote-server-linux-x86_64.gz", "strict": true},
+ {"repo": "infiniflow/ragflow", "os": "linux/amd64", "reject": "ragflow-cli-v0.27.2-linux-amd64"},
+ {"repo": "xtekky/gpt4free", "os": "linux/arm64", "reject": "g4f-go-v8.5.8-linux-arm64.zip"},
+ {"repo": "obsproject/obs-studio", "os": "darwin/arm64", "reject": "OBS-Studio-32.2.2-macOS-Apple-dSYMs.tar.xz", "strict": true},
+ {"repo": "tw93/Pake", "os": "darwin/arm64", "reject": "Grok.dmg", "strict": true},
+ {"repo": "ryanoasis/nerd-fonts", "os": "linux/amd64", "reject": "Ubuntu.tar.xz", "strict": true},
+ {"repo": "wadey/node-microtime", "os": "linux/amd64", "reject": "linux-x64.tar.gz", "strict": true},
+ {"repo": "OpenHands/OpenHands", "os": "linux/arm64", "want": "none"},
+ {"repo": "Marekkon5/onetagger", "os": "linux/arm64", "want": "none"},
+ {"repo": "premake/premake-core", "os": "linux/arm64", "want": "none"},
+ {"repo": "char2cs/crowbar", "os": "darwin/arm64", "want": "Crowbar_nightly_universal.dmg"},
+ {"repo": "char2cs/crowbar", "os": "linux/amd64", "want": "Crowbar_nightly_amd64.AppImage"}
 ]

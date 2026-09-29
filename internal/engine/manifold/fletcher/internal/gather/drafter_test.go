@@ -22,7 +22,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/confidence"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/gather"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/media"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
@@ -45,6 +44,7 @@ const (
 var errBoom = errors.New("boom")
 
 type stubHost struct {
+	hosts.Host
 	mu         sync.Mutex
 	server     *httptest.Server
 	assets     []domain.ReleaseAsset
@@ -151,15 +151,6 @@ func (s *stubHost) RepoPageURL(
 	return s.server.URL + repoPagePath
 }
 
-func (s *stubHost) DefaultBranches() []string { return nil }
-
-func (s *stubHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", nil
-}
-
 func (s *stubHost) ReleaseAssets(
 	_ context.Context,
 	_ domain.Namespace,
@@ -177,9 +168,10 @@ func (s *stubHost) ReleaseAssets(
 func (s *stubHost) readmeReads() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	probes := []string{"src-tauri/icons/icon.png", "build/icon.png", "logo.svg"}
 	reads := make([]string, 0, len(s.rawCalls))
 	for _, path := range s.rawCalls {
-		if slices.Contains(media.IconProbePaths(), path) {
+		if slices.Contains(probes, path) {
 			continue
 		}
 		reads = append(reads, path)
@@ -299,10 +291,10 @@ func TestDrafter_Draft_RendersParseableManifest(t *testing.T) {
 	}
 	f := newDrafter(t, host, picker.New())
 
-	draft, err := f.Draft(context.Background(), testNS, testTag)
+	manifest, err := f.Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
-	arrow := parse(t, draft.Manifest)
+	arrow := parse(t, manifest)
 	assert.Equal(t, "tool", arrow.Name)
 	assert.Equal(t, "Tool searches things.", arrow.Description)
 	assert.Equal(t, host.server.URL+repoPagePath, arrow.URL)
@@ -313,9 +305,7 @@ func TestDrafter_Draft_RendersParseableManifest(t *testing.T) {
 	assert.Contains(t, arrow.Readme, host.server.URL+"/raw/v1.0.0/shot.png")
 	assert.Equal(t, domain.ArrowOriginInferred, arrow.Origin())
 	assert.Equal(t, "fletcher/1", arrow.Generator.Name)
-	assert.Equal(t, string(draft.Report.Confidence), arrow.Generator.Confidence)
-	assert.Equal(t, draft.Report.Warnings, arrow.Generator.Warnings)
-	assert.Equal(t, "fletcher/1", draft.Report.Heuristics)
+	assert.NotEmpty(t, arrow.Generator.Confidence)
 	assert.Contains(t, arrow.Targets, domain.OSLinuxAMD64)
 	assert.Contains(t, arrow.Targets, domain.OSDarwinARM64)
 	assert.Contains(t, arrow.Targets, domain.OSWindowsAMD64)
@@ -331,29 +321,15 @@ func TestDrafter_Draft_RendersParseableManifest(t *testing.T) {
 func TestDrafter_Draft_HostWithoutARepoPageHasNoDescription(t *testing.T) {
 	host := &stubHost{assets: realAssets()}
 
-	draft, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
-	arrow := parse(t, draft.Manifest)
+	arrow := parse(t, manifest)
 	assert.Empty(t, arrow.Description)
 	assert.Empty(t, arrow.URL)
 	assert.Empty(t, arrow.Media.Icon)
 	assert.Empty(t, arrow.Media.Banner)
 	assert.Zero(t, host.pageCall)
-}
-
-func TestDrafter_Draft_ReparseKeepsGenerator(t *testing.T) {
-	host := &stubHost{assets: realAssets(), page: pageWith("og:description", "d")}
-	f := newDrafter(t, host, picker.New())
-	draft, err := f.Draft(context.Background(), testNS, testTag)
-	require.NoError(t, err)
-
-	first := parse(t, draft.Manifest)
-	second := parse(t, draft.Manifest)
-
-	assert.Equal(t, first.Generator, second.Generator)
-	assert.Equal(t, domain.ArrowOriginInferred, second.Origin())
-	assert.NotEmpty(t, second.Generator.Confidence)
 }
 
 func TestDrafter_Draft_PassesRepoNameToPicker(t *testing.T) {
@@ -372,13 +348,11 @@ func TestDrafter_Draft_PassesRepoNameToPicker(t *testing.T) {
 }
 
 func TestDrafter_NotFletchable_UnknownHost(t *testing.T) {
-	for _, lookup := range []hosts.Lookup{hosts.None, nil} {
-		f := gather.New(lookup, picker.New(), testTimeout)
+	f := gather.New(hosts.None, picker.New(), testTimeout)
 
-		_, err := f.Draft(context.Background(), testNS, testTag)
+	_, err := f.Draft(context.Background(), testNS, testTag)
 
-		assert.Equal(t, models.ReasonHostUnsupported, notFletchableReason(t, err))
-	}
+	assert.Equal(t, models.ReasonHostUnsupported, notFletchableReason(t, err))
 }
 
 func TestDrafter_NotFletchable(t *testing.T) {
@@ -552,27 +526,27 @@ func TestDrafter_Draft_DropsUnusablePicks(t *testing.T) {
 		),
 	}}
 
-	draft, err := newDrafter(t, &stubHost{assets: realAssets()}, pk).Draft(context.Background(), testNS, testTag)
+	manifest, err := newDrafter(t, &stubHost{assets: realAssets()}, pk).Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
-	arrow := parse(t, draft.Manifest)
+	arrow := parse(t, manifest)
 	assert.Contains(t, arrow.Targets, domain.OSLinuxAMD64)
 	assert.NotContains(t, arrow.Targets, domain.OSLinuxARM64)
-	assert.Equal(t, confidence.ConfidenceHigh, draft.Report.Confidence)
-	assert.Empty(t, draft.Report.Warnings)
+	assert.Equal(t, string(confidence.ConfidenceHigh), arrow.Generator.Confidence)
+	assert.Empty(t, arrow.Generator.Warnings)
 }
 
 func TestDrafter_Draft_URLComesFromRepoPageURL(t *testing.T) {
 	host := &stubHost{assets: realAssets(), page: pageWith("og:description", "d")}
 
-	draft, err := newDrafter(t, host, picker.New()).Draft(
+	manifest, err := newDrafter(t, host, picker.New()).Draft(
 		context.Background(),
 		domain.Namespace("gitlab.example.com/acme/tool@v1.0.0"),
 		testTag,
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, host.server.URL+repoPagePath, parse(t, draft.Manifest).URL)
+	assert.Equal(t, host.server.URL+repoPagePath, parse(t, manifest).URL)
 }
 
 func withMatch(
@@ -608,12 +582,12 @@ func TestDrafter_LowConfidenceIsNotFletchable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newDrafter(t, &stubHost{assets: realAssets()}, &stubPicker{picks: tc.picks})
 
-			draft, err := f.Draft(context.Background(), testNS, testTag)
+			manifest, err := f.Draft(context.Background(), testNS, testTag)
 
 			var nf models.NotFletchableError
 			require.ErrorAs(t, err, &nf)
 			assert.Equal(t, models.ReasonLowConfidence, nf.Reason)
-			assert.Empty(t, draft.Manifest)
+			assert.Empty(t, manifest)
 		})
 	}
 }
@@ -624,13 +598,11 @@ func TestDrafter_Draft_MediumConfidenceWarningsReachTheGenerator(t *testing.T) {
 		domain.OSDarwinARM64: withMatch(exactPick("tool-mac.zip", picker.FormatArchive), picker.MatchEmulated, true),
 	}}
 
-	draft, err := newDrafter(t, &stubHost{assets: realAssets()}, pk).Draft(context.Background(), testNS, testTag)
+	manifest, err := newDrafter(t, &stubHost{assets: realAssets()}, pk).Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
-	arrow := parse(t, draft.Manifest)
+	arrow := parse(t, manifest)
 	wantWarnings := []string{confidence.WarningAssumedArch, confidence.WarningEmulated}
-	assert.Equal(t, confidence.ConfidenceMedium, draft.Report.Confidence)
-	assert.Equal(t, wantWarnings, draft.Report.Warnings)
 	assert.Equal(t, string(confidence.ConfidenceMedium), arrow.Generator.Confidence)
 	assert.Equal(t, wantWarnings, arrow.Generator.Warnings)
 }

@@ -9,4 +9,6 @@ const (
 	StepTypePortable     StepType = "portable"
 	StepTypeSignal       StepType = "signal"
 	StepTypeDependencies StepType = "dependencies"
+	StepTypeExpose       StepType = "expose"
+	StepTypeUnexpose     StepType = "unexpose"
 )

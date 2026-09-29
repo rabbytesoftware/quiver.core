@@ -13,6 +13,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/workfs"
 )
 
 const (
@@ -328,7 +329,7 @@ func (g *Guard) physical(
 	}
 
 	physical := filepath.Join(parent, filepath.Base(cleaned))
-	if !g.within(physical) || !g.within(filepath.Join(parent, filepath.FromSlash(target))) {
+	if !workfs.Inside(g.dest, physical) || !workfs.Inside(g.dest, filepath.Join(parent, filepath.FromSlash(target))) {
 		return "", fmt.Errorf("unpack: %s -> %s: %w", cleaned, target, models.ErrEscape)
 	}
 
@@ -368,14 +369,6 @@ func (g *Guard) rejectSymlink(
 	return nil
 }
 
-func (g *Guard) within(
-	path string,
-) bool {
-	rel, err := filepath.Rel(g.dest, path)
-
-	return err == nil && !escapes(rel)
-}
-
 func checkLinkTarget(
 	cleaned string,
 	target string,
@@ -384,7 +377,7 @@ func checkLinkTarget(
 		return fmt.Errorf("unpack: %s: invalid link target %q", cleaned, target)
 	}
 
-	if IsAbsolute(target) || escapes(filepath.Join(filepath.Dir(cleaned), filepath.FromSlash(target))) {
+	if IsAbsolute(target) || !workfs.RelInside(filepath.Join(filepath.Dir(cleaned), filepath.FromSlash(target))) {
 		return fmt.Errorf("unpack: %s -> %s: %w", cleaned, target, models.ErrEscape)
 	}
 
@@ -414,7 +407,7 @@ func cleanName(
 	}
 
 	cleaned := filepath.Clean(filepath.FromSlash(name))
-	if escapes(cleaned) {
+	if !workfs.RelInside(cleaned) {
 		return "", fmt.Errorf("unpack: %q: %w", name, models.ErrEscape)
 	}
 
@@ -428,10 +421,4 @@ func IsAbsolute(
 		strings.HasPrefix(path, `\`) ||
 		filepath.IsAbs(path) ||
 		filepath.VolumeName(path) != ""
-}
-
-func escapes(
-	rel string,
-) bool {
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

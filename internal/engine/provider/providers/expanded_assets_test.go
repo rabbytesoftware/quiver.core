@@ -13,8 +13,6 @@ import (
 
 const ripgrepExpandedAssetsURL = "https://github.com/BurntSushi/ripgrep/releases/expanded_assets/15.2.0"
 
-const crowbarExpandedAssetsURL = "https://github.com/char2cs/crowbar/releases/expanded_assets/nightly"
-
 func readTestdata(t *testing.T, name string) []byte {
 	t.Helper()
 	body, err := os.ReadFile("testdata/" + name)
@@ -22,7 +20,7 @@ func readTestdata(t *testing.T, name string) []byte {
 	return body
 }
 
-func TestParseExpandedAssets_GoldenRipgrep_ParsesNamesURLsAndDigests(t *testing.T) {
+func TestParseExpandedAssets_GoldenRipgrep(t *testing.T) {
 	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_ripgrep.html"), ripgrepExpandedAssetsURL)
 	require.NoError(t, err)
 	require.Len(t, assets, 4)
@@ -32,109 +30,76 @@ func TestParseExpandedAssets_GoldenRipgrep_ParsesNamesURLsAndDigests(t *testing.
 		URL:    "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz",
 		Digest: "sha256:3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4",
 	}, assets[0])
-
 	assert.Equal(t, domain.ReleaseAsset{
 		Name:   "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz.sha256",
 		URL:    "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-apple-darwin.tar.gz.sha256",
 		Digest: "sha256:6548307715b72f409e4a2667fb1fc435822a2561a27445971b0925183313ebad",
 	}, assets[1])
-}
-
-func TestParseExpandedAssets_GoldenRipgrep_ExcludesSourceCodeArchiveLinks(t *testing.T) {
-	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_ripgrep.html"), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-
 	for _, asset := range assets {
 		assert.NotContains(t, asset.URL, "/archive/")
-	}
-}
-
-func TestParseExpandedAssets_GoldenRipgrep_URLsAreAbsolute(t *testing.T) {
-	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_ripgrep.html"), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-
-	for _, asset := range assets {
 		assert.Contains(t, asset.URL, "https://github.com/")
 	}
 }
 
-func TestParseExpandedAssets_GoldenCrowbarNightly_Parses(t *testing.T) {
-	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_crowbar_nightly.html"), crowbarExpandedAssetsURL)
-	require.NoError(t, err)
-	require.Len(t, assets, 4)
+func TestParseExpandedAssets_Fragments(t *testing.T) {
+	testCases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{name: "valid empty list", body: `<div><ul data-view-component="true"></ul></div>`},
+		{
+			name: "only archive links",
+			body: `<div><ul>
+				<li><a href="/u/r/archive/refs/tags/v1.zip">Source code</a></li>
+				<li><a href="/u/r/archive/refs/tags/v1.tar.gz">Source code</a></li>
+			</ul></div>`,
+		},
+		{name: "item without a link", body: `<div><ul><li><span>no link here</span></li></ul></div>`},
+		{name: "link without href", body: `<div><ul><li><a data-turbo="false">no href</a></li></ul></div>`},
+		{
+			name: "absolute href is kept",
+			body: `<div><ul><li><a href="https://objects.githubusercontent.com/release/1/a.zip">a.zip</a></li></ul></div>`,
+			want: []string{"https://objects.githubusercontent.com/release/1/a.zip"},
+		},
+	}
 
-	assert.Equal(t, "crowbar-api-darwin-amd64", assets[0].Name)
-	assert.Equal(t, "https://github.com/char2cs/crowbar/releases/download/nightly/crowbar-api-darwin-amd64", assets[0].URL)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assets, err := parseExpandedAssets([]byte(tc.body), ripgrepExpandedAssetsURL)
+
+			require.NoError(t, err)
+			urls := make([]string, 0, len(assets))
+			for _, asset := range assets {
+				urls = append(urls, asset.URL)
+			}
+			assert.Equal(t, append([]string{}, tc.want...), urls)
+		})
+	}
 }
 
-func TestParseExpandedAssets_ValidEmptyList_ReturnsEmptySlice(t *testing.T) {
-	body := `<div class="Box Box--condensed"><ul data-view-component="true"></ul></div>`
+func TestParseExpandedAssets_UnexpectedPage(t *testing.T) {
+	testCases := []struct {
+		name    string
+		body    string
+		pageURL string
+	}{
+		{name: "no list", body: `<html><body><p>404 Not Found</p></body></html>`, pageURL: ripgrepExpandedAssetsURL},
+		{name: "unparseable page url", body: `<div><ul><li><a href="/a.zip">a.zip</a></li></ul></div>`, pageURL: "://not a url"},
+	}
 
-	assets, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-	assert.Empty(t, assets)
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseExpandedAssets([]byte(tc.body), tc.pageURL)
 
-func TestParseExpandedAssets_OnlyArchiveLinks_ReturnsEmptySlice(t *testing.T) {
-	body := `<div><ul>
-		<li><a href="/u/r/archive/refs/tags/v1.zip">Source code</a></li>
-		<li><a href="/u/r/archive/refs/tags/v1.tar.gz">Source code</a></li>
-	</ul></div>`
-
-	assets, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-	assert.Empty(t, assets)
-}
-
-func TestParseExpandedAssets_MalformedPage_ReturnsErrUnexpectedPage(t *testing.T) {
-	body := `<html><body><p>404 Not Found</p></body></html>`
-
-	_, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	assert.ErrorIs(t, err, ErrUnexpectedPage)
-}
-
-func TestParseExpandedAssets_UnparseablePageURL_ReturnsErrUnexpectedPage(t *testing.T) {
-	body := `<div><ul><li><a href="/u/r/releases/download/v1/a.zip">a.zip</a></li></ul></div>`
-
-	_, err := parseExpandedAssets([]byte(body), "://not a url")
-	assert.ErrorIs(t, err, ErrUnexpectedPage)
-}
-
-func TestParseExpandedAssets_MissingHref_SkipsTheItem(t *testing.T) {
-	body := `<div><ul>
-		<li><span>no link here</span></li>
-	</ul></div>`
-
-	assets, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-	assert.Empty(t, assets)
-}
-
-func TestParseExpandedAssets_LinkWithoutHrefAttribute_SkipsTheItem(t *testing.T) {
-	body := `<div><ul>
-		<li><a data-turbo="false">no href attribute</a></li>
-	</ul></div>`
-
-	assets, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-	assert.Empty(t, assets)
-}
-
-func TestParseExpandedAssets_AlreadyAbsoluteHref_IsKeptAsIs(t *testing.T) {
-	body := `<div><ul>
-		<li><a href="https://objects.githubusercontent.com/release/1/a.zip">a.zip</a></li>
-	</ul></div>`
-
-	assets, err := parseExpandedAssets([]byte(body), ripgrepExpandedAssetsURL)
-	require.NoError(t, err)
-	require.Len(t, assets, 1)
-	assert.Equal(t, "https://objects.githubusercontent.com/release/1/a.zip", assets[0].URL)
+			assert.ErrorIs(t, err, ErrUnexpectedPage)
+		})
+	}
 }
 
 func TestResolveHref_UnparseableHref_ReturnsItUnchanged(t *testing.T) {
 	base, err := url.Parse(ripgrepExpandedAssetsURL)
 	require.NoError(t, err)
 
-	got := resolveHref(base, "://bad href")
-	assert.Equal(t, "://bad href", got)
+	assert.Equal(t, "://bad href", resolveHref(base, "://bad href"))
 }

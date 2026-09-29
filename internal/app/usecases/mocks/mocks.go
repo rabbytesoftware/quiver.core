@@ -88,10 +88,6 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
-	WorkDirFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
 	SetChannelFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -355,16 +351,6 @@ func (m *MockArrow) MarkLastUsed(
 	return nil
 }
 
-func (m *MockArrow) WorkDir(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	if m.WorkDirFn != nil {
-		return m.WorkDirFn(ctx, ns)
-	}
-	return "", nil
-}
-
 func (m *MockArrow) SetChannel(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -596,10 +582,6 @@ type MockRuntime struct {
 	) error
 	ForgottenNamespaces []domain.Namespace
 	ForgetErr           error
-	UnexposeFn          func(
-		ctx context.Context,
-		ns domain.Namespace,
-	)
 }
 
 func (m *MockRuntime) BeginInstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
@@ -794,15 +776,6 @@ func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace, lastRe
 		return m.MarkReadyFn(ctx, ns, lastReturn)
 	}
 	return nil
-}
-
-func (m *MockRuntime) Unexpose(
-	ctx context.Context,
-	ns domain.Namespace,
-) {
-	if m.UnexposeFn != nil {
-		m.UnexposeFn(ctx, ns)
-	}
 }
 
 func (m *MockRuntime) Forget(ctx context.Context, ns domain.Namespace) error {

@@ -595,28 +595,6 @@ func TestMarkLastUsed_UnknownNamespace_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestWorkDir_DelegatesToVault(t *testing.T) {
-	ns := testNs()
-	v := &mocks.Vault{WorkDirValue: "/vault/namespaces/" + ns.String()}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, nil)
-
-	got, err := cat.WorkDir(context.Background(), ns)
-
-	require.NoError(t, err)
-	assert.Equal(t, v.WorkDirValue, got)
-	assert.Equal(t, []domain.Namespace{ns}, v.WorkDirNamespaces)
-}
-
-func TestWorkDir_PropagatesVaultError(t *testing.T) {
-	ns := testNs()
-	v := &mocks.Vault{WorkDirErr: errors.New("vault closed")}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, nil)
-
-	_, err := cat.WorkDir(context.Background(), ns)
-
-	assert.Error(t, err)
-}
-
 func TestSetChannel_SendsCommand(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/workfs"
 )
 
 const maxLinkHops = 40
@@ -90,7 +91,7 @@ func (r *linkResolver) contain(
 	path string,
 	complete bool,
 ) (string, bool, error) {
-	if !r.g.within(path) {
+	if !workfs.Inside(r.g.dest, path) {
 		return "", false, fmt.Errorf("unpack: %s: %w", path, models.ErrEscape)
 	}
 

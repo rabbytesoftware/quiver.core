@@ -95,40 +95,33 @@ func TestArrowDetailDTO_WireShape_UninstalledOmitsTheStamp(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo@v1.2.3", without["namespace"])
 }
 
-func TestArrowDetailDTOFrom_MapsLicense(t *testing.T) {
-	a := &models.ArrowDetailDTO{
-		Namespace: domain.Namespace("github.com/user/repo"),
-		License:   "MIT",
-	}
-	d := dto.ArrowDetailDTOFrom(a)
-	assert.Equal(t, "MIT", d.License)
-}
-
-func TestArrowDetailDTOFrom_DeclaredArrow_NoInference(t *testing.T) {
-	a := &models.ArrowDetailDTO{
-		Namespace: domain.Namespace("github.com/user/repo"),
-		Origin:    domain.ArrowOriginDeclared,
-	}
-	d := dto.ArrowDetailDTOFrom(a)
-	assert.Equal(t, "declared", d.Origin)
-	assert.Nil(t, d.Inference)
-}
-
-func TestArrowDetailDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
-	a := &models.ArrowDetailDTO{
-		Namespace: domain.Namespace("github.com/user/repo"),
-		Origin:    domain.ArrowOriginInferred,
-		Generator: &domain.ArrowGenerator{
-			Name:       "generator/1",
-			Confidence: "medium",
-			Warnings:   []string{"emulated"},
+func TestArrowDetailDTOFrom_Origin(t *testing.T) {
+	generator := &domain.ArrowGenerator{Name: "generator/1", Confidence: "medium"}
+	testCases := []struct {
+		name          string
+		origin        string
+		generator     *domain.ArrowGenerator
+		wantInference *dto.InferenceDTO
+	}{
+		{name: "declared", origin: domain.ArrowOriginDeclared},
+		{
+			name:          "inferred",
+			origin:        domain.ArrowOriginInferred,
+			generator:     generator,
+			wantInference: dto.InferenceDTOFrom(generator),
 		},
 	}
-	d := dto.ArrowDetailDTOFrom(a)
-	require.NotNil(t, d.Inference)
-	assert.Equal(t, "generator/1", d.Inference.Generator)
-	assert.Equal(t, "medium", d.Inference.Confidence)
-	assert.Equal(t, []string{"emulated"}, d.Inference.Warnings)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
+				Namespace: domain.Namespace("github.com/user/repo"),
+				Origin:    tc.origin,
+				Generator: tc.generator,
+			})
+			assert.Equal(t, tc.origin, d.Origin)
+			assert.Equal(t, tc.wantInference, d.Inference)
+		})
+	}
 }
 
 func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {

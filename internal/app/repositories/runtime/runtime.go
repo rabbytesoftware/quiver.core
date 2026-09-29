@@ -15,11 +15,9 @@ import (
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -143,10 +141,6 @@ type Runtime interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	Unexpose(
-		ctx context.Context,
-		ns domain.Namespace,
-	)
 }
 
 type runtimeRepository struct {
@@ -156,7 +150,6 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
-	exposer               exposer.Exposer
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -168,7 +161,6 @@ func New(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	v vault.Vault,
-	sh shelf.Shelf,
 	markInstalled MarkInstalledFn,
 	markUninstalled MarkUninstalledFn,
 	markLastUsed MarkLastUsedFn,
@@ -180,11 +172,10 @@ func New(
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
+		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os), getArrow, os},
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
-		exposer:               exposer.New(sh, v, exposer.GetArrowFn(getArrow), exposer.ListArrowsFn(listArrows), os),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
@@ -192,7 +183,6 @@ func New(
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
 		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
-		Exposer:               repo.exposer,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -202,6 +192,32 @@ func New(
 	}
 
 	return repo, nil
+}
+
+// plannedAssembler hands every assembled run to wizard.Plan, which adds the
+// steps the wizard itself runs for the method.
+type plannedAssembler struct {
+	assembler.Assembler
+	getArrow GetArrowFn
+	os       domain.OS
+}
+
+func (a plannedAssembler) Assemble(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+	userVars map[string]string,
+) (assembler.ResolvedExecution, error) {
+	resolved, err := a.Assembler.Assemble(ctx, ns, method, userVars)
+	if err != nil {
+		return resolved, err
+	}
+	arrow, err := a.getArrow(ctx, ns)
+	if err != nil {
+		return assembler.ResolvedExecution{}, fmt.Errorf("plan: %w", err)
+	}
+	resolved.Steps = wizardPkg.Plan(method, arrow, a.os, resolved.Steps)
+	return resolved, nil
 }
 
 // MarkPreinstalled returns a function that lands ns's runtime aggregate at
@@ -441,7 +457,7 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard, s.exposer)
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
 }
 
 // tryAddDrain registers one drain goroutine, if Shutdown should wait for it.
@@ -715,8 +731,7 @@ func (s *runtimeRepository) MarkOutdated(
 // New, so none of MarkPreinstalled's construction-order constraint applies
 // here.
 func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-	exposed := s.exposer.ApplyVersioned(ctx, ns)
-	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: exposer.WithExposed(lastReturn, exposed)})
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: lastReturn})
 	if err == nil {
 		return nil
 	}
@@ -724,13 +739,6 @@ func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, 
 		return fmt.Errorf("mark ready %s: %w", ns, apperrors.ErrStateViolation)
 	}
 	return fmt.Errorf("mark ready %s: %w", ns, err)
-}
-
-func (s *runtimeRepository) Unexpose(
-	ctx context.Context,
-	ns domain.Namespace,
-) {
-	s.exposer.Remove(ctx, ns)
 }
 
 func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {

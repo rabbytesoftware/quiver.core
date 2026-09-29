@@ -184,19 +184,6 @@ func TestPathStatus_NotOnPath_PrintsNo(t *testing.T) {
 	assert.Contains(t, out, "configured: no")
 }
 
-func TestPathStatus_DaemonError_ReturnsError(t *testing.T) {
-	srv := httptest.NewServer((&fakeSystemDaemon{fail: true}).handler())
-	defer srv.Close()
-
-	_, err := runSystem(t, newSession(t, srv.URL), "test", "path", "status")
-	assert.Error(t, err)
-}
-
-func TestPathStatus_SessionError_ReturnsError(t *testing.T) {
-	_, err := runSystem(t, newSession(t, "ftp://nope"), "test", "path", "status")
-	assert.Error(t, err)
-}
-
 func TestPathSetup_PrintsUpdatedStatus(t *testing.T) {
 	srv := httptest.NewServer((&fakeSystemDaemon{}).handler())
 	defer srv.Close()
@@ -206,15 +193,16 @@ func TestPathSetup_PrintsUpdatedStatus(t *testing.T) {
 	assert.Contains(t, out, "configured: yes")
 }
 
-func TestPathSetup_DaemonError_ReturnsError(t *testing.T) {
+func TestPath_Errors(t *testing.T) {
 	srv := httptest.NewServer((&fakeSystemDaemon{fail: true}).handler())
 	defer srv.Close()
 
-	_, err := runSystem(t, newSession(t, srv.URL), "test", "path", "setup")
-	assert.Error(t, err)
-}
-
-func TestPathSetup_SessionError_ReturnsError(t *testing.T) {
-	_, err := runSystem(t, newSession(t, "ftp://nope"), "test", "path", "setup")
-	assert.Error(t, err)
+	for _, sub := range []string{"status", "setup"} {
+		for _, target := range []string{srv.URL, "ftp://nope"} {
+			t.Run(sub+" "+target, func(t *testing.T) {
+				_, err := runSystem(t, newSession(t, target), "test", "path", sub)
+				assert.Error(t, err)
+			})
+		}
+	}
 }

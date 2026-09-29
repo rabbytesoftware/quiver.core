@@ -134,13 +134,3 @@ func TestAssess(t *testing.T) {
 		})
 	}
 }
-
-func TestConfidence_Values(t *testing.T) {
-	assert.Equal(t, confidence.Confidence("high"), confidence.ConfidenceHigh)
-	assert.Equal(t, confidence.Confidence("medium"), confidence.ConfidenceMedium)
-	assert.Equal(t, confidence.Confidence("low"), confidence.ConfidenceLow)
-	assert.Equal(t, "assumed_arch", confidence.WarningAssumedArch)
-	assert.Equal(t, "emulated", confidence.WarningEmulated)
-	assert.Equal(t, "name_mismatch", confidence.WarningNameMismatch)
-	assert.Equal(t, "windows_exe_unverified", confidence.WarningWindowsExeUnverified)
-}

@@ -78,32 +78,32 @@ func TestArrowDTOFrom(t *testing.T) {
 	assert.Contains(t, string(dataInstalled), `"user_installed":true`)
 }
 
-func TestArrowDTOFrom_DeclaredArrow_NoInference(t *testing.T) {
-	a := domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{Name: "Test"},
-	}
-	d := dto.ArrowDTOFrom(a)
-	assert.Equal(t, "declared", d.Origin)
-	assert.Nil(t, d.Inference)
-}
-
-func TestArrowDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
-	a := domain.Arrow{
-		Namespace: "github.com/user/repo",
-		ArrowMeta: domain.ArrowMeta{
-			Name: "Test",
-			Generator: &domain.ArrowGenerator{
-				Name:       "generator/1",
-				Confidence: "high",
-			},
+func TestArrowDTOFrom_Origin(t *testing.T) {
+	generator := &domain.ArrowGenerator{Name: "generator/1", Confidence: "high"}
+	testCases := []struct {
+		name          string
+		generator     *domain.ArrowGenerator
+		wantOrigin    string
+		wantInference *dto.InferenceDTO
+	}{
+		{name: "declared", wantOrigin: "declared"},
+		{
+			name:          "inferred",
+			generator:     generator,
+			wantOrigin:    "inferred",
+			wantInference: dto.InferenceDTOFrom(generator),
 		},
 	}
-	d := dto.ArrowDTOFrom(a)
-	assert.Equal(t, "inferred", d.Origin)
-	require.NotNil(t, d.Inference)
-	assert.Equal(t, "generator/1", d.Inference.Generator)
-	assert.Equal(t, "high", d.Inference.Confidence)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := dto.ArrowDTOFrom(domain.Arrow{
+				Namespace: "github.com/user/repo",
+				ArrowMeta: domain.ArrowMeta{Name: "Test", Generator: tc.generator},
+			})
+			assert.Equal(t, tc.wantOrigin, d.Origin)
+			assert.Equal(t, tc.wantInference, d.Inference)
+		})
+	}
 }
 
 func TestArrowDTOFrom_MediaMapped(t *testing.T) {

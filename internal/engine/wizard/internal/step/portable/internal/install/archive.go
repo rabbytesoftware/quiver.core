@@ -31,7 +31,7 @@ func (i *installer) installArchive(
 	name string,
 ) ([]domain.PortableApp, error) {
 	extract := func(g *unpack.Guard) error {
-		return archive.ExtractAs(ctx, src, size, g, name)
+		return archive.Extract(ctx, src, size, g, name)
 	}
 	if osArch.IsDarwin() {
 		return i.installBundles(ctx, to, extract)

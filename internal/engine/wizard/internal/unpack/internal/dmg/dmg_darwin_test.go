@@ -15,7 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/dmg"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func buildDmg(
@@ -42,7 +42,7 @@ func runExtractDmg(
 ) error {
 	t.Helper()
 
-	g, err := guard.Open(context.Background(), to, unpacktest.TestMaxBytes)
+	g, err := guard.Open(context.Background(), to, mocks.TestMaxBytes)
 	require.NoError(t, err)
 	defer g.Close()
 
@@ -82,7 +82,7 @@ func TestExtractDmg_CopiesBundle(t *testing.T) {
 	target, err := os.Readlink(filepath.Join(outVersions, "Current"))
 	require.NoError(t, err)
 	assert.Equal(t, "A", target)
-	assert.Equal(t, "lib", unpacktest.ReadString(t, filepath.Join(outVersions, "Current", "X")))
+	assert.Equal(t, "lib", mocks.ReadString(t, filepath.Join(outVersions, "Current", "X")))
 	_, err = os.Lstat(filepath.Join(to, "Applications"))
 	assert.ErrorIs(t, err, os.ErrNotExist)
 	_, err = os.Lstat(filepath.Join(to, ".hidden"))
@@ -106,7 +106,7 @@ func TestExtractDmg_RejectsEscapingSymlink(t *testing.T) {
 
 func TestExtractDmg_AttachFailure(t *testing.T) {
 	dir := t.TempDir()
-	image := unpacktest.WriteArchive(t, dir, "broken.dmg", []byte("not a disk image"))
+	image := mocks.WriteFile(t, filepath.Join(dir, "broken.dmg"), []byte("not a disk image"))
 	to := filepath.Join(dir, "out")
 
 	err := runExtractDmg(t, image, to, 0)

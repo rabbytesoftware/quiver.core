@@ -7,12 +7,10 @@ import (
 	"path/filepath"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/workdir"
 )
 
 const (
 	stagingSuffix   = ".quiver-tmp"
-	asideSuffix     = ".quiver-old"
 	ownerMarker     = ".quiver-portable"
 	ownerMarkerPerm = 0o644
 )
@@ -26,6 +24,12 @@ type Installer interface {
 		to string,
 		name string,
 	) ([]domain.PortableApp, string, error)
+	Record(
+		ctx context.Context,
+		nsKey string,
+		workDir string,
+		apps []domain.PortableApp,
+	) error
 	RemoveSource(
 		workDir string,
 		from string,
@@ -60,7 +64,7 @@ func (i *installer) Place(
 		return nil, "", err
 	}
 	if !owned {
-		return i.install(ctx, osArch, from, to, name)
+		return i.install(ctx, osArch, from, to, name, false)
 	}
 
 	return i.installOwned(ctx, osArch, from, to, name, source)
@@ -75,7 +79,7 @@ func (i *installer) RemoveSource(
 		return nil
 	}
 
-	if _, inside := workdir.Rel(workDir, from); !inside {
+	if _, inside := workdirRel(workDir, from); !inside {
 		return nil
 	}
 
@@ -92,6 +96,7 @@ func (i *installer) install(
 	from string,
 	to string,
 	name string,
+	staged bool,
 ) ([]domain.PortableApp, string, error) {
 	src, err := os.Open(from) // #nosec G304 -- path is the step's own from: field, resolved against the workdir
 	if err != nil {
@@ -112,7 +117,7 @@ func (i *installer) install(
 	var apps []domain.PortableApp
 	switch kind {
 	case formatAppImage:
-		apps, err = i.installAppImage(ctx, src, info.Size(), from, to)
+		apps, err = i.installAppImage(ctx, src, info.Size(), from, to, staged)
 		return apps, "", err
 	case formatDmg:
 		apps, err = i.installDmg(ctx, from, to)
@@ -137,4 +142,33 @@ func validName(
 	}
 
 	return fmt.Errorf("%w: %q", ErrInvalidName, name)
+}
+
+func workdirRel(
+	workDir string,
+	path string,
+) (string, bool) {
+	rel, err := filepath.Rel(resolved(workDir), resolvedParent(path))
+	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+		return "", false
+	}
+
+	return filepath.ToSlash(rel), true
+}
+
+func resolvedParent(
+	path string,
+) string {
+	return filepath.Join(resolved(filepath.Dir(path)), filepath.Base(path))
+}
+
+func resolved(
+	path string,
+) string {
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+
+	return target
 }

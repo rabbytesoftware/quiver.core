@@ -310,29 +310,13 @@ func toStep(s stepV0) (step.Step, error) {
 		return st, nil
 
 	case "extract":
-		st := step.NewExtractStep(
-			s.Title,
-			s.From.Default,
-			s.To.Default,
-			s.Timeout.Default,
-			exitOnFailure,
-		)
-		st.From = toStepOverrideable(s.From)
-		st.To = toStepOverrideable(s.To)
-		st.Timeout = toStepOverrideable(s.Timeout)
+		st := step.NewExtractStep(s.Title, "", "", "", exitOnFailure)
+		st.From, st.To, st.Timeout = toFromToTimeout(s)
 		return st, nil
 
 	case "portable":
-		st := step.NewPortableStep(
-			s.Title,
-			s.From.Default,
-			s.To.Default,
-			s.Timeout.Default,
-			exitOnFailure,
-		)
-		st.From = toStepOverrideable(s.From)
-		st.To = toStepOverrideable(s.To)
-		st.Timeout = toStepOverrideable(s.Timeout)
+		st := step.NewPortableStep(s.Title, "", "", "", exitOnFailure)
+		st.From, st.To, st.Timeout = toFromToTimeout(s)
 		st.Name = s.Name
 		return st, nil
 
@@ -381,6 +365,12 @@ func resolveExitOnFailure(v *bool) bool {
 		return true
 	}
 	return *v
+}
+
+func toFromToTimeout(
+	s stepV0,
+) (step.Overrideable[string], step.Overrideable[string], step.Overrideable[string]) {
+	return toStepOverrideable(s.From), toStepOverrideable(s.To), toStepOverrideable(s.Timeout)
 }
 
 func toStepOverrideable(o overrideableV0[string]) step.Overrideable[string] {

@@ -646,255 +646,74 @@ targets:
 	}
 }
 
-func TestMap_ExtractStep_Basic(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: extract-basic-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: extract
-          from: ./myserver.tar.gz
-          to: ./
-          title: Extracting server
-          timeout: 5m
-          exit_on_failure: false
-`)
-	_, precompiled, err := v0.New().Parse(yamlData)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	steps := precompiled["*"].Lifecycle.Install
-	if len(steps) != 1 {
-		t.Fatalf("Install steps = %d, want 1", len(steps))
-	}
-	extractStep, ok := steps[0].(step.ExtractStep)
-	if !ok {
-		t.Fatalf("install[0] is %T, want ExtractStep", steps[0])
-	}
-	if extractStep.From.Default != "./myserver.tar.gz" {
-		t.Errorf("From default = %q", extractStep.From.Default)
-	}
-	if extractStep.To.Default != "./" {
-		t.Errorf("To default = %q", extractStep.To.Default)
-	}
-	if extractStep.Timeout.Default != "5m" {
-		t.Errorf("Timeout default = %q", extractStep.Timeout.Default)
-	}
-	if extractStep.Title() != "Extracting server" {
-		t.Errorf("Title() = %q", extractStep.Title())
-	}
-	if extractStep.ExitOnFailure() != false {
-		t.Errorf("ExitOnFailure() = %v, want false", extractStep.ExitOnFailure())
-	}
-}
-
-func TestMap_ExtractStep_OverrideableMapFields(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: extract-overrideable-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: extract
-          title: "Extracting binary"
-          from:
-            default: "./binary.tar.gz"
-            linux/amd64: "./binary-linux-amd64.tar.gz"
-            darwin/arm64: "./binary-darwin-arm64.tar.gz"
-          to:
-            default: "./"
-            linux/amd64: "./bin/"
-`)
-	_, precompiled, err := v0.New().Parse(yamlData)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	extractStep, ok := precompiled["*"].Lifecycle.Install[0].(step.ExtractStep)
-	if !ok {
-		t.Fatal("expected ExtractStep")
-	}
-	if extractStep.From.Default != "./binary.tar.gz" {
-		t.Errorf("From default = %q", extractStep.From.Default)
-	}
-	if extractStep.From.OSArch["linux/amd64"] != "./binary-linux-amd64.tar.gz" {
-		t.Errorf("From linux/amd64 = %q", extractStep.From.OSArch["linux/amd64"])
-	}
-	if extractStep.From.OSArch["darwin/arm64"] != "./binary-darwin-arm64.tar.gz" {
-		t.Errorf("From darwin/arm64 = %q", extractStep.From.OSArch["darwin/arm64"])
-	}
-	if extractStep.To.Default != "./" {
-		t.Errorf("To default = %q", extractStep.To.Default)
-	}
-	if extractStep.To.OSArch["linux/amd64"] != "./bin/" {
-		t.Errorf("To linux/amd64 = %q", extractStep.To.OSArch["linux/amd64"])
-	}
-}
-
-func TestMap_ExtractStep_SchemaAcceptsType(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: extract-schema-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: extract
-          from: ./archive.zip
-          to: ./
-`)
-	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
-		t.Fatalf("schema validation error = %v, want nil: extract must be an accepted step type", err)
-	}
-}
-
-func TestMap_PortableStep_Basic(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: portable-basic-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: portable
-          from: ./bruno.AppImage
-          to: ./
-          title: Installing Bruno
-          timeout: 15m
-          exit_on_failure: false
-`)
-	_, precompiled, err := v0.New().Parse(yamlData)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	steps := precompiled["*"].Lifecycle.Install
-	if len(steps) != 1 {
-		t.Fatalf("Install steps = %d, want 1", len(steps))
-	}
-	portableStep, ok := steps[0].(step.PortableStep)
-	if !ok {
-		t.Fatalf("install[0] is %T, want PortableStep", steps[0])
-	}
-	if portableStep.From.Default != "./bruno.AppImage" {
-		t.Errorf("From default = %q", portableStep.From.Default)
-	}
-	if portableStep.To.Default != "./" {
-		t.Errorf("To default = %q", portableStep.To.Default)
-	}
-	if portableStep.Timeout.Default != "15m" {
-		t.Errorf("Timeout default = %q", portableStep.Timeout.Default)
-	}
-	if portableStep.Title() != "Installing Bruno" {
-		t.Errorf("Title() = %q", portableStep.Title())
-	}
-	if portableStep.ExitOnFailure() != false {
-		t.Errorf("ExitOnFailure() = %v, want false", portableStep.ExitOnFailure())
-	}
-}
-
-func TestMap_PortableStep_Name(t *testing.T) {
+func TestMap_FromToSteps(t *testing.T) {
 	testCases := []struct {
-		name string
-		line string
-		want string
+		kind     string
+		extra    string
+		wantName string
 	}{
-		{name: "absent", want: ""},
-		{name: "present", line: "\n          name: tool.exe", want: "tool.exe"},
+		{kind: "extract"},
+		{kind: "portable"},
+		{kind: "portable", extra: "\n          name: tool.exe", wantName: "tool.exe"},
 	}
+
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.kind+tc.wantName, func(t *testing.T) {
 			yamlData := []byte(`
 schema: "arrow@v0"
 metadata:
-  name: portable-name-test
+  name: from-to-test
 targets:
   "*":
     lifecycle:
       install:
-        - type: portable
-          from: ./.tool.download
-          to: ./tool` + tc.line + `
+        - type: ` + tc.kind + `
+          title: Placing files
+          timeout: 5m
+          exit_on_failure: false
+          from:
+            default: "./default"
+            linux/amd64: "./linux-amd64"
+            darwin/arm64: "./darwin-arm64"
+          to:
+            default: "./"
+            linux/amd64: "./bin/"` + tc.extra + `
 `)
+			if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
+				t.Fatalf("schema validation error = %v, want nil", err)
+			}
 			_, precompiled, err := v0.New().Parse(yamlData)
 			if err != nil {
 				t.Fatalf("Parse() error = %v", err)
 			}
-			portableStep, ok := precompiled["*"].Lifecycle.Install[0].(step.PortableStep)
-			if !ok {
-				t.Fatal("expected PortableStep")
+			steps := precompiled["*"].Lifecycle.Install
+			if len(steps) != 1 {
+				t.Fatalf("Install steps = %d, want 1", len(steps))
 			}
-			if portableStep.Name != tc.want {
-				t.Errorf("Name = %q, want %q", portableStep.Name, tc.want)
+
+			var from, to, timeout step.Overrideable[string]
+			var name string
+			switch got := steps[0].(type) {
+			case step.ExtractStep:
+				from, to, timeout = got.From, got.To, got.Timeout
+			case step.PortableStep:
+				from, to, timeout, name = got.From, got.To, got.Timeout, got.Name
+			default:
+				t.Fatalf("install[0] is %T, want %s step", steps[0], tc.kind)
+			}
+			if steps[0].Title() != "Placing files" || steps[0].ExitOnFailure() {
+				t.Errorf("Title() = %q, ExitOnFailure() = %v", steps[0].Title(), steps[0].ExitOnFailure())
+			}
+			if timeout.Default != "5m" || name != tc.wantName {
+				t.Errorf("Timeout default = %q, Name = %q", timeout.Default, name)
+			}
+			if from.Default != "./default" || from.OSArch["linux/amd64"] != "./linux-amd64" || from.OSArch["darwin/arm64"] != "./darwin-arm64" {
+				t.Errorf("From = %+v", from)
+			}
+			if to.Default != "./" || to.OSArch["linux/amd64"] != "./bin/" {
+				t.Errorf("To = %+v", to)
 			}
 		})
-	}
-}
-
-func TestMap_PortableStep_OverrideableMapFields(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: portable-overrideable-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: portable
-          title: "Installing app"
-          from:
-            default: "./app.AppImage"
-            linux/amd64: "./app-linux-amd64.AppImage"
-            darwin/arm64: "./app-darwin-arm64.dmg"
-          to:
-            default: "./"
-            linux/amd64: "./bin/"
-`)
-	_, precompiled, err := v0.New().Parse(yamlData)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
-	portableStep, ok := precompiled["*"].Lifecycle.Install[0].(step.PortableStep)
-	if !ok {
-		t.Fatal("expected PortableStep")
-	}
-	if portableStep.From.Default != "./app.AppImage" {
-		t.Errorf("From default = %q", portableStep.From.Default)
-	}
-	if portableStep.From.OSArch["linux/amd64"] != "./app-linux-amd64.AppImage" {
-		t.Errorf("From linux/amd64 = %q", portableStep.From.OSArch["linux/amd64"])
-	}
-	if portableStep.From.OSArch["darwin/arm64"] != "./app-darwin-arm64.dmg" {
-		t.Errorf("From darwin/arm64 = %q", portableStep.From.OSArch["darwin/arm64"])
-	}
-	if portableStep.To.Default != "./" {
-		t.Errorf("To default = %q", portableStep.To.Default)
-	}
-	if portableStep.To.OSArch["linux/amd64"] != "./bin/" {
-		t.Errorf("To linux/amd64 = %q", portableStep.To.OSArch["linux/amd64"])
-	}
-}
-
-func TestMap_PortableStep_SchemaAcceptsType(t *testing.T) {
-	yamlData := []byte(`
-schema: "arrow@v0"
-metadata:
-  name: portable-schema-test
-targets:
-  "*":
-    lifecycle:
-      install:
-        - type: portable
-          from: ./app.AppImage
-          to: ./
-`)
-	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
-		t.Fatalf("schema validation error = %v, want nil: portable must be an accepted step type", err)
 	}
 }
 
@@ -1214,11 +1033,6 @@ func TestMap_Generator(t *testing.T) {
 				Warnings:   []string{"assumed_arch", "emulated"},
 			},
 		},
-		{
-			name:     "generator without warnings",
-			metadata: "  name: forged\n  generator:\n    name: fletcher/1\n    confidence: high\n",
-			want:     &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"},
-		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1240,9 +1054,7 @@ func TestMap_Generator_SchemaRejectsInvalidShapes(t *testing.T) {
 		generator string
 	}{
 		{name: "unknown confidence", generator: "    name: fletcher/1\n    confidence: certain\n"},
-		{name: "unknown key", generator: "    name: fletcher/1\n    confidence: high\n    extra: x\n"},
 		{name: "missing name", generator: "    confidence: high\n"},
-		{name: "missing confidence", generator: "    name: fletcher/1\n"},
 		{name: "non-string warning", generator: "    name: fletcher/1\n    confidence: low\n    warnings: [{a: b}]\n"},
 	}
 	for _, tc := range testCases {

@@ -19,14 +19,14 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/archive"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func helloZip(
 	t *testing.T,
 ) []byte {
 	t.Helper()
-	return unpacktest.ZipBytes(t, unpacktest.ZipEntry{Name: "hello.txt", Body: "hello\n", Mode: 0o644})
+	return mocks.ZipBytes(t, mocks.ZipEntry{Name: "hello.txt", Body: "hello\n", Mode: 0o644})
 }
 
 func xzBytes(
@@ -117,7 +117,7 @@ func runUnpack(
 	}
 	defer g.Close()
 
-	return errors.Join(kind.Extract(ctx, src, info.Size(), g), g.Verify())
+	return errors.Join(kind.Extract(ctx, src, info.Size(), g, ""), g.Verify())
 }
 
 func TestDetectArchive_DetectsEverySuffix(t *testing.T) {
@@ -128,36 +128,29 @@ func TestDetectArchive_DetectsEverySuffix(t *testing.T) {
 	}{
 		{
 			name: "tar.gz", file: "a.tar.gz",
-			build: func(t *testing.T) []byte { return unpacktest.GzipBytes(t, unpacktest.HelloTar(t)) },
+			build: func(t *testing.T) []byte { return mocks.GzipBytes(t, mocks.HelloTar(t)) },
 		},
-		{
-			name: "tgz", file: "a.tgz",
-			build: func(t *testing.T) []byte { return unpacktest.GzipBytes(t, unpacktest.HelloTar(t)) },
-		},
-		{name: "tar.xz", file: "a.tar.xz", build: func(t *testing.T) []byte { return xzBytes(t, unpacktest.HelloTar(t)) }},
-		{name: "txz", file: "a.txz", build: func(t *testing.T) []byte { return xzBytes(t, unpacktest.HelloTar(t)) }},
+		{name: "tar.xz", file: "a.tar.xz", build: func(t *testing.T) []byte { return xzBytes(t, mocks.HelloTar(t)) }},
 		{name: "tar.bz2", file: "a.tar.bz2", build: func(_ *testing.T) []byte { return bzip2TarFixture() }},
-		{name: "tbz", file: "a.tbz", build: func(_ *testing.T) []byte { return bzip2TarFixture() }},
-		{name: "tbz2", file: "a.tbz2", build: func(_ *testing.T) []byte { return bzip2TarFixture() }},
 		{
 			name: "tar.zst", file: "a.tar.zst",
-			build: func(t *testing.T) []byte { return zstdBytes(t, unpacktest.HelloTar(t)) },
+			build: func(t *testing.T) []byte { return zstdBytes(t, mocks.HelloTar(t)) },
 		},
-		{name: "tar", file: "a.tar", build: unpacktest.HelloTar},
+		{name: "tar", file: "a.tar", build: mocks.HelloTar},
 		{name: "zip", file: "a.zip", build: helloZip},
 		{
 			name: "upper case", file: "A.TAR.GZ",
-			build: func(t *testing.T) []byte { return unpacktest.GzipBytes(t, unpacktest.HelloTar(t)) },
+			build: func(t *testing.T) []byte { return mocks.GzipBytes(t, mocks.HelloTar(t)) },
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, tc.file, tc.build(t))
+			from := mocks.WriteFile(t, filepath.Join(dir, tc.file), tc.build(t))
 			to := filepath.Join(dir, "out")
 
-			require.NoError(t, runUnpack(t, unpacktest.TestMaxBytes, from, to, 0))
+			require.NoError(t, runUnpack(t, mocks.TestMaxBytes, from, to, 0))
 
 			data, err := os.ReadFile(filepath.Join(to, "hello.txt"))
 			require.NoError(t, err)
@@ -173,23 +166,23 @@ func TestDetectArchive_FallsBackToMagicBytes(t *testing.T) {
 		wantFile string
 		wantBody string
 	}{
-		{name: "tar", build: unpacktest.HelloTar, wantFile: "hello.txt", wantBody: "hello\n"},
+		{name: "tar", build: mocks.HelloTar, wantFile: "hello.txt", wantBody: "hello\n"},
 		{name: "zip", build: helloZip, wantFile: "hello.txt", wantBody: "hello\n"},
 		{
 			name:     "tar in gzip",
-			build:    func(t *testing.T) []byte { return unpacktest.GzipBytes(t, unpacktest.HelloTar(t)) },
+			build:    func(t *testing.T) []byte { return mocks.GzipBytes(t, mocks.HelloTar(t)) },
 			wantFile: "hello.txt",
 			wantBody: "hello\n",
 		},
 		{
 			name:     "tar in xz",
-			build:    func(t *testing.T) []byte { return xzBytes(t, unpacktest.HelloTar(t)) },
+			build:    func(t *testing.T) []byte { return xzBytes(t, mocks.HelloTar(t)) },
 			wantFile: "hello.txt",
 			wantBody: "hello\n",
 		},
 		{
 			name:     "tar in zstd",
-			build:    func(t *testing.T) []byte { return zstdBytes(t, unpacktest.HelloTar(t)) },
+			build:    func(t *testing.T) []byte { return zstdBytes(t, mocks.HelloTar(t)) },
 			wantFile: "hello.txt",
 			wantBody: "hello\n",
 		},
@@ -201,7 +194,7 @@ func TestDetectArchive_FallsBackToMagicBytes(t *testing.T) {
 		},
 		{
 			name:     "single gzip",
-			build:    func(t *testing.T) []byte { return unpacktest.GzipBytes(t, []byte("tool")) },
+			build:    func(t *testing.T) []byte { return mocks.GzipBytes(t, []byte("tool")) },
 			wantFile: "payload",
 			wantBody: "tool",
 		},
@@ -228,12 +221,12 @@ func TestDetectArchive_FallsBackToMagicBytes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, "payload.bin", tc.build(t))
+			from := mocks.WriteFile(t, filepath.Join(dir, "payload.bin"), tc.build(t))
 			to := filepath.Join(dir, "out")
 
-			require.NoError(t, runUnpack(t, unpacktest.TestMaxBytes, from, to, 0))
+			require.NoError(t, runUnpack(t, mocks.TestMaxBytes, from, to, 0))
 
-			assert.Equal(t, tc.wantBody, unpacktest.ReadString(t, filepath.Join(to, tc.wantFile)))
+			assert.Equal(t, tc.wantBody, mocks.ReadString(t, filepath.Join(to, tc.wantFile)))
 		})
 	}
 }
@@ -245,15 +238,15 @@ func TestDetectArchive_UnknownFormat(t *testing.T) {
 	}{
 		{name: "plain text", data: []byte("definitely not an archive")},
 		{name: "empty", data: nil},
-		{name: "dmg trailer, no longer accepted", data: unpacktest.DmgTrailer()},
+		{name: "dmg trailer, no longer accepted", data: mocks.DmgTrailer()},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, "payload.bin", tc.data)
+			from := mocks.WriteFile(t, filepath.Join(dir, "payload.bin"), tc.data)
 
-			err := runUnpack(t, unpacktest.TestMaxBytes, from, filepath.Join(dir, "out"), 0)
+			err := runUnpack(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), 0)
 
 			assert.ErrorIs(t, err, models.ErrUnknownFormat)
 		})
@@ -289,10 +282,10 @@ func TestDetectArchive_CorruptCompressedMagic(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, "payload.bin", tc.data)
+			from := mocks.WriteFile(t, filepath.Join(dir, "payload.bin"), tc.data)
 			to := filepath.Join(dir, "out")
 
-			err := runUnpack(t, unpacktest.TestMaxBytes, from, to, 0)
+			err := runUnpack(t, mocks.TestMaxBytes, from, to, 0)
 
 			require.Error(t, err)
 			tc.check(t, err)

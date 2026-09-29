@@ -18,6 +18,7 @@ type Handlers struct {
 	pathSvc usecases.PathUsecase
 }
 
+// New returns Handlers backed by the given configuration usecase.
 func New(
 	svc usecases.ConfigUsecase,
 	pathSvc usecases.PathUsecase,

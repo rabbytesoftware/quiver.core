@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
@@ -170,132 +172,6 @@ func TestOverrideableCoverageRule_FetchStep_MissingOSCoverage(t *testing.T) {
 	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected errors for missing darwin coverage in FetchStep, got none")
-	}
-}
-
-func TestOverrideableCoverageRule_ExtractStep_MissingOSCoverage(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	extract := step.ExtractStep{
-		From: step.Overrideable[string]{OSArch: map[string]string{
-			"linux/amd64":   "./archive-linux.tar.gz",
-			"linux/arm64":   "./archive-linux-arm.tar.gz",
-			"windows/amd64": "./archive-win.zip",
-			"windows/arm64": "./archive-win-arm.zip",
-		}},
-		To:      step.Overrideable[string]{Default: "./"},
-		Timeout: step.Overrideable[string]{Default: "10s"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{extract},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for missing darwin coverage in ExtractStep, got none")
-	}
-}
-
-func TestOverrideableCoverageRule_ExtractStep_OmittedTimeoutIsValid(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	extract := step.ExtractStep{
-		From: step.Overrideable[string]{Default: "./archive.tar.gz"},
-		To:   step.Overrideable[string]{Default: "./"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{extract},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors when timeout is omitted, got: %v", errs)
-	}
-}
-
-func TestOverrideableCoverageRule_ExtractStep_MissingFromFails(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	extract := step.ExtractStep{
-		To:      step.Overrideable[string]{Default: "./"},
-		Timeout: step.Overrideable[string]{Default: "10s"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{extract},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) == 0 {
-		t.Fatal("expected errors when from has no default and no coverage, got none")
-	}
-}
-
-func TestOverrideableCoverageRule_PortableStep_MissingOSCoverage(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	portable := step.PortableStep{
-		From: step.Overrideable[string]{OSArch: map[string]string{
-			"linux/amd64":   "./app-linux.AppImage",
-			"linux/arm64":   "./app-linux-arm.AppImage",
-			"windows/amd64": "./app-win.exe",
-			"windows/arm64": "./app-win-arm.exe",
-		}},
-		To:      step.Overrideable[string]{Default: "./"},
-		Timeout: step.Overrideable[string]{Default: "10s"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{portable},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) == 0 {
-		t.Fatal("expected errors for missing darwin coverage in PortableStep, got none")
-	}
-}
-
-func TestOverrideableCoverageRule_PortableStep_OmittedTimeoutIsValid(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	portable := step.PortableStep{
-		From: step.Overrideable[string]{Default: "./app.AppImage"},
-		To:   step.Overrideable[string]{Default: "./"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{portable},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) != 0 {
-		t.Fatalf("expected no errors when timeout is omitted, got: %v", errs)
-	}
-}
-
-func TestOverrideableCoverageRule_PortableStep_MissingFromFails(t *testing.T) {
-	rule := OverrideableCoverageRule{}
-	portable := step.PortableStep{
-		To:      step.Overrideable[string]{Default: "./"},
-		Timeout: step.Overrideable[string]{Default: "10s"},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{portable},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) == 0 {
-		t.Fatal("expected errors when from has no default and no coverage, got none")
 	}
 }
 
@@ -577,5 +453,73 @@ func TestOverrideableCoverageRule_NonOSTargetKeyStillRequiresEveryOS(t *testing.
 	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected coverage errors for a target key that matches no OS")
+	}
+}
+
+func fromToKinds() []string {
+	return []string{"extract", "portable"}
+}
+
+func fromToStep(
+	kind string,
+	from step.Overrideable[string],
+	to step.Overrideable[string],
+	timeout step.Overrideable[string],
+) step.Step {
+	if kind == "extract" {
+		return step.ExtractStep{From: from, To: to, Timeout: timeout}
+	}
+	return step.PortableStep{From: from, To: to, Timeout: timeout}
+}
+
+func TestOverrideableCoverageRule_Validate_FromToSteps(t *testing.T) {
+	dest := step.Overrideable[string]{Default: "./"}
+	timeout := step.Overrideable[string]{Default: "10s"}
+
+	testCases := []struct {
+		name    string
+		from    step.Overrideable[string]
+		timeout step.Overrideable[string]
+		wantErr bool
+	}{
+		{
+			name: "missing darwin coverage",
+			from: step.Overrideable[string]{OSArch: map[string]string{
+				"linux/amd64":   "./a",
+				"linux/arm64":   "./b",
+				"windows/amd64": "./c",
+				"windows/arm64": "./d",
+			}},
+			timeout: timeout,
+			wantErr: true,
+		},
+		{
+			name:    "omitted timeout is valid",
+			from:    step.Overrideable[string]{Default: "./archive"},
+			timeout: step.Overrideable[string]{},
+		},
+		{
+			name:    "missing from",
+			timeout: timeout,
+			wantErr: true,
+		},
+	}
+
+	for _, kind := range fromToKinds() {
+		for _, tc := range testCases {
+			t.Run(kind+" "+tc.name, func(t *testing.T) {
+				precompiled := map[string]models.PrecompiledTarget{
+					"t": {
+						Lifecycle: domain.TargetLifecycle{
+							Install: step.StepList{fromToStep(kind, tc.from, dest, tc.timeout)},
+						},
+					},
+				}
+
+				errs := OverrideableCoverageRule{}.Validate(&domain.Arrow{}, precompiled)
+
+				assert.Equal(t, tc.wantErr, len(errs) > 0)
+			})
+		}
 	}
 }

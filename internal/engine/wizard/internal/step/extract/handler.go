@@ -65,5 +65,5 @@ func (h *handler) Execute(
 	}
 	defer g.Close()
 
-	return errors.Join(archive.Extract(stepCtx, src, info.Size(), g), g.Verify())
+	return errors.Join(archive.Extract(stepCtx, src, info.Size(), g, ""), g.Verify())
 }

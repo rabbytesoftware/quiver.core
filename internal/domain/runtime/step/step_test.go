@@ -70,26 +70,32 @@ func TestNewFetchStep_EmptyChecksum(t *testing.T) {
 	assert.Equal(t, "", s.Checksum.Default)
 }
 
-func TestNewExtractStep(t *testing.T) {
-	s := NewExtractStep("extract title", "/tmp/archive.tar.gz", "/tmp/out", "10s", true)
+func TestNewFromToSteps(t *testing.T) {
+	extract := NewExtractStep("step title", "/tmp/in", "/tmp/out", "10s", true)
+	portable := NewPortableStep("step title", "/tmp/in", "/tmp/out", "10s", true)
 
-	assert.Equal(t, StepTypeExtract, s.Type())
-	assert.Equal(t, "extract title", s.Title())
-	assert.True(t, s.ExitOnFailure())
-	assert.Equal(t, "/tmp/archive.tar.gz", s.From.Default)
-	assert.Equal(t, "/tmp/out", s.To.Default)
-	assert.Equal(t, "10s", s.Timeout.Default)
-}
+	testCases := []struct {
+		name    string
+		step    Step
+		kind    StepType
+		from    Overrideable[string]
+		to      Overrideable[string]
+		timeout Overrideable[string]
+	}{
+		{name: "extract", step: extract, kind: StepTypeExtract, from: extract.From, to: extract.To, timeout: extract.Timeout},
+		{name: "portable", step: portable, kind: StepTypePortable, from: portable.From, to: portable.To, timeout: portable.Timeout},
+	}
 
-func TestNewPortableStep(t *testing.T) {
-	s := NewPortableStep("portable title", "/tmp/bruno.AppImage", "/tmp/out", "10s", true)
-
-	assert.Equal(t, StepTypePortable, s.Type())
-	assert.Equal(t, "portable title", s.Title())
-	assert.True(t, s.ExitOnFailure())
-	assert.Equal(t, "/tmp/bruno.AppImage", s.From.Default)
-	assert.Equal(t, "/tmp/out", s.To.Default)
-	assert.Equal(t, "10s", s.Timeout.Default)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.kind, tc.step.Type())
+			assert.Equal(t, "step title", tc.step.Title())
+			assert.True(t, tc.step.ExitOnFailure())
+			assert.Equal(t, "/tmp/in", tc.from.Default)
+			assert.Equal(t, "/tmp/out", tc.to.Default)
+			assert.Equal(t, "10s", tc.timeout.Default)
+		})
+	}
 }
 
 func TestNewSignalStep(t *testing.T) {
@@ -145,18 +151,6 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 			},
 		},
 		{
-			name:    "single extract step",
-			json:    `[{"type":"extract","title":"extract test","from":"/tmp/archive.zip","to":"/tmp/out","timeout":"1m","exit_on_failure":true}]`,
-			wantLen: 1,
-			wantErr: false,
-			check: func(t *testing.T, list StepList) {
-				e := list[0].(ExtractStep)
-				assert.Equal(t, "extract test", e.Title())
-				assert.Equal(t, "/tmp/archive.zip", e.From.Default)
-				assert.Equal(t, "/tmp/out", e.To.Default)
-			},
-		},
-		{
 			name:    "mixed step list",
 			json:    `[{"type":"run","title":"run","command":"ls","elevated":false,"exit_on_failure":false,"timeout":""},{"type":"fetch","title":"fetch","url":"http://test","to":"/home","checksum":"","exit_on_failure":false,"timeout":""},{"type":"signal","title":"signal","signal":"graceful","exit_on_failure":false,"timeout":"5s"},{"type":"dependencies","title":"deps"}]`,
 			wantLen: 4,
@@ -166,18 +160,6 @@ func TestStepListJSONUnmarshal(t *testing.T) {
 				assert.Equal(t, StepTypeFetch, list[1].Type())
 				assert.Equal(t, StepTypeSignal, list[2].Type())
 				assert.Equal(t, StepTypeDependencies, list[3].Type())
-			},
-		},
-		{
-			name:    "single portable step",
-			json:    `[{"type":"portable","title":"portable test","from":"/tmp/bruno.AppImage","to":"/tmp/out","timeout":"1m","exit_on_failure":true}]`,
-			wantLen: 1,
-			wantErr: false,
-			check: func(t *testing.T, list StepList) {
-				p := list[0].(PortableStep)
-				assert.Equal(t, "portable test", p.Title())
-				assert.Equal(t, "/tmp/bruno.AppImage", p.From.Default)
-				assert.Equal(t, "/tmp/out", p.To.Default)
 			},
 		},
 		{
@@ -498,21 +480,6 @@ func TestRunStep_JSONRoundTrip_WithElevated(t *testing.T) {
 	assert.Equal(t, "sudo apt-get install -y curl", got.Command.Default)
 }
 
-func TestExtractStep_JSONRoundTrip(t *testing.T) {
-	original := NewExtractStep("unpack archive", "./archive.tar.gz", "./out", "2m", true)
-
-	data, err := json.Marshal(original)
-	require.NoError(t, err)
-
-	var got ExtractStep
-	require.NoError(t, json.Unmarshal(data, &got))
-
-	assert.Equal(t, "./archive.tar.gz", got.From.Default)
-	assert.Equal(t, "./out", got.To.Default)
-	assert.Equal(t, "2m", got.Timeout.Default)
-	assert.True(t, got.ExitOnFailure())
-}
-
 func TestPortableStep_JSONRoundTrip(t *testing.T) {
 	original := NewPortableStep("install app", "./bruno.AppImage", "./out", "2m", true)
 	original.Name = "bruno"
@@ -537,6 +504,47 @@ func TestPortableStep_Resolve_KeepsName(t *testing.T) {
 	got := s.Resolve("windows/amd64").(PortableStep)
 
 	assert.Equal(t, "tool.exe", got.Name)
+}
+
+func TestFromToSteps_Resolve(t *testing.T) {
+	overrides := Overrideable[string]{Default: "./default", OSArch: map[string]string{"windows/amd64": "./windows"}}
+	extract := ExtractStep{BasicStep: newBasicStep(StepTypeExtract, "unpack", true), From: overrides}
+	portable := PortableStep{BasicStep: newBasicStep(StepTypePortable, "install", true), From: overrides}
+
+	testCases := []struct {
+		name string
+		step Step
+		os   string
+		want string
+	}{
+		{name: "extract uses the os override", step: extract, os: "windows/amd64", want: "./windows"},
+		{name: "extract falls back to the default", step: extract, os: "linux/amd64", want: "./default"},
+		{name: "portable uses the os override", step: portable, os: "windows/amd64", want: "./windows"},
+		{name: "portable falls back to the default", step: portable, os: "linux/amd64", want: "./default"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var from Overrideable[string]
+			switch got := tc.step.Resolve(tc.os).(type) {
+			case ExtractStep:
+				from = got.From
+			case PortableStep:
+				from = got.From
+			}
+
+			assert.Equal(t, tc.want, from.Default)
+			assert.Empty(t, from.OSArch)
+		})
+	}
+}
+
+func TestFromToSteps_UnmarshalJSON_InvalidJSON(t *testing.T) {
+	var extract ExtractStep
+	var portable PortableStep
+
+	require.Error(t, extract.UnmarshalJSON([]byte(`{invalid json`)))
+	require.Error(t, portable.UnmarshalJSON([]byte(`{invalid json`)))
 }
 
 func TestFetchStep_JSONRoundTrip_WithChecksum(t *testing.T) {
@@ -633,108 +641,6 @@ func TestFetchStep_Resolve_FallsBackToDefault(t *testing.T) {
 
 	assert.Equal(t, "https://example.com/file", got.URL.Default)
 	assert.Empty(t, got.URL.OSArch, "URL.OSArch should be empty after Resolve")
-}
-
-func TestExtractStep_Resolve_UsesOSOverride(t *testing.T) {
-	s := ExtractStep{
-		BasicStep: newBasicStep(StepTypeExtract, "unpack", true),
-		From: Overrideable[string]{
-			Default: "./archive.tar.gz",
-			OSArch:  map[string]string{"windows/amd64": "./archive.zip"},
-		},
-		To:      Overrideable[string]{Default: "./out"},
-		Timeout: Overrideable[string]{Default: "1m"},
-	}
-
-	got := s.Resolve("windows/amd64").(ExtractStep)
-
-	assert.Equal(t, "./archive.zip", got.From.Default)
-	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
-}
-
-func TestExtractStep_Resolve_FallsBackToDefault(t *testing.T) {
-	s := ExtractStep{
-		BasicStep: newBasicStep(StepTypeExtract, "unpack", true),
-		From: Overrideable[string]{
-			Default: "./archive.tar.gz",
-			OSArch:  map[string]string{"windows/amd64": "./archive.zip"},
-		},
-		To:      Overrideable[string]{Default: "./out"},
-		Timeout: Overrideable[string]{Default: "1m"},
-	}
-
-	got := s.Resolve("linux/amd64").(ExtractStep)
-
-	assert.Equal(t, "./archive.tar.gz", got.From.Default)
-	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
-}
-
-func TestExtractStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
-	var s ExtractStep
-	err := s.UnmarshalJSON([]byte(`{invalid json`))
-	require.Error(t, err)
-}
-
-func TestExtractStep_UnmarshalJSON_Success(t *testing.T) {
-	data := []byte(`{"type":"extract","title":"unpack","from":"./a.zip","to":"./out","timeout":"30s","exit_on_failure":true}`)
-	var s ExtractStep
-	err := s.UnmarshalJSON(data)
-	require.NoError(t, err)
-	assert.Equal(t, "./a.zip", s.From.Default)
-	assert.Equal(t, "./out", s.To.Default)
-	assert.Equal(t, "30s", s.Timeout.Default)
-	assert.True(t, s.ExitOnFailure())
-}
-
-func TestPortableStep_Resolve_UsesOSOverride(t *testing.T) {
-	s := PortableStep{
-		BasicStep: newBasicStep(StepTypePortable, "install app", true),
-		From: Overrideable[string]{
-			Default: "./bruno.AppImage",
-			OSArch:  map[string]string{"windows/amd64": "./bruno.exe"},
-		},
-		To:      Overrideable[string]{Default: "./out"},
-		Timeout: Overrideable[string]{Default: "1m"},
-	}
-
-	got := s.Resolve("windows/amd64").(PortableStep)
-
-	assert.Equal(t, "./bruno.exe", got.From.Default)
-	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
-}
-
-func TestPortableStep_Resolve_FallsBackToDefault(t *testing.T) {
-	s := PortableStep{
-		BasicStep: newBasicStep(StepTypePortable, "install app", true),
-		From: Overrideable[string]{
-			Default: "./bruno.AppImage",
-			OSArch:  map[string]string{"windows/amd64": "./bruno.exe"},
-		},
-		To:      Overrideable[string]{Default: "./out"},
-		Timeout: Overrideable[string]{Default: "1m"},
-	}
-
-	got := s.Resolve("linux/amd64").(PortableStep)
-
-	assert.Equal(t, "./bruno.AppImage", got.From.Default)
-	assert.Empty(t, got.From.OSArch, "From.OSArch should be empty after Resolve")
-}
-
-func TestPortableStep_UnmarshalJSON_InvalidJSON(t *testing.T) {
-	var s PortableStep
-	err := s.UnmarshalJSON([]byte(`{invalid json`))
-	require.Error(t, err)
-}
-
-func TestPortableStep_UnmarshalJSON_Success(t *testing.T) {
-	data := []byte(`{"type":"portable","title":"install","from":"./bruno.AppImage","to":"./out","timeout":"30s","exit_on_failure":true}`)
-	var s PortableStep
-	err := s.UnmarshalJSON(data)
-	require.NoError(t, err)
-	assert.Equal(t, "./bruno.AppImage", s.From.Default)
-	assert.Equal(t, "./out", s.To.Default)
-	assert.Equal(t, "30s", s.Timeout.Default)
-	assert.True(t, s.ExitOnFailure())
 }
 
 func TestSignalStep_Resolve_UsesOSOverride(t *testing.T) {

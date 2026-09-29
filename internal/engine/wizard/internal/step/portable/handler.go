@@ -7,7 +7,6 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/record"
 )
 
 type handler struct {
@@ -41,7 +40,7 @@ func (h *handler) Execute(
 		return err
 	}
 
-	if err := record.Apps(stepCtx, req.NSKey, req.WorkDir, apps); err != nil {
+	if err := h.installer.Record(stepCtx, req.NSKey, req.WorkDir, apps); err != nil {
 		return err
 	}
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestArchive_Extract_CorruptCompressedStream(t *testing.T) {
@@ -52,10 +52,10 @@ func TestArchive_Extract_CorruptCompressedStream(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			from := unpacktest.WriteArchive(t, dir, tc.file, []byte("this is not a compressed stream at all"))
+			from := mocks.WriteFile(t, filepath.Join(dir, tc.file), []byte("this is not a compressed stream at all"))
 			to := filepath.Join(dir, "out")
 
-			err := runUnpack(t, unpacktest.TestMaxBytes, from, to, 0)
+			err := runUnpack(t, mocks.TestMaxBytes, from, to, 0)
 
 			require.Error(t, err)
 			if tc.check != nil {

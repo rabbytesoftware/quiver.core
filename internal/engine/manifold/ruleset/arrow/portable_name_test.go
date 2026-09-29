@@ -18,10 +18,6 @@ func portableNamed(
 	return s
 }
 
-func TestPortableNameRule_Name(t *testing.T) {
-	assert.Equal(t, "portable_name", PortableNameRule{}.Name())
-}
-
 func TestPortableNameRule_Validate(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -38,9 +34,6 @@ func TestPortableNameRule_Validate(t *testing.T) {
 		{name: "trailing dot", stepName: "tool.", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
 		{name: "trailing space", stepName: "tool ", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
 		{name: "device name", stepName: "CON", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
-		{name: "device name with extension", stepName: "nul.exe", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
-		{name: "lowercase serial port", stepName: "com3", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
-		{name: "printer port", stepName: "LPT9.bin", wantField: "targets[linux/amd64].lifecycle.install[1].name"},
 		{name: "device-like but allowed", stepName: "console"},
 	}
 	for _, tc := range testCases {

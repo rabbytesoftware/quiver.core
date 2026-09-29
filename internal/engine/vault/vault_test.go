@@ -651,7 +651,7 @@ func TestVault_PutArrow_InferredMeta_SearchKeepsGenerator(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	generator := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low", Warnings: []string{"guessed entrypoint"}}
+	generator := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low"}
 	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium", Generator: generator}}
 	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
 		Content: []byte("x"), Filename: "ARROW.md", Meta: &meta,

@@ -30,7 +30,6 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -1548,66 +1547,6 @@ func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
 			assert.Equal(t, tc.want, ended)
 		})
 	}
-}
-
-type seedArrowCmd struct {
-	arrow domain.Arrow
-}
-
-func (c seedArrowCmd) AggregateID() string                    { return c.arrow.Namespace.String() }
-func (c seedArrowCmd) EventName() string                      { return "arrow.seeded." + c.arrow.Namespace.String() }
-func (c seedArrowCmd) ShouldSnapshot() bool                   { return true }
-func (c seedArrowCmd) Validate(_ *domain.Arrow) error         { return nil }
-func (c seedArrowCmd) EmitEvent(_ *domain.Arrow) domain.Arrow { return c.arrow }
-
-type workdirShelf struct {
-	shelf.Shelf
-	workdirs chan string
-}
-
-func (s *workdirShelf) Apply(
-	_ context.Context,
-	_ domain.Namespace,
-	workdir string,
-	_ domain.Expose,
-	_ domain.ArrowMedia,
-) (shelf.Applied, error) {
-	s.workdirs <- workdir
-	return shelf.Applied{}, nil
-}
-
-func TestNew_WithShelf_ReachesTheRuntime(t *testing.T) {
-	ns := domain.Namespace("github.com/user/repo@v1.0.0")
-	workdir := "/q/namespaces/" + ns.String()
-	db, err := adapterSQLite.OpenDB(":memory:")
-	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	axRuntime := newTestAsynxRuntime(t)
-	axCollection := newTestAsynxCollection(t)
-	axPairingCode := newTestAsynxPairingCode(t)
-	axDevice := newTestAsynxDevice(t)
-	t.Cleanup(func() {
-		_ = axArrow.Shutdown(context.Background())
-		_ = axRuntime.Shutdown(context.Background())
-		_ = axCollection.Shutdown(context.Background())
-		_ = axPairingCode.Shutdown(context.Background())
-		_ = axDevice.Shutdown(context.Background())
-	})
-	_, err = axArrow.SendWait(context.Background(), seedArrowCmd{arrow: domain.Arrow{Namespace: ns}})
-	require.NoError(t, err)
-	sh := &workdirShelf{workdirs: make(chan string, 1)}
-
-	c, err := repositories.New(
-		db, axArrow, axRuntime, axCollection, ":memory:",
-		&mocks.Vault{WorkDirValue: workdir}, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
-		axPairingCode, axDevice, db,
-		repositories.WithShelf(sh),
-	)
-	require.NoError(t, err)
-
-	require.NoError(t, c.Runtime.MarkReady(context.Background(), ns, nil))
-
-	assert.Equal(t, workdir, <-sh.workdirs)
 }
 
 // ─── preinstalledDetection ───────────────────────────────────────────────────

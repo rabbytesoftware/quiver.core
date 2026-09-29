@@ -103,11 +103,10 @@ func TestStart_StepTypeMismatch_NoPanic(t *testing.T) {
 	})
 }
 
-func writeGzip(
+func gzipBytes(
 	t *testing.T,
-	path string,
 	body string,
-) {
+) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -115,11 +114,34 @@ func writeGzip(
 	_, err := gz.Write([]byte(body))
 	require.NoError(t, err)
 	require.NoError(t, gz.Close())
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+
+	return buf.Bytes()
 }
 
-func TestStart_ExtractStep_Dispatched(t *testing.T) {
-	testCases := []struct {
+func TestStart_ExtractAndPortableSteps_Dispatched(t *testing.T) {
+	kinds := []struct {
+		name string
+		step domainstep.Step
+		file string
+		data []byte
+		want string
+	}{
+		{
+			name: "extract",
+			step: domainstep.NewExtractStep("unpack", "tool.gz", "bin", "", true),
+			file: "tool.gz",
+			data: gzipBytes(t, "extracted tool"),
+			want: "extracted tool",
+		},
+		{
+			name: "portable",
+			step: domainstep.NewPortableStep("materialize", "tool", "bin", "", true),
+			file: "tool",
+			data: []byte("\x7fELFportable tool"),
+			want: "\x7fELFportable tool",
+		},
+	}
+	ceilings := []struct {
 		name        string
 		maxBytes    int64
 		wantOutcome domainRuntime.ExecutionOutcome
@@ -128,57 +150,27 @@ func TestStart_ExtractStep_Dispatched(t *testing.T) {
 		{name: "over ceiling", maxBytes: 4, wantOutcome: domainRuntime.ExecutionOutcomeFailed},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			w, err := New(nil, tc.maxBytes)
-			require.NoError(t, err)
-			dir := t.TempDir()
-			writeGzip(t, filepath.Join(dir, "tool.gz"), "extracted tool")
-			req := newTestReq(domainstep.NewExtractStep("unpack", "tool.gz", "bin", "", true))
-			req.WorkDir = dir
+	for _, kind := range kinds {
+		for _, ceiling := range ceilings {
+			t.Run(kind.name+" "+ceiling.name, func(t *testing.T) {
+				w, err := New(nil, ceiling.maxBytes)
+				require.NoError(t, err)
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, kind.file), kind.data, 0o600))
+				req := newTestReq(kind.step)
+				req.WorkDir = dir
 
-			rec := runSync(context.Background(), w, req)
+				rec := runSync(context.Background(), w, req)
 
-			assert.Equal(t, tc.wantOutcome, rec.Outcome)
-			if tc.wantOutcome != domainRuntime.ExecutionOutcomeSuccess {
-				return
-			}
-			data, err := os.ReadFile(filepath.Join(dir, "bin", "tool"))
-			require.NoError(t, err)
-			assert.Equal(t, "extracted tool", string(data))
-		})
-	}
-}
-
-func TestStart_PortableStep_Dispatched(t *testing.T) {
-	testCases := []struct {
-		name        string
-		maxBytes    int64
-		wantOutcome domainRuntime.ExecutionOutcome
-	}{
-		{name: "within ceiling", maxBytes: testExtractMaxBytes, wantOutcome: domainRuntime.ExecutionOutcomeSuccess},
-		{name: "over ceiling", maxBytes: 4, wantOutcome: domainRuntime.ExecutionOutcomeFailed},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			w, err := New(nil, tc.maxBytes)
-			require.NoError(t, err)
-			dir := t.TempDir()
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "tool"), []byte("\x7fELFportable tool"), 0o600))
-			req := newTestReq(domainstep.NewPortableStep("materialize", "tool", "bin", "", true))
-			req.WorkDir = dir
-
-			rec := runSync(context.Background(), w, req)
-
-			assert.Equal(t, tc.wantOutcome, rec.Outcome)
-			if tc.wantOutcome != domainRuntime.ExecutionOutcomeSuccess {
-				return
-			}
-			data, err := os.ReadFile(filepath.Join(dir, "bin", "tool"))
-			require.NoError(t, err)
-			assert.Equal(t, "\x7fELFportable tool", string(data))
-		})
+				assert.Equal(t, ceiling.wantOutcome, rec.Outcome)
+				if ceiling.wantOutcome != domainRuntime.ExecutionOutcomeSuccess {
+					return
+				}
+				data, err := os.ReadFile(filepath.Join(dir, "bin", "tool"))
+				require.NoError(t, err)
+				assert.Equal(t, kind.want, string(data))
+			})
+		}
 	}
 }
 

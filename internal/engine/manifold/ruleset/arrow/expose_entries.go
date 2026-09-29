@@ -46,36 +46,48 @@ func checkExposeEntries(
 	var errs aerrors.RuleErrors
 	names := make([]string, 0, len(entries))
 	for i, e := range entries {
+		at := exposeAt{os: os, kind: kind, index: i}
 		names = append(names, e.Name)
-		errs = append(errs, checkExposeName(os, kind, i, e.Name)...)
-		errs = append(errs, checkExposePath(os, kind, i, e.Path)...)
-		errs = append(errs, checkExposeIcon(os, kind, i, e.Icon)...)
+		errs = append(errs, checkExposeName(at, e.Name)...)
+		errs = append(errs, checkExposePath(at, e.Path)...)
+		errs = append(errs, checkExposeIcon(at, e.Icon)...)
 	}
 	field := fmt.Sprintf("targets[%s].expose.%s", os, kind)
 	errs = append(errs, checkDuplicates(names, field, "duplicate_name")...)
 	return errs
 }
 
+type exposeAt struct {
+	os    domain.OS
+	kind  domain.ExposeKind
+	index int
+}
+
+func (at exposeAt) err(
+	field string,
+	rule string,
+	format string,
+	args ...any,
+) aerrors.RuleErrors {
+	return aerrors.RuleErrors{{
+		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].%s", at.os, at.kind, at.index, field),
+		Rule:    rule,
+		Message: fmt.Sprintf(format, args...),
+	}}
+}
+
 func checkExposeName(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
+	at exposeAt,
 	name string,
 ) aerrors.RuleErrors {
 	if exposeNameRe.MatchString(name) {
 		return nil
 	}
-	return aerrors.RuleErrors{{
-		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].name", os, kind, i),
-		Rule:    "invalid_name",
-		Message: fmt.Sprintf("name %q must match ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$", name),
-	}}
+	return at.err("name", "invalid_name", "name %q must match ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$", name)
 }
 
 func checkExposePath(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
+	at exposeAt,
 	path string,
 ) aerrors.RuleErrors {
 	if path == domain.ExposeAuto {
@@ -83,92 +95,39 @@ func checkExposePath(
 	}
 
 	var errs aerrors.RuleErrors
-	errs = append(errs, checkExposePathPrefix(os, kind, i, path)...)
-	errs = append(errs, checkExposePathTraversal(os, kind, i, path)...)
-	if kind == domain.ExposeKindDesktop && os.IsDarwin() {
-		errs = append(errs, checkExposeDesktopSuffix(os, kind, i, path)...)
+	if !workdirAnchored(path) {
+		errs = append(errs, at.err("path", "invalid_path", "path %q must be %q or start with ${INSTALL_PATH} or ${WORKDIR}", path, domain.ExposeAuto)...)
+	}
+	if containsPathTraversal(path) {
+		errs = append(errs, at.err("path", "path_traversal", "path %q must not contain \"..\"", path)...)
+	}
+	if at.kind == domain.ExposeKindDesktop && at.os.IsDarwin() && !strings.HasSuffix(path, ".app") {
+		errs = append(errs, at.err("path", "invalid_desktop_path", "darwin desktop path %q must end in .app", path)...)
 	}
 	return errs
 }
 
-func checkExposePathPrefix(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
-	path string,
-) aerrors.RuleErrors {
-	if strings.HasPrefix(path, "${INSTALL_PATH}") || strings.HasPrefix(path, "${WORKDIR}") {
-		return nil
-	}
-	return aerrors.RuleErrors{{
-		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].path", os, kind, i),
-		Rule:    "invalid_path",
-		Message: fmt.Sprintf("path %q must be %q or start with ${INSTALL_PATH} or ${WORKDIR}", path, domain.ExposeAuto),
-	}}
-}
-
-func checkExposePathTraversal(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
-	path string,
-) aerrors.RuleErrors {
-	if !containsPathTraversal(path) {
-		return nil
-	}
-	return aerrors.RuleErrors{{
-		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].path", os, kind, i),
-		Rule:    "path_traversal",
-		Message: fmt.Sprintf("path %q must not contain \"..\"", path),
-	}}
-}
-
-func checkExposeDesktopSuffix(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
-	path string,
-) aerrors.RuleErrors {
-	if strings.HasSuffix(path, ".app") {
-		return nil
-	}
-	return aerrors.RuleErrors{{
-		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].path", os, kind, i),
-		Rule:    "invalid_desktop_path",
-		Message: fmt.Sprintf("darwin desktop path %q must end in .app", path),
-	}}
-}
-
 func checkExposeIcon(
-	os domain.OS,
-	kind domain.ExposeKind,
-	i int,
+	at exposeAt,
 	icon string,
 ) aerrors.RuleErrors {
 	if isValidExposeIcon(icon) {
 		return nil
 	}
-	return aerrors.RuleErrors{{
-		Field:   fmt.Sprintf("targets[%s].expose.%s[%d].icon", os, kind, i),
-		Rule:    "invalid_expose_icon",
-		Message: fmt.Sprintf("icon %q must be empty, an http(s) URL, or start with ${INSTALL_PATH} or ${WORKDIR}", icon),
-	}}
+	return at.err("icon", "invalid_expose_icon", "icon %q must be empty, an http(s) URL, or start with ${INSTALL_PATH} or ${WORKDIR}", icon)
 }
 
 func isValidExposeIcon(
 	icon string,
 ) bool {
-	if icon == "" {
+	if icon == "" || strings.HasPrefix(icon, "http://") || strings.HasPrefix(icon, "https://") {
 		return true
 	}
-	if strings.HasPrefix(icon, "http://") || strings.HasPrefix(icon, "https://") {
-		return true
-	}
-	if icon == domain.ExposeAuto {
-		return false
-	}
-	if containsPathTraversal(icon) {
-		return false
-	}
-	return strings.HasPrefix(icon, "${INSTALL_PATH}") || strings.HasPrefix(icon, "${WORKDIR}")
+	return icon != domain.ExposeAuto && !containsPathTraversal(icon) && workdirAnchored(icon)
+}
+
+func workdirAnchored(
+	path string,
+) bool {
+	return strings.HasPrefix(path, "${INSTALL_PATH}") || strings.HasPrefix(path, "${WORKDIR}")
 }

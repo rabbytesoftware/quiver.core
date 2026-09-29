@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	runtimeMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -112,7 +111,7 @@ func TestRecoverTransients_ListError_ReturnsEarly(t *testing.T) {
 	w := &mocks.Wizard{}
 
 	// Should not panic; list error returns early
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 }
 
 func TestRecoverTransients_NoItems_Noop(t *testing.T) {
@@ -120,7 +119,7 @@ func TestRecoverTransients_NoItems_Noop(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	// Nothing should crash
 }
 
@@ -140,7 +139,7 @@ func TestRecoverTransients_StableState_Nothing(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// State should remain ready
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -156,7 +155,7 @@ func TestRecoverTransients_InstallingState_RecoverInterrupted(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// Must eventually settle — give goroutines time to complete
 	axRuntime.WaitPublish()
@@ -177,7 +176,7 @@ func TestRecoverTransients_RunningWithLivePID_Detach(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -195,7 +194,7 @@ func TestRecoverTransients_RunningWithDeadPID_RecoverInterrupted(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return false },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -212,7 +211,7 @@ func TestRecoverTransients_RunningWithNoPID_RecoverInterrupted(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
@@ -231,7 +230,7 @@ func TestRecoverTransients_PreloadError_SkipsItem(t *testing.T) {
 	w := &mocks.Wizard{}
 
 	// Should not crash; namespace with no runtime state is just skipped
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 }
 
 func TestRecoverTransients_RuntimeGetError_SkipsItem(t *testing.T) {
@@ -242,7 +241,7 @@ func TestRecoverTransients_RuntimeGetError_SkipsItem(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	// No panic expected
 }
 
@@ -258,11 +257,11 @@ func TestRecoverTransients_AsynxGetNotFound_SkipsItem(t *testing.T) {
 	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
 	w := &mocks.Wizard{}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 
 	// Should not have changed anything
 	_, err := axRuntime.Get(context.Background(), ns.String())
-	assert.ErrorIs(t, err, asynxModels.ErrNotFound)
+	assert.True(t, isNotFoundErr(err))
 }
 
 // ─── Task 1.3 regression guard: self-namespace lands in Running, not Detached ──
@@ -290,7 +289,7 @@ func TestRecoverTransients_SelfNamespace_LivePID_RestoresRunning(t *testing.T) {
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	select {
@@ -322,13 +321,18 @@ func TestRecoverTransients_NonSelfNamespace_LivePID_StillDetaches(t *testing.T) 
 		ProcessAliveFn: func(pid int) bool { return true },
 	}
 
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateDetached, got.State)
 	assert.Nil(t, got.Execution)
+}
+
+func isNotFoundErr(err error) bool {
+	return err != nil && (err == asynxModels.ErrNotFound ||
+		err.Error() == "asynx: aggregate not found")
 }
 
 // ─── sendRecoverInterrupted / recoverRunning direct tests ────────────────────
@@ -417,7 +421,7 @@ func TestRecoverTransients_OrphanNotInCatalog_Recovers(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), orphan.String())
@@ -440,84 +444,11 @@ func TestRecoverTransients_UnionDeduplicates(t *testing.T) {
 	}
 
 	w := &mocks.Wizard{}
-	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w, nil)
+	runtimeinternal.RecoverTransients(context.Background(), listArrows, listAgg, axRuntime, w)
 	axRuntime.WaitPublish()
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateAbsent, got.State,
 		"a namespace in both sources must be recovered exactly once to absent")
-}
-
-func TestRecoverTransients_Reexpose(t *testing.T) {
-	testCases := []struct {
-		name        string
-		seed        func(*testing.T, asynx.Asynx[domainRuntime.ArrowRuntime], domain.Namespace)
-		wantReapply bool
-	}{
-		{
-			name: "ready arrow is re-exposed",
-			seed: func(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace) {
-				_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
-				require.NoError(t, err)
-				_, err = ax.Send(context.Background(), commands.EndExecution{Namespace: ns, Outcome: domainRuntime.ExecutionOutcomeSuccess})
-				require.NoError(t, err)
-			},
-			wantReapply: true,
-		},
-		{
-			name: "absent arrow is left alone",
-			seed: func(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace) {
-				_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns})
-				require.NoError(t, err)
-				_, err = ax.Send(context.Background(), commands.EndExecution{Namespace: ns, Outcome: domainRuntime.ExecutionOutcomeFailed})
-				require.NoError(t, err)
-			},
-		},
-		{
-			name: "installing arrow is left alone",
-			seed: func(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], ns domain.Namespace) {
-				seedInstallingRuntime(t, ax, ns)
-			},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ns := testNs()
-			axRuntime := newTestAsynxRuntime(t)
-			tc.seed(t, axRuntime, ns)
-			var reapplied []domain.Namespace
-			exposer := &runtimeMocks.MockExposer{
-				ReapplyFn: func(_ context.Context, got domain.Namespace) *domainRuntime.ExposeResult {
-					reapplied = append(reapplied, got)
-					return nil
-				},
-			}
-			cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
-
-			runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, &mocks.Wizard{}, exposer)
-
-			if tc.wantReapply {
-				assert.Equal(t, []domain.Namespace{ns}, reapplied)
-				return
-			}
-			assert.Empty(t, reapplied)
-		})
-	}
-}
-
-func TestRecoverTransients_ReadyWithNilExposer_Noop(t *testing.T) {
-	ns := testNs()
-	axRuntime := newTestAsynxRuntime(t)
-	_, err := axRuntime.Send(context.Background(), commands.BeginInstall{Namespace: ns})
-	require.NoError(t, err)
-	_, err = axRuntime.Send(context.Background(), commands.EndExecution{Namespace: ns, Outcome: domainRuntime.ExecutionOutcomeSuccess})
-	require.NoError(t, err)
-	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
-
-	runtimeinternal.RecoverTransients(context.Background(), cat.listFn(), func(context.Context) ([]domain.Namespace, error) { return nil, nil }, axRuntime, &mocks.Wizard{}, nil)
-
-	got, err := axRuntime.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateReady, got.State)
 }

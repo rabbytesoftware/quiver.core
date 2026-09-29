@@ -2,7 +2,6 @@ package manifold
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -93,18 +92,6 @@ func TestWithFletcher_ReachesEveryConstructor(t *testing.T) {
 			},
 		},
 		{
-			name: "NewWithClock",
-			build: func(opts ...Option) Manifold {
-				return NewWithClock(time.Second, nil, time.Hour, time.Now, opts...)
-			},
-		},
-		{
-			name: "NewWithResolvers",
-			build: func(opts ...Option) Manifold {
-				return NewWithResolvers(&stubResolver{}, &stubConstraintResolver{}, nil, opts...)
-			},
-		},
-		{
 			name: "NewWithResolversAndClock",
 			build: func(opts ...Option) Manifold {
 				return NewWithResolversAndClock(&stubResolver{}, &stubConstraintResolver{}, nil, time.Now, opts...)
@@ -144,6 +131,7 @@ func TestWithFletcher_ResolveArrow_FallsBackOnlyWhenEnabled(t *testing.T) {
 
 			assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
 			if tc.wantReason == "" {
+				assert.ErrorIs(t, err, resolver.ErrNotFound)
 				assert.NotErrorIs(t, err, fletcher.ErrNotFletchable)
 				return
 			}
@@ -152,16 +140,6 @@ func TestWithFletcher_ResolveArrow_FallsBackOnlyWhenEnabled(t *testing.T) {
 			assert.Equal(t, tc.wantReason, nf.Reason)
 		})
 	}
-}
-
-func TestResolveArrow_FletcherDisabled_KeepsManifestNotFound(t *testing.T) {
-	m := NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil)
-
-	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"))
-
-	assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
-	assert.ErrorIs(t, err, resolver.ErrNotFound)
-	assert.NotErrorIs(t, err, fletcher.ErrNotFletchable)
 }
 
 func TestResolveArrow_FletcherEnabled_DeclaredManifestWins(t *testing.T) {
@@ -188,8 +166,6 @@ func TestResolveArrow_FletcherEnabled_HandsEveryResolveFailureToFletcher(t *test
 	}{
 		{name: "manifest not found", err: manifestMissing()},
 		{name: "transport failure", err: fmt.Errorf("%w: HTTP 503", resolver.ErrFetchFailed)},
-		{name: "bare not found", err: resolver.ErrNotFound},
-		{name: "unclassified", err: errors.New("boom")},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

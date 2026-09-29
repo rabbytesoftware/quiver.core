@@ -10,7 +10,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -23,7 +22,6 @@ func RecoverTransients(
 	listRuntimeAggregates func(ctx context.Context) ([]domain.Namespace, error),
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
-	ex exposer.Exposer,
 ) {
 	for _, ns := range collectRecoveryNamespaces(ctx, listArrows, listRuntimeAggregates) {
 		if preloadErr := axRuntime.Preload(ctx, ns.String()); preloadErr != nil {
@@ -42,25 +40,13 @@ func RecoverTransients(
 			domain.ArrowStateStopping,
 			domain.ArrowStateDraining:
 			sendRecoverInterrupted(ctx, ns, rt.State, axRuntime)
-		case domain.ArrowStateReady:
-			reexpose(ctx, ns, ex)
 		case domain.ArrowStateAbsent,
+			domain.ArrowStateReady,
 			domain.ArrowStateDetached,
 			domain.ArrowStateRemoved,
 			domain.ArrowStateOutdated:
 		}
 	}
-}
-
-func reexpose(
-	ctx context.Context,
-	ns domain.Namespace,
-	ex exposer.Exposer,
-) {
-	if ex == nil {
-		return
-	}
-	ex.Reapply(ctx, ns)
 }
 
 // collectRecoveryNamespaces merges catalog namespaces with runtime-store aggregate

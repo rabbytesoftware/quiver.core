@@ -10,8 +10,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 type Container struct {
@@ -31,7 +31,7 @@ func New(
 	repos *repositories.Container,
 	m manifold.Manifold,
 	v vault.Vault,
-	s shelf.Shelf,
+	w wizardPkg.Wizard,
 ) (*Container, error) {
 	pairingCodeTTL, err := time.ParseDuration(config.GetAuth().PairingCodeTTL)
 	if err != nil {
@@ -91,6 +91,6 @@ func New(
 		Discovery:  discoveryUC,
 		Config:     NewConfigUsecase(repos.Config),
 		Auth:       NewAuthUsecase(repos.PairingCode, repos.Device, pairingCodeTTL),
-		Path:       NewPathUsecase(s),
+		Path:       NewPathUsecase(w),
 	}, nil
 }

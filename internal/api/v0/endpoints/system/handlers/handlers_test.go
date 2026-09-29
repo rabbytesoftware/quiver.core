@@ -252,14 +252,6 @@ func TestPathStatus_ReturnsShelfStatus(t *testing.T) {
 	assert.JSONEq(t, `["/home/u/.zshrc"]`, string(data["files"]))
 }
 
-func TestPathStatus_UsecaseErrorReturns500(t *testing.T) {
-	pathSvc := &stubPathUsecase{statusErr: errors.New("disk on fire")}
-
-	w := doPath(newRouterWithPath(&stubConfigUsecase{}, pathSvc), http.MethodGet)
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
 func TestSetupPath_ReturnsUpdatedStatus(t *testing.T) {
 	pathSvc := &stubPathUsecase{setupResult: models.PathStatus{
 		BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true,
@@ -272,10 +264,22 @@ func TestSetupPath_ReturnsUpdatedStatus(t *testing.T) {
 	assert.JSONEq(t, `true`, string(data["configured"]))
 }
 
-func TestSetupPath_UsecaseErrorReturns500(t *testing.T) {
-	pathSvc := &stubPathUsecase{setupErr: errors.New("permission denied")}
+func TestPath_UsecaseErrorReturns500(t *testing.T) {
+	failing := errors.New("disk on fire")
+	testCases := []struct {
+		name   string
+		method string
+		svc    *stubPathUsecase
+	}{
+		{name: "status", method: http.MethodGet, svc: &stubPathUsecase{statusErr: failing}},
+		{name: "setup", method: http.MethodPost, svc: &stubPathUsecase{setupErr: failing}},
+	}
 
-	w := doPath(newRouterWithPath(&stubConfigUsecase{}, pathSvc), http.MethodPost)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := doPath(newRouterWithPath(&stubConfigUsecase{}, tc.svc), tc.method)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+		})
+	}
 }

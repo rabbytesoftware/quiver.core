@@ -20,15 +20,6 @@ func (a Archive) Extract(
 	src *os.File,
 	size int64,
 	g *guard.Guard,
-) error {
-	return a.ExtractAs(ctx, src, size, g, "")
-}
-
-func (a Archive) ExtractAs(
-	ctx context.Context,
-	src *os.File,
-	size int64,
-	g *guard.Guard,
 	singleFile string,
 ) error {
 	switch a.layout {

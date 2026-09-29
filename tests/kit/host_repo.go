@@ -13,7 +13,6 @@ type HostRepo struct {
 	Readme      string
 	Binary      string
 	Asset       string
-	Dir         string
 	Tags        []string
 }
 
@@ -22,16 +21,6 @@ func (r HostRepo) assetName(
 	platform domain.OS,
 ) string {
 	return expandAsset(r.Asset, tag, platform)
-}
-
-func (r HostRepo) entryName(
-	tag string,
-	platform domain.OS,
-) string {
-	if r.Dir == "" {
-		return r.Binary
-	}
-	return expandAsset(r.Dir, tag, platform) + "/" + r.Binary
 }
 
 func expandAsset(

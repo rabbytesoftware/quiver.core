@@ -18,11 +18,15 @@ func (i *installer) installAppImage(
 	size int64,
 	from string,
 	to string,
+	staged bool,
 ) ([]domain.PortableApp, error) {
 	name := unpack.AppDirName(from)
 	appDir, staging, err := appDirPaths(to, name)
 	if err != nil {
 		return nil, err
+	}
+	if staged {
+		staging = appDir
 	}
 
 	if err := os.RemoveAll(staging); err != nil {
@@ -30,7 +34,7 @@ func (i *installer) installAppImage(
 	}
 
 	meta, err := i.stageAppImage(ctx, src, size, staging)
-	if err == nil {
+	if err == nil && !staged {
 		err = swapAppDir(staging, appDir)
 	}
 	if err != nil {

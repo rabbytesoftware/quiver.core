@@ -79,10 +79,10 @@ func TestDrafter_Draft_ReadmeSelection(t *testing.T) {
 				files:  files,
 			}
 
-			draft, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+			manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
 			require.NoError(t, err)
 
-			arrow := parse(t, draft.Manifest)
+			arrow := parse(t, manifest)
 			assert.Equal(t, tc.want, arrow.Readme)
 			assert.Equal(t, tc.wantRead, host.readmeReads()[:len(tc.wantRead)])
 		})

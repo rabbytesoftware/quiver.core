@@ -146,7 +146,7 @@ Re-fetches the manifest from the upstream registry and updates the local copy. T
 
 #### DELETE /arrow/{ns} — Remove
 
-Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Removing an installed arrow also removes its `expose` entries (CLI links/shims, launchers, the placed `.app`), unless another catalogued ref of the same namespace is still installed. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
+Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
 
 #### GET /arrow — List
 
@@ -179,7 +179,7 @@ Response shape (query envelope, `data` is a list):
 
 Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
 
-The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `installed_constraint`, `user_installed`, `origin`, `inference` (omitted unless inferred), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`) and, after an install or update that applied `expose` entries, `exposed` (see below); `active_run` carries a `pid` for service-style executions.
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `installed_constraint`, `user_installed`, `origin`, `inference` (omitted unless inferred), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
 
 **Origin and inference.** `origin` is `declared` (the repository ships an `ARROW.md` / `arrow.yaml`) or `inferred` (Fletcher synthesized the manifest). An inferred arrow also carries `inference`:
 
@@ -189,9 +189,9 @@ The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license
 | `confidence` | `high` \| `medium` \| `low` |
 | `warnings` | Omitted when empty; any of `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch` |
 
-The arrow list items (`GET /arrow`) carry `origin` (always present) and `confidence` (omitted unless the arrow is inferred); discovery search results carry both, each omitted when empty. Search results from the vault lane (arrows Quiver has cached but not catalogued) report them too: the vault index stores the generator name, confidence and warnings.
+The arrow list items (`GET /arrow`) carry `origin` (always present) and `confidence` (omitted unless the arrow is inferred); discovery search results carry both, each omitted when empty. Search results from the vault lane (arrows Quiver has cached but not catalogued) report them too: the vault index stores the generator name and confidence.
 
-**Expose results.** `last_return.exposed` has `entries[]` (`kind` = `cli` \| `desktop`, `name`, `target`, `location`) for every registration applied, and `refused[]` (`kind`, `name`, `reason`) for every one Quiver declined — for example a name owned by another arrow or by the user. An `auto` entry that resolves to nothing appears in neither list; an `auto` CLI entry is named after the executable it resolved to.
+**Expose results.** Exposure is reported as ordinary steps of the run. An `_install` or `_update` of an arrow that declares `expose` entries ends with one step of type `expose` per entry (title `Expose <kind> <name>`): `completed` when the entry was placed, or when an `auto` entry resolved to nothing; `failed`, with the reason in `error`, when Quiver declined it — for example a name owned by another arrow or by the user. A failed `expose` step never fails the run. An `_uninstall` of such an arrow starts with one step of type `unexpose` (`Remove exposed entries`).
 
 Errors: 404 (not found), 500.
 

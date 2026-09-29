@@ -47,6 +47,7 @@ func (noReleases) ResolveDefaultBranch(
 }
 
 type pageHost struct {
+	hosts.Host
 	server *httptest.Server
 }
 
@@ -70,15 +71,6 @@ func (h *pageHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return h.server.URL + pagePath
-}
-
-func (h *pageHost) DefaultBranches() []string { return nil }
-
-func (h *pageHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", nil
 }
 
 func (h *pageHost) ReleaseAssets(

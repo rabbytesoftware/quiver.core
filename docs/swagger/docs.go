@@ -1897,9 +1897,6 @@ const docTemplate = `{
                 "last_used_at": {
                     "type": "string"
                 },
-                "license": {
-                    "type": "string"
-                },
                 "name": {
                     "type": "string"
                 },
@@ -2318,54 +2315,6 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO": {
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "reason": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO": {
-            "type": "object",
-            "properties": {
-                "entries": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO"
-                    }
-                },
-                "refused": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeRefusalDTO"
-                    }
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposedEntryDTO": {
-            "type": "object",
-            "properties": {
-                "kind": {
-                    "type": "string"
-                },
-                "location": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "target": {
-                    "type": "string"
-                }
-            }
-        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO": {
             "type": "object",
             "properties": {
@@ -2451,9 +2400,6 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO": {
             "type": "object",
             "properties": {
-                "exposed": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExposeResultDTO"
-                },
                 "method": {
                     "type": "string"
                 },

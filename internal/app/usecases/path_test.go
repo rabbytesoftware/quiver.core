@@ -10,80 +10,40 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
+	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
-type stubShelf struct {
-	statusResult shelf.PathStatus
-	statusErr    error
-	setupResult  shelf.PathStatus
-	setupErr     error
-}
-
-func (s *stubShelf) Apply(
-	context.Context,
-	domain.Namespace,
-	string,
-	domain.Expose,
-	domain.ArrowMedia,
-) (shelf.Applied, error) {
-	return shelf.Applied{}, nil
-}
-
-func (s *stubShelf) Remove(
-	context.Context,
-	domain.Namespace,
-) error {
-	return nil
-}
-
-func (s *stubShelf) PathStatus(
-	context.Context,
-) (shelf.PathStatus, error) {
-	return s.statusResult, s.statusErr
-}
-
-func (s *stubShelf) SetupPath(
-	context.Context,
-) (shelf.PathStatus, error) {
-	return s.setupResult, s.setupErr
-}
-
-func TestPathUsecase_Status_ReturnsShelfStatus(t *testing.T) {
-	status := shelf.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}
-	uc := usecases.NewPathUsecase(&stubShelf{statusResult: status})
-
-	got, err := uc.Status(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, models.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}, got)
-}
-
-func TestPathUsecase_Status_WrapsError(t *testing.T) {
+func TestPathUsecase_StatusAndSetup(t *testing.T) {
 	errBoom := errors.New("boom")
-	uc := usecases.NewPathUsecase(&stubShelf{statusErr: errBoom})
+	shelf := wizardPkg.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}
+	want := models.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}
 
-	_, err := uc.Status(context.Background())
+	testCases := []struct {
+		name string
+		call func(usecases.PathUsecase) (models.PathStatus, error)
+	}{
+		{name: "status", call: func(uc usecases.PathUsecase) (models.PathStatus, error) { return uc.Status(context.Background()) }},
+		{name: "setup", call: func(uc usecases.PathUsecase) (models.PathStatus, error) { return uc.Setup(context.Background()) }},
+	}
 
-	require.ErrorIs(t, err, errBoom)
-}
+	for _, tc := range testCases {
+		t.Run(tc.name+" returns the wizard status", func(t *testing.T) {
+			result := func(context.Context) (wizardPkg.PathStatus, error) { return shelf, nil }
+			uc := usecases.NewPathUsecase(&mocks.Wizard{PathStatusFn: result, SetupPathFn: result})
 
-func TestPathUsecase_Setup_ReturnsShelfStatus(t *testing.T) {
-	status := shelf.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}
-	uc := usecases.NewPathUsecase(&stubShelf{setupResult: status})
+			got, err := tc.call(uc)
 
-	got, err := uc.Setup(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, want, got)
+		})
+		t.Run(tc.name+" wraps the wizard error", func(t *testing.T) {
+			failing := func(context.Context) (wizardPkg.PathStatus, error) { return wizardPkg.PathStatus{}, errBoom }
+			uc := usecases.NewPathUsecase(&mocks.Wizard{PathStatusFn: failing, SetupPathFn: failing})
 
-	require.NoError(t, err)
-	assert.Equal(t, models.PathStatus{BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"}}, got)
-}
+			_, err := tc.call(uc)
 
-func TestPathUsecase_Setup_WrapsError(t *testing.T) {
-	errBoom := errors.New("boom")
-	uc := usecases.NewPathUsecase(&stubShelf{setupErr: errBoom})
-
-	_, err := uc.Setup(context.Background())
-
-	require.ErrorIs(t, err, errBoom)
+			require.ErrorIs(t, err, errBoom)
+		})
+	}
 }

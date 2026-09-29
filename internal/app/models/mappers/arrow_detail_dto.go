@@ -14,7 +14,6 @@ func ArrowDetailDTOFrom(
 		Namespace:           view.Metadata.Namespace,
 		Name:                view.Metadata.Name,
 		Description:         view.Metadata.Description,
-		License:             view.Metadata.License,
 		Tags:                view.Metadata.Tags,
 		Variables:           view.Metadata.Variables,
 		Targets:             view.Metadata.Targets,

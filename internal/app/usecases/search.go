@@ -127,7 +127,7 @@ func catalogResults(
 			Installed:    true,
 			Known:        true,
 			Origin:       hit.Metadata.Origin(),
-			Confidence:   generatorConfidence(hit.Metadata.Generator),
+			Confidence:   hit.Metadata.Confidence(),
 		})
 	}
 	return results
@@ -195,17 +195,8 @@ func seenResult(
 		Stars:        row.Meta.Stars,
 		Source:       row.Meta.Source,
 		Origin:       domain.Arrow{ArrowMeta: row.Meta.Arrow}.Origin(),
-		Confidence:   generatorConfidence(row.Meta.Arrow.Generator),
+		Confidence:   domain.Arrow{ArrowMeta: row.Meta.Arrow}.Confidence(),
 	}
-}
-
-func generatorConfidence(
-	g *domain.ArrowGenerator,
-) string {
-	if g == nil {
-		return ""
-	}
-	return g.Confidence
 }
 
 // merge scores each source against its own result set — bm25 is corpus-relative,

@@ -2,20 +2,8 @@ package readme
 
 import "unicode"
 
-const defaultReadmeName = "README.md"
-
 func EnglishReadmeNames() []string {
 	return []string{"README.en.md", "README_EN.md", "README.english.md"}
-}
-
-func knownReadmeNames() []string {
-	return []string{
-		defaultReadmeName,
-		"README.en.md",
-		"README_EN.md",
-		"Readme.md",
-		"readme.md",
-	}
 }
 
 func isCJKRune(
@@ -50,33 +38,4 @@ func IsCJKDominant(
 		return false
 	}
 	return cjk*2 > letters
-}
-
-func firstKnownReadme(
-	byName map[string][]byte,
-) []byte {
-	for _, name := range knownReadmeNames() {
-		if raw, ok := byName[name]; ok {
-			return raw
-		}
-	}
-	return nil
-}
-
-func SelectReadme(
-	byName map[string][]byte,
-) []byte {
-	def, hasDefault := byName[defaultReadmeName]
-	if hasDefault && !IsCJKDominant(def) {
-		return def
-	}
-	for _, name := range EnglishReadmeNames() {
-		if alt, ok := byName[name]; ok {
-			return alt
-		}
-	}
-	if hasDefault {
-		return def
-	}
-	return firstKnownReadme(byName)
 }

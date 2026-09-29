@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
@@ -114,42 +116,6 @@ func TestOverrideableKeysRule_InvalidFetchStepBareKey(t *testing.T) {
 	}
 }
 
-func TestOverrideableKeysRule_InvalidExtractStepBareKey(t *testing.T) {
-	rule := OverrideableKeysRule{}
-	extract := step.ExtractStep{
-		From: step.Overrideable[string]{OSArch: map[string]string{"darwin": "./archive-darwin.tar.gz"}},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{extract},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for bare ExtractStep from key, got: %v", errs)
-	}
-}
-
-func TestOverrideableKeysRule_InvalidPortableStepBareKey(t *testing.T) {
-	rule := OverrideableKeysRule{}
-	portable := step.PortableStep{
-		From: step.Overrideable[string]{OSArch: map[string]string{"darwin": "./app-darwin.dmg"}},
-	}
-	precompiled := map[string]models.PrecompiledTarget{
-		"t": {
-			Lifecycle: domain.TargetLifecycle{
-				Install: step.StepList{portable},
-			},
-		},
-	}
-	errs := rule.Validate(&domain.Arrow{}, precompiled)
-	if len(errs) != 1 {
-		t.Fatalf("expected 1 error for bare PortableStep from key, got: %v", errs)
-	}
-}
-
 func TestOverrideableKeysRule_InvalidSignalStepBareSignalKey(t *testing.T) {
 	rule := OverrideableKeysRule{}
 	signal := step.SignalStep{
@@ -245,5 +211,29 @@ func TestOverrideableKeysRule_Preinstalled_BareKeyRejected(t *testing.T) {
 	}
 	if !strings.Contains(errs[0].Field, "lifecycle.preinstalled[0].command") {
 		t.Errorf("expected the field to name the preinstalled command, got %q", errs[0].Field)
+	}
+}
+
+func TestOverrideableKeysRule_Validate_FromToStepBareKey(t *testing.T) {
+	for _, kind := range fromToKinds() {
+		t.Run(kind, func(t *testing.T) {
+			built := fromToStep(
+				kind,
+				step.Overrideable[string]{OSArch: map[string]string{"darwin": "./archive"}},
+				step.Overrideable[string]{},
+				step.Overrideable[string]{},
+			)
+			precompiled := map[string]models.PrecompiledTarget{
+				"t": {
+					Lifecycle: domain.TargetLifecycle{
+						Install: step.StepList{built},
+					},
+				},
+			}
+
+			errs := OverrideableKeysRule{}.Validate(&domain.Arrow{}, precompiled)
+
+			assert.Len(t, errs, 1)
+		})
 	}
 }

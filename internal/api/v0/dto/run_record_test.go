@@ -12,10 +12,6 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
-func TestRunRecordDTOFrom_Nil_ReturnsNil(t *testing.T) {
-	assert.Nil(t, dto.RunRecordDTOFrom(nil))
-}
-
 func TestRunRecordDTO_JSON_EmptyStepsSerializeAsArray(t *testing.T) {
 	raw, err := json.Marshal(dto.RunRecordDTOFrom(&domainRuntime.Execution{Method: domain.MethodUninstall}))
 	require.NoError(t, err)

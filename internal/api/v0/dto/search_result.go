@@ -99,10 +99,6 @@ func SearchResultDTOFromDiscovery(
 	if r.InCatalog {
 		provenance = ""
 	}
-	confidence := ""
-	if r.Arrow.Generator != nil {
-		confidence = r.Arrow.Generator.Confidence
-	}
 
 	return SearchResultDTOFrom(models.SearchResult{
 		Namespace:    r.Namespace,
@@ -118,7 +114,7 @@ func SearchResultDTOFromDiscovery(
 		Stars:        r.Stars,
 		Source:       r.Source,
 		Origin:       r.Arrow.Origin(),
-		Confidence:   confidence,
+		Confidence:   r.Arrow.Confidence(),
 	})
 }
 

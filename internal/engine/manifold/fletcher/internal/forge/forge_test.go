@@ -1,6 +1,7 @@
 package forge_test
 
 import (
+	"cmp"
 	"strings"
 	"testing"
 
@@ -114,70 +115,20 @@ func TestRender_ParsesWithMetadataAndGenerator(t *testing.T) {
 	assert.True(t, strings.HasPrefix(string(data), "Tool does things.\n\nIt is fast.\n\n```arrow\n"))
 }
 
-func TestRender_ReparseKeepsGenerator(t *testing.T) {
-	data, err := forge.Render(baseInput())
-	require.NoError(t, err)
-
-	first := parse(t, data)
-	second := parse(t, data)
-
-	assert.Equal(t, first.Generator, second.Generator)
-	assert.Equal(t, first.Origin(), second.Origin())
-	assert.Equal(t, domain.ArrowOriginInferred, second.Origin())
-}
-
 func TestRender_Targets(t *testing.T) {
+	auto := []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}
 	testCases := []struct {
-		name         string
-		os           domain.OS
-		fetchTo      string
-		portableFrom string
-		cli          []domain.ExposeEntry
-		desktop      []domain.ExposeEntry
+		name    string
+		os      domain.OS
+		cli     []domain.ExposeEntry
+		desktop []domain.ExposeEntry
 	}{
-		{
-			name:         "linux archive fetches, installs and exposes a cli",
-			os:           domain.OSLinuxAMD64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-		},
-		{
-			name:         "appimage fetches, installs and exposes a desktop entry",
-			os:           domain.OSLinuxARM64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-		},
-		{
-			name:         "darwin archive exposes cli and desktop",
-			os:           domain.OSDarwinAMD64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-		},
-		{
-			name:         "dmg fetches, installs and exposes a desktop entry",
-			os:           domain.OSDarwinARM64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			desktop:      []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-		},
-		{
-			name:         "windows binary installs as the repo name with exe",
-			os:           domain.OSWindowsAMD64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			cli:          []domain.ExposeEntry{{Name: "tool", Path: "${INSTALL_PATH}/tool/tool.exe"}},
-		},
-		{
-			name:         "windows archive exposes only a cli",
-			os:           domain.OSWindowsARM64,
-			fetchTo:      "${INSTALL_PATH}/.tool.download",
-			portableFrom: "${INSTALL_PATH}/.tool.download",
-			cli:          []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}},
-		},
+		{name: "linux archive exposes a cli", os: domain.OSLinuxAMD64, cli: auto},
+		{name: "appimage exposes a desktop entry", os: domain.OSLinuxARM64, desktop: auto},
+		{name: "darwin archive exposes cli and desktop", os: domain.OSDarwinAMD64, cli: auto, desktop: auto},
+		{name: "dmg exposes a desktop entry", os: domain.OSDarwinARM64, desktop: auto},
+		{name: "windows binary installs as the repo name with exe", os: domain.OSWindowsAMD64, cli: []domain.ExposeEntry{{Name: "tool", Path: "${INSTALL_PATH}/tool/tool.exe"}}},
+		{name: "windows archive exposes only a cli", os: domain.OSWindowsARM64, cli: auto},
 	}
 	in := baseInput()
 	data, err := forge.Render(in)
@@ -187,27 +138,20 @@ func TestRender_Targets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			target, ok := arrow.Targets[tc.os]
 			require.True(t, ok)
-			wantSteps := 1
-			if tc.portableFrom != "" {
-				wantSteps = 2
-			}
 
-			require.Len(t, target.Lifecycle.Install, wantSteps)
+			require.Len(t, target.Lifecycle.Install, 2)
 			assert.Empty(t, target.Lifecycle.Update)
 			assert.Empty(t, target.Lifecycle.Uninstall)
 			fetch := fetchStep(t, target.Lifecycle.Install[0])
 			assert.Equal(t, in.Picks[tc.os].Asset.URL, fetch.URL.Default)
-			assert.Equal(t, tc.fetchTo, fetch.To.Default)
+			assert.Equal(t, "${INSTALL_PATH}/.tool.download", fetch.To.Default)
 			assert.Equal(t, digest, fetch.Checksum.Default)
 			assert.Equal(t, "15m", fetch.Timeout.Default)
 			assert.Equal(t, "Download "+in.Picks[tc.os].Asset.Name, fetch.Title())
 			assert.Equal(t, tc.cli, target.Expose.CLI)
 			assert.Equal(t, tc.desktop, target.Expose.Desktop)
-			if tc.portableFrom == "" {
-				return
-			}
 			portable := portableStep(t, target.Lifecycle.Install[1])
-			assert.Equal(t, tc.portableFrom, portable.From.Default)
+			assert.Equal(t, "${INSTALL_PATH}/.tool.download", portable.From.Default)
 			assert.Equal(t, "${INSTALL_PATH}/tool", portable.To.Default)
 			assert.Equal(t, "Install "+in.Picks[tc.os].Asset.Name, portable.Title())
 			wantName := "tool"
@@ -342,57 +286,52 @@ func TestRender_DropsUnusablePicks(t *testing.T) {
 	}
 }
 
-func TestRender_FileNameComesFromURL(t *testing.T) {
-	in := baseInput()
-	in.Picks = map[domain.OS]picker.Pick{
-		domain.OSLinuxAMD64: {
-			Asset:     domain.ReleaseAsset{Name: "../../${HOME}/x\nevil", URL: "https://example.test/dl/tool%2Bv1.tar.gz?x=1", Digest: digest},
-			Format:    picker.FormatArchive,
-			Match:     picker.MatchExact,
-			NameMatch: true,
-		},
-	}
-	data, err := forge.Render(in)
-	require.NoError(t, err)
-
-	target := parse(t, data).Targets[domain.OSLinuxAMD64]
-
-	fetch := fetchStep(t, target.Lifecycle.Install[0])
-	portable := portableStep(t, target.Lifecycle.Install[1])
-	assert.Equal(t, "${INSTALL_PATH}/.tool.download", fetch.To.Default)
-	assert.Equal(t, "Download tool+v1.tar.gz", fetch.Title())
-	assert.Equal(t, "${INSTALL_PATH}/.tool.download", portable.From.Default)
-	assert.Equal(t, "Install tool+v1.tar.gz", portable.Title())
-	assert.NotContains(t, string(data), "${HOME}")
-}
-
-func TestRender_EveryReleaseAndFormatInstallsThroughTheSamePaths(t *testing.T) {
+func TestRender_FileNames(t *testing.T) {
 	testCases := []struct {
-		file   string
-		format picker.Format
+		name     string
+		os       domain.OS
+		pick     picker.Pick
+		wantFile string
+		wantName string
 	}{
-		{file: "tool_v1.0.0_linux.tar.gz", format: picker.FormatArchive},
-		{file: "tool-1.1.0-linux.zip", format: picker.FormatArchive},
-		{file: "Tool-1.2.0-x86_64.AppImage", format: picker.FormatAppImage},
-		{file: "tool-linux", format: picker.FormatArchive},
-		{file: "tool-linux-amd64", format: picker.FormatBinary},
+		{
+			name: "file name comes from the url",
+			pick: picker.Pick{
+				Asset:     domain.ReleaseAsset{Name: "../../${HOME}/x\nevil", URL: "https://example.test/dl/tool%2Bv1.tar.gz?x=1", Digest: digest},
+				Format:    picker.FormatArchive,
+				Match:     picker.MatchExact,
+				NameMatch: true,
+			},
+			wantFile: "tool+v1.tar.gz",
+			wantName: "tool",
+		},
+		{name: "tar.gz archive", pick: pickOf("tool_v1.0.0_linux.tar.gz", picker.FormatArchive), wantFile: "tool_v1.0.0_linux.tar.gz", wantName: "tool"},
+		{name: "zip archive", pick: pickOf("tool-1.1.0-linux.zip", picker.FormatArchive), wantFile: "tool-1.1.0-linux.zip", wantName: "tool"},
+		{name: "appimage", pick: pickOf("Tool-1.2.0-x86_64.AppImage", picker.FormatAppImage), wantFile: "Tool-1.2.0-x86_64.AppImage", wantName: "tool"},
+		{name: "extensionless archive", pick: pickOf("tool-linux", picker.FormatArchive), wantFile: "tool-linux", wantName: "tool"},
+		{name: "binary", pick: pickOf("tool-linux-amd64", picker.FormatBinary), wantFile: "tool-linux-amd64", wantName: "tool"},
+		{name: "single file compressed binary", pick: pickOf("tool-linux-amd64.gz", picker.FormatArchive), wantFile: "tool-linux-amd64.gz", wantName: "tool"},
+		{name: "single file compressed exe", os: domain.OSWindowsAMD64, pick: pickOf("tool-windows-amd64.exe.gz", picker.FormatArchive), wantFile: "tool-windows-amd64.exe.gz", wantName: "tool.exe"},
 	}
 	for _, tc := range testCases {
-		t.Run(tc.file, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
+			platform := cmp.Or(tc.os, domain.OSLinuxAMD64)
 			in := baseInput()
-			in.Picks = map[domain.OS]picker.Pick{domain.OSLinuxAMD64: pickOf(tc.file, tc.format)}
+			in.Picks = map[domain.OS]picker.Pick{platform: tc.pick}
 			data, err := forge.Render(in)
 			require.NoError(t, err)
 
-			target := parse(t, data).Targets[domain.OSLinuxAMD64]
+			target := parse(t, data).Targets[platform]
 			fetch := fetchStep(t, target.Lifecycle.Install[0])
 			portable := portableStep(t, target.Lifecycle.Install[1])
 
 			assert.Equal(t, "${INSTALL_PATH}/.tool.download", fetch.To.Default)
+			assert.Equal(t, "Download "+tc.wantFile, fetch.Title())
 			assert.Equal(t, "${INSTALL_PATH}/.tool.download", portable.From.Default)
 			assert.Equal(t, "${INSTALL_PATH}/tool", portable.To.Default)
-			assert.Equal(t, "tool", portable.Name)
-			assert.Equal(t, "Download "+tc.file, fetch.Title())
+			assert.Equal(t, "Install "+tc.wantFile, portable.Title())
+			assert.Equal(t, tc.wantName, portable.Name)
+			assert.NotContains(t, string(data), "${HOME}")
 		})
 	}
 }
@@ -412,24 +351,6 @@ func TestRender_LongRepoNameFitsEveryPortableName(t *testing.T) {
 	name := strings.Repeat("r", 60)
 	assert.Equal(t, name, portableStep(t, arrow.Targets[domain.OSLinuxAMD64].Lifecycle.Install[1]).Name)
 	assert.Equal(t, name+".exe", portableStep(t, arrow.Targets[domain.OSWindowsAMD64].Lifecycle.Install[1]).Name)
-}
-
-func TestRender_SingleFileCompressedBinaryIsNamed(t *testing.T) {
-	in := baseInput()
-	in.Picks = map[domain.OS]picker.Pick{
-		domain.OSLinuxAMD64:   pickOf("tool-linux-amd64.gz", picker.FormatArchive),
-		domain.OSWindowsAMD64: pickOf("tool-windows-amd64.exe.gz", picker.FormatArchive),
-	}
-	data, err := forge.Render(in)
-	require.NoError(t, err)
-
-	arrow := parse(t, data)
-
-	linux := portableStep(t, arrow.Targets[domain.OSLinuxAMD64].Lifecycle.Install[1])
-	windows := portableStep(t, arrow.Targets[domain.OSWindowsAMD64].Lifecycle.Install[1])
-	assert.Equal(t, "${INSTALL_PATH}/.tool.download", linux.From.Default)
-	assert.Equal(t, "tool", linux.Name)
-	assert.Equal(t, "tool.exe", windows.Name)
 }
 
 func TestRender_EmptyMediaAndWarningsAreOmitted(t *testing.T) {

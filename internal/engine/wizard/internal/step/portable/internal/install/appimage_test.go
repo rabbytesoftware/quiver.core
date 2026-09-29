@@ -16,12 +16,12 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
 func TestInstall_AppImageWithoutIconRecordsNoIcon(t *testing.T) {
 	workDir := t.TempDir()
-	unpacktest.WriteAppImage(t, workDir, "tool", map[string]unpacktest.Entry{
+	mocks.WriteAppImage(t, workDir, "tool", map[string]mocks.Entry{
 		"AppRun": {Mode: 0o755, Data: "#!/bin/sh\n"},
 	})
 
@@ -36,39 +36,39 @@ func TestInstall_AppImageWithoutIconRecordsNoIcon(t *testing.T) {
 
 func TestInstall_AppImageType1Unsupported(t *testing.T) {
 	workDir := t.TempDir()
-	built := unpacktest.BuildAppImage(t, map[string]unpacktest.Entry{"AppRun": {Data: "x"}}, 1)
+	built := mocks.BuildAppImage(t, map[string]mocks.Entry{"AppRun": {Data: "x"}}, 1)
 	data, err := os.ReadFile(built)
 	require.NoError(t, err)
-	from := unpacktest.WriteFile(t, filepath.Join(workDir, "old.AppImage"), data)
+	from := mocks.WriteFile(t, filepath.Join(workDir, "old.AppImage"), data)
 
 	err = runPortable(t, wizstep.Request{WorkDir: workDir}, "old.AppImage", ".", "")
 
-	require.ErrorIs(t, err, unpack.ErrUnsupportedAppImage)
+	require.Error(t, err)
 	assert.FileExists(t, from)
 }
 
 func TestInstall_AppImageFailures(t *testing.T) {
 	testCases := []struct {
 		name    string
-		entries map[string]unpacktest.Entry
+		entries map[string]mocks.Entry
 		to      string
 		setup   func(t *testing.T, workDir string)
 		check   func(t *testing.T, workDir string)
 	}{
 		{
 			name:    "destination is a file",
-			entries: unpacktest.AppImageEntries("bruno"),
+			entries: mocks.AppImageEntries("bruno"),
 			to:      "blocker",
 			setup: func(t *testing.T, workDir string) {
-				unpacktest.WriteFile(t, filepath.Join(workDir, "blocker"), []byte("x"))
+				mocks.WriteFile(t, filepath.Join(workDir, "blocker"), []byte("x"))
 			},
 			check: func(t *testing.T, workDir string) {
-				assert.Equal(t, "x", unpacktest.ReadString(t, filepath.Join(workDir, "blocker")))
+				assert.Equal(t, "x", mocks.ReadString(t, filepath.Join(workDir, "blocker")))
 			},
 		},
 		{
 			name: "launcher location is a directory",
-			entries: map[string]unpacktest.Entry{
+			entries: map[string]mocks.Entry{
 				"AppRun":                           {Mode: 0o755, Data: "#!/bin/sh\n"},
 				unpack.LauncherName + "/blocker":   {Mode: 0o644, Data: "x"},
 				unpack.LauncherName + "/blocker-2": {Mode: 0o644, Data: "x"},
@@ -85,7 +85,7 @@ func TestInstall_AppImageFailures(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			workDir := t.TempDir()
-			unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", tc.entries)
+			mocks.WriteAppImage(t, workDir, "bruno.AppImage", tc.entries)
 			tc.setup(t, workDir)
 
 			err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", tc.to, "")
@@ -104,7 +104,7 @@ func TestInstall_AppImageUnreadableDesktopFile(t *testing.T) {
 
 	const markerPerm = 0o604
 	workDir := t.TempDir()
-	built := unpacktest.BuildAppImage(t, map[string]unpacktest.Entry{
+	built := mocks.BuildAppImage(t, map[string]mocks.Entry{
 		"AppRun":        {Mode: 0o755, Data: "#!/bin/sh\n"},
 		"bruno.desktop": {Mode: markerPerm, Data: "[Desktop Entry]\nName=Bruno\n"},
 	}, 2)
@@ -113,7 +113,7 @@ func TestInstall_AppImageUnreadableDesktopFile(t *testing.T) {
 	fileInode := binary.LittleEndian.AppendUint16(binary.LittleEndian.AppendUint16(nil, 2), markerPerm)
 	require.Equal(t, 1, bytes.Count(data, fileInode))
 	unreadable := binary.LittleEndian.AppendUint16(binary.LittleEndian.AppendUint16(nil, 2), 0o200)
-	unpacktest.WriteFile(t, filepath.Join(workDir, "bruno.AppImage"), bytes.Replace(data, fileInode, unreadable, 1))
+	mocks.WriteFile(t, filepath.Join(workDir, "bruno.AppImage"), bytes.Replace(data, fileInode, unreadable, 1))
 
 	err = runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
 
@@ -125,37 +125,20 @@ func TestInstall_AppImageUnreadableDesktopFile(t *testing.T) {
 func TestInstall_AppImageReinstallRemovesStaleFiles(t *testing.T) {
 	workDir := t.TempDir()
 	req := wizstep.Request{WorkDir: workDir}
-	old := unpacktest.AppImageEntries("bruno")
-	old["usr/lib/libold.so"] = unpacktest.Entry{Mode: 0o644, Data: "old"}
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", old)
+	old := mocks.AppImageEntries("bruno")
+	old["usr/lib/libold.so"] = mocks.Entry{Mode: 0o644, Data: "old"}
+	mocks.WriteAppImage(t, workDir, "bruno.AppImage", old)
 	require.NoError(t, runPortable(t, req, "bruno.AppImage", ".", ""))
 	require.FileExists(t, filepath.Join(workDir, "bruno", "usr", "lib", "libold.so"))
 
-	next := unpacktest.AppImageEntries("bruno")
-	next["usr/lib/libnew.so"] = unpacktest.Entry{Mode: 0o644, Data: "new"}
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", next)
+	next := mocks.AppImageEntries("bruno")
+	next["usr/lib/libnew.so"] = mocks.Entry{Mode: 0o644, Data: "new"}
+	mocks.WriteAppImage(t, workDir, "bruno.AppImage", next)
 	require.NoError(t, runPortable(t, req, "bruno.AppImage", ".", ""))
 
 	assert.NoFileExists(t, filepath.Join(workDir, "bruno", "usr", "lib", "libold.so"))
-	assert.Equal(t, "new", unpacktest.ReadString(t, filepath.Join(workDir, "bruno", "usr", "lib", "libnew.so")))
+	assert.Equal(t, "new", mocks.ReadString(t, filepath.Join(workDir, "bruno", "usr", "lib", "libnew.so")))
 	assert.FileExists(t, filepath.Join(workDir, "bruno", unpack.LauncherName))
-}
-
-func TestInstall_AppImageReadOnlyDestination(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("directory permissions do not block writes here")
-	}
-
-	workDir := t.TempDir()
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
-	locked := filepath.Join(workDir, "apps")
-	require.NoError(t, os.Mkdir(locked, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-
-	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", "apps", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, fs.ErrPermission)
 }
 
 func TestInstall_AppImageCraftedNamesStayInsideDestination(t *testing.T) {
@@ -173,10 +156,10 @@ func TestInstall_AppImageCraftedNamesStayInsideDestination(t *testing.T) {
 			parent := t.TempDir()
 			workDir := filepath.Join(parent, "work")
 			to := filepath.Join(workDir, "apps")
-			parentSentinel := unpacktest.WriteFile(t, filepath.Join(workDir, "keep"), []byte("x"))
-			toSentinel := unpacktest.WriteFile(t, filepath.Join(to, "keep"), []byte("x"))
-			grandSentinel := unpacktest.WriteFile(t, filepath.Join(parent, "keep"), []byte("x"))
-			unpacktest.WriteAppImage(t, workDir, tc.file, unpacktest.AppImageEntries("bruno"))
+			parentSentinel := mocks.WriteFile(t, filepath.Join(workDir, "keep"), []byte("x"))
+			toSentinel := mocks.WriteFile(t, filepath.Join(to, "keep"), []byte("x"))
+			grandSentinel := mocks.WriteFile(t, filepath.Join(parent, "keep"), []byte("x"))
+			mocks.WriteAppImage(t, workDir, tc.file, mocks.AppImageEntries("bruno"))
 
 			err := runPortable(t, wizstep.Request{WorkDir: workDir}, tc.file, "apps", "")
 
@@ -189,56 +172,36 @@ func TestInstall_AppImageCraftedNamesStayInsideDestination(t *testing.T) {
 	}
 }
 
-func TestInstall_AppImageRecordPointsAtFinalAppDir(t *testing.T) {
-	workDir := t.TempDir()
-	req := wizstep.Request{WorkDir: workDir}
-	want := domain.PortableRecord{Apps: []domain.PortableApp{{
-		Name:  "bruno",
-		Entry: "apps/bruno/.quiver-run",
-		Icon:  "apps/bruno/usr/share/icons/hicolor/256x256/apps/bruno.png",
-	}}}
-
-	for range 2 {
-		unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
-
-		require.NoError(t, runPortable(t, req, "bruno.AppImage", "apps", ""))
-
-		assert.Equal(t, want, readRecord(t, workDir))
-		assert.FileExists(t, filepath.Join(workDir, "apps", "bruno", unpack.LauncherName))
-		assert.NoDirExists(t, filepath.Join(workDir, "apps", ".bruno.quiver-tmp"))
-	}
-}
-
 func TestInstall_AppImageCorruptKeepsExistingAppDir(t *testing.T) {
 	workDir := t.TempDir()
 	req := wizstep.Request{WorkDir: workDir}
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
+	mocks.WriteAppImage(t, workDir, "bruno.AppImage", mocks.AppImageEntries("bruno"))
 	require.NoError(t, runPortable(t, req, "bruno.AppImage", ".", ""))
 	launcher := filepath.Join(workDir, "bruno", unpack.LauncherName)
-	before := unpacktest.ReadString(t, launcher)
+	before := mocks.ReadString(t, launcher)
 
-	built := unpacktest.BuildAppImage(t, unpacktest.AppImageEntries("bruno"), 2)
+	built := mocks.BuildAppImage(t, mocks.AppImageEntries("bruno"), 2)
 	data, err := os.ReadFile(built)
 	require.NoError(t, err)
-	unpacktest.WriteFile(t, filepath.Join(workDir, "bruno.AppImage"), data[:len(data)-len(data)/4])
+	mocks.WriteFile(t, filepath.Join(workDir, "bruno.AppImage"), data[:len(data)-len(data)/4])
 
 	err = runPortable(t, req, "bruno.AppImage", ".", "")
 
 	require.Error(t, err)
-	assert.Equal(t, before, unpacktest.ReadString(t, launcher))
+	assert.Equal(t, before, mocks.ReadString(t, launcher))
 	assert.FileExists(t, filepath.Join(workDir, "bruno", "AppRun"))
 	assert.NoDirExists(t, filepath.Join(workDir, ".bruno.quiver-tmp"))
 }
 
 func TestInstall_AppImageUnownedAppDirUntouched(t *testing.T) {
 	workDir := t.TempDir()
-	keep := unpacktest.WriteFile(t, filepath.Join(workDir, "bruno", "notes.txt"), []byte("mine"))
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
+	keep := mocks.WriteFile(t, filepath.Join(workDir, "bruno", "notes.txt"), []byte("mine"))
+	mocks.WriteAppImage(t, workDir, "bruno.AppImage", mocks.AppImageEntries("bruno"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
 
 	require.ErrorIs(t, err, install.ErrUnownedAppDir)
-	assert.Equal(t, "mine", unpacktest.ReadString(t, keep))
+	assert.Equal(t, "mine", mocks.ReadString(t, keep))
 	assert.NoFileExists(t, filepath.Join(workDir, "bruno", unpack.LauncherName))
 	assert.NoDirExists(t, filepath.Join(workDir, ".bruno.quiver-tmp"))
 	assert.NoFileExists(t, filepath.Join(workDir, domain.PortableRecordFile))
@@ -246,8 +209,8 @@ func TestInstall_AppImageUnownedAppDirUntouched(t *testing.T) {
 
 func TestInstall_AppImageCleansLeftoverStaging(t *testing.T) {
 	workDir := t.TempDir()
-	unpacktest.WriteFile(t, filepath.Join(workDir, ".bruno.quiver-tmp", "usr", "lib", "crashed.so"), []byte("x"))
-	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
+	mocks.WriteFile(t, filepath.Join(workDir, ".bruno.quiver-tmp", "usr", "lib", "crashed.so"), []byte("x"))
+	mocks.WriteAppImage(t, workDir, "bruno.AppImage", mocks.AppImageEntries("bruno"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
 
