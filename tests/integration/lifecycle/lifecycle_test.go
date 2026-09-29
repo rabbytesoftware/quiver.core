@@ -159,17 +159,38 @@ func (s *LifecycleSuite) TestLifecycle_SeedThenInstall() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
+// An update runs only when something is ahead of the row, so the fixture's
+// tag is force-moved first; the update then runs its steps and stamps the
+// moved commit.
 func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
+	key := "quiver-test/tool-with-update-moved"
+	storer := kit.BuildUpgradeRepo(s.T(), kit.ReadFixture(s.T(), "tool-with-update/arrow.yaml"))
+	s.Repos.Set(key, storer)
+	s.T().Cleanup(func() { s.Repos.Delete(key) })
+
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
-	ns := kit.NSFor("quiver-test/tool-with-update", "v1")
+	ns := kit.NSFor(key, "v1")
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 
+	var moved string
+	s.Repos.Mutate(func() { moved = kit.MoveTagToNewCommit(s.T(), storer, "v1") })
+
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "_update", nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
+	updated := kit.WaitForDetail(s.T(), tc, ns, "the update ran and stamped the moved commit", 120*time.Second,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.InstalledCommit == moved &&
+				d.State == string(domain.ArrowStateReady) &&
+				d.LastReturn != nil
+		},
+	)
+	s.Equal(domain.MethodUpdate, updated.LastReturn.Method, "the update steps ran")
+	s.Equal("success", updated.LastReturn.Outcome)
+	s.Require().Len(updated.LastReturn.Steps, 1)
 }
 
 // A list row names its ref from the moment it is added, so the ref cannot say
