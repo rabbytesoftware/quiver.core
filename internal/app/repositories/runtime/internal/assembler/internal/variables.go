@@ -51,7 +51,7 @@ func ResolveVariables( //nolint:gocyclo
 	}
 	vars[domain.VarArrowNamespace] = ns.String()
 	vars[domain.VarPlatform] = os.String()
-	vars[domain.VarRef] = ns.Ref()
+	vars[domain.VarRef] = arrow.Resolved.RefOr(ns.Ref())
 
 	// Layer 2: dep built-ins and named exports
 	for _, edge := range append(target.Tools, target.Services...) {

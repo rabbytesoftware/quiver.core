@@ -159,7 +159,7 @@ func preinstalledVars(
 	vars := map[string]string{
 		domain.VarArrowNamespace: ns.String(),
 		domain.VarPlatform:       os.String(),
-		domain.VarRef:            ns.Ref(),
+		domain.VarRef:            arrow.Resolved.RefOr(ns.Ref()),
 	}
 
 	for _, v := range arrow.Variables {

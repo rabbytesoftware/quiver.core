@@ -18,6 +18,14 @@ type Resolved struct {
 	Fingerprint string `json:"fingerprint,omitempty" yaml:"fingerprint,omitempty"`
 }
 
+// RefOr returns the resolved ref, or fallback when nothing was resolved.
+func (r Resolved) RefOr(fallback string) string {
+	if r.Ref == "" {
+		return fallback
+	}
+	return r.Ref
+}
+
 // Available carries a newly available ref and its commit.
 type Available struct {
 	Ref    string `json:"ref" yaml:"ref"`

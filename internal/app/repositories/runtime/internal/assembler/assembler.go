@@ -36,7 +36,22 @@ type Assembler interface {
 		ns domain.Namespace,
 		method string,
 		userVars map[string]string,
+		opts ...AssembleOption,
 	) (ResolvedExecution, error)
+}
+
+// AssembleOption adjusts a single Assemble call.
+type AssembleOption func(*assembleOptions)
+
+type assembleOptions struct {
+	targetRef string
+}
+
+// WithTargetRef sets ${REF} to the ref an update is moving to, overriding the installed one.
+func WithTargetRef(ref string) AssembleOption {
+	return func(o *assembleOptions) {
+		o.targetRef = ref
+	}
 }
 
 type assemblerService struct {
@@ -71,7 +86,13 @@ func (a *assemblerService) Assemble(
 	ns domain.Namespace,
 	method string,
 	userVars map[string]string,
+	opts ...AssembleOption,
 ) (ResolvedExecution, error) {
+	var o assembleOptions
+	for _, apply := range opts {
+		apply(&o)
+	}
+
 	arrow, err := a.getArrow(ctx, ns)
 	if err != nil {
 		if errors.Is(err, asynxModels.ErrNotFound) {
@@ -113,6 +134,9 @@ func (a *assemblerService) Assemble(
 	)
 	if err != nil {
 		return ResolvedExecution{}, err
+	}
+	if o.targetRef != "" {
+		vars[domain.VarRef] = o.targetRef
 	}
 
 	var workDir string

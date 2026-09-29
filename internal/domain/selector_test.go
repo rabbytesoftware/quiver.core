@@ -45,3 +45,19 @@ func TestArrow_ZeroValueRowIsAPinWithNoResolvedState(t *testing.T) {
 	assert.Empty(t, a.Resolved.Commit)
 	assert.Nil(t, a.Available)
 }
+
+func TestResolved_RefOr(t *testing.T) {
+	testCases := []struct {
+		name     string
+		resolved Resolved
+		fallback string
+		want     string
+	}{
+		{name: "resolved ref wins", resolved: Resolved{Ref: "v1.2.0", Commit: "abc"}, fallback: "stable", want: "v1.2.0"},
+		{name: "no resolved ref falls back", resolved: Resolved{}, fallback: "v1.0.0", want: "v1.0.0"},
+		{name: "commit alone does not name a ref", resolved: Resolved{Commit: "abc"}, fallback: "main", want: "main"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, tc.resolved.RefOr(tc.fallback)) })
+	}
+}

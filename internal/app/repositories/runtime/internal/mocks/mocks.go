@@ -309,6 +309,7 @@ func (m *MockAssembler) Assemble(
 	ns domain.Namespace,
 	method string,
 	userVars map[string]string,
+	_ ...assembler.AssembleOption,
 ) (assembler.ResolvedExecution, error) {
 	if m.AssembleFn != nil {
 		return m.AssembleFn(ctx, ns, method, userVars)

@@ -650,6 +650,10 @@ type MockRuntime struct {
 		ns domain.Namespace,
 		lastReturn *domainRuntime.Return,
 	) error
+	ClearVersionBadgeFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	ForgetFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -841,6 +845,13 @@ func (m *MockRuntime) MarkOutdated(
 ) error {
 	if m.MarkOutdatedFn != nil {
 		return m.MarkOutdatedFn(ctx, ns, addedDeps, removedDeps)
+	}
+	return nil
+}
+
+func (m *MockRuntime) ClearVersionBadge(ctx context.Context, ns domain.Namespace) error {
+	if m.ClearVersionBadgeFn != nil {
+		return m.ClearVersionBadgeFn(ctx, ns)
 	}
 	return nil
 }

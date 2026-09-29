@@ -125,6 +125,13 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
+	// ClearVersionBadge takes a version-drift Outdated back to Ready once an
+	// advance has landed; an Outdated carrying a PendingDepSync, or any other
+	// state, is left alone.
+	ClearVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	// MarkReady lands ns's runtime aggregate at Ready without an install ever
 	// having run, the same outcome MarkPreinstalled records for a preinstalled
 	// detection. Its caller is the arrow.upgraded reaction for a swap raised
@@ -144,6 +151,7 @@ type Runtime interface {
 }
 
 type runtimeRepository struct {
+	getArrow              GetArrowFn
 	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
 	wizard                wizardPkg.Wizard
 	assembler             assembler.Assembler
@@ -170,6 +178,7 @@ func New(
 	listRuntimeAggregates ListRuntimeAggregatesFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
+		getArrow:              getArrow,
 		axRuntime:             axRuntime,
 		wizard:                w,
 		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
@@ -396,7 +405,7 @@ func (s *runtimeRepository) BeginUpdate(
 	ns domain.Namespace,
 	vars map[string]string,
 ) error {
-	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars)
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars, s.updateTarget(ctx, ns)...)
 	if err != nil {
 		return fmt.Errorf("begin update: %w", err)
 	}
@@ -414,6 +423,23 @@ func (s *runtimeRepository) BeginUpdate(
 		return fmt.Errorf("begin update: %w", err)
 	}
 	return nil
+}
+
+// updateTarget names the ref an update moves to: the Available the caller
+// recorded on the row before beginning it. A catalog read failure yields no
+// option, leaving the assembler's own read of the same row to report it.
+func (s *runtimeRepository) updateTarget(
+	ctx context.Context,
+	ns domain.Namespace,
+) []assembler.AssembleOption {
+	if s.getArrow == nil {
+		return nil
+	}
+	arrow, err := s.getArrow(ctx, ns)
+	if err != nil || arrow == nil || arrow.Available == nil {
+		return nil
+	}
+	return []assembler.AssembleOption{assembler.WithTargetRef(arrow.Available.Ref)}
 }
 
 func (s *runtimeRepository) RuntimeExists(
@@ -695,6 +721,16 @@ func (s *runtimeRepository) MarkOutdated(
 			return apperrors.ErrStateViolation
 		}
 		return err
+	}
+	return nil
+}
+
+func (s *runtimeRepository) ClearVersionBadge(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := SetVersionOutdated(s.axRuntime)(ctx, ns, false); err != nil {
+		return fmt.Errorf("clear version badge: %w", err)
 	}
 	return nil
 }

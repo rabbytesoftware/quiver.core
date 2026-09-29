@@ -83,9 +83,12 @@ func drainExecution(
 // release exists reads ready until the next TTL-gated version check, up to
 // an hour later.
 //
-// A re-derivation, not a fresh check: Arrow.Outdated already holds the
-// answer and nothing it depends on can change mid-execution, so this skips
-// the network round trip and just re-projects it onto runtime state.
+// A re-derivation, not a fresh check: Arrow.Available already holds the
+// answer, so this skips the network round trip and just re-projects it onto
+// runtime state. It reads Available when it runs, never earlier: after an
+// update the post-update handler's advance (which clears Available, then
+// calls ClearVersionBadge) races this reconcile, and reading late is what
+// makes both orders converge on Ready.
 //
 // Runs unconditionally, regardless of outcome or method: the aggregate read
 // is its own short-circuit. Called only after EndExecution's Send returns,
