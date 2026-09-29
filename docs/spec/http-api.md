@@ -121,34 +121,46 @@ The v0 surface mounts four resources under `/v0`: **arrow**, **collection**, **r
 
 ### 6.1 Arrow
 
-The Arrow resource manages catalog entries: registration, manifest updates, manifest seeding, and validation. Lifecycle methods (`install`, `execute`, `stop`, `uninstall`, custom methods) belong to the Runtime resource (§6.3).
+The Arrow resource manages catalog entries: registration, version checks, manifest seeding, and validation. Every `{ns}` is a catalog identity `namespace@selector` — the selector (a channel, constraint, pinned ref or commit) never changes for the life of the row, so the path stays valid across updates. A refless `{ns}` reaches the preferred catalogued row. See [manifests/v0/versioning.md](manifests/v0/versioning.md). Lifecycle methods (`install`, `execute`, `stop`, `uninstall`, custom methods) belong to the Runtime resource (§6.3).
 
 | Method | Path | Summary | Async? |
 |---|---|---|---|
 | POST | `/arrow/{ns}` | Register an arrow from an existing manifest in the registry | Sync |
-| PATCH | `/arrow/{ns}` | Pull the latest manifest from the registry and update | Sync |
-| DELETE | `/arrow/{ns}` | Deregister a versioned arrow | Sync |
+| PATCH | `/arrow/{ns}` | Re-check the selector; advance a row nothing is installed from | Sync |
+| DELETE | `/arrow/{ns}` | Deregister an arrow | Sync |
 | GET | `/arrow` | List registered arrows (or upgrade to WS for live updates) | Sync |
 | GET | `/arrow/{ns}` | Get full detail for a single arrow (or upgrade to WS) | Sync |
-| GET | `/arrow/{ns}/manifest` | Get the resolved raw manifest definition | Sync |
-| POST | `/arrow/{ns}/manifest` | Seed a raw YAML manifest into the registry and register the arrow | Sync |
+| GET | `/arrow/{ns}/manifest` | Get the manifest as its author wrote it | Sync |
+| GET | `/arrow/{ns}/readme` | Get the manifest's prose | Sync |
+| GET | `/arrow/{ns}/dependents` | List arrows that depend on this one | Sync |
+| GET | `/arrow/{ns}/dependencies` | Get the resolved dependency plan | Sync |
+| GET | `/arrow/{ns}/channels` | List the channels the repository publishes | Sync |
+| POST | `/arrow/{ns}/manifest` | Adopt a raw manifest as a pin of `{ns}`'s own ref | Sync |
 | POST | `/arrow/{ns}/manifest/validate` | Validate a raw YAML manifest without writing it | Sync |
 
 #### POST /arrow/{ns} — Register
 
-Registers the arrow identified by `{ns}` against an existing manifest in the Quiver registry. No request body. Returns **201 Created** with the mutation envelope on success. Errors: 400 (invalid namespace), 404 (manifest not in registry), 409 (already registered), 500.
+Registers the arrow identified by `{ns}`. The ref after `@` is the selector the row follows, classified once against the repository's refs and stored; a refless `{ns}` is registered under the repository's default channel (`stable` when it has stable releases). The manifest is fetched at the commit the selector points at. No request body. Returns **201 Created** with the mutation envelope on success. Registering an identity that already exists as a dependency promotes it to user-installed. Errors: 400 (invalid namespace, or a selector that names no channel, ref, glob or commit), 404 (manifest or default channel not found), 409 (already registered), 502 (fetch failed), 500.
 
 #### PATCH /arrow/{ns} — Update
 
-Re-fetches the manifest from the upstream registry and updates the local copy. The request body is an optional JSON `UpdateOptions` object — currently a single boolean field `UpgradeRef` (no JSON tag, so the wire name is `UpgradeRef`). When `true`, the installed `@ref` is upgraded to the latest version matching the recorded constraint; otherwise only the manifest is re-resolved. An empty or missing body uses defaults. Returns **200 OK** with the mutation envelope. Errors: 404 (not found), 422 (running — cannot update), 502 (fetch failed), 500.
+Re-checks the row's selector against a live ref snapshot and records what is ahead as `available`. No request body. What happens next depends on the row:
+
+| Row | Effect | `data` |
+|---|---|---|
+| Current | Nothing | Empty result, no `available` |
+| Installed | Stays where it is — only `POST /runtime/{ns}/update` runs update steps | `available: {ref, commit}` |
+| Not installed | Advanced in place to `available` at once | `added_deps`, `removed_from_manifest`, `constrained_deps` |
+
+Returns **200 OK** with the mutation-result envelope (`UpdateResultDTO` under `data`: `added_deps`, `removed_from_manifest`, `safe_to_uninstall`, `constrained_deps`, and `available` when set). Errors: 400 (invalid namespace), 404 (not found, or the selector no longer resolves), 422 (state violation), 502 (fetch failed), 500.
 
 #### DELETE /arrow/{ns} — Remove
 
-Deregisters a specific versioned arrow. The namespace **must** include an `@ref` qualifier — bare namespaces are rejected with 400 (`"namespace must be versioned (include @ref) for DELETE"`). The use case layer rejects the call if the runtime is active or if other arrows depend on it. Returns **200 OK** on success. Errors: 400 (missing `@ref`), 404 (not found), 422 (state violation, dependents exist), 500.
+Deregisters one catalog row, addressed by its identity (`namespace@selector`) or by the bare namespace, which reaches the preferred catalogued row. The use case layer rejects the call if the runtime is active or if other arrows depend on it. Returns **200 OK** on success. Errors: 404 (not found), 422 (state violation, dependents exist), 500.
 
 #### GET /arrow — List
 
-Returns all registered arrows. Optional query parameter `user_installed=true|false` filters to user-installed (or non-user-installed) entries. Each item carries one row per installed version (`versions[]`) — the same arrow can be registered under multiple `@ref` versions.
+Returns all registered arrows, grouped by bare namespace. Optional query parameter `user_installed=true|false` filters to user-installed (or non-user-installed) entries. Each item carries one entry per catalog row (`versions[]`) — the same repository can be registered under several selectors.
 
 If the request carries `Upgrade: websocket`, the connection is upgraded and the client receives Arrow DTO pushes on catalog changes — see [websocket.md](websocket.md). The WS stream's `user_installed` filter defaults to `true` when unspecified (the REST endpoint has no such default).
 
@@ -164,30 +176,34 @@ Response shape (query envelope, `data` is a list):
       "description": "...",
       "tags": ["utility"],
       "versions": [
-        { "ref": "v1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "last_used_at": "2026-08-01T09:30:00Z", "constraint": "^1.0.0" }
+        { "ref": "stable", "resolved_ref": "v1.0.0", "state": "ready", "installed_at": "2026-04-11T15:33:00Z", "last_used_at": "2026-08-01T09:30:00Z" }
       ]
     }
   ]
 }
 ```
 
-`ref` is the ref the row is filed under and is always set — an arrow manifest declares no version of its own, so the ref is the version. Whether that ref is on disk is `installed_at`'s to say: it is the zero time (`0001-01-01T00:00:00Z`) until a successful `_install` stamps it, and returns to zero after an `_uninstall`. See [manifests/v0/versioning.md](manifests/v0/versioning.md). `last_used_at` is stamped when a successful `_execute` run completes, and is omitted from the response entirely (rather than sent as a zero time) while the version has never been run.
+`ref` is the selector the row is filed under and is always set. `resolved_ref` is the ref the row resolved to — the version, since an arrow manifest declares none of its own — and is empty only for a row that never resolved one. Whether anything is on disk is `installed_at`'s to say: it is omitted until a successful `_install` stamps it, and again after an `_uninstall`. `last_used_at` is stamped when a successful `_execute` run completes, and is omitted while the row has never been run. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 #### GET /arrow/{ns} — Detail
 
 Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
 
-The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `installed_constraint`, `user_installed`, `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `user_installed`, `selector_kind` (`pin`, `channel`, `constraint` or `commit`), `resolved_ref`, `installed_commit`, `available` (`{ref, commit}`, omitted when current), `outdated` (true exactly when `available` is set), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`); `active_run` carries a `pid` for service-style executions.
 
-Errors: 404 (not found), 500.
+An uncatalogued namespace resolves live, the way an add would, and reports state `absent`. Reading a catalogued row whose last version check is older than `arrows.version_check_ttl` launches a new check in the background; the response does not wait for it. Errors: 404 (not found), 422, 502 (fetch failed), 500.
 
 #### GET /arrow/{ns}/manifest — Get Resolved Manifest
 
-Returns the resolved manifest (post-fetch, post-parse) for the arrow at `{ns}`. The namespace **must not** include an `@ref` — adding one returns 400 `"invalid namespace"`. The DTO (`ArrowManifestDTO`) carries the namespace, name, description, version, tags, the variable list, the per-OS targets map, and the full domain `Arrow` aggregate under `manifest`. Errors: 400 (`@ref` set), 404 (not in registry), 502 (fetch failed), 500.
+Returns the resolved manifest (post-fetch, post-parse) for the arrow at `{ns}`. The DTO (`ArrowManifestDTO`) carries `namespace`, `name`, `description`, `tags`, `variables`, `targets`, and under `manifest` the manifest as its author wrote it: `{metadata, variables, netbridge, targets, readme}`. Row state (selector, resolved and available refs, install and use stamps) is never here; it belongs to the detail. Errors: 404 (not found), 422, 502 (fetch failed), 500.
+
+#### GET /arrow/{ns}/channels — Channels
+
+Lists the channels the repository publishes, for picking a selector at install time: `{channels: [{name, kind, latest, count, members}]}`. `kind` is `ordered` (tags the classifier sorted into a named channel such as `stable` or `beta`, `members` highest first) or `pointer` (a tag the classifier could not place — a rolling tag such as `nightly` — or, only for a repository with no tags at all, the default branch). The order is the one a refless add picks its default channel from: `stable` first, then other ordered channels, then pointers. Errors: 404, 502, 500.
 
 #### POST /arrow/{ns}/manifest — Seed
 
-Accepts a raw YAML manifest in the request body, stores it in the registry, and registers the arrow in one step. Used to publish a new arrow from a local manifest file. `Content-Type: application/x-yaml` is expected but not enforced — the body is read raw via `io.ReadAll`. Returns **201 Created** with the mutation envelope. Errors: 400 (failed to read body), 422 (invalid manifest), 500.
+Accepts a raw manifest in the request body and adopts it as a **pin of `{ns}`'s own ref**: a new user-installed row when the identity is absent, a manifest replacement when it exists. `{ns}` must carry a ref. Used to register an arrow from a local manifest file. `Content-Type: application/x-yaml` is expected but not enforced — the body is read raw via `io.ReadAll`. Returns **201 Created** with the mutation envelope. Errors: 400 (failed to read body), 422 (invalid manifest), 500.
 
 #### POST /arrow/{ns}/manifest/validate — Validate
 
@@ -261,7 +277,7 @@ Triggers a lifecycle method. The optional JSON body is `{"variables": {"KEY": "v
 | `uninstall` | `Uninstall(ns, vars)` — reverse-deps check + cascade cleanup |
 | `execute` | `Execute(ns, MethodExecute, vars)` — run the manifest's `_execute` |
 | `stop` | `Stop(ns)` — stop a running execution; ignores body variables |
-| `update` / `_update` | `Execute(ns, MethodUpdate, vars)` — run the manifest's `_update`, with dep-sync handling when state is `outdated` |
+| `update` / `_update` | `Execute(ns, MethodUpdate, vars)` — the update bracket: re-resolve the selector, stop if running, stage the target manifest, sync dependency changes, run the target's `update` steps, and advance the row in place only if the target is unmoved when they succeed. A row with nothing ahead begins nothing, though the response is still 202. The only route that runs update steps; see [manifests/v0/versioning.md §8](manifests/v0/versioning.md) |
 | anything else | `Execute(ns, method, vars)` — custom user-defined method |
 
 Returns **202 Accepted** with the mutation envelope as soon as the use case layer accepts the command. Progress is streamed exclusively via the `/runtime` WS endpoints — no polling endpoint exists. Errors: 404 (arrow not found, method not found), 422 (state violation, missing required variable, no platform target, dependents block uninstall), 409 (already running, cyclic dependency), 502 (fetch failed during install), 500.
@@ -294,6 +310,10 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `GET /v0/arrow` | Sync (or WS) | 200 |
 | `GET /v0/arrow/{ns}` | Sync (or WS) | 200 |
 | `GET /v0/arrow/{ns}/manifest` | Sync | 200 |
+| `GET /v0/arrow/{ns}/readme` | Sync | 200 |
+| `GET /v0/arrow/{ns}/dependents` | Sync | 200 |
+| `GET /v0/arrow/{ns}/dependencies` | Sync | 200 |
+| `GET /v0/arrow/{ns}/channels` | Sync | 200 |
 | `POST /v0/arrow/{ns}/manifest` | Sync | 201 |
 | `POST /v0/arrow/{ns}/manifest/validate` | Sync | 200 (valid) / 422 (invalid) |
 | `POST /v0/collection/{ns}/follow` | Sync | 201 |

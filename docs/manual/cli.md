@@ -35,12 +35,15 @@ When the installation finishes, a summary box confirms the result, the version, 
 Every arrow is identified by where it lives:
 
 ```
-github.com/valve/steamcmd              latest version
-github.com/valve/steamcmd@v1.4.2       pinned to a git tag
+github.com/valve/steamcmd              the repository's default channel (usually stable)
+github.com/valve/steamcmd@stable       follow the stable channel
+github.com/valve/steamcmd@nightly      follow a rolling tag
+github.com/valve/steamcmd@v1.*         follow the newest v1 release
+github.com/valve/steamcmd@v1.4.2       pinned to a git tag (or branch)
 github.com/char2cs/gaming.quiver/cs2   arrow inside a collection repository
 ```
 
-Append `@ref` to pin a version — a tag, a branch, or `latest`.
+What comes after `@` is what the arrow **follows**: a channel, a version pattern, a tag or branch, or a commit. It stays the arrow's name for as long as it is installed — updating changes which version is installed, not the name. A name without `@` follows the repository's default channel, and Quiver fills it in when you install (`github.com/valve/steamcmd` becomes `github.com/valve/steamcmd@stable`). To follow something else, uninstall and install the other name; both can also be installed side by side.
 
 ---
 
@@ -52,7 +55,7 @@ Append `@ref` to pin a version — a tag, a branch, or `latest`.
 quiver install github.com/rabbyte/chat        # download and install
 quiver run github.com/rabbyte/chat            # start it
 quiver stop github.com/rabbyte/chat           # gracefully stop it
-quiver update github.com/rabbyte/chat         # update to the latest version
+quiver update github.com/rabbyte/chat         # update to what it follows
 quiver uninstall github.com/rabbyte/chat      # remove it and free resources
 ```
 
@@ -66,6 +69,8 @@ quiver update --all                           # update everything installed
 quiver update --check                         # see what would update, change nothing
 quiver install github.com/new/tool -m ./arrow.yaml  # install from a local manifest
 ```
+
+`quiver update` moves an installed arrow to the newest version of what it follows: the channel's latest release, the highest tag matching its pattern, or — for a pinned tag — the same tag after it was moved to a new commit. A running arrow is stopped first, the new version's own update steps run, and the arrow keeps its name, settings, and install directory. If there is nothing newer, no update steps run. If the release moves again while the update is running, Quiver does not record it as current; running `quiver update` again picks up the newer build.
 
 When you detach, the arrow keeps running in the background:
 
@@ -156,11 +161,16 @@ For registering and maintaining arrows without installing them — mostly useful
 quiver arrow add github.com/new/arrow             # register in the catalog
 quiver arrow add github.com/new/arrow -m ./arrow.yaml   # seed from a local file
 quiver arrow validate ./arrow.yaml                # check a manifest before publishing
-quiver arrow show github.com/new/arrow            # inspect a catalog entry
+quiver arrow show github.com/new/arrow@stable     # inspect a catalog entry
+quiver arrow refresh github.com/new/arrow@stable  # check for a newer version now
 quiver arrow list                                 # admin view (includes dependencies)
 quiver arrow remove github.com/old/arrow          # deregister
 quiver arrow remove github.com/old/arrow --cascade  # uninstall first if needed
 ```
+
+`quiver arrow show` lists what the entry follows and what it has: **Selector** (`channel`, `constraint`, `pin`, or `commit`), **Resolved** (the installed tag or branch), **Commit**, and — when something newer exists — **Available** with its ref and commit. `quiver arrow list` shows one row per arrow with **REF** (what it follows, e.g. `stable`) and **RESOLVED** (the version it has, e.g. `v1.3.0`).
+
+`quiver arrow refresh` checks the repository right away instead of waiting for the next background check. For an installed arrow it only reports what is available — `quiver update` is what installs it. An arrow that is registered but not installed is moved to the newer version on the spot, since there is nothing on disk to update.
 
 Arrow authors: `quiver arrow validate --strict` fails on warnings too — run it in CI before tagging a release.
 

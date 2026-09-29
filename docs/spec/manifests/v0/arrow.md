@@ -192,13 +192,13 @@ form the user fills in before install and the ports Netbridge allocates. Both ar
 they apply uniformly across all platforms and never live inside a target. Per-platform scalar
 variance in step commands is handled by Overrideable fields (§6), not by variables.
 
-**There is no `version:` field.** A manifest is always fetched at a git ref, and the ref *is*
-the version. Nothing anywhere carries a second copy of it: the aggregate has no version field,
-and every read model, cache entry and API response identifies an arrow by the `namespace@ref`
-it is filed under. A manifest that restated its own version had to be edited in the very
-commit that got tagged, and when the two drifted nothing detected it. See
-[versioning.md](./versioning.md) for the resolution rules and `${REF}` (§10.1) for using the
-ref inside steps.
+**There is no `version:` field.** A manifest is always fetched at a git ref, and the resolved
+ref *is* the version. Nothing anywhere carries a second copy of it: the aggregate records
+the ref it resolved to (`Resolved.Ref`) and has no version field, while every read model,
+cache entry and API response identifies an arrow by the `namespace@selector` it follows. A
+manifest that restated its own version had to be edited in the very commit that got tagged,
+and when the two drifted nothing detected it. See [versioning.md](./versioning.md) for the
+resolution rules and `${REF}` (§10.1) for using the ref inside steps.
 
 A `version:` key under `metadata:` is tolerated and ignored. The schema still lists the
 property — `Metadata` sets `additionalProperties: false`, so dropping it would turn the key
@@ -914,7 +914,7 @@ ones.
 | `${WORKDIR}` | Alias for `INSTALL_PATH` (recognised by the variable-refs rule) |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform as `GOOS/GOARCH` (e.g. `linux/amd64`) |
-| `${REF}` | The git ref the manifest was resolved at (e.g. `v1.2.0`, `main`) — verbatim, with no version derived from it |
+| `${REF}` | The git ref the arrow resolved to (e.g. `v1.2.0`, `main`) — during `_update`, the ref being updated to — verbatim, with no version derived from it. Never the selector: `pkg@stable` runs with `${REF} = v1.2.0` |
 
 These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
@@ -924,6 +924,8 @@ references to them do not trigger `unresolved_variable` errors.
 any workdir, execution or port allocation exists, so nothing supplies the rest. See §8.6.
 
 `${REF}` is substituted verbatim — no version is derived from it, and no `${VERSION}` exists.
+It is the arrow's resolved ref, not its selector, so an arrow followed as `crowbar@stable`
+still downloads from a real release (see [versioning.md §7.1](./versioning.md#71-ref)).
 Where an Arrow ships in the same repository it installs from, this lets a release-asset URL
 be written once instead of being re-edited for every tag:
 

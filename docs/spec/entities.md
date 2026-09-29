@@ -8,7 +8,7 @@ The domain model has three primitives:
 
 1. **Arrow** — a package. The thing that gets installed, configured, started, stopped, and removed.
 2. **Collection** — a curated list of Arrow references. A discovery and authorship primitive, not an execution unit.
-3. **Namespace** — identity. A URL-shaped string that resolves to a Git repository and a file inside it, with an optional `@ref` suffix that pins a version.
+3. **Namespace** — identity. A URL-shaped string that resolves to a Git repository and a file inside it, with an optional `@` suffix — the selector — that names which version to follow.
 
 Arrows and Collections are aggregates that live in their own manifests and are served by their own repositories. Namespaces are not aggregates — they are the identifiers that bind everything together.
 
@@ -67,7 +67,7 @@ Lifecycle transitions are driven by five execution methods, named with a leading
 - `_uninstall` runs the target's `uninstall` steps. It can be entered from `ready` (the standard path: `ready → uninstalling → absent` on success, `→ ready` on failure). The use case layer rejects an uninstall when other Arrows still depend on this one.
 - `_execute` runs the target's `execute` steps. It transitions `ready → running`. It is also the entry point used internally for service dependencies that need to be running before their dependent installs.
 - `_stop` runs the target's `stop` steps. It transitions `running → stopping → ready` on success. The `detached` state is a transient bookkeeping state for runtimes that lost their managed process but still hold a record; from `detached` the runtime can resume to `ready` or proceed to `stopping`.
-- `_update` runs the target's `update` steps. It can be entered from `ready` or `outdated`. It is also the path used to reconcile dependency drift: when an Arrow's manifest changes such that its declared dependencies no longer match what is installed, the runtime is marked `outdated` with a `PendingDepSync` record listing added and removed deps. The use case layer then resolves the new dependency set, installs/uninstalls as needed, and runs `_update` to converge.
+- `_update` runs the target's `update` steps. It can be entered from `ready` or `outdated` (a running Arrow is stopped first). It is the only operation that moves an installed Arrow to a newer version: the platform re-resolves what the Arrow's selector points at, runs the *target* manifest's `update` steps, and only then advances the catalog record in place (see [manifests/v0/versioning.md §8](manifests/v0/versioning.md)). It is also the path used to reconcile dependency drift: when an Arrow's manifest changes such that its declared dependencies no longer match what is installed, the runtime is marked `outdated` with a `PendingDepSync` record listing added and removed deps. The use case layer then resolves the new dependency set, installs/uninstalls as needed, and runs `_update` to converge.
 
 In addition to these methods, an Arrow may define custom **methods** in its manifest. Methods are not lifecycle transitions — they do not move the Arrow between states. Each method declares which states it is `available_in` (typically `ready`, `running`, or both), and its steps execute in-place without changing state.
 
@@ -75,9 +75,9 @@ The platform records each execution as it runs: the method name, the work direct
 
 ### Identity inside an Arrow
 
-An installed Arrow's identity has two parts. The **namespace** identifies what is installed (which package, at which `@ref`). The **runtime** identifies the running record (state, current execution, last return). They are kept separate so that the catalog can talk about Arrows the user has merely added (manifest known, no runtime yet), the runtime can talk about Arrows that exist as records (e.g. `absent` after a failed install) but are not functional, and dependency-resolution can talk about Arrows that exist as transitive dependencies installed implicitly by another Arrow's install.
+An installed Arrow's identity has two parts. The **namespace** identifies what is followed (which package, at which `@selector` — a channel, a constraint, a pinned ref, or a commit). The **runtime** identifies the running record (state, current execution, last return). They are kept separate so that the catalog can talk about Arrows the user has merely added (manifest known, no runtime yet), the runtime can talk about Arrows that exist as records (e.g. `absent` after a failed install) but are not functional, and dependency-resolution can talk about Arrows that exist as transitive dependencies installed implicitly by another Arrow's install.
 
-Two facts about an installed Arrow are recorded on the catalog aggregate alongside its manifest: `UserInstalled` (true if a human asked for it directly, false if it was pulled in as a dependency) and `InstalledConstraint` (the original constraint string the user asked for, like `@v1.*` or `@latest`, which is preserved separately from the concrete ref the aggregate is keyed by so that updates can re-evaluate the constraint).
+Several facts about an Arrow are recorded on the catalog aggregate alongside its manifest: `UserInstalled` (true if a human asked for it directly, false if it was pulled in as a dependency); the **selector kind** (how the `@selector` in its namespace is followed, decided once when the record is created); **what is installed** (`Resolved`: the ref, its commit, and a fingerprint); and **what is ahead** (`Available`, empty when the Arrow is current). The selector never changes; an update moves `Resolved` forward on the same record.
 
 ---
 
@@ -113,7 +113,7 @@ Following and unfollowing are independent of any Arrow's install/uninstall. Foll
 
 ## 3. Namespace
 
-A Namespace is the identifier that binds everything together. It is a URL-shaped string that points at a Git repository and a file inside it, optionally with an `@ref` suffix that pins a version.
+A Namespace is the identifier that binds everything together. It is a URL-shaped string that points at a Git repository and a file inside it, optionally with an `@` suffix — a selector — that names which version to follow.
 
 ### Form
 
@@ -127,16 +127,15 @@ The top three segments together — the Quiver Unique ID, or QUID — always den
 
 ### Refs
 
-A namespace may carry an `@ref` suffix that pins a version. Example forms:
+A namespace may carry an `@` suffix. On an installed Arrow it is a **selector** — what the user follows — and it is decided against the repository's refs when the Arrow is first catalogued:
 
-- `github.com/valve/steamcmd` — bare, no ref. Treated as `latest` for resolution.
-- `github.com/valve/steamcmd@v1.4.2` — pinned to an exact Git tag (or commit, or branch — anything the resolver can fetch).
-- `github.com/valve/steamcmd@v1.*` — a glob constraint. The platform resolves this against the repository's available refs to pick a concrete one (typically the highest matching tag).
-- `github.com/valve/steamcmd@latest` — the literal string `latest`, which the platform treats specially as "track HEAD."
+- `github.com/valve/steamcmd` — bare. The platform picks the repository's default channel (`stable` when it has stable releases) and catalogues the Arrow under that selector, e.g. `github.com/valve/steamcmd@stable`.
+- `github.com/valve/steamcmd@stable` — a channel: follows the channel's latest release. A rolling tag such as `nightly` is a channel of its own.
+- `github.com/valve/steamcmd@v1.*` — a constraint: follows the highest matching tag.
+- `github.com/valve/steamcmd@v1.4.2` — a pin: exactly that tag or branch; a tag that is moved to another commit is still noticed.
+- `github.com/valve/steamcmd@3f2a9c1` — a commit: exactly that commit, never outdated.
 
-The bare namespace (everything before `@`) is what determines repository identity; the ref determines which version is fetched and installed. Two namespaces that share a bare form but have different refs are two different installable units that can coexist side by side. Stripping the ref to compare bare forms is a routine operation; replacing the ref on an existing namespace is how upgrades are staged.
-
-A namespace whose ref contains `*` is a glob — it identifies a constraint, not a concrete version, and must be resolved before it can be fetched. The original constraint is preserved on the catalog aggregate (as `InstalledConstraint`) even after it has been resolved to a concrete ref, so that future updates can re-evaluate the constraint against newly published refs. The resolved ref itself is kept nowhere but the aggregate key.
+The bare namespace (everything before `@`) is what determines repository identity; the selector determines what is followed. Two namespaces that share a bare form but have different selectors are two different installable units that can coexist side by side. The selector never changes for the life of the installed Arrow — updating moves what is installed (a ref and a commit recorded on the catalog aggregate), not the namespace — and switching what an Arrow follows means uninstalling one namespace and installing another. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 ### Resolution
 
@@ -155,7 +154,7 @@ Three rules together make namespaces collision-free:
 
 1. Domain ownership eliminates collisions at the top level.
 2. The bare three-or-four-segment form is unambiguous about which physical file is meant.
-3. The `@ref` suffix is part of the installable unit's identity, so two different versions of the same package are two distinct namespaces, not two states of one.
+3. The `@selector` suffix is part of the installable unit's identity, so two different selectors of the same package are two distinct namespaces, not two states of one. The versions one selector installs over time *are* states of one: an update advances the same namespace in place.
 
 The same AUID under two different Collections is two different Arrows. A standalone Arrow and a Collection-hosted Arrow with the same final segment are two different Arrows. Cross-referencing — a Collection listing the same Arrow via both a local `path:` and an external `namespace:` — is allowed and produces two different entries with two different derived namespaces; the underlying Arrow files may be different files entirely, even if they happen to share a name.
 

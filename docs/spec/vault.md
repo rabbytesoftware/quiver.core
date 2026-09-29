@@ -21,7 +21,8 @@ Package: `internal/engine/vault`
 |------|----------------|
 | `vault.go` | `Vault` interface + `quiverFilename` constant |
 | `store.go` | `store` struct, constructors `New` / `NewWithClock`, all interface dispatch, per-namespace locking, workdir handling |
-| `manifest.go` | Arrow manifest read/write/delete/rename, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
+| `pathsafe.go` | Windows-safe percent-encoding of identity-derived filenames and directories (§4.1) |
+| `manifest.go` | Arrow manifest read/write/delete, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
 | `vault_entry.go` | `ManifestFile`, `CollectionVaultEntry`, `VaultMetadata` |
 | `sweep.go` | TTL sweep over arrow meta files and collection JSON files |
 | `errors.go` | `ErrNotCached`, `ErrStale`, `ErrInvalidNamespace` |
@@ -37,8 +38,7 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 | `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
 | `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. |
-| `RenameArrow(ctx, oldNs, newNs) error` | Move manifest + meta from one namespace key to another (used during version upgrades). |
-| `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` values cached under the same bare namespace. |
+| `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` suffixes (catalog selectors) cached under the same bare namespace. |
 | `GetCollection(ctx, ns) (*CollectionVaultEntry, string, error)` | Read cached `Collection` aggregate JSON. Same `ErrStale` / `ErrNotCached` semantics. Returns the on-disk path. |
 | `PutCollection(ctx, ns, collection) (string, error)` | Write a collection envelope as `collection.json` inside the namespace workdir. Returns the path written. |
 | `DeleteCollection(ctx, ns) error` | Idempotent delete of `collection.json`. |
@@ -78,19 +78,21 @@ The engine accepts `engine.WithHomeDir(dir)` for tests and isolated environments
 ```
 ~/.quiver/
   vault/                                                     ← flat manifest cache
-    github.com%2Fvalve%2Fsteamcmd%40latest.yaml              ← raw manifest bytes
-    github.com%2Fvalve%2Fsteamcmd%40latest.meta.json         ← VaultMetadata sidecar
-    github.com%2Fvalve%2Fsteamcmd%40v1.2.3.yaml
-    github.com%2Fvalve%2Fsteamcmd%40v1.2.3.meta.json
+    github.com%2Fvalve%2Fsteamcmd@stable.yaml                 ← raw manifest bytes
+    github.com%2Fvalve%2Fsteamcmd@stable.meta.json            ← VaultMetadata sidecar
+    github.com%2Fvalve%2Fsteamcmd@v1.2.3.yaml
+    github.com%2Fvalve%2Fsteamcmd@v1.2.3.meta.json
+    github.com%2Fvalve%2Fsteamcmd@v1.%2A.yaml                 ← selector v1.* — `*` escaped
     github.com%2Fdiscord%2Fdiscord.md                        ← `ARROW.md` source — extension preserved
     github.com%2Fdiscord%2Fdiscord.meta.json
   namespaces/                                                ← per-namespace tree
     github.com/
       valve/
-        steamcmd@latest/                                     ← workdir for steamcmd@latest
+        steamcmd@stable/                                     ← workdir for steamcmd@stable
           steamcmd.sh                                        ← wizard-owned
           linux32/
         steamcmd@v1.2.3/                                     ← parallel workdir
+        steamcmd@v1.%2A/                                     ← workdir for steamcmd@v1.*
       char2cs/
         gaming.collection/
           collection.json                                    ← collection envelope
@@ -102,13 +104,17 @@ Two distinct keying strategies coexist:
 
 | Concern | Key | Encoding | Location |
 |---------|-----|----------|----------|
-| Arrow manifest cache | full `Namespace` (bare + `@ref`) | `url.PathEscape` to a flat filename | `vaultPath/` |
-| Arrow workdir | full `Namespace` (bare + `@ref`) | `filepath.FromSlash`; the literal `@ref` becomes a directory segment | `namespacesPath/<ns-path>/` |
+| Arrow manifest cache | full `Namespace` (bare + `@selector`) | `url.PathEscape` of the bare namespace, a literal `@`, then the `url.PathEscape`d selector with `:` also escaped — one flat filename | `vaultPath/` |
+| Arrow workdir | full `Namespace` (bare + `@selector`) | `filepath.FromSlash`; the selector keeps `/` as nesting, and each of its components escapes what Windows cannot hold (see below) | `namespacesPath/<ns-path>/` |
 | Collection envelope | full `Namespace` (collections are unversioned in practice) | `filepath.FromSlash` | `namespacesPath/<ns-path>/collection.json` |
 
 The flat layout for the manifest cache exists because two manifest filenames (`arrow.yaml` vs `ARROW.md`) cannot collide inside the same directory — encoding the namespace into the filename and keeping the original extension solves both ambiguity and case-insensitive filesystems.
 
-Different versions (`@v1.2.3`, `@latest`) of the same bare namespace share a parent directory inside `namespacesPath/` and produce distinct sibling subdirectories whose name embeds the `@ref` segment.
+Different selectors (`@v1.2.3`, `@stable`) of the same bare namespace share a parent directory inside `namespacesPath/` and produce distinct sibling subdirectories whose name embeds the selector. The key is the catalog identity, which never changes for the life of a row: an update advances the row in place, replaces the cached manifest under the same key, and leaves the workdir where it is.
+
+### 4.1 Windows-safe path components
+
+A selector can carry characters no filesystem path can (`v1.*`), so `pathsafe.go` percent-encodes every identity-derived path component before it reaches the disk. Each workdir component of the selector escapes the Windows-reserved characters `<>:"|?*\`, `%` itself (so decoding back is unambiguous), control characters, a trailing `.` or space (which Windows silently strips — and which is what keeps `.` and `..` from ever reaching the filesystem), and a component after the first that is a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`). `git check-ref-format` already forbids everything rewritten here, so the layout of every plain tag or branch is unchanged. `decodeNSDir` reverses the directory form when listing namespaces; a component that does not decode predates the encoding and is kept verbatim. `namespacePath` additionally refuses any namespace whose bare segments would resolve outside `namespacesPath`.
 
 ---
 
@@ -256,11 +262,9 @@ The previous spec carried `IndirectDependencies` as a field on `VaultEntry` and 
 | Lock | Scope | Acquired by |
 |------|-------|-------------|
 | `s.mu` (`sync.RWMutex`) | The map of per-namespace mutexes | `namespaceLock` getter/creator |
-| Per-namespace `sync.Mutex` (lazy) | One per namespace key | All Get/Put/Delete/Rename operations on that namespace |
+| Per-namespace `sync.Mutex` (lazy) | One per namespace key | All Get/Put/Delete operations on that namespace |
 
 Both reads (`GetArrow`, `GetCollection`) and writes (`PutArrow`, `PutCollection`, `DeleteArrow`, `DeleteCollection`) acquire the per-namespace mutex — there is no read/write distinction at the vault level. The shared `s.mu` is only used to serialise lazy creation of new per-namespace mutexes.
-
-`RenameArrow` acquires both `oldNs` and `newNs` locks in a deterministic order (lexicographic) to avoid lock-order deadlocks.
 
 Every `Put*` writes to a temp file in the destination directory and `os.Rename`s into place — concurrent unlocked tools (e.g. an external process tailing the vault) observe an atomic switch rather than a partial write.
 
@@ -270,11 +274,12 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 
 | Trigger | Vault call | Site |
 |---------|-----------|------|
-| Arrow added (manifest fetched fresh) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
-| Arrow added from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
-| Manifest seeded from raw bytes | `PutArrow(ARROW.md)` | `arrow.Seed` |
+| Arrow added (manifest fetched at the selector's target commit) | `DeleteArrow` → `PutArrow`, only when the identity has no row yet | `arrow/internal/store/selector.go` (`fetchAtCommit`) |
+| Manifest read through the cache (not yet cached) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
+| Manifest read from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
+| Manifest adopted from raw bytes (seed, collection-local arrow, core self-registration) | `DeleteArrow` → `PutArrow` | `arrow.Adopt` (`replaceCachedManifest`) |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
-| Arrow upgraded | `DeleteArrow(newNs)` → `RenameArrow(oldNs, newNs)` → `PutArrow(newNs, …)` | `arrow.UpgradeVersion` |
+| Update staged / row advanced | `DeleteArrow(ns)` → `PutArrow(ns, manifest at target commit)` under the same identity | `arrow.RefreshToTarget`, `arrow.Advance` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |
 | Collection unfollowed | `DeleteCollection` | `collection.Unfollow` |
 | Step assembly | `WorkDir` | `runtime/internal/assembler/assembler.go` |
@@ -304,5 +309,5 @@ All other I/O failures (read, write, marshal, rename) propagate as wrapped error
 - No knowledge of Asynx, the runtime, or the wizard.
 - Sole owner of namespace workdir path resolution under `namespacesPath`.
 - Sole owner of TTL evaluation for cached manifests.
-- Idempotent `Delete*` operations; deterministic-order locking on `RenameArrow`.
+- Idempotent `Delete*` operations.
 - Not a data backup. Sweep evicts; callers must accept that any cached entry can vanish on the next tick.

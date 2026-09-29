@@ -31,7 +31,7 @@ servers:
 channels:
   arrow:
     address: /v0/arrow
-    description: Arrow catalog — all arrows. Triggered by arrow.Add, arrow.UpdateManifest, arrow.Remove.
+    description: Arrow catalog — all arrows. Triggered by arrow add, advance, manifest refresh, install and uninstall stamps, version checks, and remove.
     messages:
       arrow:
         $ref: '#/components/messages/ArrowMessage'
@@ -157,7 +157,7 @@ components:
             - removed
           description: >
             Discriminant for the catalog operation.
-            "upserted" — arrow was added, updated, upgraded, or marked installed.
+            "upserted" — arrow was added, advanced, had its manifest refreshed, was marked installed or uninstalled, or had a version check recorded.
             "removed"  — arrow was deleted; only namespace is meaningful.
         namespace:
           type: string

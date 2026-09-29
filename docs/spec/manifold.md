@@ -4,7 +4,7 @@
 
 `manifold` is the engine that resolves a `Namespace` (`domain/user/repo[/auid][@ref]`) to a fully validated, OS-compiled domain aggregate. The app layer hands it a namespace and gets back either a `*domain.Arrow` (with `Targets` precompiled for every supported `domain.OS`) or a `*domain.Collection` (with arrow entries materialized as namespaces). The app layer never sees git, HTTP, YAML, JSON Schema, or markdown.
 
-Manifold is a stateless, in-memory pipeline. It does **no** disk I/O, holds **no** cache, and emits **no** events. Caching is the job of `vault`; orchestration is the job of `runtime`. Manifold is pure resolution + validation.
+Manifold is an in-memory pipeline. It does **no** disk I/O and emits **no** events. Its only state is a TTL-bounded, in-memory cache of ref snapshots (§2.1); manifest caching is the job of `vault`, orchestration the job of `runtime`. Manifold is resolution + validation.
 
 The package lives at `internal/engine/manifold` and is composed of five concrete sub-modules: `resolver`, `translator`, `compiler`, `ruleset`, and the in-package `manifold` service that wires them together.
 
@@ -20,16 +20,33 @@ The `Manifold` interface is the only surface the app layer imports.
 | `ResolveCollection` | `ctx`, `namespace` | `*domain.Collection`, `error` |
 | `ParseArrow` | raw `[]byte` | `*domain.Arrow`, `error` |
 | `ParseCollection` | raw `[]byte`, `domain.Namespace` (collection ns) | `*domain.Collection`, `error` |
-| `ResolveConstraint` | `ctx`, `namespace`, glob `pattern` | concrete tag/ref string, `error` |
-| `ResolveLatestStable` | `ctx`, `namespace` | ref of the latest stable release, `error` |
+| `ResolveArrowAt` | `ctx`, `namespace`, `path` | as `ResolveArrow`, at an explicit path inside the repository |
+| `ResolveArrowAtCommit` | `ctx`, `namespace`, `commit` | as `ResolveArrow`, fetched at `commit` and stamped with `namespace` |
+| `ListChannels` | `ctx`, `namespace` | `[]ChannelInfo`, `error` |
+| `Snapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (cached), `error` |
+| `FreshSnapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (read live, refreshes the cache), `error` |
 
 `ResolveArrow` returns the raw bytes alongside the parsed aggregate so the app layer (Vault, primarily) can persist exactly what was fetched without re-serializing. The filename is whichever of `ARROW.md` / `arrow.yaml` / `<auid>.md` / `<auid>.yaml` was actually picked up.
 
 `Parse*` skip the resolver entirely — they translate, validate, and compile bytes already in hand. Used in tests, by the wizard for ad-hoc validation, and anywhere the bytes come from a non-resolver source.
 
-`ResolveConstraint` does no manifest fetching at all — it lists the remote's tags via `git ls-remote` (in-memory `gogit.Remote.ListContext`), filters by `path.Match`, and sorts semver-aware to pick the highest. Used by deptree to resolve `@v1.*` style globs to concrete refs before the next `ResolveArrow` call.
+`ResolveArrowAtCommit` is how every install and advance reads a manifest: at the commit the selector points at (`namespace.WithRef(commit)`), which raw-file hosts serve as a ref. When that fetch fails for any reason other than an invalid manifest — the clone path only checks out tags and branches — it falls back to the namespace's own ref.
 
-`ResolveLatestStable` is what a namespace with no `@ref` resolves through. It tries the platform's `LatestReleaseURL` permalink first, reading only the redirect `Location` — a `Location` naming `/releases/tag/<ref>` is a hit, anything else is a miss — then falls back to `ResolveConstraint(ns, "*")`, keeping that answer only when it is a stable semver tag. A repository with neither returns `ErrNoLatestStable`, which is the caller's cue to fall back to the platform's default branches. Because `ls-remote` enumerates every ref, this runs on the add path only, never on search or discovery. See [manifests/v0/versioning.md §6](./manifests/v0/versioning.md).
+### 2.1 Ref snapshots, selectors and drift
+
+`Snapshot` reads every tag (annotated tags peeled to their commit), every branch and the `HEAD` branch of a repository in one ref advertisement (`git ls-remote`, in-memory `gogit.Remote.ListContext`) and returns them as one `domain.RefSnapshot`. It is cached per bare namespace for the manifold's cache TTL, which production wiring ties to `arrows.version_check_ttl`; `FreshSnapshot` bypasses and refreshes that cache for decisions that must not act on a view up to a TTL old (version checks, the update commit). `ListChannels` is `ChannelsOf` over a `Snapshot`.
+
+Everything else is a pure function of a snapshot, exported from the package:
+
+| Function | Purpose |
+|---|---|
+| `ChannelsOf(snap)` | Buckets tags into channels: ordered channels by classified name, every unclassified tag as its own pointer channel, and the `HEAD` branch only when there are no tags. Sorted `stable` first, then ordered channels, then pointers, each by name. |
+| `DefaultChannel(snap)` | The channel a refless namespace follows: the first entry of `ChannelsOf`. |
+| `ClassifySelector(selector, snap)` | The `SelectorKind` of an identity's selector: channel, pin, constraint or commit. |
+| `Target(kind, selector, snap)` | What a selector points at now, as `domain.Available{Ref, Commit}`. |
+| `Drift(kind, selector, resolved, snap)` | Whether a row that has `resolved` installed is behind, and its target. |
+
+A snapshot is the only remote view any of them sees, so a decision can never combine two inconsistent reads. There is no latest-release permalink lookup: a refless namespace is decided from the tag snapshot alone, on any git host. See [manifests/v0/versioning.md §2, §5 and §6](./manifests/v0/versioning.md).
 
 The constructor `New(fetchTimeout time.Duration)` builds a default Manifold with HTTP+git fetchers and the v0 translator registries. `NewWithResolvers` exists for tests that need to inject stub resolvers.
 
@@ -284,7 +301,7 @@ After all compiled rules run, the manifold ruleset adds one more check: `len(man
 | Parsing | Wrapped `fmt.Errorf` from YAML unmarshal, schema-line extraction, codeblock extraction, JSON Schema validation, mapper errors | Translator |
 | Validation | `aerrors.ErrInvalidManifest` (via `RuleError.Unwrap`); also `aerrors.ErrNoSupportedPlatform` | Ruleset |
 | Assembly/compile | Wrapped errors from selector (`AmbiguousTargetError`, `ErrNoTargetForOS`) and base-chain walk | Compiler / selector |
-| Constraint | Wrapped `fmt.Errorf` for "no tags match", invalid pattern, transport failure | Constraint resolver |
+| Selector | `manifold.ErrUnknownSelector` — a selector that names no channel, ref, glob or commit, a constraint no tag matches, or a target absent from the snapshot; transport failures while listing refs are wrapped | `selector.go`, `drift.go`, ref lister |
 
 Callers use `errors.Is` for the sentinels and `errors.As` for `RuleErrors` / `AmbiguousTargetError` to extract structured detail.
 

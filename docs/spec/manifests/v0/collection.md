@@ -129,9 +129,9 @@ No `description` or other arrow fields appear on an entry — that information i
 
 #### Member refs
 
-An entry's namespace string already supports the `@ref` suffix, so an external member behaves exactly like any other namespace: pinned when it carries a ref, and resolved through the refless chain when it does not (see [versioning.md §6](./versioning.md#6-refless-resolution)).
+An entry's namespace string already supports the `@` suffix, so an external member behaves exactly like any other namespace: the suffix is the selector it is installed under (a channel, constraint, pinned ref or commit — see [versioning.md §2](./versioning.md#2-selectors)), and a member without one follows its repository's default channel (see [versioning.md §6](./versioning.md#6-refless-resolution)).
 
-Local entries are different. A local member's namespace is derived from the Collection's **bare** namespace, so the ref is dropped during derivation — and the derived value (`github.com/char2cs/gaming.collection/cs2`) names a file inside a repository, not a repository with tags or releases of its own. There is nothing for the refless chain to resolve against.
+Local entries are different. A local member's namespace is derived from the Collection's **bare** namespace, so the ref is dropped during derivation — and the derived value (`github.com/char2cs/gaming.collection/cs2`) names a file inside a repository, not a repository with tags or releases of its own. It has no channels of its own for a refless member to follow.
 
 A local member must therefore carry an explicit ref, and the only ref that is true of it is the Collection's own — the file was read at that ref (§8). A local entry that cannot be given one is rejected at collection-parse time rather than silently resolving to a default branch.
 
@@ -350,7 +350,7 @@ One dimension identifies a Collection version: the `@ref` on its namespace, e.g.
 
 Pinning works the same way it does for arrows: a Collection followed at `github.com/char2cs/gaming@v1.0.0` and one followed at `github.com/char2cs/gaming@v2.0.0` are distinct aggregates with separate vault and asynx entries.
 
-Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)).
+Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)). Following the Collection adopts each local member as a pin of that ref.
 
 ---
 
