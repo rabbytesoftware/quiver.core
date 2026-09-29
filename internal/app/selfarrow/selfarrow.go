@@ -46,12 +46,16 @@ type arrowCatalog interface {
 }
 
 // runtimeMarker is the subset of the runtime repository EnsureRegistered
-// needs to mark its own row ready.
+// needs to settle its own row at ready.
 type runtimeMarker interface {
 	GetState(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.ArrowState, error)
+	ClearVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	MarkReady(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -76,7 +80,7 @@ func Channel(
 // channel, or quiver.core@<version> pinned to it when no channel is known (a
 // build that declares none). The identity survives updates, so the boot after
 // one only moves the row onto the new state. Rows earlier builds filed under
-// any other identity are removed, and the row's runtime is marked ready:
+// any other identity are removed, and the row's runtime is settled at ready:
 // reaching this function running is proof of that. A no-op for an unstamped
 // build (empty version, or "dev"), since neither is a resolvable ref.
 func EnsureRegistered(
@@ -101,19 +105,23 @@ func EnsureRegistered(
 	if err := arrows.Adopt(ctx, ns, kind, resolved, selfmanifest.Raw(), "ARROW.md"); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
-	if err := markReadyIfAbsent(ctx, rt, ns); err != nil {
+	if err := settleRuntime(ctx, arrows, rt, ns); err != nil {
 		return err
 	}
 	arrows.CheckVersionNow(ctx, ns)
 	return removeOtherSelfRows(ctx, arrows, self, ns)
 }
 
-// markReadyIfAbsent lands ns's runtime aggregate at Ready when it is currently
-// absent. EnsureRegistered runs on every boot and ready -> ready is not a
-// valid transition, so it checks first. GetState reports absent for an
-// aggregate that does not exist yet too.
-func markReadyIfAbsent(
+// settleRuntime lands ns's runtime at Ready. An absent runtime is marked
+// ready; ready -> ready is not a valid transition, so a ready one is left
+// alone. An Outdated one is the badge the drift check set before this build's
+// own update, whose commit is skipped for the core's row: once Adopt has
+// moved the row onto this build and nothing newer is available, the badge is
+// cleared offline rather than waiting for the next version check. Any other
+// state is left alone.
+func settleRuntime(
 	ctx context.Context,
+	arrows arrowCatalog,
 	rt runtimeMarker,
 	ns domain.Namespace,
 ) error {
@@ -121,17 +129,53 @@ func markReadyIfAbsent(
 	if err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
-	if state != domain.ArrowStateAbsent {
+	if state == domain.ArrowStateAbsent {
+		if err := rt.MarkReady(ctx, ns, nil); err != nil {
+			return fmt.Errorf("selfarrow: ensure registered: %w", err)
+		}
 		return nil
 	}
-	if err := rt.MarkReady(ctx, ns, nil); err != nil {
+	if state != domain.ArrowStateOutdated {
+		return nil
+	}
+
+	available, err := availableOf(ctx, arrows, ns)
+	if err != nil {
+		return fmt.Errorf("selfarrow: ensure registered: %w", err)
+	}
+	if available != nil {
+		return nil
+	}
+	if err := rt.ClearVersionBadge(ctx, ns); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil
 }
 
+// availableOf reads what the catalog records as available ahead of ns; nil
+// when nothing is, or when ns is not listed.
+func availableOf(
+	ctx context.Context,
+	arrows arrowCatalog,
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	views, err := arrows.List(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, view := range views {
+		for _, version := range view.Versions {
+			if version.Namespace == ns {
+				return version.Metadata.Available, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
 // removeOtherSelfRows removes every quiver.core row but current, through the
-// catalog's own forget cascade.
+// catalog's own forget cascade. A row that cannot be removed does not stop
+// the others from going.
 func removeOtherSelfRows(
 	ctx context.Context,
 	arrows arrowCatalog,
@@ -143,6 +187,7 @@ func removeOtherSelfRows(
 		return fmt.Errorf("selfarrow: remove other self rows: %w", err)
 	}
 
+	var errs []error
 	for _, view := range views {
 		for _, version := range view.Versions {
 			if version.Namespace.BareNamespace() != self || version.Namespace == current {
@@ -150,11 +195,11 @@ func removeOtherSelfRows(
 			}
 			err := arrows.Remove(ctx, version.Namespace)
 			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-				return fmt.Errorf("selfarrow: remove %s: %w", version.Namespace, err)
+				errs = append(errs, fmt.Errorf("selfarrow: remove %s: %w", version.Namespace, err))
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // PromoteRunningBinary copies src (the running executable's own path) to the

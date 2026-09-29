@@ -327,6 +327,146 @@ func TestEnsureRegistered_AlreadyReady_SkipsMarkReady(t *testing.T) {
 	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.1", "abc", "stable"))
 }
 
+// settledRuntime records what EnsureRegistered did to the adopted row's
+// runtime, starting from state.
+type settledRuntime struct {
+	*mocks.MockRuntime
+	markedReady []domain.Namespace
+	cleared     []domain.Namespace
+}
+
+func runtimeIn(state domain.ArrowState) *settledRuntime {
+	r := &settledRuntime{}
+	r.MockRuntime = &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return state, nil },
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace, _ *domainRuntime.Return) error {
+			r.markedReady = append(r.markedReady, ns)
+			return nil
+		},
+		ClearVersionBadgeFn: func(_ context.Context, ns domain.Namespace) error {
+			r.cleared = append(r.cleared, ns)
+			return nil
+		},
+	}
+	return r
+}
+
+// withAvailable lists ns carrying available, the way the read model does
+// once the adopted row's version check has found something ahead of it.
+func withAvailable(ns domain.Namespace, available *domain.Available) models.ArrowView {
+	return models.ArrowView{
+		Namespace: ns.BareNamespace(),
+		Versions: []models.VersionView{{
+			Namespace: ns,
+			Metadata:  domain.Arrow{Namespace: ns, Available: available},
+		}},
+	}
+}
+
+// After a self-update the relaunched build adopts its new state on the same
+// row; the Outdated badge the drift check set before the update goes with
+// it, offline, so the row settles at Ready without waiting for a check.
+func TestEnsureRegistered_SettlesTheRuntimeAtReady(t *testing.T) {
+	ns := selfNs().WithRef("stable")
+	testCases := []struct {
+		name        string
+		state       domain.ArrowState
+		views       []models.ArrowView
+		wantReady   bool
+		wantCleared bool
+	}{
+		{name: "absent is marked ready", state: domain.ArrowStateAbsent, wantReady: true},
+		{name: "ready is untouched", state: domain.ArrowStateReady},
+		{name: "outdated with nothing available is cleared", state: domain.ArrowStateOutdated, views: []models.ArrowView{withAvailable(ns, nil)}, wantCleared: true},
+		{name: "outdated missing from the read model is cleared", state: domain.ArrowStateOutdated, wantCleared: true},
+		{
+			name:  "outdated with a newer release still available keeps its badge",
+			state: domain.ArrowStateOutdated,
+			views: []models.ArrowView{withAvailable(ns, &domain.Available{Ref: "stable-26.5.3", Commit: "ccc"})},
+		},
+		{name: "running is untouched", state: domain.ArrowStateRunning},
+		{name: "updating is untouched", state: domain.ArrowStateUpdating},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _ := recordingCatalog(tc.views...)
+			rt := runtimeIn(tc.state)
+
+			require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.2", "bbb", "stable"))
+
+			var wantReady, wantCleared []domain.Namespace
+			if tc.wantReady {
+				wantReady = []domain.Namespace{ns}
+			}
+			if tc.wantCleared {
+				wantCleared = []domain.Namespace{ns}
+			}
+			assert.Equal(t, wantReady, rt.markedReady)
+			assert.Equal(t, wantCleared, rt.cleared)
+		})
+	}
+}
+
+func TestEnsureRegistered_SettlingAnOutdatedRowFails(t *testing.T) {
+	sentinel := errors.New("boom")
+	testCases := []struct {
+		name    string
+		catalog func(m *mocks.MockArrow)
+		runtime func(r *settledRuntime)
+	}{
+		{
+			name: "reading what is available fails",
+			catalog: func(m *mocks.MockArrow) {
+				m.ListFn = func(context.Context, *bool) ([]models.ArrowView, error) { return nil, sentinel }
+			},
+			runtime: func(*settledRuntime) {},
+		},
+		{
+			name:    "clearing the badge fails",
+			catalog: func(*mocks.MockArrow) {},
+			runtime: func(r *settledRuntime) {
+				r.ClearVersionBadgeFn = func(context.Context, domain.Namespace) error { return sentinel }
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _ := recordingCatalog()
+			tc.catalog(m)
+			rt := runtimeIn(domain.ArrowStateOutdated)
+			tc.runtime(rt)
+
+			err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.2", "bbb", "stable")
+
+			require.ErrorIs(t, err, sentinel)
+		})
+	}
+}
+
+// One stale row that cannot be removed does not keep the others around.
+func TestEnsureRegistered_RemoveFails_StillRemovesTheRest(t *testing.T) {
+	sentinel := errors.New("busy")
+	m, _, _, _ := recordingCatalog(catalogView(selfNs(), "nightly-abc123", "stable-26.5.1", "stable"))
+	var attempted []domain.Namespace
+	m.RemoveFn = func(_ context.Context, ns domain.Namespace) error {
+		attempted = append(attempted, ns)
+		if len(attempted) == 1 {
+			return sentinel
+		}
+		return nil
+	}
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.2", "bbb", "stable")
+
+	require.ErrorIs(t, err, sentinel)
+	assert.Equal(t, []domain.Namespace{
+		selfNs().WithRef("nightly-abc123"),
+		selfNs().WithRef("stable-26.5.1"),
+	}, attempted)
+}
+
 // ─── Regression: the core stays in the user's library across updates ────────
 
 // libraryCatalog is the real arrow repository over an in-memory read model,

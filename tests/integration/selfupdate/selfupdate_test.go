@@ -3,8 +3,10 @@
 package selfupdate_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
@@ -35,6 +38,14 @@ func TestSelfUpdateIntegration(t *testing.T) {
 // under it — the usual "quiver.test/..." fixture convention would never be
 // recognized by that check.
 const selfNamespace = "github.com/rabbytesoftware/quiver.core"
+
+// noVersionCheck fails every live snapshot, so no version check can ever
+// reach a verdict.
+type noVersionCheck struct{ manifold.Manifold }
+
+func (noVersionCheck) FreshSnapshot(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+	return domain.RefSnapshot{}, errors.New("version checks are disabled in this test")
+}
 
 // getDetail fetches arrow detail and requires HTTP 200. Mirrors the identical
 // small helper every other integration suite defines locally (see
@@ -136,11 +147,19 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.Eventually(s.T(), trig.Fired, 10*time.Second, 50*time.Millisecond,
 		"the OnRuntimeEnded -> trigger wiring must fire through the real app-layer DI, not just Task 1.4's own unit test")
 
+	s.Require().Equal(string(domain.ArrowStateOutdated), s.getDetail(tc1, selfNS).State,
+		"precondition: the drift check marked the self-arrow outdated before its own update")
+
 	env1.CloseWithoutKilling() // the fixture's OS process survives — mirrors what a real exec handover leaves behind
 
 	// The relaunched binary is the v2 build: it adopts its own new state on
-	// the self-arrow's identity, which is what settles that row.
-	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, env1.Home, kit.WithBuild("v2", v2Commit, "v*"))
+	// the self-arrow's identity, which is what settles that row. Its version
+	// checks can never answer, so only that adoption can clear the badge.
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, env1.Home,
+		kit.WithBuild("v2", v2Commit, "v*"),
+		kit.WithManifoldWrapper(func(inner manifold.Manifold) manifold.Manifold {
+			return noVersionCheck{Manifold: inner}
+		}))
 	tc2 := env2.TypedClient(s.T())
 
 	finalFixture := s.getDetail(tc2, fixtureNS)
@@ -154,7 +173,6 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	// prove: the PID captured before the restart is still alive after it.
 	require.True(s.T(), env2.ProcessAlive(originalPID), "unchanged PID — the process was never killed")
 
-	env2.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 30*time.Second)
 	finalSelf := s.getDetail(tc2, selfNS)
 	require.Equal(s.T(), string(domain.ArrowStateReady), finalSelf.State,
 		"the self-arrow's own record settles back to Ready — it never reaches Running, see this task's header note")
