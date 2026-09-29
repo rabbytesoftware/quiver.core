@@ -124,6 +124,24 @@ type Manifold interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
+
+	// Snapshot reads every tag, branch and the HEAD branch of ns's
+	// repository in one round trip, cached for the manifold's cache TTL.
+	Snapshot(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
+
+	// ResolveArrowAtCommit fetches ns's manifest at commit and returns it
+	// stamped with ns itself. Raw-file hosts serve a commit SHA as a ref; the
+	// clone path only checks out tags and branches, so when the fetch at the
+	// commit fails it falls back to ns's own ref, and the caller verifies the
+	// commit afterwards. A manifest that fetched but is invalid never falls back.
+	ResolveArrowAtCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+		commit string,
+	) (*domain.Arrow, []byte, string, error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
@@ -207,13 +225,6 @@ const anyTag = "*"
 // mechanism that keeps them in sync — the shared config value is.
 const defaultManifoldCacheTTL = time.Hour
 
-// channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
-// can tell a still-fresh hit from one due for a live re-check.
-type channelsCacheEntry struct {
-	channels []ChannelInfo
-	cachedAt time.Time
-}
-
 // constraintCacheKey identifies one ResolveConstraint result: the answer
 // genuinely depends on both the namespace and the pattern asked against it,
 // so both together are the cache key, not the namespace alone.
@@ -223,7 +234,7 @@ type constraintCacheKey struct {
 }
 
 // constraintCacheEntry is one ResolveConstraint result, timestamped the same
-// way a channelsCacheEntry is.
+// way a snapshotCacheEntry is.
 type constraintCacheEntry struct {
 	ref      string
 	cachedAt time.Time
@@ -238,8 +249,8 @@ type manifold struct {
 	hosts      HostLookup
 	clock      func() time.Time
 
-	// cacheTTL bounds how long a cached remote lookup — ListChannels or
-	// ResolveConstraint (ResolveLatestStable included) — is reused before
+	// cacheTTL bounds how long a cached remote lookup — Snapshot (and so
+	// ListChannels) or ResolveConstraint (ResolveLatestStable included) — is reused before
 	// asking the remote again. Set at construction time (see New), not a
 	// package constant, specifically so production wiring can tie it to
 	// config.GetArrows().VersionCheckTTL — the same value the arrow store's
@@ -247,8 +258,8 @@ type manifold struct {
 	// chosen constant that could silently drift out of step with it.
 	cacheTTL time.Duration
 
-	// channelsCache holds one entry per domain.Namespace queried through
-	// ListChannels, and constraintCache one per (namespace, pattern) queried
+	// snapshotCache holds one entry per bare domain.Namespace queried
+	// through Snapshot (ListChannels included), and constraintCache one per (namespace, pattern) queried
 	// through ResolveConstraint (ResolveLatestStable included, since it
 	// calls ResolveConstraint itself rather than the underlying resolver
 	// directly, so it shares this same cache). Both are sync.Map, not a
@@ -258,7 +269,7 @@ type manifold struct {
 	// for many distinct namespaces/patterns will grow them accordingly,
 	// which is accepted for this simple, restart-safe-to-lose optimization
 	// rather than an LRU or similar bound.
-	channelsCache   sync.Map
+	snapshotCache   sync.Map
 	constraintCache sync.Map
 }
 
@@ -552,73 +563,11 @@ func (m *manifold) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]ChannelInfo, error) {
-	if cached, ok := m.cachedChannels(ns); ok {
-		return cached, nil
-	}
-
-	tags, err := m.constraint.ListTags(ctx, ns)
+	snap, err := m.Snapshot(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
+		return nil, fmt.Errorf("manifold: list channels: %w", err)
 	}
-
-	var channels []ChannelInfo
-	consumed := make(map[string]bool)
-	for _, channel := range resolvers.ChannelsPresent(tags) {
-		sorted := resolvers.SortInChannel(tags, channel)
-		for _, t := range sorted {
-			consumed[t] = true
-		}
-		channels = append(channels, ChannelInfo{
-			Name:    channel,
-			Kind:    "ordered",
-			Latest:  sorted[0],
-			Count:   len(sorted),
-			Members: sorted,
-		})
-	}
-
-	for _, tag := range tags {
-		if !consumed[tag] {
-			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
-		}
-	}
-
-	// The default branch is a fallback for a repository with nothing else
-	// to offer — it must not appear once any tag exists, ordered or not,
-	// so this checks the original tag list rather than anything derived
-	// from channels/consumed (either of which can be non-empty while still
-	// hiding a repo that has, say, only unclassifiable pointer tags).
-	if len(tags) == 0 {
-		if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
-			channels = append(channels, ChannelInfo{
-				Name: branch, Kind: "pointer", Latest: branch,
-				IsDefaultBranchFallback: true,
-			})
-		}
-	}
-
-	sortChannels(channels)
-	m.channelsCache.Store(ns, channelsCacheEntry{channels: channels, cachedAt: m.clock()})
-	return channels, nil
-}
-
-// cachedChannels returns ns's still-fresh ListChannels result, if one
-// exists. The returned slice (and each entry's Members slice) is the same
-// one stored in the cache, not a copy — callers must treat it as read-only,
-// which every current caller already does (ListChannels itself only ever
-// builds a fresh slice to store; nothing mutates a result in place).
-func (m *manifold) cachedChannels(
-	ns domain.Namespace,
-) ([]ChannelInfo, bool) {
-	v, ok := m.channelsCache.Load(ns)
-	if !ok {
-		return nil, false
-	}
-	entry, _ := v.(channelsCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
-		return nil, false
-	}
-	return entry.channels, true
+	return ChannelsOf(snap), nil
 }
 
 // sortChannels orders a ListChannels result deterministically: stable first
@@ -684,6 +633,23 @@ func (m *manifold) ResolveRefCommit(
 		return "", fmt.Errorf("manifold: ref commit %s: %w", ns, err)
 	}
 	return hash, nil
+}
+
+func (m *manifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns.WithRef(commit))
+	if err != nil && !errors.Is(err, ErrInvalidManifest) {
+		arrow, raw, filename, err = m.ResolveArrow(ctx, ns)
+	}
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at commit %s: %w", ns, commit, err)
+	}
+
+	arrow.Namespace = ns
+	return arrow, raw, filename, nil
 }
 
 func (m *manifold) ResolveCollection(

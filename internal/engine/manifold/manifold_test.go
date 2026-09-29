@@ -21,6 +21,8 @@ import (
 )
 
 type stubResolver struct {
+	arrowRequests   []domain.Namespace
+	arrowFn         func(ns domain.Namespace) ([]byte, string, error)
 	arrowData       []byte
 	arrowFilename   string
 	arrowErr        error
@@ -34,8 +36,12 @@ type stubResolver struct {
 
 func (s *stubResolver) ResolveArrow(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 ) ([]byte, string, error) {
+	s.arrowRequests = append(s.arrowRequests, ns)
+	if s.arrowFn != nil {
+		return s.arrowFn(ns)
+	}
 	return s.arrowData, s.arrowFilename, s.arrowErr
 }
 
@@ -829,6 +835,37 @@ type stubConstraintResolver struct {
 	refCommitErr  error
 	refCommitRefs []string
 	listTagsCall  int
+	refs          *domain.RefSnapshot
+	refsErr       error
+	refsCall      int
+}
+
+// Refs answers from refs when set, else builds the snapshot from the same
+// listTags/branch fields the older per-question methods answer from, and
+// counts itself as both of those questions so the ListChannels tests written
+// against them keep their meaning.
+func (s *stubConstraintResolver) Refs(_ context.Context, _ domain.Namespace) (domain.RefSnapshot, error) {
+	s.refsCall++
+	s.listTagsCall++
+	s.branchCall++
+	if s.refsErr != nil {
+		return domain.RefSnapshot{}, s.refsErr
+	}
+	if s.refs != nil {
+		return *s.refs, nil
+	}
+	if s.listTagsErr != nil {
+		return domain.RefSnapshot{}, s.listTagsErr
+	}
+	snap := domain.RefSnapshot{Tags: map[string]string{}, Branches: map[string]string{}}
+	for _, tag := range s.listTags {
+		snap.Tags[tag] = "commit-" + tag
+	}
+	if s.branchErr == nil && s.branch != "" {
+		snap.Branches[s.branch] = s.branchHash
+		snap.Head = s.branch
+	}
+	return snap, nil
 }
 
 func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
@@ -2789,3 +2826,93 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
+
+func commitManifold(
+	rsv *stubResolver,
+	trs *stubTranslator,
+) *manifold {
+	if trs == nil {
+		trs = &stubTranslator{
+			arrow: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "my-arrow"}},
+			precompiled: map[string]models.PrecompiledTarget{
+				"*": {
+					Lifecycle: domain.TargetLifecycle{
+						Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+						Uninstall: step.StepList{step.NewRunStep("uninstall", "echo bye", false, "10s", true)},
+					},
+				},
+			},
+		}
+	}
+	return &manifold{rsv: rsv, trs: trs, cmp: compiler.New(), rls: ruleset.New()}
+}
+
+func TestResolveArrowAtCommit_FetchesAtTheCommitAndStampsTheOriginalNamespace(t *testing.T) {
+	const commit = "9dd0b183177a64ec71a2672d1cd7cf0c70bb4877"
+	rsv := &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"}
+	m := commitManifold(rsv, nil)
+	ns := domain.Namespace("github.com/u/r@stable")
+
+	arrow, raw, filename, err := m.ResolveArrowAtCommit(context.Background(), ns, commit)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []domain.Namespace{ns.WithRef(commit)}; !slices.Equal(rsv.arrowRequests, want) {
+		t.Errorf("requests = %v, want %v", rsv.arrowRequests, want)
+	}
+	if arrow.Namespace != ns {
+		t.Errorf("Namespace = %q, want %q", arrow.Namespace, ns)
+	}
+	if string(raw) != "test" || filename != "ARROW.md" {
+		t.Errorf("raw = %q, filename = %q", raw, filename)
+	}
+}
+
+func TestResolveArrowAtCommit_FetchFailure_FallsBackToTheNamespaceRef(t *testing.T) {
+	const commit = "9dd0b18"
+	ns := domain.Namespace("github.com/u/r@nightly")
+	rsv := &stubResolver{arrowFn: func(requested domain.Namespace) ([]byte, string, error) {
+		if requested.Ref() == commit {
+			return nil, "", resolvers.ErrFetchFailed
+		}
+		return []byte("test"), "ARROW.md", nil
+	}}
+	m := commitManifold(rsv, nil)
+
+	arrow, _, _, err := m.ResolveArrowAtCommit(context.Background(), ns, commit)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []domain.Namespace{ns.WithRef(commit), ns}; !slices.Equal(rsv.arrowRequests, want) {
+		t.Errorf("requests = %v, want %v", rsv.arrowRequests, want)
+	}
+	if arrow.Namespace != ns {
+		t.Errorf("Namespace = %q, want %q", arrow.Namespace, ns)
+	}
+}
+
+func TestResolveArrowAtCommit_BothFetchesFail_ReturnsTheError(t *testing.T) {
+	rsv := &stubResolver{arrowErr: resolvers.ErrNotFound}
+	m := commitManifold(rsv, nil)
+
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), domain.Namespace("github.com/u/r@v1.0.0"), "9dd0b18")
+	if !errors.Is(err, resolvers.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	if len(rsv.arrowRequests) != 2 {
+		t.Errorf("requests = %v, want the commit then the ref", rsv.arrowRequests)
+	}
+}
+
+func TestResolveArrowAtCommit_InvalidManifestAtCommit_DoesNotFallBack(t *testing.T) {
+	rsv := &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"}
+	m := commitManifold(rsv, &stubTranslator{arrowErr: errors.New("bad yaml")})
+
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), domain.Namespace("github.com/u/r@v1.0.0"), "9dd0b18")
+	if !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("err = %v, want ErrInvalidManifest", err)
+	}
+	if len(rsv.arrowRequests) != 1 {
+		t.Errorf("requests = %v, want only the commit", rsv.arrowRequests)
+	}
+}

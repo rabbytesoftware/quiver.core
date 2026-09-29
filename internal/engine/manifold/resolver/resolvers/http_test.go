@@ -423,3 +423,26 @@ func TestHTTPFetcher_EmptyBranchList_ReturnsNotFoundWithoutRequesting(t *testing
 		t.Errorf("requested paths = %v, want none", *paths)
 	}
 }
+
+// A raw-file host addresses a file by any revision, so a commit SHA rides in
+// the ref position exactly like a tag or branch does.
+func TestHTTPFetcher_Fetch_CommitSHAIsServedAsTheRef(t *testing.T) {
+	const sha = "9dd0b183177a64ec71a2672d1cd7cf0c70bb4877"
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("schema: arrow@v0\n"))
+	}))
+	defer server.Close()
+
+	fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
+
+	_, _, err := fetcher.Fetch(context.Background(), domain.Namespace("example.com/user/repo@"+sha), []string{"arrow.yaml"}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if want := "/user/repo/" + sha + "/arrow.yaml"; capturedPath != want {
+		t.Errorf("Fetch() URL path = %q, want %q", capturedPath, want)
+	}
+}

@@ -168,6 +168,21 @@ func (s *stubManifold) ListChannels(
 	return nil, errors.New("not used")
 }
 
+func (s *stubManifold) Snapshot(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return domain.RefSnapshot{}, errors.New("not used")
+}
+
+func (s *stubManifold) ResolveArrowAtCommit(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", errors.New("not used")
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func newVault(t *testing.T) vault.Vault {

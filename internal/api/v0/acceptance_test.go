@@ -155,6 +155,21 @@ func (m *countingManifold) ListChannels(
 	return nil, fmt.Errorf("manifold: list channels not used")
 }
 
+func (m *countingManifold) Snapshot(
+	context.Context,
+	domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return domain.RefSnapshot{}, fmt.Errorf("manifold: snapshot not used")
+}
+
+func (m *countingManifold) ResolveArrowAtCommit(
+	context.Context,
+	domain.Namespace,
+	string,
+) (*domain.Arrow, []byte, string, error) {
+	return nil, nil, "", fmt.Errorf("manifold: resolve arrow at commit not used")
+}
+
 func (m *countingManifold) counts() (resolves, parses int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

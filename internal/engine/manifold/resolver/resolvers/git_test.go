@@ -328,3 +328,25 @@ func TestWrapFetchErr_RepositoryNotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+// The clone path names its ref as a tag, then as a branch; neither is a commit
+// SHA, so a manifest cannot be fetched by commit through a clone. Manifold
+// falls back to the namespace's own ref when this happens.
+func TestFetchFile_CommitSHA_CloneCannotCheckOutACommit(t *testing.T) {
+	dir := makeLocalRepo(t, "arrow.yaml", []byte("schema: arrow@v0\n"))
+	repo, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+
+	for _, sha := range []string{head.Hash().String(), head.Hash().String()[:7]} {
+		_, _, err := fetchFile(context.Background(), dir, []string{"arrow.yaml"}, 5*time.Second, sha, cloneRepo)
+		if !errors.Is(err, ErrFetchFailed) {
+			t.Errorf("fetchFile(%s) error = %v, want ErrFetchFailed", sha, err)
+		}
+	}
+}

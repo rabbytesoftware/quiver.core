@@ -36,6 +36,14 @@ type Manifold struct {
 	ResolveRefCommitCalls     int
 	ListChannelsResult        []manifold.ChannelInfo
 	ListChannelsErr           error
+	SnapshotResult            domain.RefSnapshot
+	SnapshotErr               error
+	SnapshotCalls             int
+
+	ResolveArrowAtCommitResult   *domain.Arrow
+	ResolveArrowAtCommitRaw      []byte
+	ResolveArrowAtCommitFilename string
+	ResolveArrowAtCommitErr      error
 
 	// ResolveArrowCalls counts every ResolveArrow invocation, so a test can
 	// assert a cache hit skipped the manifold entirely rather than only
@@ -63,6 +71,21 @@ type Manifold struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
+
+	// SnapshotFn, when set, answers per namespace so a test can move a ref
+	// between calls.
+	SnapshotFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
+
+	// ResolveArrowAtCommitFn, when set, answers per (namespace, commit) pair
+	// so a test can assert which commit a caller fetched.
+	ResolveArrowAtCommitFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		commit string,
+	) (*domain.Arrow, []byte, string, error)
 
 	// ResolveLatestInChannelFn, when set, answers per channel so a test can
 	// assert exactly which channel string a caller passed.
@@ -164,4 +187,26 @@ func (m *Manifold) ListChannels(
 	_ domain.Namespace,
 ) ([]manifold.ChannelInfo, error) {
 	return m.ListChannelsResult, m.ListChannelsErr
+}
+
+func (m *Manifold) Snapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	m.SnapshotCalls++
+	if m.SnapshotFn != nil {
+		return m.SnapshotFn(ctx, ns)
+	}
+	return m.SnapshotResult, m.SnapshotErr
+}
+
+func (m *Manifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	if m.ResolveArrowAtCommitFn != nil {
+		return m.ResolveArrowAtCommitFn(ctx, ns, commit)
+	}
+	return m.ResolveArrowAtCommitResult, m.ResolveArrowAtCommitRaw, m.ResolveArrowAtCommitFilename, m.ResolveArrowAtCommitErr
 }

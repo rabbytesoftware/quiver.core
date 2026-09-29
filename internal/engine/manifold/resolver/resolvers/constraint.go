@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -35,7 +37,13 @@ type ConstraintResolver interface {
 	// resolves to. It is how a rolling tag that is force-moved onto a new
 	// commit is told apart from the same tag left where it was.
 	RefCommit(ctx context.Context, ns domain.Namespace, ref string) (string, error)
+
+	// Refs snapshots every tag, branch and the HEAD branch in one ref
+	// advertisement, with annotated tags peeled to the commit they point at.
+	Refs(ctx context.Context, ns domain.Namespace) (domain.RefSnapshot, error)
 }
+
+const peeledSuffix = "^{}"
 
 type constraintResolver struct {
 	timeout time.Duration
@@ -73,6 +81,59 @@ func (c *constraintResolver) RefCommit(
 	ref string,
 ) (string, error) {
 	return c.refCommitWithCloneURL(ctx, ns.BareNamespace().CloneURL(), ref)
+}
+
+func (c *constraintResolver) Refs(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return c.refsWithCloneURL(ctx, ns.BareNamespace().CloneURL())
+}
+
+func (c *constraintResolver) refsWithCloneURL(
+	ctx context.Context,
+	cloneURL string,
+) (domain.RefSnapshot, error) {
+	refs, err := c.listRefsPeeling(ctx, cloneURL, gogit.AppendPeeled)
+	if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+		return snapshotOf(nil), nil
+	}
+	if err != nil {
+		return domain.RefSnapshot{}, fmt.Errorf("refs: list refs for %s: %w", cloneURL, err)
+	}
+	return snapshotOf(refs), nil
+}
+
+// snapshotOf folds a ref advertisement into a RefSnapshot. An annotated tag
+// is advertised as its tag object and again as "<tag>^{}" peeled to its
+// commit; the commit identifies the release, so the peeled entry wins.
+func snapshotOf(
+	refs []*plumbing.Reference,
+) domain.RefSnapshot {
+	snap := domain.RefSnapshot{Tags: map[string]string{}, Branches: map[string]string{}}
+	peeled := make(map[string]string)
+	for _, r := range refs {
+		name := r.Name()
+		switch {
+		case name.IsBranch():
+			snap.Branches[name.Short()] = r.Hash().String()
+		case name.IsTag():
+			if tag, ok := strings.CutSuffix(name.Short(), peeledSuffix); ok {
+				peeled[tag] = r.Hash().String()
+				continue
+			}
+			snap.Tags[name.Short()] = r.Hash().String()
+		}
+	}
+	for tag, commit := range peeled {
+		snap.Tags[tag] = commit
+	}
+
+	target := headTarget(refs)
+	if _, ok := snap.Branches[target.Short()]; ok && target.IsBranch() {
+		snap.Head = target.Short()
+	}
+	return snap
 }
 
 func (c *constraintResolver) refCommitWithCloneURL(
@@ -167,6 +228,14 @@ func (c *constraintResolver) listRefs(
 	ctx context.Context,
 	cloneURL string,
 ) ([]*plumbing.Reference, error) {
+	return c.listRefsPeeling(ctx, cloneURL, gogit.IgnorePeeled)
+}
+
+func (c *constraintResolver) listRefsPeeling(
+	ctx context.Context,
+	cloneURL string,
+	peeling gogit.PeelingOption,
+) ([]*plumbing.Reference, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -174,7 +243,7 @@ func (c *constraintResolver) listRefs(
 		URLs: []string{cloneURL},
 	})
 
-	return remote.ListContext(ctx, &gogit.ListOptions{})
+	return remote.ListContext(ctx, &gogit.ListOptions{PeelingOption: peeling})
 }
 
 func (c *constraintResolver) resolveWithCloneURL(
@@ -187,23 +256,38 @@ func (c *constraintResolver) resolveWithCloneURL(
 		return "", fmt.Errorf("constraint: list refs for %s: %w", cloneURL, err)
 	}
 
+	tag, ok, err := HighestMatch(tagNames(refs), pattern)
+	if err != nil {
+		return "", fmt.Errorf("constraint: invalid pattern %q: %w", pattern, err)
+	}
+	if !ok {
+		return "", fmt.Errorf("constraint: no git tags match pattern %q for %s", pattern, cloneURL)
+	}
+	return tag, nil
+}
+
+// HighestMatch returns the highest-ranked tag matching the glob pattern, by
+// the same ranking the constraint resolver uses. ok is false when none match.
+func HighestMatch(
+	tags []string,
+	pattern string,
+) (string, bool, error) {
 	var matched []string
-	for _, tagName := range tagNames(refs) {
-		ok, err := path.Match(pattern, tagName)
+	for _, tag := range tags {
+		ok, err := path.Match(pattern, tag)
 		if err != nil {
-			return "", fmt.Errorf("constraint: invalid pattern %q: %w", pattern, err)
+			return "", false, err
 		}
 		if ok {
-			matched = append(matched, tagName)
+			matched = append(matched, tag)
 		}
 	}
-
 	if len(matched) == 0 {
-		return "", fmt.Errorf("constraint: no git tags match pattern %q for %s", pattern, cloneURL)
+		return "", false, nil
 	}
 
 	sortTagsDesc(matched)
-	return matched[0], nil
+	return matched[0], true, nil
 }
 
 // sortTagsDesc sorts tags in descending order. Stable semver tags are compared

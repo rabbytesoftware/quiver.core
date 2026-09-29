@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path"
 	"testing"
 	"time"
 
@@ -620,4 +621,172 @@ func TestConstraintResolver_RefCommit_ReturnsErrorForUnresolvableNS(t *testing.T
 
 	_, err := cr.RefCommit(context.Background(), domain.Namespace("localhost/user/nonexistent"), "nightly")
 	assert.Error(t, err)
+}
+
+// ─── Refs ─────────────────────────────────────────────────────────────────────
+
+func TestConstraintResolver_Refs_SnapshotsTagsBranchesAndHead(t *testing.T) {
+	dir := makeRepoOnBranch(t, "develop")
+	repo, err := gogit.PlainOpen(dir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	first := head.Hash()
+
+	_, err = repo.CreateTag("v1.0.0", first, nil)
+	require.NoError(t, err)
+	_, err = repo.CreateTag("v1.1.0", first, &gogit.CreateTagOptions{
+		Tagger:  &object.Signature{Name: "test", Email: "test@test.com"},
+		Message: "annotated",
+	})
+	require.NoError(t, err)
+	nightly := plumbing.NewTagReferenceName("nightly")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(nightly, first)))
+
+	second := commitOnRepo(t, dir, "second")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(nightly, second)))
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("feature"), first)))
+
+	cr := newCR(5 * time.Second)
+	snap, err := cr.refsWithCloneURL(context.Background(), dir)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{
+		"v1.0.0":  first.String(),
+		"v1.1.0":  first.String(),
+		"nightly": second.String(),
+	}, snap.Tags)
+	assert.Equal(t, map[string]string{
+		"develop": second.String(),
+		"feature": first.String(),
+	}, snap.Branches)
+	assert.Equal(t, "develop", snap.Head)
+}
+
+func TestConstraintResolver_Refs_EmptyRepoHasNoRefsAndNoError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	cr := newCR(5 * time.Second)
+	snap, err := cr.refsWithCloneURL(context.Background(), dir)
+	require.NoError(t, err)
+
+	assert.Empty(t, snap.Tags)
+	assert.Empty(t, snap.Branches)
+	assert.Equal(t, "", snap.Head)
+}
+
+func TestConstraintResolver_Refs_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.refsWithCloneURL(context.Background(), "/nonexistent/path/to/nowhere")
+	assert.Error(t, err)
+}
+
+func TestConstraintResolver_Refs_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.Refs(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	assert.Error(t, err)
+}
+
+func TestSnapshotOf_Advertisement(t *testing.T) {
+	tagObject := plumbing.NewHash("1111111111111111111111111111111111111111")
+	commit := plumbing.NewHash("2222222222222222222222222222222222222222")
+	branch := plumbing.NewHash("3333333333333333333333333333333333333333")
+
+	testCases := []struct {
+		name string
+		refs []*plumbing.Reference
+		want domain.RefSnapshot
+	}{
+		{
+			name: "peeled entry overrides its annotated tag whatever the order",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0^{}"), commit),
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), tagObject),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{"v1.0.0": commit.String()},
+				Branches: map[string]string{},
+			},
+		},
+		{
+			name: "HEAD pointing at an unadvertised branch leaves Head empty",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+				plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), branch),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{},
+				Branches: map[string]string{"main": branch.String()},
+			},
+		},
+		{
+			name: "HEAD pointing outside refs/heads leaves Head empty",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewTagReferenceName("v1.0.0")),
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), commit),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{"v1.0.0": commit.String()},
+				Branches: map[string]string{},
+			},
+		},
+		{
+			name: "refs that are neither tag nor branch are ignored",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.ReferenceName("refs/pull/1/head"), commit),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{},
+				Branches: map[string]string{},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, snapshotOf(tc.refs))
+		})
+	}
+}
+
+// ─── HighestMatch ─────────────────────────────────────────────────────────────
+
+func TestHighestMatch(t *testing.T) {
+	testCases := []struct {
+		name    string
+		tags    []string
+		pattern string
+		want    string
+		wantOK  bool
+		wantErr error
+	}{
+		{name: "highest semver within the glob", tags: []string{"v1.2.0", "v1.10.0", "v2.0.0"}, pattern: "v1.*", want: "v1.10.0", wantOK: true},
+		{name: "no tag matches", tags: []string{"v2.0.0"}, pattern: "v1.*"},
+		{name: "no tags at all", tags: nil, pattern: "*"},
+		{name: "bad pattern", tags: []string{"v1.0.0"}, pattern: "v1.[", wantErr: path.ErrBadPattern},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := HighestMatch(tc.tags, tc.pattern)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestHighestMatch_DoesNotReorderTheCallersSlice(t *testing.T) {
+	tags := []string{"v1.0.0", "v1.2.0"}
+	_, _, err := HighestMatch(tags, "*")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"v1.0.0", "v1.2.0"}, tags)
 }

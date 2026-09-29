@@ -390,6 +390,62 @@ func (r *testResolver) RefCommit(_ context.Context, ns domain.Namespace, ref str
 	return refCommitOf(storer, ref)
 }
 
+// Refs snapshots the fixture repo's tags (peeled to their commits), branches
+// and HEAD branch, the same view the real resolver reads off a remote's ref
+// advertisement.
+func (r *testResolver) Refs(_ context.Context, ns domain.Namespace) (domain.RefSnapshot, error) {
+	key := fixtureKey(ns)
+	storer, ok := r.repos.Get(key)
+	if !ok {
+		return domain.RefSnapshot{}, fmt.Errorf("fixture repo not found for refs: %s", ns)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return refSnapshotOf(storer)
+}
+
+func refSnapshotOf(storer *memory.Storage) (domain.RefSnapshot, error) {
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		return domain.RefSnapshot{}, fmt.Errorf("open repo: %w", err)
+	}
+	refs, err := repo.References()
+	if err != nil {
+		return domain.RefSnapshot{}, fmt.Errorf("list refs: %w", err)
+	}
+	defer refs.Close()
+
+	snap := domain.RefSnapshot{Tags: map[string]string{}, Branches: map[string]string{}}
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		switch {
+		case ref.Name().IsBranch():
+			snap.Branches[ref.Name().Short()] = ref.Hash().String()
+		case ref.Name().IsTag():
+			snap.Tags[ref.Name().Short()] = peeledCommit(repo, ref.Hash()).String()
+		}
+		return nil
+	})
+	if err != nil {
+		return domain.RefSnapshot{}, fmt.Errorf("iterate refs: %w", err)
+	}
+
+	if head, err := repo.Reference(plumbing.HEAD, false); err == nil && head.Target().IsBranch() {
+		if _, ok := snap.Branches[head.Target().Short()]; ok {
+			snap.Head = head.Target().Short()
+		}
+	}
+	return snap, nil
+}
+
+// peeledCommit resolves an annotated tag object to the commit it points at; a
+// lightweight tag already points at the commit.
+func peeledCommit(repo *gogit.Repository, hash plumbing.Hash) plumbing.Hash {
+	if tag, err := repo.TagObject(hash); err == nil {
+		return tag.Target
+	}
+	return hash
+}
+
 func refCommitOf(storer *memory.Storage, ref string) (string, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
