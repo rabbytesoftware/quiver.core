@@ -391,3 +391,32 @@ func TestRender_YAMLHasNoFenceLines(t *testing.T) {
 	assert.Equal(t, domain.ArrowMedia{Icon: "```", Banner: "```"}, arrow.Media)
 	assert.Equal(t, []string{"```", "```arrow"}, arrow.Generator.Warnings)
 }
+
+func TestRender_MSIInstallsAsPortableStep(t *testing.T) {
+	in := baseInput()
+	in.Picks = map[domain.OS]picker.Pick{
+		domain.OSWindowsAMD64: pickOf("tool-1.0-x64.msi", picker.FormatMSI),
+		domain.OSWindowsARM64: pickOf("tool-1.0-arm64.msi", picker.FormatMSI),
+	}
+	data, err := forge.Render(in)
+	require.NoError(t, err)
+
+	arrow := parse(t, data)
+
+	require.Len(t, arrow.Targets, 2)
+	for platform, pick := range in.Picks {
+		target := arrow.Targets[platform]
+		require.Len(t, target.Lifecycle.Install, 2)
+		fetch := fetchStep(t, target.Lifecycle.Install[0])
+		assert.Equal(t, pick.Asset.URL, fetch.URL.Default)
+		assert.Equal(t, "${INSTALL_PATH}/.tool.download.msi", fetch.To.Default)
+		assert.Equal(t, digest, fetch.Checksum.Default)
+		portable := portableStep(t, target.Lifecycle.Install[1])
+		assert.Equal(t, "${INSTALL_PATH}/.tool.download.msi", portable.From.Default)
+		assert.Equal(t, "${INSTALL_PATH}/tool", portable.To.Default)
+		assert.Equal(t, "tool.exe", portable.Name)
+		assert.Equal(t, "Install "+pick.Asset.Name, portable.Title())
+		assert.Equal(t, []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}, target.Expose.CLI)
+		assert.Empty(t, target.Expose.Desktop)
+	}
+}

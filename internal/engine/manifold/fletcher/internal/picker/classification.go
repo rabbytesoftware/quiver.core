@@ -28,6 +28,14 @@ func (c classification) guiInstaller() bool {
 	return c.exe && !c.portable
 }
 
+func (c classification) msi() bool {
+	return c.format == FormatMSI
+}
+
+func (c classification) notMSI() bool {
+	return !c.msi()
+}
+
 func (c classification) supported() bool {
 	return c.arch != archOther
 }
@@ -113,6 +121,9 @@ func (p *picker) formatOf(
 	}
 	if strings.HasSuffix(name, dmgSuffix) {
 		return FormatDMG, true
+	}
+	if strings.HasSuffix(name, msiSuffix) {
+		return FormatMSI, true
 	}
 	if p.installer.MatchString(name) {
 		return "", false

@@ -161,6 +161,7 @@ const (
 	binaryRank
 	exeRank
 	dmgRank
+	msiRank
 )
 
 func score(
@@ -193,6 +194,9 @@ func tieRank(
 	}
 	if c.format == FormatBinary {
 		return binaryRankOf(c)
+	}
+	if c.format == FormatMSI {
+		return msiRank
 	}
 	return dmgRank
 }

@@ -34,6 +34,7 @@ const (
 	stepPortable = "portable"
 	windowsExt   = ".exe"
 	downloadExt  = ".download"
+	msiExt       = ".msi"
 )
 
 type step struct {
@@ -53,7 +54,7 @@ func installSteps(
 	file string,
 	pick picker.Pick,
 ) []step {
-	download := installPath + "/." + name + downloadExt
+	download := installPath + "/." + name + downloadExt + downloadSuffix(pick.Format)
 	fetch := step{
 		Type:     stepFetch,
 		Title:    "Download " + file,
@@ -71,6 +72,15 @@ func installSteps(
 		Timeout: stepTimeout,
 	}
 	return []step{fetch, portable}
+}
+
+func downloadSuffix(
+	format picker.Format,
+) string {
+	if format == picker.FormatMSI {
+		return msiExt
+	}
+	return ""
 }
 
 func installDir(

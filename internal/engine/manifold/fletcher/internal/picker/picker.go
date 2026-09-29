@@ -29,6 +29,7 @@ const (
 	FormatBinary   Format = "binary"
 	FormatAppImage Format = "appimage"
 	FormatDMG      Format = "dmg"
+	FormatMSI      Format = "msi"
 )
 
 type Match string
@@ -70,6 +71,7 @@ func New() Picker {
 		impliedFamilies: []pattern{
 			{label: familyDarwin, re: suffixed(dmgSuffix)},
 			{label: familyWindows, re: suffixed(exeSuffix)},
+			{label: familyWindows, re: suffixed(msiSuffix)},
 			{label: familyLinux, re: suffixed(appImageSuffix)},
 		},
 		families: []pattern{
@@ -100,8 +102,11 @@ func (p *picker) Pick(
 	t := targetOf(platform)
 	id := p.identify(repo)
 	release := p.release(assets)
-	family := keep(release, t.contains)
-	candidates, match := tier(eligible(family, release, id), t)
+	portable := keep(release, classification.notMSI)
+	candidates, match := candidatesFor(portable, portable, id, t)
+	if len(candidates) == 0 {
+		candidates, match = candidatesFor(release, keep(release, classification.msi), id, t)
+	}
 	if len(candidates) == 0 {
 		return Pick{}, false
 	}
@@ -119,6 +124,15 @@ func (p *picker) Pick(
 		NameMatch: id.owns(chosen) && id.accepts(chosen),
 		GUI:       p.shipsGUI(assets),
 	}, true
+}
+
+func candidatesFor(
+	release []classification,
+	pool []classification,
+	id repoIdentity,
+	t target,
+) ([]classification, Match) {
+	return tier(eligible(keep(pool, t.contains), release, id), t)
 }
 
 type pattern struct {

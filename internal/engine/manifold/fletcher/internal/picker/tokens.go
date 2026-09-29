@@ -17,8 +17,8 @@ const (
 	skipExtensionSource = `\.(?:sha256|sha512|sha1|md5|sig|asc|pem|crt|sbom|spdx|json|txt|yml|yaml|blockmap|intoto\.jsonl|bundle|minisig|pub|sum|cdx|xml|html|md|pdf|sh|ps1|whl|jar|aar|apk|ipa|aab|vsix|nupkg|crx|xpi|zsync|pkg\.tar\.zst|sigstore|cosign|pom|gem|dll|so|dylib|lib|a|h|ttf|otf|woff2|png|svg|wasm|cab|nsis\.zip|app\.tar\.gz|msi\.zip|tar\.gz\.sig)$`
 	ignoredWordsSource  = `checksums?|sha256sums?|sha512sums?|sums|src|sources?|debug|symbols|dbgsym|pdb|sbom|provenance|headers|devel|dev|sdk|docs?|manual|javadoc|dsyms?|pdbs?`
 	archiveSource       = `\.(?:tar\.gz|tgz|tar\.xz|txz|tar\.bz2|tbz|tbz2|tar\.zst|zip|gz|xz|bz2|zst|tar)$`
-	installerSource     = `\.(?:pacman|pkg|msi|msix|msixbundle|appx|deb|rpm|snap|flatpak|flatpakref)$`
-	stemSource          = `\.(?:tar\.gz|tgz|tar\.xz|txz|tar\.bz2|tbz2|tbz|tar\.zst|zip|gz|xz|bz2|zst|tar|dmg|exe|appimage)$`
+	installerSource     = `\.(?:pacman|pkg|msix|msixbundle|appx|deb|rpm|snap|flatpak|flatpakref)$`
+	stemSource          = `\.(?:tar\.gz|tgz|tar\.xz|txz|tar\.bz2|tbz2|tbz|tar\.zst|zip|gz|xz|bz2|zst|tar|dmg|msi|exe|appimage)$`
 
 	linuxSource   = `linux|linux64|lin64|appimage|musl|gnu|ubuntu|debian|fedora|el[789]|manylinux\w*|unknown-linux`
 	darwinSource  = `darwin|macos|macosx|mac|osx|apple|mac64|macos\d+`
@@ -44,6 +44,7 @@ const (
 
 	appImageSuffix = ".appimage"
 	dmgSuffix      = ".dmg"
+	msiSuffix      = ".msi"
 	exeSuffix      = ".exe"
 
 	bareBinaryTail = 6
