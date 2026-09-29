@@ -487,8 +487,9 @@ func TestAdvanceArrow_ReplacesManifestAndResolved_PreservesRowState(t *testing.T
 	_, err = ax.Send(context.Background(), commands.MarkLastUsed{Namespace: ns, LastUsedAt: lastUsedAt})
 	require.NoError(t, err)
 	_, err = ax.Send(context.Background(), commands.RecordAvailable{
-		Namespace: ns,
-		Available: &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+		Namespace:      ns,
+		Available:      &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+		JudgedResolved: domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"},
 	})
 	require.NoError(t, err)
 
@@ -598,6 +599,55 @@ func TestRecordAvailable_SetsAndClears(t *testing.T) {
 	}
 }
 
+// A check's answer is only true of the Resolved it was judged against: once
+// the row has moved, the write is refused and nothing changes.
+func TestRecordAvailable_JudgedAgainstAnotherResolved_IsRejected(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "c1"}
+	advanced := domain.Resolved{Ref: "v1.1.0", Commit: "c2", Fingerprint: "c2"}
+	ahead := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+
+	testCases := []struct {
+		name    string
+		judged  domain.Resolved
+		wantErr bool
+		want    *domain.Available
+	}{
+		{name: "judged against the row's own Resolved", judged: installed, want: ahead},
+		{name: "judged against a Resolved the row has left", judged: advanced, wantErr: true},
+		{name: "judged against no Resolved at all", judged: domain.Resolved{}, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := domain.Namespace("github.com/user/repo@stable")
+			_, err := ax.Send(context.Background(), commands.AddArrow{
+				Namespace:    ns,
+				ArrowMeta:    domain.ArrowMeta{Name: "Row"},
+				SelectorKind: domain.SelectorChannel,
+				Resolved:     installed,
+			})
+			require.NoError(t, err)
+
+			_, err = ax.Send(context.Background(), commands.RecordAvailable{
+				Namespace:      ns,
+				Available:      ahead,
+				JudgedResolved: tc.judged,
+			})
+
+			got, getErr := ax.Get(context.Background(), ns.String())
+			require.NoError(t, getErr)
+			if tc.wantErr {
+				require.ErrorIs(t, err, asynxModels.ErrValidation)
+				assert.Nil(t, got.Available)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Available)
+		})
+	}
+}
+
 // ─── Validate helpers ─────────────────────────────────────────────────────────
 
 func isValidationErr(err error) bool {
@@ -632,7 +682,7 @@ func TestRefreshManifest_ReplacesOnlyTheManifest(t *testing.T) {
 		Resolved:      resolved,
 	})
 	require.NoError(t, err)
-	_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: available})
+	_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: available, JudgedResolved: resolved})
 	require.NoError(t, err)
 
 	targets := map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}}

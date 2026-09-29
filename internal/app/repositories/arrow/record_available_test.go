@@ -15,6 +15,7 @@ import (
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
+	runtimeRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -230,4 +231,45 @@ func TestRunVersionCheck_RowGone_WritesNothing(t *testing.T) {
 
 	assert.False(t, checked.Load(), "a row that is gone is not checked")
 	assert.Empty(t, synced)
+}
+
+// The passive check reads the remote between reading the row and writing its
+// answer. An update's advance landing in that window must not leave the
+// installed commit recorded as available, nor badge the runtime outdated.
+func TestRunVersionCheck_AdvanceLandsWhileJudging_RecordsNothingStale(t *testing.T) {
+	ctx := context.Background()
+	axArrow := newTestAsynxArrow(t)
+	axRuntime := newTestAsynxRuntime(t)
+	ns := stableNs()
+	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.0.0", Commit: "c100"})
+	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(ctx, ns))
+	stale, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+
+	target := domain.Available{Ref: "v1.1.0", Commit: "c110"}
+	var advanced atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		CheckDriftFn: func(_ context.Context, judged domain.Arrow) (*domain.Available, bool) {
+			if !advanced.Swap(true) {
+				_, sendErr := axArrow.SendWait(ctx, arrowcmds.AdvanceArrow{
+					Namespace: ns,
+					Resolved:  domain.Resolved{Ref: target.Ref, Commit: target.Commit},
+				})
+				require.NoError(t, sendErr)
+			}
+			if judged.Resolved.Commit == target.Commit {
+				return nil, true
+			}
+			return &target, true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil,
+		arrowRepo.WithVersionOutdatedSync(runtimeRepo.SetVersionOutdated(axRuntime)))
+
+	arrowRepo.RunVersionCheckForTest(cat, ctx, stale)
+
+	got, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Nil(t, got.Available, "the advanced row is current")
+	assert.Equal(t, domain.ArrowStateReady, runtimeState(t, axRuntime, ns), "no outdated badge")
 }

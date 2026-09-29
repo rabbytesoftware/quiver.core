@@ -470,20 +470,20 @@ func (s *arrowService) runVersionCheck(
 	s.syncVersionOutdated(ctx, arrow.Namespace, available != nil)
 }
 
-// maxRecordAttempts bounds how often a check re-judges a row that another
-// writer changed under it.
-const maxRecordAttempts = 3
+// maxWriteAttempts bounds how often a write to a row another writer changed
+// under it is judged or sent again.
+const maxWriteAttempts = 3
 
 // availableFn judges what is ahead of current; answered is false when it has
 // no trustworthy answer.
 type availableFn func(current domain.Arrow) (available *domain.Available, answered bool, err error)
 
-// recordAvailable records judge's answer about ns's row, judged against the
-// row as it stands when written: an answer about a Resolved the row has
-// already left would mark a row outdated right after its update. Asynx
-// appends optimistically, so a write that races another one to the same row
-// (a passive check, an advance) fails with a version conflict; the row is
-// then re-read and judged again.
+// recordAvailable records judge's answer about ns's row. The answer is
+// written only while the row still holds the Resolved it was judged against:
+// the command refuses it otherwise, and a concurrent append to the row fails
+// it with a version conflict. Either way the row is re-read and judged
+// again, a bounded number of times, so an answer about a Resolved the row has
+// already left (a row outdated right after its update) is never recorded.
 func (s *arrowService) recordAvailable(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -502,14 +502,25 @@ func (s *arrowService) recordAvailable(
 			return available, true, nil
 		}
 
-		_, err = s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+		_, err = s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{
+			Namespace:      ns,
+			Available:      available,
+			JudgedResolved: current.Resolved,
+		})
 		if err == nil {
 			return available, true, nil
 		}
-		if !errors.Is(err, asynxModels.ErrPipelineFailed) || attempt == maxRecordAttempts {
+		if !retryableWrite(err) || attempt == maxWriteAttempts {
 			return available, true, err
 		}
 	}
+}
+
+// retryableWrite reports whether a rejected write is worth judging again:
+// the row changed under it, either by a concurrent append or before a
+// command's own check against what the writer read.
+func retryableWrite(err error) bool {
+	return errors.Is(err, asynxModels.ErrPipelineFailed) || errors.Is(err, asynxModels.ErrValidation)
 }
 
 func sameAvailable(

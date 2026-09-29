@@ -73,7 +73,7 @@ func TestCheckAvailable_RecordsWhatALiveSnapshotFinds(t *testing.T) {
 			ns := stableNs()
 			seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, installed)
 			if tc.recorded != nil {
-				_, err := axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: tc.recorded})
+				_, err := axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: tc.recorded, JudgedResolved: installed})
 				require.NoError(t, err)
 			}
 			m := &mocks.Manifold{SnapshotResult: tc.snap}
@@ -273,7 +273,7 @@ func TestRefreshToTarget_StagesTheTargetManifestOnTheSameRow(t *testing.T) {
 	installed := domain.Resolved{Ref: "nightly-latest", Commit: "c1", Fingerprint: "c1"}
 	target := domain.Available{Ref: "nightly-latest", Commit: "c2"}
 	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, installed)
-	_, err = axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: &target})
+	_, err = axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: &target, JudgedResolved: installed})
 	require.NoError(t, err)
 
 	staged, err := cat.RefreshToTarget(ctx, ns, target)

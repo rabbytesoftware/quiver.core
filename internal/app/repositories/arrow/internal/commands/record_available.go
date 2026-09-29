@@ -9,10 +9,12 @@ import (
 )
 
 // RecordAvailable stamps what the last drift check found ahead of an existing
-// row; a nil Available marks the row current.
+// row; a nil Available marks the row current. JudgedResolved is the Resolved
+// the check judged: an answer about a row that has since moved is refused.
 type RecordAvailable struct {
-	Namespace domain.Namespace
-	Available *domain.Available
+	Namespace      domain.Namespace
+	Available      *domain.Available
+	JudgedResolved domain.Resolved
 }
 
 func (c RecordAvailable) AggregateID() string {
@@ -32,6 +34,9 @@ func (c RecordAvailable) Validate(
 ) error {
 	if current == nil {
 		return fmt.Errorf("record available: %w", asynxModels.ErrValidation)
+	}
+	if current.Resolved != c.JudgedResolved {
+		return fmt.Errorf("record available: judged against a resolved the row has left: %w", asynxModels.ErrValidation)
 	}
 	return nil
 }

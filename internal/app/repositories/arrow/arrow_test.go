@@ -2429,10 +2429,12 @@ func TestAdvance_MovesTheSameRowToTheTarget(t *testing.T) {
 		return nil
 	}))
 
-	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"})
+	installed := domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"}
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, installed)
 	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
-		Namespace: ns,
-		Available: &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+		Namespace:      ns,
+		Available:      &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+		JudgedResolved: installed,
 	})
 	require.NoError(t, err)
 
@@ -2689,7 +2691,7 @@ func TestAdopt_UnchangedResolved_NewManifest_RefreshesTheRow(t *testing.T) {
 	_, err = axArrow.SendWait(context.Background(), arrowcmds.MarkInstalled{Namespace: ns, InstalledAt: installedAt})
 	require.NoError(t, err)
 	available := &domain.Available{Ref: "v1.1.0", Commit: "c11"}
-	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available, JudgedResolved: resolved})
 	require.NoError(t, err)
 
 	m.ParseArrowResult = adoptedManifest("Second")
@@ -2887,9 +2889,10 @@ func TestProjectAvailableChecked_ReachesTheReadModel(t *testing.T) {
 	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
 	require.NotNil(t, cat)
 
-	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "nightly-latest", Commit: "old111"})
+	judged := domain.Resolved{Ref: "nightly-latest", Commit: "old111"}
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, judged)
 	available := &domain.Available{Ref: "nightly-latest", Commit: "new222"}
-	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available, JudgedResolved: judged})
 	require.NoError(t, err)
 
 	mu.Lock()
