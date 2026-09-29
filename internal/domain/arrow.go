@@ -73,6 +73,12 @@ type Arrow struct {
 	// overriding that channel's own latest. Empty means "track the channel's
 	// latest", the plain behavior before any specific version was pinned.
 	PinnedRef string `json:"pinned_ref,omitempty"`
+	// SelectorKind names the type of selector this row tracks.
+	SelectorKind SelectorKind `json:"selector_kind,omitempty" yaml:"selector_kind,omitempty"`
+	// Resolved carries the installed ref and its resolved commit.
+	Resolved Resolved `json:"resolved" yaml:"resolved"`
+	// Available carries a newly available ref and its commit, or nil when no newer version is available.
+	Available *Available `json:"available,omitempty" yaml:"available,omitempty"`
 }
 
 // ArrowMeta carries gorm tags so read models can embed it instead of restating
