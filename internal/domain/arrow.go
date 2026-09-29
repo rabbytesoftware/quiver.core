@@ -10,7 +10,6 @@ const (
 	MaxNameLength        = 255
 	MaxDescriptionLength = 1000
 	MaxReadmeLength      = 256000
-	VersionLatestRef     = "latest"
 	MethodInstall        = "_install"
 	MethodUninstall      = "_uninstall"
 	MethodUpdate         = "_update"
@@ -18,7 +17,7 @@ const (
 	MethodStop           = "_stop"
 )
 
-// Arrow is the single canonical aggregate for an installed namespace@ref.
+// Arrow is the single canonical aggregate for an installed namespace@selector.
 // When used as a parsed manifest (vault/manifold contexts) the installation
 // fields (InstalledAt, UserInstalled, SelectorKind, Resolved, Available) are
 // zero.
