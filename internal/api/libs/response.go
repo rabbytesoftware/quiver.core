@@ -22,6 +22,16 @@ func WriteMutationOK(
 	c.JSON(status, apiResponse{Success: true, Namespace: namespace})
 }
 
+// WriteMutationResult is WriteMutationOK for a write that reports what it did.
+func WriteMutationResult(
+	c *gin.Context,
+	status int,
+	namespace string,
+	data any,
+) {
+	c.JSON(status, apiResponse{Success: true, Namespace: namespace, Data: data})
+}
+
 func WriteQueryOK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, apiResponse{Success: true, Data: data})
 }

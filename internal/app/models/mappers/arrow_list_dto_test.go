@@ -99,3 +99,30 @@ func TestArrowListDTOsFrom_UninstalledVersionStillNamesItsRef(t *testing.T) {
 	assert.True(t, ver.InstalledAt.IsZero())
 	assert.True(t, ver.LastUsedAt.IsZero())
 }
+
+func TestArrowListDTOsFrom_VersionCarriesResolvedRef(t *testing.T) {
+	testCases := []struct {
+		name     string
+		metadata domain.Arrow
+		want     string
+	}{
+		{"resolved", domain.Arrow{Resolved: domain.Resolved{Ref: "v1.4.0", Commit: "c"}}, "v1.4.0"},
+		{"legacy row", domain.Arrow{}, ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := mappers.ArrowListDTOsFrom([]models.ArrowView{{
+				Namespace: "github.com/org/repo",
+				Versions: []models.VersionView{{
+					Namespace: "github.com/org/repo@stable",
+					Metadata:  tc.metadata,
+				}},
+			}})
+
+			assert.Len(t, result[0].Versions, 1)
+			assert.Equal(t, "stable", result[0].Versions[0].Ref)
+			assert.Equal(t, tc.want, result[0].Versions[0].ResolvedRef)
+		})
+	}
+}

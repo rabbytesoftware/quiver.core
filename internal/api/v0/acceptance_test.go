@@ -416,10 +416,68 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	assert.True(t, local[0].Installed)
 	assert.Equal(t, models.ProvenanceInstalled, local[0].Provenance)
 
+	// 7. The added row reads back in the selector model's wire shape.
+	assertAddedWireShape(t, env, discoveredNS)
+
 	// Nothing after the add reached a provider or fetched a manifest again.
 	finalResolves, _ := env.manifold.counts()
 	assert.Equal(t, resolvesAfterAdd, finalResolves)
 	assert.Equal(t, 1, env.provider.searches())
+}
+
+// assertAddedWireShape reads the detail, list and manifest of an arrow added
+// from a branch selector and checks each carries the selector model's fields
+// and none of the removed ones.
+func assertAddedWireShape(
+	t *testing.T,
+	env *acceptanceEnv,
+	ns string,
+) {
+	t.Helper()
+
+	var detail map[string]any
+	require.Eventually(t, func() bool {
+		st, b := env.get(t, "/v0/arrow/"+url.PathEscape(ns))
+		if st != http.StatusOK {
+			return false
+		}
+		decodeInto(t, b, &detail)
+		return detail["resolved_ref"] != ""
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, "channel", detail["selector_kind"])
+	assert.Equal(t, acceptanceBranch, detail["resolved_ref"])
+	assert.Equal(t, acceptanceCommit, detail["installed_commit"])
+	assert.NotContains(t, detail, "available")
+	assert.Equal(t, false, detail["outdated"])
+	for _, removed := range []string{"channel", "installed_constraint", "recommended_ref", "installed_ref"} {
+		assert.NotContains(t, detail, removed)
+	}
+
+	status, body := env.get(t, "/v0/arrow")
+	require.Equal(t, http.StatusOK, status)
+	var list []map[string]any
+	decodeInto(t, body, &list)
+	require.Len(t, list, 1)
+	versions, ok := list[0]["versions"].([]any)
+	require.True(t, ok)
+	require.Len(t, versions, 1)
+	version, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, acceptanceBranch, version["ref"])
+	assert.Equal(t, acceptanceBranch, version["resolved_ref"])
+	assert.NotContains(t, version, "constraint")
+
+	status, body = env.get(t, "/v0/arrow/"+url.PathEscape(ns)+"/manifest")
+	require.Equal(t, http.StatusOK, status)
+	var manifest struct {
+		Manifest map[string]any `json:"manifest"`
+	}
+	decodeInto(t, body, &manifest)
+	assert.Contains(t, manifest.Manifest, "metadata")
+	for _, key := range []string{"selector_kind", "resolved", "available", "installed_at", "user_installed"} {
+		assert.NotContains(t, manifest.Manifest, key)
+	}
 }
 
 func dialJob(

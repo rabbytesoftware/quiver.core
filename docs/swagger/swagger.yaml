@@ -18,6 +18,14 @@ definitions:
       success:
         type: boolean
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResultResponse:
+    properties:
+      data: {}
+      namespace:
+        type: string
+      success:
+        type: boolean
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse:
     properties:
       data: {}
@@ -53,13 +61,13 @@ definitions:
     properties:
       active_run:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO'
-      channel:
-        type: string
+      available:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO'
       description:
         type: string
       installed_at:
         type: string
-      installed_constraint:
+      installed_commit:
         type: string
       last_return:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
@@ -72,8 +80,17 @@ definitions:
       namespace:
         type: string
       outdated:
+        description: Outdated is true exactly when Available is set.
         type: boolean
-      recommended_ref:
+      resolved_ref:
+        type: string
+      selector_kind:
+        description: SelectorKind is one of "pin", "channel", "constraint" or "commit".
+        enum:
+        - pin
+        - channel
+        - constraint
+        - commit
         type: string
       state:
         type: string
@@ -108,7 +125,7 @@ definitions:
       description:
         type: string
       manifest:
-        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Arrow'
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifestContentDTO'
       name:
         type: string
       namespace:
@@ -142,6 +159,13 @@ definitions:
       namespace:
         type: string
       state:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO:
+    properties:
+      commit:
+        type: string
+      ref:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ChannelDTO:
@@ -263,6 +287,15 @@ definitions:
       message:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConstrainedDepDTO:
+    properties:
+      namespace:
+        type: string
+      new_constraint:
+        type: string
+      old_constraint:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO:
     properties:
       id:
@@ -341,16 +374,35 @@ definitions:
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InstalledVersionItemDTO:
     properties:
-      constraint:
-        type: string
       installed_at:
         type: string
       last_used_at:
         type: string
       ref:
         type: string
+      resolved_ref:
+        type: string
       state:
         type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifestContentDTO:
+    properties:
+      metadata:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMeta'
+      netbridge:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
+        type: array
+      readme:
+        type: string
+      targets:
+        additionalProperties:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target'
+        type: object
+      variables:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
+        type: array
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PairingCodeDTO:
     properties:
@@ -471,6 +523,27 @@ definitions:
       type:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.UpdateResultDTO:
+    properties:
+      added_deps:
+        items:
+          type: string
+        type: array
+      available:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO'
+      constrained_deps:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConstrainedDepDTO'
+        type: array
+      removed_from_manifest:
+        items:
+          type: string
+        type: array
+      safe_to_uninstall:
+        items:
+          type: string
+        type: array
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationErrorDTO:
     properties:
       field:
@@ -515,20 +588,6 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
       vault:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Vault'
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions:
-    properties:
-      channel:
-        type: string
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions:
-    properties:
-      channel:
-        type: string
-      ref:
-        type: string
-      upgradeRef:
-        type: boolean
     type: object
   github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config:
     properties:
@@ -626,37 +685,20 @@ definitions:
       ttl:
         type: string
     type: object
-  github_com_rabbytesoftware_quiver_core_internal_domain.Arrow:
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
     properties:
-      already_ready:
-        description: |-
-          AlreadyReady is set only on an arrow.upgraded.* event raised after this
-          arrow's own update lifecycle already finished successfully: the software
-          at the new ref is already fetched, placed and running, so the reaction
-          that lands the new row must seed it Ready directly rather than install
-          it again. Never set on an upgrade_ref-driven swap, where the new ref
-          genuinely has not been installed yet.
-        type: boolean
-      channel:
-        description: |-
-          Channel names the release channel this arrow's default drift check
-          tracks (e.g. "stable", "rc", "beta"). Empty is treated as "stable" —
-          the default before any channel was ever explicitly selected.
+      banner:
         type: string
+      icon:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMeta:
+    properties:
       credits:
         items:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit'
         type: array
       description:
-        type: string
-      installed_at:
-        type: string
-      installed_constraint:
-        type: string
-      last_used_at:
-        description: |-
-          LastUsedAt is stamped when an _execute run completes successfully; zero
-          means the arrow has never been run.
         type: string
       license:
         type: string
@@ -668,72 +710,11 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia'
       name:
         type: string
-      namespace:
-        type: string
-      netbridge:
-        items:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef'
-        type: array
-      outdated:
-        description: Outdated is true once a version check found a better ref available.
-        type: boolean
-      pinned_ref:
-        description: |-
-          PinnedRef, when set, is the exact ref within Channel this arrow tracks,
-          overriding that channel's own latest. Empty means "track the channel's
-          latest", the plain behavior before any specific version was pinned.
-        type: string
-      readme:
-        description: |-
-          Readme is the prose surrounding the fenced manifest block when the arrow
-          is delivered as ARROW.md; it is empty for the plain arrow.yaml form. It
-          lives here rather than on ArrowMeta so it never rides into the lightweight
-          catalog/search row, which embeds ArrowMeta directly.
-        type: string
-      recommended_ref:
-        description: |-
-          RecommendedRef names the tag a version check found to replace the
-          installed ref. Empty when Outdated is true for plain branch drift with
-          no better named ref to switch to.
-        type: string
-      ref_commit_sha:
-        description: |-
-          RefCommitSHA is the commit hash the branch ref pointed at when resolved.
-          Meaningful only when RefIsBranch is true.
-        type: string
-      ref_is_branch:
-        description: |-
-          RefIsBranch marks a namespace resolved onto a moving branch rather than
-          pinned as written or matched to a tag — stamped only by the
-          refless-resolution fallback when no stable release exists.
-        type: boolean
       tags:
         items:
           type: string
         type: array
-      targets:
-        additionalProperties:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target'
-        type: object
-      upgraded_from_ns:
-        description: |-
-          UpgradedFromNs is set only on the arrow.upgraded.* event; it names the
-          old namespace that was replaced so the runtime reaction can clean up.
-        type: string
       url:
-        type: string
-      user_installed:
-        type: boolean
-      variables:
-        items:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable'
-        type: array
-    type: object
-  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
-    properties:
-      banner:
-        type: string
-      icon:
         type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.ArrowState:
@@ -1012,31 +993,31 @@ paths:
       tags:
       - arrows
     patch:
-      consumes:
-      - application/json
-      description: 'Fetches the latest manifest for the arrow and updates its registration.
-        Optional body fields: "channel" switches which release channel the arrow tracks
-        (its latest ref is taken unless "ref" pins to a specific ref within that channel);
-        "upgrade_ref" resolves the arrow''s existing installed constraint to its latest
-        matching ref instead.'
+      description: Re-checks the arrow's selector against its repository. A row nothing
+        is installed from advances to the available ref at once and reports its dependency
+        changes; an installed row keeps its version and reports the ref in `available`,
+        which the runtime update moves it to. `available` is absent when the row is
+        current. The request takes no body.
       parameters:
       - description: Arrow namespace
         in: path
         name: ns
         required: true
         type: string
-      - description: Optional update preferences (e.g. channel, ref, upgrade_ref)
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions'
+      produces:
+      - application/json
       responses:
         "200":
-          description: Arrow updated
+          description: Update result
           schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResultResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.UpdateResultDTO'
+              type: object
         "400":
-          description: Requested channel or ref does not exist
+          description: Invalid namespace
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "404":
@@ -1047,23 +1028,19 @@ paths:
           description: Internal error
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
-      summary: Update arrow manifest
+      summary: Update arrow
       tags:
       - arrows
     post:
-      description: Registers an arrow by its namespace. The manifest must already
-        exist in the registry.
+      description: Registers an arrow by its namespace. The ref after @ is the selector
+        the row tracks; a refless namespace follows the repository's default channel.
+        The request takes no body.
       parameters:
       - description: Arrow namespace (e.g. github.com/user/repo@v1.0.0)
         in: path
         name: ns
         required: true
         type: string
-      - description: Optional install preferences (e.g. channel)
-        in: body
-        name: body
-        schema:
-          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions'
       responses:
         "201":
           description: Arrow registered
@@ -1189,8 +1166,9 @@ paths:
       - arrows
   /arrow/{ns}/manifest:
     get:
-      description: Returns the full manifest definition including targets, variables,
-        and lifecycle steps.
+      description: Returns the manifest as its author wrote it (metadata, variables,
+        netbridge, targets, readme). Quiver's own bookkeeping for the row (selector,
+        resolved and available refs) is on the arrow detail, not here.
       parameters:
       - description: Arrow namespace
         in: path

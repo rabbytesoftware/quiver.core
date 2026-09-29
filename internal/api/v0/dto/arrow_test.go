@@ -158,3 +158,27 @@ func TestArrowEventDTOFrom_UpsertedIncludesMedia(t *testing.T) {
 	assert.Equal(t, "https://example.com/icon.png", media["icon"])
 	assert.Equal(t, "https://example.com/banner.png", media["banner"])
 }
+
+// The catalog stream keeps its shape: the selector bookkeeping lives on the
+// detail endpoint and must not ride along in every upsert.
+func TestArrowEventDTOFrom_WireShape_Unchanged(t *testing.T) {
+	evt := hub.ArrowEvent{
+		Kind: hub.CatalogUpserted,
+		Arrow: domain.Arrow{
+			Namespace:    "github.com/user/repo@stable",
+			ArrowMeta:    domain.ArrowMeta{Name: "repo"},
+			SelectorKind: domain.SelectorChannel,
+			Resolved:     domain.Resolved{Ref: "v1.0.0", Commit: "c1"},
+			Available:    &domain.Available{Ref: "v1.1.0", Commit: "c2"},
+		},
+	}
+	data, err := json.Marshal(dto.ArrowEventDTOFrom(evt))
+	require.NoError(t, err)
+
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(data, &m))
+
+	assert.ElementsMatch(t,
+		[]string{"event", "namespace", "name", "description", "tags", "media", "user_installed"},
+		mapKeys(m))
+}

@@ -26,7 +26,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/tui/theme"
 )
 
-const testNS = "github.com/user/app"
+const (
+	testNS              = "github.com/user/app"
+	testCommit          = "0123456789abcdef0123456789abcdef01234567"
+	testAvailableCommit = "fedcba9876543210fedcba9876543210fedcba98"
+)
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
@@ -103,13 +107,14 @@ func (f *fakeArrowDaemon) handler() http.Handler {
 		switch {
 		case path == "/v0/arrow" && r.Method == http.MethodGet:
 			arrowOK(w, `[{"namespace":"`+testNS+`","name":"App","description":"An app",`+
-				`"tags":["web"],"versions":[{"ref":"`+testNS+`@v1","state":"ready",`+
+				`"tags":["web"],"versions":[{"ref":"stable","resolved_ref":"v1.4.0","state":"ready",`+
 				`"installed_at":"2026-01-01T00:00:00Z"}]}]`)
 		case path == "/v0/arrow/"+testNS && r.Method == http.MethodGet:
 			arrowOK(w, `{"namespace":"`+testNS+`","name":"App","description":"An app",`+
 				`"state":"ready","license":"MIT","tags":["web"],`+
-				`"installed_constraint":">=1.0.0","installed_at":"2026-01-01T00:00:00Z",`+
-				`"user_installed":true}`)
+				`"selector_kind":"channel","resolved_ref":"v1.4.0","installed_commit":"`+testCommit+`",`+
+				`"available":{"ref":"v1.5.0","commit":"`+testAvailableCommit+`"},"outdated":true,`+
+				`"installed_at":"2026-01-01T00:00:00Z","user_installed":true}`)
 		case r.Method == http.MethodPost || r.Method == http.MethodDelete || r.Method == http.MethodPatch:
 			f.record(r)
 			status := http.StatusAccepted
@@ -222,7 +227,30 @@ func TestArrowList_TableShowsRef(t *testing.T) {
 	out, err := runArrow(t, f, "table", "list")
 	require.NoError(t, err)
 	assert.Contains(t, out, "REF")
-	assert.Contains(t, out, testNS+"@v1", "the registered ref is the removal handle and must be visible")
+	assert.Contains(t, out, "RESOLVED")
+	assert.Contains(t, out, "stable", "the identity selector is the removal handle and must be visible")
+	assert.Contains(t, out, "v1.4.0", "the resolved ref says what the selector installed")
+}
+
+func TestArrowList_StructuredCarriesSelectorAndResolved(t *testing.T) {
+	testCases := []struct {
+		name   string
+		format string
+		want   []string
+	}{
+		{"json", "json", []string{`"ref": "stable"`, `"resolved_ref": "v1.4.0"`}},
+		{"yaml", "yaml", []string{"ref: stable", "resolved_ref: v1.4.0"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runArrow(t, &fakeArrowDaemon{}, tc.format, "list")
+			require.NoError(t, err)
+			for _, want := range tc.want {
+				assert.Contains(t, out, want)
+			}
+		})
+	}
 }
 
 func TestArrowList_DaemonError_Propagates(t *testing.T) {
@@ -240,6 +268,63 @@ func TestArrowShow_Detail(t *testing.T) {
 	out, err := runArrow(t, f, "", "show", testNS)
 	require.NoError(t, err)
 	assert.Contains(t, out, "App")
+}
+
+// The table view abbreviates commits to seven characters; it is for reading.
+func TestArrowShow_Table_PrintsVersioning(t *testing.T) {
+	out, err := runArrow(t, &fakeArrowDaemon{}, "table", "show", testNS)
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		"Selector", "channel",
+		"Resolved", "v1.4.0",
+		"Commit", testCommit[:7],
+		"Available", "v1.5.0 (" + testAvailableCommit[:7] + ")",
+	} {
+		assert.Contains(t, out, want)
+	}
+	assert.NotContains(t, out, testCommit)
+	assert.NotContains(t, out, testAvailableCommit)
+}
+
+// A current, legacy row has nothing available and nothing resolved.
+func TestViewDetail_CurrentPin_OmitsAvailable(t *testing.T) {
+	out := arrow.ViewDetail(apidto.ArrowDetailDTO{
+		Namespace: testNS, SelectorKind: "pin", ResolvedRef: "", InstalledCommit: "abc",
+	}, newTestTheme(t))
+
+	assert.Contains(t, out, "pin")
+	assert.Contains(t, out, "abc")
+	assert.NotContains(t, out, "Available")
+	assert.NotContains(t, out, "Resolved")
+}
+
+// Structured output is for machines: commits stay whole.
+func TestArrowShow_Structured_FullCommits(t *testing.T) {
+	testCases := []struct {
+		name   string
+		format string
+		want   []string
+	}{
+		{"json", "json", []string{
+			`"selector_kind": "channel"`, `"resolved_ref": "v1.4.0"`,
+			`"installed_commit": "` + testCommit + `"`, `"commit": "` + testAvailableCommit + `"`,
+		}},
+		{"yaml", "yaml", []string{
+			"selector_kind: channel", "resolved_ref: v1.4.0",
+			"installed_commit: " + testCommit, "commit: " + testAvailableCommit,
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := runArrow(t, &fakeArrowDaemon{}, tc.format, "show", testNS)
+			require.NoError(t, err)
+			for _, want := range tc.want {
+				assert.Contains(t, out, want)
+			}
+		})
+	}
 }
 
 func TestArrowShow_DaemonError_Propagates(t *testing.T) {
@@ -400,42 +485,44 @@ func TestSeedCmd_MissingFile_ReturnsReadError(t *testing.T) {
 
 // ─── exported view helpers (reused by commands/discovery) ───────────────────
 
-func TestInstalledRefAndState_Table(t *testing.T) {
+func TestRowFrom_Table(t *testing.T) {
 	testCases := []struct {
-		name      string
-		item      apidto.ArrowListItemDTO
-		wantRef   string
-		wantState string
+		name string
+		item apidto.ArrowListItemDTO
+		want output.ArrowRow
 	}{
 		{
-			name:      "no versions is absent",
-			item:      apidto.ArrowListItemDTO{Namespace: testNS},
-			wantRef:   "-",
-			wantState: "absent",
+			name: "no versions is absent",
+			item: apidto.ArrowListItemDTO{Namespace: testNS, Name: "App"},
+			want: output.ArrowRow{Namespace: testNS, Name: "App", Ref: "-", Resolved: "-", State: "absent"},
 		},
 		{
-			name: "installed version carries ref and state",
+			name: "installed version carries selector, resolved ref and state",
 			item: apidto.ArrowListItemDTO{
-				Versions: []apidto.InstalledVersionItemDTO{{Ref: testNS + "@v1", State: "ready"}},
+				Namespace: testNS,
+				Versions:  []apidto.InstalledVersionItemDTO{{Ref: "stable", ResolvedRef: "v1.4.0", State: "ready"}},
 			},
-			wantRef:   testNS + "@v1",
-			wantState: "ready",
+			want: output.ArrowRow{Namespace: testNS, Ref: "stable", Resolved: "v1.4.0", State: "ready"},
+		},
+		{
+			name: "unresolved version renders a dash",
+			item: apidto.ArrowListItemDTO{
+				Versions: []apidto.InstalledVersionItemDTO{{Ref: "v1.0.0", State: "absent"}},
+			},
+			want: output.ArrowRow{Ref: "v1.0.0", Resolved: "-", State: "absent"},
 		},
 		{
 			name: "empty ref on an installed version renders as a dash",
 			item: apidto.ArrowListItemDTO{
 				Versions: []apidto.InstalledVersionItemDTO{{Ref: "", State: "installing"}},
 			},
-			wantRef:   "-",
-			wantState: "installing",
+			want: output.ArrowRow{Ref: "-", Resolved: "-", State: "installing"},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ref, state := arrow.InstalledRefAndState(tc.item)
-			assert.Equal(t, tc.wantRef, ref)
-			assert.Equal(t, tc.wantState, state)
+			assert.Equal(t, tc.want, arrow.RowFrom(tc.item))
 		})
 	}
 }

@@ -37,6 +37,8 @@ type ArrowService struct {
 
 	// AddCalls records the namespace each Add was called with.
 	AddCalls []domain.Namespace
+	// UpdateCalls records the namespace each Update was called with.
+	UpdateCalls []domain.Namespace
 }
 
 func (m *ArrowService) Add(
@@ -49,8 +51,9 @@ func (m *ArrowService) Add(
 
 func (m *ArrowService) Update(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 ) (models.UpdateResult, error) {
+	m.UpdateCalls = append(m.UpdateCalls, ns)
 	return m.UpdateResult, m.UpdateErr
 }
 

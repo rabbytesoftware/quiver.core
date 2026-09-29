@@ -71,3 +71,34 @@ func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {
 	assert.True(t, result.LastUsedAt.IsZero())
 	assert.False(t, result.Outdated)
 }
+
+func TestArrowDetailDTOFrom_CarriesVersioning(t *testing.T) {
+	available := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+	view := &models.ArrowDetailView{
+		Metadata: domain.Arrow{
+			Namespace:    "github.com/org/repo@stable",
+			SelectorKind: domain.SelectorChannel,
+			Resolved:     domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "f"},
+			Available:    available,
+		},
+	}
+
+	result := mappers.ArrowDetailDTOFrom(view)
+
+	require.NotNil(t, result)
+	assert.Equal(t, domain.SelectorChannel, result.SelectorKind)
+	assert.Equal(t, domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "f"}, result.Resolved)
+	assert.Equal(t, available, result.Available)
+	assert.True(t, result.Outdated)
+}
+
+func TestArrowDetailDTOFrom_LegacyZeroRow_HasNoVersioning(t *testing.T) {
+	result := mappers.ArrowDetailDTOFrom(&models.ArrowDetailView{
+		Metadata: domain.Arrow{Namespace: "github.com/org/repo@v1.0.0"},
+	})
+
+	require.NotNil(t, result)
+	assert.Equal(t, domain.SelectorPin, result.SelectorKind)
+	assert.Empty(t, result.Resolved.Ref)
+	assert.Nil(t, result.Available)
+}

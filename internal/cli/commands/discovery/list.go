@@ -76,8 +76,7 @@ func buildCatalog(
 		if !matches(pattern, a.Namespace, a.Name) {
 			continue
 		}
-		ref, state := arrow.InstalledRefAndState(a)
-		rows = append(rows, output.ArrowRow{Namespace: a.Namespace, Name: a.Name, Ref: ref, State: state})
+		rows = append(rows, arrow.RowFrom(a))
 	}
 
 	cols := make([]output.CollectionRow, 0, len(collections))

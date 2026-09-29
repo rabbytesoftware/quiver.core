@@ -1,6 +1,7 @@
 package arrows
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -21,10 +23,21 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 	return &Handlers{svc: svc}
 }
 
+// validNamespace writes a 400 and reports false when ns is malformed.
+func validNamespace(c *gin.Context, ns domain.Namespace) bool {
+	err := ns.Validate()
+	if err == nil {
+		return true
+	}
+	status, msg := apierr.StatusAndMessage(fmt.Errorf("%w: %w", apperrors.ErrInvalidNamespace, err))
+	libs.WriteErr(c, status, msg, string(ns))
+	return false
+}
+
 // Add registers an arrow from an existing manifest in the Quiver registry.
 //
 // @Summary      Register arrow
-// @Description  Registers an arrow by its namespace. The ref after @ is the selector the row tracks; a refless namespace follows the repository's default channel.
+// @Description  Registers an arrow by its namespace. The ref after @ is the selector the row tracks; a refless namespace follows the repository's default channel. The request takes no body.
 // @Tags         arrows
 // @Param        ns    path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
@@ -35,6 +48,9 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
+	if !validNamespace(c, ns) {
+		return
+	}
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
@@ -46,21 +62,27 @@ func (h *Handlers) Add(c *gin.Context) {
 // Update advances an arrow to what its selector points at now.
 //
 // @Summary      Update arrow
-// @Description  Re-checks the arrow's selector against its repository and advances the row to the available ref, running the target's update steps when it is installed.
+// @Description  Re-checks the arrow's selector against its repository. A row nothing is installed from advances to the available ref at once and reports its dependency changes; an installed row keeps its version and reports the ref in `available`, which the runtime update moves it to. `available` is absent when the row is current. The request takes no body.
 // @Tags         arrows
+// @Produce      json
 // @Param        ns    path  string  true  "Arrow namespace"
-// @Success      200  {object}  libs.MutationResponse  "Arrow updated"
+// @Success      200  {object}  libs.MutationResultResponse{data=apidto.UpdateResultDTO}  "Update result"
+// @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [patch]
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	if _, err := h.svc.Update(c.Request.Context(), ns); err != nil {
+	if !validNamespace(c, ns) {
+		return
+	}
+	result, err := h.svc.Update(c.Request.Context(), ns)
+	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return
 	}
-	libs.WriteMutationOK(c, http.StatusOK, string(ns))
+	libs.WriteMutationResult(c, http.StatusOK, string(ns), apidto.UpdateResultDTOFrom(result))
 }
 
 // Remove deregisters an arrow, addressed by the namespace it was registered
@@ -140,7 +162,7 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 // GetManifest returns the raw manifest definition for an arrow.
 //
 // @Summary      Get arrow manifest
-// @Description  Returns the full manifest definition including targets, variables, and lifecycle steps.
+// @Description  Returns the manifest as its author wrote it (metadata, variables, netbridge, targets, readme). Quiver's own bookkeeping for the row (selector, resolved and available refs) is on the arrow detail, not here.
 // @Tags         arrows
 // @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"

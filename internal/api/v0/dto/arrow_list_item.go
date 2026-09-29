@@ -5,11 +5,12 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// InstalledVersionItemDTO is one namespace@ref of a catalog entry. Ref is the
-// ref the row is filed under and is always set; whether that ref is on disk is
-// read from State and InstalledAt.
+// InstalledVersionItemDTO is one namespace@selector of a catalog entry. Ref is
+// the selector the row is filed under and is always set; ResolvedRef is the ref
+// it installed, empty until it resolved one.
 type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref" yaml:"ref"`
+	ResolvedRef string `json:"resolved_ref" yaml:"resolved_ref"`
 	State       string `json:"state" yaml:"state"`
 	InstalledAt string `json:"installed_at" yaml:"installed_at"`
 	LastUsedAt  string `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
@@ -35,6 +36,7 @@ func ArrowListItemDTOFrom(
 		}
 		versions = append(versions, InstalledVersionItemDTO{
 			Ref:         v.Ref,
+			ResolvedRef: v.ResolvedRef,
 			State:       string(v.State),
 			InstalledAt: v.InstalledAt.Format("2006-01-02T15:04:05Z07:00"),
 			LastUsedAt:  lastUsedAt,

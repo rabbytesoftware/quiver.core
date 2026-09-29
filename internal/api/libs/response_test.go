@@ -45,6 +45,19 @@ func TestWriteMutationOK(t *testing.T) {
 	assert.Equal(t, "github.com/user/repo", env.Namespace)
 }
 
+func TestWriteMutationResult(t *testing.T) {
+	c, w := newContext(http.MethodPatch, "/")
+	libs.WriteMutationResult(c, http.StatusOK, "github.com/user/repo", map[string]string{"key": "val"})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var env envelope
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.True(t, env.Success)
+	assert.Nil(t, env.Error)
+	assert.Equal(t, "github.com/user/repo", env.Namespace)
+	assert.Equal(t, map[string]any{"key": "val"}, env.Data)
+}
+
 func TestWriteQueryOK(t *testing.T) {
 	c, w := newContext(http.MethodGet, "/")
 	libs.WriteQueryOK(c, map[string]string{"key": "val"})

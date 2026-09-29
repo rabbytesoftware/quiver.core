@@ -12,7 +12,7 @@ import (
 func (c *commands) refreshCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "refresh <namespace>",
-		Short: "Re-fetch an arrow's manifest from its source",
+		Short: "Re-check an arrow's selector for a newer version",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := clierr.ValidNS(args[0]); err != nil {
