@@ -62,6 +62,9 @@ type fakeDaemon struct {
 	// fail makes every request return 500, for daemon-error-propagation
 	// tests.
 	fail bool
+	// wsHold, when set, keeps every runtime WS subscription open and silent
+	// until it is closed: a command that waits on the stream never returns.
+	wsHold chan struct{}
 
 	mu    sync.Mutex
 	posts []string // recorded "METHOD path" of mutations
@@ -99,6 +102,10 @@ func (f *fakeDaemon) handler() http.Handler {
 			conn, err := up.Upgrade(w, r, nil)
 			require.NoError(f.t, err)
 			defer func() { _ = conn.Close() }()
+			if f.wsHold != nil {
+				<-f.wsHold
+				return
+			}
 			for _, evt := range f.wsScript {
 				raw, _ := json.Marshal(evt)
 				_ = conn.WriteMessage(websocket.TextMessage, raw)

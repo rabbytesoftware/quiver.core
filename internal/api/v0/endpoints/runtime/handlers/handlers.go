@@ -24,13 +24,13 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // Execute triggers a lifecycle method on an arrow.
 //
 // @Summary      Execute method
-// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.
+// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.
 // @Tags         runtime
 // @Accept       json
 // @Param        ns      path  string                          true   "Arrow namespace"
 // @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
 // @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
-// @Success      200     {object}  libs.MutationResponse             "No-op: arrow already in the requested state"
+// @Success      200     {object}  libs.MutationResponse             "No-op: already installed, or nothing newer to update to"
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
@@ -48,9 +48,9 @@ func (h *Handlers) Execute(c *gin.Context) {
 
 	var (
 		err error
-		// started reports whether an execution was actually begun. Only
-		// install can short-circuit to an idempotent no-op today; every other
-		// method that reaches here has begun work.
+		// started reports whether an execution was actually begun: install
+		// of an installed arrow and update of a current one are idempotent
+		// no-ops; every other method that reaches here has begun work.
 		started = true
 	)
 	switch method {
@@ -63,7 +63,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 	case "stop":
 		err = h.svc.Stop(c.Request.Context(), ns)
 	case "_update", "update":
-		err = h.svc.Execute(c.Request.Context(), ns, domain.MethodUpdate, req.Variables)
+		started, err = h.svc.Update(c.Request.Context(), ns, req.Variables)
 	default:
 		err = h.svc.Execute(c.Request.Context(), ns, method, req.Variables)
 	}

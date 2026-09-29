@@ -1458,7 +1458,7 @@ const docTemplate = `{
         },
         "/runtime/{ns}/{method}": {
             "post": {
-                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.",
+                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1492,7 +1492,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "No-op: arrow already in the requested state",
+                        "description": "No-op: already installed, or nothing newer to update to",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
                         }

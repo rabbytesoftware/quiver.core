@@ -268,14 +268,16 @@ func (s *AdvanceSuite) TestAdvance_EndToEndBracket_SecondUpdateIsANoOp() {
 	s.install(env, tc, ns)
 	moved := s.moveTag(f, "nightly")
 
-	s.update(tc, ns)
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodUpdate, nil),
+		"a moved target starts an update")
 	advanced := s.waitAdvanced(tc, ns, moved)
 	s.Require().NotNil(advanced.LastReturn)
 	s.Equal(domain.MethodUpdate, advanced.LastReturn.Method)
 	s.Equal("success", advanced.LastReturn.Outcome)
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, wait)
 
-	s.update(tc, ns)
+	s.Equal(http.StatusOK, tc.Execute(ns, domain.MethodUpdate, nil),
+		"nothing newer is an idempotent no-op: no runtime event will follow")
 
 	again := s.detail(tc, ns)
 	s.Equal(string(domain.ArrowStateReady), again.State, "nothing ahead: no update begins")
@@ -321,7 +323,7 @@ func (s *AdvanceSuite) TestAdvance_CommitPinNeverOutdated() {
 	s.publish(f, "v1.3.0", manifest)
 
 	s.Nil(s.checkAvailable(tc, ns), "a commit pin follows nothing that can move")
-	s.update(tc, ns)
+	s.Equal(http.StatusOK, tc.Execute(ns, domain.MethodUpdate, nil), "an update of a commit pin starts nothing")
 
 	detail := s.detail(tc, ns)
 	s.Equal("commit", detail.SelectorKind)

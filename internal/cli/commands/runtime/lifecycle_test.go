@@ -192,6 +192,36 @@ func TestUpdate_PostsUpdate(t *testing.T) {
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/update")
 }
 
+// A daemon answering 200 had nothing newer: no runtime event will follow, so
+// the command must not wait on the stream. The stream here never speaks, so a
+// command that waited would never return.
+func TestUpdate_NoOp_DoesNotWaitForTheStream(t *testing.T) {
+	testCases := []struct {
+		name   string
+		format string
+		args   []string
+		want   string
+	}{
+		{name: "json", format: "json", want: `"reason":"already up to date, nothing to do"`},
+		{name: "yaml", format: "yaml", want: "reason: already up to date, nothing to do"},
+		{name: "detached", format: "json", args: []string{"--detach"}, want: `"reason":"already up to date, nothing to do"`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			hold := make(chan struct{})
+			f := &fakeDaemon{t: t, mutationStatus: http.StatusOK, wsHold: hold}
+
+			out, err := runCLI(t, f, tc.format, append([]string{"update", testNS}, tc.args...)...)
+			close(hold)
+
+			require.NoError(t, err)
+			assert.Contains(t, strings.ReplaceAll(out, " ", ""), strings.ReplaceAll(tc.want, " ", ""))
+			assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/update")
+		})
+	}
+}
+
 func TestUpdate_NoOpAlreadyUpToDate(t *testing.T) {
 	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
 

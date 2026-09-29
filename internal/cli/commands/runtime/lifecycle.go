@@ -91,7 +91,8 @@ func (c *commands) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts)
 
 // fireAndForget starts the method and returns without waiting for it. The
 // payload is a Mutation rather than a Run: no run was observed, so there are
-// no steps and no outcome to report.
+// no steps and no outcome to report. A daemon that had nothing to do says so,
+// and so does the command.
 func (c *commands) fireAndForget(
 	cmd *cobra.Command, ns, op string, vars map[string]string,
 ) error {
@@ -100,8 +101,12 @@ func (c *commands) fireAndForget(
 		return err
 	}
 
-	if _, err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars); err != nil {
+	started, err := cli.ExecuteMethod(cmd.Context(), ns, apiMethod(op), vars)
+	if err != nil {
 		return err
+	}
+	if !started {
+		return c.renderNoOp(cmd, ns, op)
 	}
 
 	return c.renderDetached(cmd, ns, op)

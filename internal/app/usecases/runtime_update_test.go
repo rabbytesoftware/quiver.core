@@ -174,6 +174,77 @@ func TestRuntimeExecute_Update_NotIdle_FallsBackToTheMethod(t *testing.T) {
 	assert.Empty(t, f.log.all(), "only an installed, idle or running row enters the bracket")
 }
 
+// Update reports whether it started anything, so the API can answer a row
+// with nothing newer as an idempotent no-op instead of promising events that
+// never come.
+func TestRuntimeUpdate_ReportsWhetherAnUpdateStarted(t *testing.T) {
+	target := rollingTarget()
+	testCases := []struct {
+		name      string
+		state     domain.ArrowState
+		available *domain.Available
+		want      bool
+	}{
+		{name: "something newer starts the bracket", state: domain.ArrowStateReady, available: &target, want: true},
+		{name: "nothing newer starts nothing", state: domain.ArrowStateReady, want: false},
+		{name: "a running row with nothing newer is left running", state: domain.ArrowStateRunning, want: false},
+		{name: "a row outside the bracket runs the method", state: domain.ArrowStateAbsent, want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newBracketFixture(tc.state, tc.available)
+			f.runtime.BeginExecutionFn = func(context.Context, domain.Namespace, string, map[string]string) error {
+				return nil
+			}
+
+			started, err := f.usecase().Update(context.Background(), rollingRow, nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, started)
+		})
+	}
+}
+
+func TestRuntimeUpdate_Failures_StartNothing(t *testing.T) {
+	testCases := []struct {
+		name    string
+		vars    map[string]string
+		prepare func(*bracketFixture)
+		wantErr error
+	}{
+		{
+			name:    "a reserved variable",
+			vars:    map[string]string{domain.VarRef: "x"},
+			wantErr: apperrors.ErrReservedVariable,
+		},
+		{
+			name: "a rejected bracket keeps its state violation",
+			prepare: func(f *bracketFixture) {
+				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+					return apperrors.ErrStateViolation
+				}
+			},
+			wantErr: apperrors.ErrStateViolation,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := rollingTarget()
+			f := newBracketFixture(domain.ArrowStateReady, &target)
+			if tc.prepare != nil {
+				tc.prepare(f)
+			}
+
+			started, err := f.usecase().Update(context.Background(), rollingRow, tc.vars)
+
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.False(t, started)
+		})
+	}
+}
+
 // A target that gains a dependency lands the row outdated with the new
 // dependency pending, and the dependency is installed before the target's
 // update steps run.

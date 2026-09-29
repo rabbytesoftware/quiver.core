@@ -39,6 +39,14 @@ type RuntimeUsecase interface {
 		method string,
 		userVars map[string]string,
 	) error
+	// Update updates ns to what is ahead of it and reports whether an update
+	// started: false when nothing is newer, an idempotent no-op no runtime
+	// event will follow.
+	Update(
+		ctx context.Context,
+		ns domain.Namespace,
+		userVars map[string]string,
+	) (bool, error)
 	Stop(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -304,70 +312,91 @@ func (u *runtimeUsecase) Execute(
 	}
 
 	if method == domain.MethodUpdate {
-		return u.executeUpdate(ctx, ns, userVars)
+		_, err := u.executeUpdate(ctx, ns, userVars)
+		return err
 	}
 	return u.runtime.BeginExecution(ctx, ns, method, userVars)
+}
+
+func (u *runtimeUsecase) Update(
+	ctx context.Context,
+	ns domain.Namespace,
+	userVars map[string]string,
+) (bool, error) {
+	if err := rejectReservedVariables(userVars); err != nil {
+		return false, fmt.Errorf("update: %w", err)
+	}
+
+	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("update: %w", err)
+	}
+	return u.executeUpdate(ctx, ns, userVars)
 }
 
 // executeUpdate opens the update bracket: it re-resolves what is ahead of
 // the row, stops it if it runs, stages the target's manifest so the target's
 // own update steps run, installs any dependency the target gained, and
-// begins the update. onUpdateEnded closes the bracket. Brackets of one row
+// begins the update, reporting whether it started one. onUpdateEnded closes
+// the bracket. Brackets of one row
 // are serialized up to BeginUpdate, so a second one finds the first running
 // instead of staging its own target under it.
 func (u *runtimeUsecase) executeUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
-) error {
+) (bool, error) {
 	closeBracket, err := u.targets.open(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update: %w", err)
+		return false, fmt.Errorf("update: %w", err)
 	}
 	defer closeBracket()
 	if u.targets.pending(ns) {
-		return fmt.Errorf("update: previous update of %s not settled: %w", ns, apperrors.ErrStateViolation)
+		return false, fmt.Errorf("update: previous update of %s not settled: %w", ns, apperrors.ErrStateViolation)
 	}
 
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("execute: get state: %w", err)
+		return false, fmt.Errorf("execute: get state: %w", err)
 	}
 	if state != domain.ArrowStateReady &&
 		state != domain.ArrowStateOutdated &&
 		state != domain.ArrowStateRunning {
-		return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+		if err := u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
 
 	current, err := u.arrow.Get(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update: get current: %w", err)
+		return false, fmt.Errorf("update: get current: %w", err)
 	}
 	available, err := u.arrow.CheckAvailable(ctx, ns)
 	if err != nil {
-		return fmt.Errorf("update: %w", err)
+		return false, fmt.Errorf("update: %w", err)
 	}
 	if available == nil {
-		return nil
+		return false, nil
 	}
 
 	if err := stopIfRunning(ctx, u.runtime, ns); err != nil {
-		return fmt.Errorf("update: stop: %w", err)
+		return false, fmt.Errorf("update: stop: %w", err)
 	}
 	target, err := u.arrow.RefreshToTarget(ctx, ns, *available)
 	if err != nil {
-		return fmt.Errorf("update: %w", err)
+		return false, fmt.Errorf("update: %w", err)
 	}
 	if err := u.syncTargetDeps(ctx, ns, current, target); err != nil {
-		return fmt.Errorf("update: %w", err)
+		return false, fmt.Errorf("update: %w", err)
 	}
 
 	undo := u.remember(ns, *available)
 	if err := u.runtime.BeginUpdate(ctx, ns, userVars); err != nil {
 		undo()
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // remember records the target an update begins toward, except for
