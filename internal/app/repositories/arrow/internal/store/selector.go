@@ -9,10 +9,36 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
 
+// ExistsFunc reports whether identity already has a catalog row.
+type ExistsFunc func(ctx context.Context, identity domain.Namespace) (bool, error)
+
+// InstallOption configures ResolveInstall.
+type InstallOption func(*installOpts)
+
+type installOpts struct {
+	exists ExistsFunc
+}
+
+// CacheWhenAbsent caches the resolved manifest under the identity, but only
+// when exists reports no row for it yet.
+func CacheWhenAbsent(
+	exists ExistsFunc,
+) InstallOption {
+	return func(o *installOpts) {
+		o.exists = exists
+	}
+}
+
 func (r *storeService) ResolveInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	opts ...InstallOption,
 ) (domain.Namespace, *domain.Arrow, error) {
+	var o installOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	snap, err := r.manifold.Snapshot(ctx, ns)
 	if err != nil {
 		return ns, nil, fmt.Errorf("reader resolve install %s: %w", ns, wrapManifoldErr("snapshot", err))
@@ -25,10 +51,10 @@ func (r *storeService) ResolveInstall(
 
 	target, err := manifold.Target(kind, identity.Ref(), snap)
 	if err != nil {
-		return identity, nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, apperrors.ErrInvalidNamespace, err)
+		return identity, nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, targetSentinel(kind), err)
 	}
 
-	arrow, err := r.fetchAtCommit(ctx, identity, target.Commit)
+	arrow, err := r.fetchAtCommit(ctx, identity, target.Commit, o.exists)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %s: %w", identity, err)
 	}
@@ -61,19 +87,40 @@ func classifyInstall(
 	return ns, kind, nil
 }
 
+// targetSentinel separates a selector that names nothing from a channel that
+// exists but has no commit to install.
+func targetSentinel(
+	kind domain.SelectorKind,
+) error {
+	if kind == domain.SelectorChannel {
+		return apperrors.ErrNotFound
+	}
+	return apperrors.ErrInvalidNamespace
+}
+
 // fetchAtCommit caches the manifest under the identity, not under the
 // resolved ref, because the identity is what every later lookup of the row
-// asks the vault for.
+// asks the vault for. An installed identity keeps its cache: it belongs to
+// the commit the row records, which only an update moves.
 func (r *storeService) fetchAtCommit(
 	ctx context.Context,
 	identity domain.Namespace,
 	commit string,
+	exists ExistsFunc,
 ) (*domain.Arrow, error) {
 	arrow, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, commit)
 	if err != nil {
 		return nil, wrapManifoldErr("fetch at commit", err)
 	}
-	if r.vault == nil {
+	if r.vault == nil || exists == nil {
+		return arrow, nil
+	}
+
+	installed, err := exists(ctx, identity)
+	if err != nil {
+		return nil, fmt.Errorf("check installed: %w", err)
+	}
+	if installed {
 		return arrow, nil
 	}
 

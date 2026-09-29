@@ -52,10 +52,12 @@ type Store interface {
 	// ResolveInstall settles the identity a namespace is installed under and
 	// what that identity resolves to right now: a refless namespace follows
 	// its repository's default channel, any other keeps its ref as the
-	// selector. The manifest is the one at the resolved commit.
+	// selector. The manifest is the one at the resolved commit; it is cached
+	// only when CacheWhenAbsent is given and the identity has no row yet.
 	ResolveInstall(
 		ctx context.Context,
 		ns domain.Namespace,
+		opts ...InstallOption,
 	) (identity domain.Namespace, arrow *domain.Arrow, err error)
 	// CheckDrift reports what arrow's selector points at when that differs
 	// from what arrow has installed, nil when it is current. ok is false

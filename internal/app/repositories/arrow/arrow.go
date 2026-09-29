@@ -738,7 +738,7 @@ func (s *arrowService) Add(
 		ns = ns.WithRef(opts.Channel)
 	}
 
-	identity, arrow, err := s.store.ResolveInstall(ctx, ns)
+	identity, arrow, err := s.store.ResolveInstall(ctx, ns, arrowstore.CacheWhenAbsent(s.identityExists))
 	if err != nil {
 		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}
@@ -747,6 +747,13 @@ func (s *arrowService) Add(
 		return err
 	}
 	return s.addArrowCommand(ctx, identity, arrow, "")
+}
+
+func (s *arrowService) identityExists(
+	ctx context.Context,
+	identity domain.Namespace,
+) (bool, error) {
+	return s.axArrow.Exists(ctx, identity.String())
 }
 
 func (s *arrowService) AddDep(

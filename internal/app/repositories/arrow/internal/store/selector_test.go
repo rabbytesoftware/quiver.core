@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -184,19 +185,68 @@ func TestResolveInstall_InstalledSelectorIsCurrent(t *testing.T) {
 	}
 }
 
-func TestResolveInstall_CachesTheManifestUnderTheIdentity(t *testing.T) {
-	var fetched []commitFetch
-	v := &mocks.Vault{}
-	r := newTestReaderWithVaultManifold(t, v, selectorManifold(selectorSnapshot(), &fetched))
+func absent(context.Context, domain.Namespace) (bool, error) { return false, nil }
 
-	identity, _, err := r.ResolveInstall(context.Background(), selectorBare)
-	require.NoError(t, err)
+func TestResolveInstall_Cache(t *testing.T) {
+	existsErr := errors.New("event store down")
 
-	assert.Equal(t, []string{"delete " + identity.String(), "put " + identity.String()}, v.ArrowOps)
-	require.Len(t, v.PutArrowFiles, 1)
-	assert.Equal(t, []byte("raw"), v.PutArrowFiles[0].Content)
-	assert.Equal(t, "ARROW.md", v.PutArrowFiles[0].Filename)
-	assert.NotNil(t, v.PutArrowFiles[0].Meta)
+	testCases := []struct {
+		name      string
+		opts      []store.InstallOption
+		wantOps   bool
+		wantErr   error
+		wantAsked bool
+	}{
+		{name: "no cache option never touches the vault"},
+		{
+			name:      "absent identity is cached under the identity",
+			opts:      []store.InstallOption{store.CacheWhenAbsent(absent)},
+			wantOps:   true,
+			wantAsked: true,
+		},
+		{
+			name: "installed identity keeps its cache",
+			opts: []store.InstallOption{store.CacheWhenAbsent(func(context.Context, domain.Namespace) (bool, error) {
+				return true, nil
+			})},
+			wantAsked: true,
+		},
+		{
+			name: "existence check failure touches nothing",
+			opts: []store.InstallOption{store.CacheWhenAbsent(func(context.Context, domain.Namespace) (bool, error) {
+				return false, existsErr
+			})},
+			wantErr:   existsErr,
+			wantAsked: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetched []commitFetch
+			v := &mocks.Vault{}
+			r := newTestReaderWithVaultManifold(t, v, selectorManifold(selectorSnapshot(), &fetched))
+
+			identity, arrow, err := r.ResolveInstall(context.Background(), selectorBare, tc.opts...)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, arrow)
+				assert.Empty(t, v.ArrowOps)
+				return
+			}
+			require.NoError(t, err)
+
+			if !tc.wantOps {
+				assert.Empty(t, v.ArrowOps)
+				return
+			}
+			assert.Equal(t, []string{"delete " + identity.String(), "put " + identity.String()}, v.ArrowOps)
+			require.Len(t, v.PutArrowFiles, 1)
+			assert.Equal(t, []byte("raw"), v.PutArrowFiles[0].Content)
+			assert.Equal(t, "ARROW.md", v.PutArrowFiles[0].Filename)
+			assert.NotNil(t, v.PutArrowFiles[0].Meta)
+		})
+	}
 }
 
 func TestResolveInstall_Errors(t *testing.T) {
@@ -231,6 +281,22 @@ func TestResolveInstall_Errors(t *testing.T) {
 			name:    "refless with an empty repository is not found",
 			ns:      selectorBare,
 			m:       &mocks.Manifold{SnapshotResult: domain.RefSnapshot{}},
+			wantErr: apperrors.ErrNotFound,
+		},
+		{
+			name: "channel with no resolvable commit is not found",
+			ns:   selectorBare.WithRef("main"),
+			m: &mocks.Manifold{
+				SnapshotResult: domain.RefSnapshot{Head: "main"},
+			},
+			wantErr: apperrors.ErrNotFound,
+		},
+		{
+			name: "refless default channel with no resolvable commit is not found",
+			ns:   selectorBare,
+			m: &mocks.Manifold{
+				SnapshotResult: domain.RefSnapshot{Head: "main"},
+			},
 			wantErr: apperrors.ErrNotFound,
 		},
 		{
@@ -284,7 +350,7 @@ func TestResolveInstall_Errors(t *testing.T) {
 			}
 			r := newTestReaderWithVaultManifold(t, v, tc.m)
 
-			_, arrow, err := r.ResolveInstall(context.Background(), tc.ns)
+			_, arrow, err := r.ResolveInstall(context.Background(), tc.ns, store.CacheWhenAbsent(absent))
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Nil(t, arrow)
 		})

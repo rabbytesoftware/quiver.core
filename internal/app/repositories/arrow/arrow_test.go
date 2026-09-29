@@ -24,6 +24,7 @@ import (
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
+	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	runtimeRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -1048,6 +1049,46 @@ func TestAdd_StampsIdentityAndSelectorState(t *testing.T) {
 
 // The channel option names the selector of a refless namespace; a namespace
 // that already carries a selector keeps it.
+// Adding an identity that is already installed must leave its row and its
+// cached manifest alone even when the selector's target has since moved: the
+// cache belongs to what Resolved says is installed, and only an update moves
+// either.
+func TestAdd_ExistingIdentity_TargetMoved_LeavesRowAndCacheAlone(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@nightly")
+	commit := "c1"
+	m := &mocks.Manifold{
+		SnapshotFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+			return domain.RefSnapshot{Tags: map[string]string{"nightly": commit}}, nil
+		},
+		ResolveArrowAtCommitFn: func(
+			_ context.Context,
+			reqNs domain.Namespace,
+			_ string,
+		) (*domain.Arrow, []byte, string, error) {
+			return &domain.Arrow{Namespace: reqNs}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+	v := &mocks.Vault{}
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := arrowstore.New(db, v, m)
+	require.NoError(t, err)
+	axArrow := newTestAsynxArrow(t)
+	cat := arrowRepo.NewTestable(st, axArrow, v, m)
+
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.Len(t, v.ArrowOps, 2, "a first install caches its manifest")
+
+	commit = "c2"
+	v.ArrowOps = nil
+	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+
+	assert.Empty(t, v.ArrowOps)
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.Resolved{Ref: "nightly", Commit: "c1", Fingerprint: "c1"}, got.Resolved)
+}
+
 func TestAdd_ChannelOption_SelectsTheChannelOfARefless(t *testing.T) {
 	bare := testNs().BareNamespace()
 

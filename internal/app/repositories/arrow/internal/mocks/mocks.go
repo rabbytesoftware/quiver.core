@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -173,6 +174,7 @@ func (m *MockCQRS) PointerCommit(
 func (m *MockCQRS) ResolveInstall(
 	ctx context.Context,
 	ns domain.Namespace,
+	_ ...arrowstore.InstallOption,
 ) (domain.Namespace, *domain.Arrow, error) {
 	if m.ResolveInstallFn != nil {
 		return m.ResolveInstallFn(ctx, ns)
