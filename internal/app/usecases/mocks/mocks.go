@@ -148,6 +148,7 @@ type MockArrow struct {
 		kind domain.SelectorKind,
 		resolved domain.Resolved,
 		manifest []byte,
+		filename string,
 	) error
 	UpgradeVersionSeededFn func(
 		ctx context.Context,
@@ -507,9 +508,10 @@ func (m *MockArrow) Adopt(
 	kind domain.SelectorKind,
 	resolved domain.Resolved,
 	manifest []byte,
+	filename string,
 ) error {
 	if m.AdoptFn != nil {
-		return m.AdoptFn(ctx, ns, kind, resolved, manifest)
+		return m.AdoptFn(ctx, ns, kind, resolved, manifest, filename)
 	}
 	return nil
 }

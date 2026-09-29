@@ -117,13 +117,15 @@ type Arrow interface {
 		target domain.Available,
 	) error
 	// Adopt registers already-installed state for ns from manifest bytes the
-	// caller holds, creating the row or advancing it, without any network.
+	// caller holds, named filename, creating the row or advancing it, without
+	// any network.
 	Adopt(
 		ctx context.Context,
 		ns domain.Namespace,
 		kind domain.SelectorKind,
 		resolved domain.Resolved,
 		manifest []byte,
+		filename string,
 	) error
 	ValidateManifest(
 		ctx context.Context,

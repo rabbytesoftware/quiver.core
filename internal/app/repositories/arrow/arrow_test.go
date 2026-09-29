@@ -3378,7 +3378,7 @@ func TestAdvance_MissingRow_ReturnsNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestAdvance_FailureChangesNothing(t *testing.T) {
+func TestAdvance_FetchOrCacheFailure_LeavesTheRowUnchanged(t *testing.T) {
 	testCases := []struct {
 		name      string
 		vault     *mocks.Vault
@@ -3424,6 +3424,20 @@ func TestAdvance_FailureChangesNothing(t *testing.T) {
 			assert.Equal(t, before, got.Resolved)
 		})
 	}
+}
+
+func TestAdvance_EmptyCommit_IsRejectedBeforeAnyFetch(t *testing.T) {
+	ns := rollingNs()
+	axArrow := newTestAsynxArrow(t)
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "nightly-latest", Commit: "old111"})
+	v := &mocks.Vault{}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, failOnNetworkManifold(t, nil))
+
+	err := cat.Advance(context.Background(), ns, domain.Available{Ref: "nightly-latest"})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
+	assert.Empty(t, v.ArrowOps)
 }
 
 func TestAdvance_AsynxFailures_AreMapped(t *testing.T) {
@@ -3483,7 +3497,7 @@ func TestAdopt_AbsentRow_CreatesItOffline(t *testing.T) {
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "abc123"}
 
-	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest"), "ARROW.md"))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -3492,25 +3506,33 @@ func TestAdopt_AbsentRow_CreatesItOffline(t *testing.T) {
 	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
 	assert.Equal(t, resolved, got.Resolved)
 	assert.True(t, got.UserInstalled)
-	assert.Equal(t, []string{"put " + ns.String()}, v.ArrowOps)
+	assert.Equal(t, []string{"delete " + ns.String(), "put " + ns.String()}, v.ArrowOps)
 	assert.Zero(t, m.ResolveArrowCalls)
 }
 
-func TestAdopt_PresentRow_AdvancesIt(t *testing.T) {
+// The adopted manifest may be named differently from the cached one, so the
+// old entry has to go rather than be overwritten under a stale filename.
+func TestAdopt_PresentRow_AdvancesItAndReplacesTheCache(t *testing.T) {
 	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
 	axArrow := newTestAsynxArrow(t)
 	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.1.0", Commit: "old111"})
 	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver 1.2"}})
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	v := &mocks.Vault{}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
 	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "new222", Fingerprint: "new222"}
+	yamlManifest := []byte("metadata:\n  name: Quiver 1.2\n")
 
-	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, yamlManifest, "arrow.yaml"))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, resolved, got.Resolved)
 	assert.Equal(t, "Quiver 1.2", got.Name)
 	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, []string{"delete " + ns.String(), "put " + ns.String()}, v.ArrowOps)
+	require.Len(t, v.PutArrowFiles, 1)
+	assert.Equal(t, "arrow.yaml", v.PutArrowFiles[0].Filename)
+	assert.Equal(t, yamlManifest, v.PutArrowFiles[0].Content)
 }
 
 func TestAdopt_UnchangedResolved_IsANoOp(t *testing.T) {
@@ -3524,7 +3546,7 @@ func TestAdopt_UnchangedResolved_IsANoOp(t *testing.T) {
 	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Changed"}})
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
 
-	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest"), "ARROW.md"))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -3537,13 +3559,29 @@ func TestAdopt_Failures(t *testing.T) {
 	testCases := []struct {
 		name      string
 		ns        domain.Namespace
+		filename  string
 		manifold  *mocks.Manifold
 		vault     *mocks.Vault
 		ax        *arrowMocks.AsynxArrow
 		wantErrIs error
 	}{
 		{
+			name:      "manifest without a filename",
+			ns:        validNs,
+			manifold:  &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidManifest,
+		},
+		{
+			name:     "the stale cache entry cannot be deleted",
+			ns:       validNs,
+			filename: "ARROW.md",
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{DeleteArrowErr: errors.New("busy")},
+		},
+		{
 			name:      "invalid namespace",
+			filename:  "ARROW.md",
 			ns:        domain.Namespace("not a namespace"),
 			manifold:  &mocks.Manifold{},
 			vault:     &mocks.Vault{},
@@ -3551,6 +3589,7 @@ func TestAdopt_Failures(t *testing.T) {
 		},
 		{
 			name:      "namespace without a selector",
+			filename:  "ARROW.md",
 			ns:        domain.Namespace("github.com/rabbytesoftware/quiver.core"),
 			manifold:  &mocks.Manifold{},
 			vault:     &mocks.Vault{},
@@ -3558,6 +3597,7 @@ func TestAdopt_Failures(t *testing.T) {
 		},
 		{
 			name:      "manifest does not parse",
+			filename:  "ARROW.md",
 			ns:        validNs,
 			manifold:  &mocks.Manifold{ParseArrowErr: errors.New("bad yaml")},
 			vault:     &mocks.Vault{},
@@ -3565,12 +3605,14 @@ func TestAdopt_Failures(t *testing.T) {
 		},
 		{
 			name:     "vault write fails",
+			filename: "ARROW.md",
 			ns:       validNs,
 			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
 			vault:    &mocks.Vault{PutArrowErr: errors.New("disk full")},
 		},
 		{
 			name:     "existence check fails",
+			filename: "ARROW.md",
 			ns:       validNs,
 			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
 			vault:    &mocks.Vault{},
@@ -3580,6 +3622,7 @@ func TestAdopt_Failures(t *testing.T) {
 		},
 		{
 			name:     "reading the present row fails",
+			filename: "ARROW.md",
 			ns:       validNs,
 			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
 			vault:    &mocks.Vault{},
@@ -3592,6 +3635,7 @@ func TestAdopt_Failures(t *testing.T) {
 		},
 		{
 			name:     "the create is rejected",
+			filename: "ARROW.md",
 			ns:       validNs,
 			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
 			vault:    &mocks.Vault{},
@@ -3614,7 +3658,7 @@ func TestAdopt_Failures(t *testing.T) {
 			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, tc.vault, tc.manifold)
 
 			err := cat.Adopt(context.Background(), tc.ns, domain.SelectorChannel,
-				domain.Resolved{Ref: "v1.2.0", Commit: "abc123"}, []byte("manifest"))
+				domain.Resolved{Ref: "v1.2.0", Commit: "abc123"}, []byte("manifest"), tc.filename)
 
 			require.Error(t, err)
 			if tc.wantErrIs != nil {

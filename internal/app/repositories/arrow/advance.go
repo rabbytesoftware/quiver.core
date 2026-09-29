@@ -11,6 +11,7 @@ import (
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // Advance fetches the manifest at target's commit, replaces the cached one —
@@ -22,6 +23,10 @@ func (s *arrowService) Advance(
 	ns domain.Namespace,
 	target domain.Available,
 ) error {
+	if target.Commit == "" {
+		return fmt.Errorf("advance %s: target has no commit: %w", ns, apperrors.ErrInvalidNamespace)
+	}
+
 	exists, err := s.axArrow.Exists(ctx, ns.String())
 	if err != nil {
 		return fmt.Errorf("advance %s: %w", ns, err)
@@ -35,11 +40,8 @@ func (s *arrowService) Advance(
 		return fmt.Errorf("advance %s: %w", ns, mapResolveErr(err))
 	}
 
-	if err := s.vault.DeleteArrow(ctx, ns); err != nil {
-		return fmt.Errorf("advance %s: purge cached manifest: %w", ns, err)
-	}
-	if err := s.vault.PutArrow(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
-		return fmt.Errorf("advance %s: cache manifest: %w", ns, err)
+	if err := s.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
+		return fmt.Errorf("advance %s: %w", ns, err)
 	}
 
 	return s.sendAdvance(ctx, ns, m, domain.Resolved{
@@ -49,27 +51,31 @@ func (s *arrowService) Advance(
 	})
 }
 
-// Adopt parses manifest locally, caches it under ns and records resolved as
-// what ns has installed: a new user-installed row when ns is absent, an
-// advance of the existing row otherwise, and nothing when the row already
-// carries resolved.
+// Adopt parses manifest locally, caches it under ns as filename and records
+// resolved as what ns has installed: a new user-installed row when ns is
+// absent, an advance of the existing row otherwise, and nothing when the row
+// already carries resolved.
 func (s *arrowService) Adopt(
 	ctx context.Context,
 	ns domain.Namespace,
 	kind domain.SelectorKind,
 	resolved domain.Resolved,
 	manifest []byte,
+	filename string,
 ) error {
 	if ns.Validate() != nil || ns.Ref() == "" {
 		return fmt.Errorf("adopt %s: %w", ns, apperrors.ErrInvalidNamespace)
+	}
+	if filename == "" {
+		return fmt.Errorf("adopt %s: manifest has no filename: %w", ns, apperrors.ErrInvalidManifest)
 	}
 
 	m, err := s.manifold.ParseArrow(manifest)
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w: %w", ns, apperrors.ErrInvalidManifest, err)
 	}
-	if err := s.vault.PutArrow(ctx, ns, arrowstore.Cacheable(m, manifest, "ARROW.md")); err != nil {
-		return fmt.Errorf("adopt %s: cache manifest: %w", ns, err)
+	if err := s.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, manifest, filename)); err != nil {
+		return fmt.Errorf("adopt %s: %w", ns, err)
 	}
 
 	exists, err := s.axArrow.Exists(ctx, ns.String())
@@ -88,6 +94,23 @@ func (s *arrowService) Adopt(
 		return nil
 	}
 	return s.sendAdvance(ctx, ns, m, resolved)
+}
+
+// replaceCachedManifest deletes before writing because PutArrow only
+// overwrites a file of the same name: a manifest cached as ARROW.md would
+// otherwise survive next to a replacement named arrow.yaml.
+func (s *arrowService) replaceCachedManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	file vault.ManifestFile,
+) error {
+	if err := s.vault.DeleteArrow(ctx, ns); err != nil {
+		return fmt.Errorf("purge cached manifest: %w", err)
+	}
+	if err := s.vault.PutArrow(ctx, ns, file); err != nil {
+		return fmt.Errorf("cache manifest: %w", err)
+	}
+	return nil
 }
 
 // sendAdvance waits for the projections: an advance can change the
