@@ -389,7 +389,7 @@ func (r *storeService) ResolveManifest(
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
 	if ns.Ref() != "" {
-		arrow, err := r.resolveManifest(ctx, ns)
+		arrow, err := r.resolveAtRef(ctx, ns)
 		if err != nil {
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
@@ -403,6 +403,24 @@ func (r *storeService) ResolveManifest(
 		return nil, fmt.Errorf("reader resolve manifest: %w", err)
 	}
 	return arrow, nil
+}
+
+// resolveAtRef falls back to reading a selector identity (pkg@v1.*,
+// pkg@stable) at its target commit, since no host serves a selector as a
+// ref. When that fails too, the original failure is the one that describes ns.
+func (r *storeService) resolveAtRef(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
+	arrow, err := r.resolveManifest(ctx, ns)
+	if err == nil || r.manifold == nil {
+		return arrow, err
+	}
+	_, selected, selErr := r.ResolveInstall(ctx, ns)
+	if selErr != nil {
+		return nil, err
+	}
+	return selected, nil
 }
 
 // ResolveCatalogued maps a namespace as the caller typed it onto the one the

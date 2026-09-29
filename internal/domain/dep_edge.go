@@ -7,9 +7,9 @@ const (
 	ServiceDep DepType = "service"
 )
 
-// DependencyEdge represents a resolved dependency link from one arrow to another.
-// Namespace carries the concrete resolved ref; Constraint preserves the original
-// declared constraint so the update flow can re-evaluate upgrade eligibility.
+// DependencyEdge represents a declared dependency link from one arrow to
+// another. Constraint is the declared selector; the dependency's identity is
+// its namespace at that selector, never the ref the selector resolves to.
 type DependencyEdge struct {
 	Namespace  Namespace
 	Constraint string

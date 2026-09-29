@@ -519,3 +519,61 @@ func TestProject_CarriesSelectorStateIntoTheReadModel(t *testing.T) {
 	assert.Equal(t, arrow.Resolved, got.Resolved)
 	assert.Equal(t, arrow.Available, got.Available)
 }
+
+// A dependency identity like pkg@v1.* names no ref a host can serve, so a
+// manifest for one that is not cached yet is read at its selector's target
+// commit instead of failing the whole dependency walk.
+func TestResolveManifest_SelectorIdentityFallsBackToItsTarget(t *testing.T) {
+	fetchErr := manifoldresolver.ErrNotFound
+
+	testCases := []struct {
+		name        string
+		ns          domain.Namespace
+		snapErr     error
+		wantErr     error
+		wantFetched []commitFetch
+	}{
+		{
+			name:        "constraint reads its highest match",
+			ns:          selectorBare.WithRef("v1.*"),
+			wantFetched: []commitFetch{{ns: selectorBare.WithRef("v1.*"), commit: "c130"}},
+		},
+		{
+			name:        "channel reads its latest member",
+			ns:          selectorBare.WithRef("stable"),
+			wantFetched: []commitFetch{{ns: selectorBare.WithRef("stable"), commit: "c200"}},
+		},
+		{
+			name:    "an unresolvable selector reports the original failure",
+			ns:      selectorBare.WithRef("v9.*"),
+			wantErr: apperrors.ErrNotFound,
+		},
+		{
+			name:    "a failed snapshot reports the original failure",
+			ns:      selectorBare.WithRef("v1.*"),
+			snapErr: errors.New("remote down"),
+			wantErr: apperrors.ErrNotFound,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetched []commitFetch
+			m := selectorManifold(selectorSnapshot(), &fetched)
+			m.SnapshotErr = tc.snapErr
+			m.ResolveArrowErr = fetchErr
+
+			arrow, err := newTestReaderWithVaultManifold(t, nil, m).ResolveManifest(context.Background(), tc.ns)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Empty(t, fetched)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.ns, arrow.Namespace)
+			assert.Equal(t, "crowbar", arrow.Name)
+			assert.Equal(t, tc.wantFetched, fetched)
+		})
+	}
+}

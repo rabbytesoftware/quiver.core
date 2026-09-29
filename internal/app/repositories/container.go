@@ -104,7 +104,7 @@ func New(
 	// through, so a manifest fetched once for one endpoint serves the graph
 	// walk too instead of every /dependencies call paying its own live
 	// manifold fetch for the same namespace.
-	g, err := graph.New(db, os, m, cat.ResolveManifest)
+	g, err := graph.New(db, os, cat.ResolveManifest)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 // ─── errStore: mock DepEdgeStore that returns errors ─────────────────────────
@@ -60,7 +59,7 @@ func newGraph(
 	resolveManifest func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error),
 ) graph.Graph {
 	t.Helper()
-	return graph.NewTestable(testOS, edgeStore, nil, resolveManifest)
+	return graph.NewTestable(testOS, edgeStore, resolveManifest)
 }
 
 func arrowWithTools(ns domain.Namespace, deps ...domain.Namespace) *domain.Arrow {
@@ -152,64 +151,138 @@ func TestResolve_ManifestError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestResolve_ConstraintExact_NilManifold(t *testing.T) {
-	ns := domain.Namespace("github.com/user/pkg@v1")
-	depNs := domain.Namespace("github.com/user/dep")
-
-	resolveManifest := func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		if n.BareNamespace() == ns.BareNamespace() {
-			arrow := &domain.Arrow{
+func declaring(root domain.Namespace, edges ...domain.DependencyEdge) func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+	return func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
+		if n == root {
+			return &domain.Arrow{
 				Namespace: n,
-				Targets: map[domain.OS]domain.Target{
-					testOS: {Tools: []domain.DependencyEdge{{
-						Namespace:  depNs,
-						Constraint: "v1.0.0",
-					}}},
-				},
-			}
-			return arrow, nil
+				Targets:   map[domain.OS]domain.Target{testOS: {Tools: edges}},
+			}, nil
 		}
 		return &domain.Arrow{Namespace: n}, nil
 	}
-
-	// exact constraint (no glob) → bare+ref, no manifold needed
-	g := graph.NewTestable(testOS, newTestStore(t), nil, resolveManifest)
-	plan, err := g.Resolve(context.Background(), ns)
-	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	assert.Equal(t, "v1.0.0", plan[0].Namespace.Ref())
 }
 
-func TestResolve_ConstraintWithGlob_WithManifold(t *testing.T) {
-	ns := domain.Namespace("github.com/user/pkg@v1")
-	depNs := domain.Namespace("github.com/user/dep")
+func declared(ns string) domain.DependencyEdge {
+	n := domain.Namespace(ns)
+	return domain.DependencyEdge{Namespace: n, Constraint: n.Ref(), Type: domain.ToolDep}
+}
 
-	m := &mocks.Manifold{
-		ResolveConstraintResult: "v1.2.3",
+// A dependency's identity is the selector its dependent declared, never the
+// ref that selector resolves to today: the row it installs follows the
+// selector for its whole life.
+func TestResolve_DependencyIdentityIsTheDeclaredSelector(t *testing.T) {
+	root := domain.Namespace("github.com/user/pkg@v1")
+
+	testCases := []struct {
+		name string
+		edge domain.DependencyEdge
+		want domain.Namespace
+	}{
+		{"bare declaration stays bare", declared("github.com/user/dep"), "github.com/user/dep"},
+		{"pin", declared("github.com/user/dep@v1.0.0"), "github.com/user/dep@v1.0.0"},
+		{"constraint is not resolved to a tag", declared("github.com/user/dep@v1.*"), "github.com/user/dep@v1.*"},
+		{"channel", declared("github.com/user/dep@stable"), "github.com/user/dep@stable"},
+		{
+			"constraint without a ref on the namespace",
+			domain.DependencyEdge{Namespace: "github.com/user/dep", Constraint: "v2.*"},
+			"github.com/user/dep@v2.*",
+		},
+		{
+			"ref on the namespace without a constraint",
+			domain.DependencyEdge{Namespace: "github.com/user/dep@v3"},
+			"github.com/user/dep@v3",
+		},
 	}
 
-	resolveManifest := func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		if n.BareNamespace() == ns.BareNamespace() {
-			arrow := &domain.Arrow{
-				Namespace: n,
-				Targets: map[domain.OS]domain.Target{
-					// Use "*" which is a real glob character
-					testOS: {Tools: []domain.DependencyEdge{{
-						Namespace:  depNs,
-						Constraint: "v1.*",
-					}}},
-				},
-			}
-			return arrow, nil
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := newGraph(t, newTestStore(t), declaring(root, tc.edge))
+
+			plan, err := g.Resolve(context.Background(), root)
+
+			require.NoError(t, err)
+			require.Len(t, plan, 1)
+			assert.Equal(t, tc.want, plan[0].Namespace)
+		})
+	}
+}
+
+// Two constraint selectors of one package are two rows: each dependent
+// resolves to its own, the edges name each selector, and forgetting one
+// leaves the other depended on.
+func TestGraph_ConstraintSelectorsOfOnePackageCoexist(t *testing.T) {
+	ctx := context.Background()
+	es := newTestStore(t)
+	oldParent := domain.Namespace("github.com/user/old@v1")
+	newParent := domain.Namespace("github.com/user/new@v1")
+	pkgV1 := domain.Namespace("github.com/user/pkg@v1.*")
+	pkgV2 := domain.Namespace("github.com/user/pkg@v2.*")
+
+	manifests := map[domain.Namespace]*domain.Arrow{
+		oldParent: arrowWithTools(oldParent, pkgV1),
+		newParent: arrowWithTools(newParent, pkgV2),
+	}
+	g := newGraph(t, es, func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
+		if m, ok := manifests[n]; ok {
+			return m, nil
 		}
 		return &domain.Arrow{Namespace: n}, nil
-	}
+	})
+	require.NoError(t, g.SyncDependencies(ctx, oldParent, manifests[oldParent]))
+	require.NoError(t, g.SyncDependencies(ctx, newParent, manifests[newParent]))
 
-	g := graph.NewTestable(testOS, newTestStore(t), m, resolveManifest)
-	plan, err := g.Resolve(context.Background(), ns)
+	oldPlan, err := g.Resolve(ctx, oldParent)
 	require.NoError(t, err)
-	require.Len(t, plan, 1)
-	assert.Equal(t, "v1.2.3", plan[0].Namespace.Ref())
+	newPlan, err := g.Resolve(ctx, newParent)
+	require.NoError(t, err)
+	require.Len(t, oldPlan, 1)
+	require.Len(t, newPlan, 1)
+	assert.Equal(t, pkgV1, oldPlan[0].Namespace)
+	assert.Equal(t, pkgV2, newPlan[0].Namespace)
+
+	onV1, err := es.ByDependency(ctx, "github.com/user/pkg", "v1.*")
+	require.NoError(t, err)
+	require.Len(t, onV1, 1)
+	assert.Equal(t, "github.com/user/old", onV1[0].FromNamespace)
+
+	require.NoError(t, g.RemoveDependencies(ctx, pkgV1))
+
+	onV2, err := es.ByDependency(ctx, "github.com/user/pkg", "v2.*")
+	require.NoError(t, err)
+	require.Len(t, onV2, 1, "forgetting pkg@v1.* must leave new -> pkg@v2.* alone")
+	hasDeps, err := g.HasDependents(ctx, pkgV2, "")
+	require.NoError(t, err)
+	assert.True(t, hasDeps)
+}
+
+// An advance moves a row in place, so re-syncing its edges must be idempotent
+// and must never touch the edges other rows have pointing at it.
+func TestSyncDependencies_AdvanceKeepsEdges(t *testing.T) {
+	ctx := context.Background()
+	es := newTestStore(t)
+	parent := domain.Namespace("github.com/user/parent@stable")
+	dep := domain.Namespace("github.com/user/dep@v1.*")
+	tool := domain.Namespace("github.com/user/tool@stable")
+	g := newGraph(t, es, nil)
+
+	require.NoError(t, g.SyncDependencies(ctx, parent, arrowWithTools(parent, dep)))
+	require.NoError(t, g.SyncDependencies(ctx, dep, arrowWithTools(dep, tool)))
+
+	advanced := arrowWithTools(dep, tool)
+	advanced.Resolved = domain.Resolved{Ref: "v1.4.0", Commit: "c2"}
+	require.NoError(t, g.SyncDependencies(ctx, dep, advanced))
+	require.NoError(t, g.SyncDependencies(ctx, dep, advanced))
+
+	incoming, err := es.ByDependency(ctx, "github.com/user/dep", "v1.*")
+	require.NoError(t, err)
+	require.Len(t, incoming, 1, "the parent's edge onto the advanced row survives")
+	assert.Equal(t, "stable", incoming[0].FromVersion)
+
+	outgoing, err := es.ByDependency(ctx, "github.com/user/tool", "stable")
+	require.NoError(t, err)
+	require.Len(t, outgoing, 1, "the advanced row's own edge is written once")
+	assert.Equal(t, "v1.*", outgoing[0].FromVersion)
 }
 
 func TestUnplan_ReversesOrder(t *testing.T) {
@@ -518,7 +591,7 @@ func TestNew_Success(t *testing.T) {
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
 
-	g, err := graph.New(db, testOS, nil, nil)
+	g, err := graph.New(db, testOS, nil)
 	require.NoError(t, err)
 	require.NotNil(t, g)
 }
@@ -530,7 +603,7 @@ func TestNew_StoreError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = graph.New(db, testOS, nil, nil)
+	_, err = graph.New(db, testOS, nil)
 	require.Error(t, err)
 }
 
@@ -559,7 +632,7 @@ func TestOrphans_HasDependentsError(t *testing.T) {
 	}
 
 	es := &errStore{hasDependentsErr: errors.New("db error")}
-	g := graph.NewTestable(testOS, es, nil, resolveManifest)
+	g := graph.NewTestable(testOS, es, resolveManifest)
 	_, err := g.Orphans(context.Background(), ns)
 	require.Error(t, err)
 }
@@ -568,41 +641,11 @@ func TestOrphans_HasDependentsError(t *testing.T) {
 
 func TestGetDependents_EdgesToBareError(t *testing.T) {
 	es := &errStore{edgesToBareErr: errors.New("db error")}
-	g := graph.NewTestable(testOS, es, nil, nil)
+	g := graph.NewTestable(testOS, es, nil)
 	_, err := g.GetDependents(
 		context.Background(),
 		domain.Namespace("github.com/user/dep@v1"),
 	)
-	require.Error(t, err)
-}
-
-// ─── resolveEdgeNs: manifold ResolveConstraint error ─────────────────────────
-
-func TestResolve_ConstraintWithGlob_ManifoldError(t *testing.T) {
-	ns := domain.Namespace("github.com/user/pkg@v1")
-	depNs := domain.Namespace("github.com/user/dep")
-
-	m := &mocks.Manifold{
-		ResolveConstraintErr: errors.New("constraint resolve error"),
-	}
-
-	resolveManifest := func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		if n.BareNamespace() == ns.BareNamespace() {
-			return &domain.Arrow{
-				Namespace: n,
-				Targets: map[domain.OS]domain.Target{
-					testOS: {Tools: []domain.DependencyEdge{{
-						Namespace:  depNs,
-						Constraint: "v1.*",
-					}}},
-				},
-			}, nil
-		}
-		return &domain.Arrow{Namespace: n}, nil
-	}
-
-	g := graph.NewTestable(testOS, newTestStore(t), m, resolveManifest)
-	_, err := g.Resolve(context.Background(), ns)
 	require.Error(t, err)
 }
 

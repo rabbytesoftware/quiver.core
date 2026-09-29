@@ -3,7 +3,6 @@ package graph
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"gorm.io/gorm"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 )
 
 type (
@@ -68,7 +66,6 @@ type Graph interface {
 type graphService struct {
 	os              domain.OS
 	edgeStore       store.DepEdgeStore
-	manifoldSvc     manifold.Manifold
 	resolveManifest func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	depTree         deptree.DepTree
 }
@@ -83,7 +80,6 @@ type graphService struct {
 func New(
 	db *gorm.DB,
 	os domain.OS,
-	manifoldSvc manifold.Manifold,
 	resolveManifest func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error),
 ) (Graph, error) {
 	edgeStore, err := store.NewDepEdgeStore(db)
@@ -94,7 +90,6 @@ func New(
 	return &graphService{
 		os:              os,
 		edgeStore:       edgeStore,
-		manifoldSvc:     manifoldSvc,
 		resolveManifest: resolveManifest,
 		depTree:         deptree.New(),
 	}, nil
@@ -103,13 +98,11 @@ func New(
 func NewTestable(
 	os domain.OS,
 	edgeStore store.DepEdgeStore,
-	manifoldSvc manifold.Manifold,
 	resolveManifest func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error),
 ) Graph {
 	return &graphService{
 		os:              os,
 		edgeStore:       edgeStore,
-		manifoldSvc:     manifoldSvc,
 		resolveManifest: resolveManifest,
 		depTree:         deptree.New(),
 	}
@@ -137,19 +130,13 @@ func (g *graphService) Resolve(
 
 		var children []domain.Namespace
 		for _, edge := range target.Tools {
-			resolved, resolveErr := g.resolveEdgeNs(ctx, edge)
-			if resolveErr != nil {
-				return nil, resolveErr
-			}
+			resolved := dependencyIdentity(edge)
 			typeIndex[resolved.BareNamespace()] = domain.ToolDep
 			children = append(children, resolved)
 		}
 
 		for _, edge := range target.Services {
-			resolved, resolveErr := g.resolveEdgeNs(ctx, edge)
-			if resolveErr != nil {
-				return nil, resolveErr
-			}
+			resolved := dependencyIdentity(edge)
 			typeIndex[resolved.BareNamespace()] = domain.ServiceDep
 			children = append(children, resolved)
 		}
@@ -265,7 +252,7 @@ func (g *graphService) SyncDependencies(
 			FromNamespace: ns.BareNamespace().String(),
 			FromVersion:   ns.Ref(),
 			ToNamespace:   e.Namespace.BareNamespace().String(),
-			ToVersion:     e.Namespace.Ref(),
+			ToVersion:     declaredSelector(e),
 			Constraint:    e.Constraint,
 			DepType:       string(e.Type),
 		})
@@ -348,28 +335,25 @@ func (g *graphService) DiffDeps(
 	}
 }
 
-func (g *graphService) resolveEdgeNs(
-	ctx context.Context,
+// dependencyIdentity is the row a dependency edge installs: the selector the
+// dependent declared, never the ref it resolves to today. A bare declaration
+// stays bare; the install that first adds it decides its identity.
+func dependencyIdentity(
 	edge domain.DependencyEdge,
-) (domain.Namespace, error) {
-	ref := edge.Constraint
-	if ref == "" {
-		return edge.Namespace.BareNamespace(), nil
+) domain.Namespace {
+	bare := edge.Namespace.BareNamespace()
+	selector := declaredSelector(edge)
+	if selector == "" {
+		return bare
 	}
-	if containsGlob(ref) { //nolint:nestif
-		if g.manifoldSvc == nil {
-			return edge.Namespace.BareNamespace().WithRef(ref), nil
-		}
-		resolved, err := g.manifoldSvc.ResolveConstraint(ctx, edge.Namespace, ref)
-		if err != nil {
-			return "", fmt.Errorf("graph: resolve constraint %q for %s: %w",
-				ref, edge.Namespace, err)
-		}
-		return edge.Namespace.BareNamespace().WithRef(resolved), nil
-	}
-	return edge.Namespace.BareNamespace().WithRef(ref), nil
+	return bare.WithRef(selector)
 }
 
-func containsGlob(s string) bool {
-	return strings.ContainsAny(s, "*?[")
+func declaredSelector(
+	edge domain.DependencyEdge,
+) string {
+	if edge.Constraint != "" {
+		return edge.Constraint
+	}
+	return edge.Namespace.Ref()
 }
