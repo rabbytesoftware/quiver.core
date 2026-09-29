@@ -55,6 +55,14 @@ type envConfig struct {
 	manifold          func(manifold.Manifold) manifold.Manifold
 	selfUpdateTrigger *selfupdate.Trigger
 	clock             func() time.Time
+	build             buildStamp
+}
+
+// buildStamp is what the release pipeline injects into a daemon binary.
+type buildStamp struct {
+	version string
+	commit  string
+	channel string
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -87,6 +95,14 @@ func WithClock(clock func() time.Time) EnvOption {
 // so a test can observe it firing through genuine app-layer DI.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
 	return func(c *envConfig) { c.selfUpdateTrigger = trig }
+}
+
+// WithBuild stamps the daemon as a released build, so it registers itself into
+// its own catalog on boot the way a real release does.
+func WithBuild(version, commit, channel string) EnvOption {
+	return func(c *envConfig) {
+		c.build = buildStamp{version: version, commit: commit, channel: channel}
+	}
 }
 
 // WaitDiscoveryRegistered blocks until the first client subscribes to the
@@ -262,7 +278,15 @@ func BuildEnv(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home), app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger))
+	appContainer, err := app.New(
+		engines,
+		adapters,
+		app.WithHomeDir(home),
+		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		app.WithVersion(cfg.build.version),
+		app.WithCommit(cfg.build.commit),
+		app.WithChannel(cfg.build.channel),
+	)
 	require.NoError(t, err)
 
 	v0Container, err := apiv0.New(appContainer)

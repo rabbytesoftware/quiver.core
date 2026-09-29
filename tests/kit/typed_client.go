@@ -55,6 +55,18 @@ func (tc *TypedClient) List() ([]dto.ArrowListItemDTO, int) {
 	return env.Data, resp.StatusCode
 }
 
+// ListUserInstalled returns the user-installed catalog entries, what the
+// desktop library shows, and the HTTP status code.
+func (tc *TypedClient) ListUserInstalled() ([]dto.ArrowListItemDTO, int) {
+	resp := tc.raw.ListUserInstalled()
+	defer resp.Body.Close()
+	var env apiEnvelope[[]dto.ArrowListItemDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.ListUserInstalled: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
 // GetDetail returns the arrow detail and the HTTP status code.
 func (tc *TypedClient) GetDetail(ns string) (dto.ArrowDetailDTO, int) {
 	resp := tc.raw.GetDetail(ns)

@@ -165,3 +165,121 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.Eventually(s.T(), func() bool { return !env2.ProcessAlive(originalPID) }, 5*time.Second, 50*time.Millisecond,
 		"the fixture process must be gone after cleanup")
 }
+
+// libraryRefs returns the refs GET /v0/arrow?user_installed=true lists for
+// quiver.core: what the desktop library shows of it.
+func (s *SelfUpdateSuite) libraryRefs(tc *kit.TypedClient) []string {
+	s.T().Helper()
+	items, status := tc.ListUserInstalled()
+	s.Require().Equal(http.StatusOK, status)
+	var refs []string
+	for _, item := range items {
+		if item.Namespace != selfNamespace {
+			continue
+		}
+		for _, v := range item.Versions {
+			refs = append(refs, v.Ref)
+		}
+	}
+	return refs
+}
+
+type build struct{ version, commit, channel string }
+
+// TestSelfUpdate_CoreStaysInTheLibraryAcrossRestarts is the regression for a
+// core that updated itself dropping out of the desktop library: each restart
+// boots a newer build on the same home, and the library must still list it.
+func (s *SelfUpdateSuite) TestSelfUpdate_CoreStaysInTheLibraryAcrossRestarts() {
+	testCases := []struct {
+		name    string
+		first   build
+		next    build
+		wantRef string
+	}{
+		{
+			name:    "same identity, new version and commit",
+			first:   build{"beta-26.5-4", "aaa", "beta"},
+			next:    build{"beta-26.5-5", "bbb", "beta"},
+			wantRef: "beta",
+		},
+		{
+			name:    "rolling tag, new commit",
+			first:   build{"nightly-latest", "aaa", "nightly-latest"},
+			next:    build{"nightly-latest", "bbb", "nightly-latest"},
+			wantRef: "nightly-latest",
+		},
+		{
+			name:    "different identity",
+			first:   build{"stable-26.5.1", "aaa", ""},
+			next:    build{"stable-26.5.2", "bbb", "stable"},
+			wantRef: "stable",
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			home := s.T().TempDir()
+			env1 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild(tc.first.version, tc.first.commit, tc.first.channel))
+			s.Require().NotEmpty(s.libraryRefs(env1.TypedClient(s.T())))
+			env1.Close()
+
+			env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild(tc.next.version, tc.next.commit, tc.next.channel))
+			tc2 := env2.TypedClient(s.T())
+
+			s.Equal([]string{tc.wantRef}, s.libraryRefs(tc2))
+			s.True(s.getDetail(tc2, selfNamespace+"@"+tc.wantRef).UserInstalled)
+			env2.Close()
+		})
+	}
+}
+
+// TestSelfUpdate_RowLeftOutOfTheLibrary_IsRepairedOnBoot starts from the state
+// the bug left behind: a quiver.core row catalogued without the user-installed
+// flag, here as another arrow's dependency. The next boot of a released build
+// on that identity puts it back in the library.
+func (s *SelfUpdateSuite) TestSelfUpdate_RowLeftOutOfTheLibrary_IsRepairedOnBoot() {
+	s.Repos.Set(selfNamespace, kit.BuildUpgradeRepo(s.T(), kit.ReadFixture(s.T(), "self-update/v1/arrow.yaml")))
+	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
+	const dependentKey = "quiver-test/depends-on-core"
+	dependentManifest := []byte(`schema: "arrow@v0"
+metadata:
+  name: quiver-test.depends-on-core
+  description: Depends on quiver.core
+targets:
+  "*":
+    tools:
+      - ` + selfNamespace + `@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+	s.Repos.Set(dependentKey, kit.BuildUpgradeRepo(s.T(), dependentManifest))
+	s.T().Cleanup(func() { s.Repos.Delete(dependentKey) })
+
+	home := s.T().TempDir()
+	env1 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
+	tc1 := env1.TypedClient(s.T())
+	dependent := kit.NSFor(dependentKey, "v1")
+	s.Require().Equal(http.StatusCreated, tc1.Add(dependent))
+	s.Require().Equal(http.StatusAccepted, tc1.Install(dependent, nil))
+	env1.WaitForState(s.T(), dependent, domain.ArrowStateReady, 120*time.Second)
+	s.Require().Empty(s.libraryRefs(tc1), "precondition: the core's row is catalogued outside the library")
+	s.Require().False(s.getDetail(tc1, selfNamespace+"@v1").UserInstalled)
+	env1.Close()
+
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild("v1", "bbb", ""))
+	tc2 := env2.TypedClient(s.T())
+
+	s.Equal([]string{"v1"}, s.libraryRefs(tc2))
+	s.True(s.getDetail(tc2, selfNamespace+"@v1").UserInstalled)
+}

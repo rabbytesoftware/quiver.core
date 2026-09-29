@@ -379,3 +379,9 @@ func TestNew_WithGateway_StartReusesTheProvidedListener(t *testing.T) {
 
 	require.NoError(t, c.Start(ctx, "not-a-uri"), "Start must reuse the pre-bound listener rather than resolving host at all")
 }
+
+func TestWithChannel_SetsOption(t *testing.T) {
+	cfg := internalOpts{}
+	WithChannel("nightly-latest")(&cfg)
+	assert.Equal(t, "nightly-latest", cfg.channel)
+}

@@ -47,23 +47,25 @@ type Container struct {
 	deviceDB *gormdb.DB
 	version  string
 	commit   string
+	channel  string
 	homeDir  string
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
 // promotes the running binary to the stable self-install path, and only then
 // registers this build into its own arrow catalog. Promotion must precede
-// registration: after a self-update the process is exec'd out of the old
-// self-arrow's vault workdir, and EnsureRegistered's row swap deletes that
-// workdir, so registering first leaves promotion nothing to copy and reverts
-// the next cold start to the previous version. Failures beyond the first two
+// registration: after a self-update the process may be exec'd out of a
+// self-arrow row's vault workdir, and EnsureRegistered removes the rows
+// earlier builds filed under other identities along with their workdirs, so
+// registering first can leave promotion nothing to copy and revert the next
+// cold start to the previous version. Failures beyond the first two
 // steps are logged, not fatal — they must never block a self-update that
 // already succeeded.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
-	channel := config.GetArrows().SelfUpdateChannel
+	channel := selfarrow.Channel(config.GetArrows().SelfUpdateChannel, c.channel)
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
@@ -152,6 +154,7 @@ type appOpts struct {
 	homeDir           string
 	version           string
 	commit            string
+	channel           string
 	selfUpdateTrigger *selfupdate.Trigger
 }
 
@@ -172,6 +175,12 @@ func WithVersion(v string) Option {
 // recorded against this daemon's own catalog row on boot.
 func WithCommit(c string) Option {
 	return func(o *appOpts) { o.commit = c }
+}
+
+// WithChannel sets the release channel the running build was published under.
+// An explicit self_update_channel config still wins. See selfarrow.Channel.
+func WithChannel(c string) Option {
+	return func(o *appOpts) { o.channel = c }
 }
 
 // WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
@@ -283,6 +292,7 @@ func New(
 		deviceDB:   deviceDB,
 		version:    cfg.version,
 		commit:     cfg.commit,
+		channel:    cfg.channel,
 		homeDir:    cfg.homeDir,
 	}, nil
 }

@@ -406,3 +406,9 @@ func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
 
 	assert.NotNil(t, c.Runtime)
 }
+
+func TestWithChannel_SetsOption(t *testing.T) {
+	cfg := appOpts{}
+	WithChannel("beta")(&cfg)
+	assert.Equal(t, "beta", cfg.channel)
+}

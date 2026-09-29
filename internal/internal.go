@@ -210,6 +210,7 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 type internalOpts struct {
 	homeDir           string
 	commit            string
+	channel           string
 	selfUpdateTrigger *selfupdate.Trigger
 	listener          net.Listener
 	scheme            string
@@ -232,6 +233,12 @@ func WithHomeDir(dir string) Option {
 // tag can be told apart from the build already installed.
 func WithCommit(commit string) Option {
 	return func(o *internalOpts) { o.commit = commit }
+}
+
+// WithChannel sets the release channel the running build was published under,
+// which quiver.core registers its own catalog row as tracking.
+func WithChannel(channel string) Option {
+	return func(o *internalOpts) { o.channel = channel }
 }
 
 // WithSelfUpdateTrigger hands the container the trigger quiver.core's own
@@ -295,6 +302,7 @@ func New(
 		app.WithHomeDir(cfg.homeDir),
 		app.WithVersion(version),
 		app.WithCommit(cfg.commit),
+		app.WithChannel(cfg.channel),
 		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
 	)
 	if err != nil {

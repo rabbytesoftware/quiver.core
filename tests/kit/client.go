@@ -69,6 +69,16 @@ func (c *Client) Remove(ns string) *http.Response {
 	return resp
 }
 
+// ListUserInstalled lists what the desktop library shows.
+func (c *Client) ListUserInstalled() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow?user_installed=true"))
+	if err != nil {
+		c.t.Fatalf("Client.ListUserInstalled: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) List() *http.Response {
 	c.t.Helper()
 	resp, err := c.http.Get(c.url("/v0/arrow"))
