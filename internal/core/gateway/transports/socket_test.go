@@ -3,6 +3,7 @@ package transports_test
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -76,10 +77,46 @@ func TestSocketTransport_Listen_StaleSocket(t *testing.T) {
 	conn.Close()
 }
 
-func TestSocketTransport_Listen_ListenError(t *testing.T) {
-	transport := transports.NewSocket("/nonexistent/dir/quiver.sock")
+// TestSocketTransport_Listen_CreatesMissingParentDirectory is the regression
+// test for a genuine first boot: PrepareGateway (internal/internal.go) now
+// binds this before internal.New has run at all, which used to be what
+// created the Quiver home directory itself (via core.New's log file) before
+// this ever tried to bind inside it. On a machine with no ~/.quiver yet,
+// nothing else creates that directory ahead of this call any more.
+func TestSocketTransport_Listen_CreatesMissingParentDirectory(t *testing.T) {
+	dir := tempSocketPath(t) + "-missing-parent"
+	path := filepath.Join(dir, "quiver.sock")
+	t.Cleanup(func() { os.RemoveAll(dir) })
 
-	_, err := transport.Listen()
+	_, err := os.Stat(dir)
+	require.True(t, os.IsNotExist(err), "the parent directory must not exist yet -- that is the condition under test")
+
+	transport := transports.NewSocket(path)
+
+	ln, err := transport.Listen()
+	require.NoError(t, err, "Listen must create its own missing parent directory rather than assuming something else already has")
+	defer ln.Close()
+
+	conn, err := net.Dial("unix", path)
+	require.NoError(t, err)
+	conn.Close()
+}
+
+// A merely-missing parent directory no longer proves a Listen error: Listen
+// now creates it (see TestSocketTransport_Listen_CreatesMissingParentDirectory),
+// and CI's Docker runner has permission to create one anywhere, unlike a
+// non-root workstation where "/nonexistent" happened to fail for a different
+// reason. A path through a regular file has no directory entries under it,
+// so MkdirAll fails there regardless of the caller's privilege level.
+func TestSocketTransport_Listen_ListenError(t *testing.T) {
+	f, err := os.CreateTemp("", "qv-listen-error-*")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	t.Cleanup(func() { os.Remove(f.Name()) })
+
+	transport := transports.NewSocket(filepath.Join(f.Name(), "subdir", "quiver.sock"))
+
+	_, err = transport.Listen()
 	assert.Error(t, err)
 }
 
@@ -135,4 +172,34 @@ func TestSocketListener_Close_RemovesFile(t *testing.T) {
 
 	_, err = os.Stat(path)
 	assert.True(t, os.IsNotExist(err), "socket file should be removed after Close")
+}
+
+// The production bug, as a regression test: a daemon that loses a race for
+// its own socket path must not be able to delete the winner's live socket on
+// its way out. This reproduces the race directly rather than the timing that
+// causes it -- two listeners never need to race in real time for the second
+// one's Close to run after a third party has already replaced the file at
+// this path, which is why the fix checks file identity rather than trying to
+// prevent the race itself.
+func TestSocketListener_Close_LeavesAnotherListenersSocketAlone(t *testing.T) {
+	path := tempSocketPath(t)
+
+	transport := transports.NewSocket(path)
+
+	loser, err := transport.Listen()
+	require.NoError(t, err, "the loser must bind successfully to reproduce the race: only its Close, afterwards, is the hazard")
+
+	// Stand-in for a second daemon that won the same path: removes the
+	// loser's file and binds its own fresh listener there, exactly what
+	// handleStale + net.Listen do together for a real second process.
+	require.NoError(t, os.Remove(path))
+	winner, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	defer winner.Close()
+
+	require.NoError(t, loser.Close(), "the loser's own Close must still report success")
+
+	conn, err := net.Dial("unix", path)
+	require.NoError(t, err, "the winner's socket must still be dialable after the loser's Close ran")
+	conn.Close()
 }

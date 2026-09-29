@@ -1,11 +1,15 @@
 package transports
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 )
 
 var chmod = os.Chmod
@@ -25,6 +29,15 @@ func NewSocket(
 }
 
 func (s *socketTransport) Listen() (net.Listener, error) {
+	// internal.PrepareGateway now binds this before internal.New ever runs --
+	// on a genuine first boot that includes whatever used to create the
+	// Quiver home directory itself (core.New, by way of the log file it
+	// opens), so this can no longer assume the directory is already there.
+	dir := filepath.Dir(s.path)
+	if err := fns.MkdirAll(context.Background(), dir, 0o750); err != nil {
+		return nil, fmt.Errorf("gateway: socket: mkdir %s: %w", dir, err)
+	}
+
 	if err := s.handleStale(); err != nil {
 		return nil, err
 	}
@@ -34,14 +47,40 @@ func (s *socketTransport) Listen() (net.Listener, error) {
 		return nil, fmt.Errorf("gateway: socket: listen %s: %w", s.path, err)
 	}
 
+	// *net.UnixListener unlinks the path itself on Close, unconditionally --
+	// the same unsafe-on-a-race behaviour socketListener.Close exists to
+	// replace, not add to. Left enabled, it deletes a sibling's live socket
+	// before our own, ownership-checked removal ever runs. Unix-only: this
+	// type assertion fails harmlessly on Windows, which has no such default
+	// to disable.
+	if unixLn, ok := ln.(*net.UnixListener); ok {
+		unixLn.SetUnlinkOnClose(false)
+	}
+
+	// Both remaining failure paths below abort before this function ever
+	// hands the listener back, so nothing else can have raced onto path yet
+	// -- unlike socketListener.Close, an unconditional removal here is safe,
+	// and is now this function's own job now that SetUnlinkOnClose(false)
+	// means ln.Close() no longer does it.
 	if runtime.GOOS != "windows" {
 		if err := chmod(s.path, 0o600); err != nil {
 			_ = ln.Close()
+			_ = os.Remove(s.path)
 			return nil, fmt.Errorf("gateway: socket: chmod %s: %w", s.path, err)
 		}
 	}
 
-	return &socketListener{Listener: ln, path: s.path}, nil
+	// Recorded now, while this call still knows the file at path is the one
+	// net.Listen just created -- see socketListener.Close for why Close needs
+	// this rather than trusting the path alone.
+	boundInfo, err := os.Stat(s.path)
+	if err != nil {
+		_ = ln.Close()
+		_ = os.Remove(s.path)
+		return nil, fmt.Errorf("gateway: socket: stat %s: %w", s.path, err)
+	}
+
+	return &socketListener{Listener: ln, path: s.path, boundInfo: boundInfo}, nil
 }
 
 func (s *socketTransport) handleStale() error {

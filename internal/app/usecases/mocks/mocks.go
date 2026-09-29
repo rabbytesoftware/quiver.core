@@ -111,15 +111,6 @@ type MockArrow struct {
 		ns domain.Namespace,
 		arrow *domain.Arrow,
 	) error
-	ResolveConstraintFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		constraint string,
-	) (string, error)
-	ResolveLatestStableFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
 	ResolveTrackedRefFn func(
 		ctx context.Context,
 		arrow domain.Arrow,
@@ -416,16 +407,6 @@ func (m *MockArrow) UpdateManifest(
 	return nil
 }
 
-func (m *MockArrow) ResolveLatestStable(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	if m.ResolveLatestStableFn != nil {
-		return m.ResolveLatestStableFn(ctx, ns)
-	}
-	return "", nil
-}
-
 func (m *MockArrow) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -442,17 +423,6 @@ func (m *MockArrow) ResolveTrackedRef(
 ) (string, error) {
 	if m.ResolveTrackedRefFn != nil {
 		return m.ResolveTrackedRefFn(ctx, arrow)
-	}
-	return "", nil
-}
-
-func (m *MockArrow) ResolveConstraint(
-	ctx context.Context,
-	ns domain.Namespace,
-	constraint string,
-) (string, error) {
-	if m.ResolveConstraintFn != nil {
-		return m.ResolveConstraintFn(ctx, ns, constraint)
 	}
 	return "", nil
 }

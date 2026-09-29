@@ -40,8 +40,21 @@ func newDaemonCmd() *cobra.Command {
 			// through the one graceful sequence either way.
 			trigger := selfupdate.NewTrigger(stop)
 
-			container, err := internal.New(ctx, version, buildID, internal.WithSelfUpdateTrigger(trigger))
+			// Bound before internal.New, not after: see PrepareGateway's own
+			// doc for why a daemon that loses this race must be stopped here,
+			// before New's construction ever reaches the sqlite migration.
+			listener, scheme, err := internal.PrepareGateway(host)
 			if err != nil {
+				return err
+			}
+
+			container, err := internal.New(
+				ctx, version, buildID,
+				internal.WithSelfUpdateTrigger(trigger),
+				internal.WithGateway(listener, scheme),
+			)
+			if err != nil {
+				_ = listener.Close()
 				return err
 			}
 

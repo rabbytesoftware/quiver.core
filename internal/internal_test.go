@@ -276,3 +276,106 @@ func TestContainer_Start_TriggerFired_ShutsDownTheRunningDaemon(t *testing.T) {
 	assert.True(t, trigger.Fired())
 	assert.Equal(t, "/vault/quiver-core/v2/quiver-new", trigger.NewBinaryPath())
 }
+
+func TestWithGateway_SetsOption(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	cfg := internalOpts{}
+	WithGateway(ln, "tcp")(&cfg)
+
+	assert.Same(t, ln, cfg.listener)
+	assert.Equal(t, "tcp", cfg.scheme)
+}
+
+func TestPrepareGateway_Unix_BindsAndReturnsScheme(t *testing.T) {
+	f, err := os.CreateTemp("", "qv-internal-prepare-*.sock")
+	require.NoError(t, err)
+	sockPath := f.Name()
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(sockPath))
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	ln, scheme, err := PrepareGateway("unix://" + sockPath)
+	require.NoError(t, err)
+	defer ln.Close()
+
+	assert.Equal(t, "unix", scheme)
+
+	conn, err := net.Dial("unix", sockPath)
+	require.NoError(t, err, "PrepareGateway must return a listener that is actually bound")
+	conn.Close()
+}
+
+func TestPrepareGateway_TCP_BindsAndReturnsScheme(t *testing.T) {
+	ln, scheme, err := PrepareGateway("tcp://127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	assert.Equal(t, "tcp", scheme)
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	conn.Close()
+}
+
+func TestPrepareGateway_MalformedHost_ReturnsGatewayError(t *testing.T) {
+	_, _, err := PrepareGateway("not-a-uri")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal: gateway")
+}
+
+// The regression this whole option exists for: a daemon that loses the race
+// for its socket path must fail via PrepareGateway alone, before New -- and
+// so before adapter.New's sqlite migration -- is ever reached. See
+// cmd/quiver's daemon race test for the full end-to-end reproduction; this
+// pins the seam PrepareGateway itself is responsible for.
+func TestPrepareGateway_DaemonAlreadyRunning_ReturnsErrorWithoutBindingASecondListener(t *testing.T) {
+	f, err := os.CreateTemp("", "qv-internal-prepare-*.sock")
+	require.NoError(t, err)
+	sockPath := f.Name()
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(sockPath))
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	winner, _, err := PrepareGateway("unix://" + sockPath)
+	require.NoError(t, err)
+	defer winner.Close()
+
+	_, _, err = PrepareGateway("unix://" + sockPath)
+	require.Error(t, err, "a second PrepareGateway for the same path must fail rather than hand back a listener nothing else can serve on")
+	assert.Contains(t, err.Error(), "internal: gateway")
+}
+
+// TestNew_WithGateway_StartReusesTheProvidedListener proves the seam
+// PrepareGateway exists for: once WithGateway hands New a listener, Start
+// must use it as-is, never re-resolving host/config or asking gateway.New for
+// a second one of its own. A host argument that would fail Start's own
+// fallback resolution (bindGateway) is passed on purpose -- Start reaching
+// that fallback at all would surface as this test failing instead of the
+// silent double-bind the fallback exists to prevent in the first place.
+func TestNew_WithGateway_StartReusesTheProvidedListener(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	ln, scheme, err := PrepareGateway("tcp://127.0.0.1:0")
+	require.NoError(t, err)
+
+	c, err := New(
+		context.Background(),
+		"v0.0.0-test",
+		"test-build",
+		WithHomeDir(t.TempDir()),
+		WithGateway(ln, scheme),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	assert.True(t, c.authGate.Required(), "New must flip authGate itself for a pre-bound tcp listener, since Start will skip its own scheme resolution")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, c.Start(ctx, "not-a-uri"), "Start must reuse the pre-bound listener rather than resolving host at all")
+}

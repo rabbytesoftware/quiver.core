@@ -936,9 +936,9 @@ func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
 				PinnedRef: "stable-1.0.5",
 			}, nil
 		},
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, constraint string) (string, error) {
-			if constraint != "*" {
-				t.Fatalf("expected the arrow's own installed constraint, got %q", constraint)
+		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
+			if arrow.InstalledConstraint != "*" {
+				t.Fatalf("expected the arrow's own installed constraint, got %q", arrow.InstalledConstraint)
 			}
 			return "stable-1.1", nil
 		},
@@ -1000,7 +1000,7 @@ func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}, nil
 		},
-		ResolveConstraintFn: func(_ context.Context, _ domain.Namespace, _ string) (string, error) {
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
 			return "v1.0.0", nil
 		},
 		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
@@ -1022,38 +1022,68 @@ func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
 	}
 }
 
-// TestRuntimeOnUpdateEnded_NoInstalledConstraint_FallsBackToLatestStable is
-// exactly the self-arrow shape: registered at an exact tag, no constraint at
-// all, so resolution must fall back to ResolveLatestStable -- the same
-// fallback checkTagDrift already uses for version-outdated detection --
-// rather than skip resolution entirely. Precision about which ref is running
-// was never something core resolved for this arrow, and is preserved here
-// rather than replaced by a constraint just to make the swap apply.
-func TestRuntimeOnUpdateEnded_NoInstalledConstraint_FallsBackToLatestStable(t *testing.T) {
-	oldNs := domain.Namespace("test/self@stable-1.0")
-	newNs := domain.Namespace("test/self@stable-1.1")
-	resolveLatestCalled := false
-	var gotConstraint string
+// TestRuntimeOnUpdateEnded_PinnedRef_StaysOnPinnedVersion pins the fix this
+// bug report exists for: an arrow pinned to an exact ref must not be swapped
+// onto a newer release just because its own update: steps ran. Delegating
+// to ResolveTrackedRef (rather than the old InstalledConstraint-or-
+// ResolveLatestStable pair) is what keeps the pin honored here.
+func TestRuntimeOnUpdateEnded_PinnedRef_StaysOnPinnedVersion(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.2.0")
+	var gotArrow domain.Arrow
+	upgradeCalled := false
 
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
+			return &domain.Arrow{Namespace: ns, PinnedRef: "v1.2.0"}, nil
 		},
-		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
-			t.Fatal("expected ResolveLatestStable, not ResolveConstraint, when InstalledConstraint is empty")
-			return "", nil
+		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
+			gotArrow = arrow
+			return arrow.PinnedRef, nil
 		},
-		ResolveLatestStableFn: func(_ context.Context, ns domain.Namespace) (string, error) {
-			resolveLatestCalled = true
-			return "stable-1.1", nil
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return nil, nil
 		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, constraint, _ string, _, alreadyReady, _ bool, _ string) (*domain.Arrow, error) {
-			gotConstraint = constraint
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
+		Ref: ns,
+		LastReturn: &domainRuntime.Return{
+			Method:  domain.MethodUpdate,
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	})
+
+	if gotArrow.PinnedRef != "v1.2.0" {
+		t.Fatalf("expected ResolveTrackedRef to see the arrow's own PinnedRef, got %q", gotArrow.PinnedRef)
+	}
+	if upgradeCalled {
+		t.Fatal("expected no UpgradeVersion call: the pinned ref never moved")
+	}
+}
+
+// TestRuntimeOnUpdateEnded_ChannelTracked_FollowsChannel pins the other half
+// of this bug report's fix: an arrow following a non-stable channel must be
+// moved onto that channel's own latest ref, never onto latest-stable.
+func TestRuntimeOnUpdateEnded_ChannelTracked_FollowsChannel(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0-beta.1")
+	newNs := domain.Namespace("test/arrow@v1.1.0-beta.1")
+	var gotChannel string
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Channel: "beta"}, nil
+		},
+		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
+			if arrow.Channel != "beta" {
+				t.Fatalf("expected ResolveTrackedRef called with Channel %q, got %q", "beta", arrow.Channel)
+			}
+			return "v1.1.0-beta.1", nil
+		},
+		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			gotChannel = channel
 			if oldArg != oldNs || newArg != newNs {
 				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
-			}
-			if !alreadyReady {
-				t.Fatal("expected alreadyReady to be true")
 			}
 			return &domain.Arrow{Namespace: newArg}, nil
 		},
@@ -1067,22 +1097,52 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_FallsBackToLatestStable(t *t
 		},
 	})
 
-	if !resolveLatestCalled {
-		t.Fatal("expected ResolveLatestStable to be called")
-	}
-	if gotConstraint != "" {
-		t.Fatalf("expected the empty constraint to carry through to UpgradeVersion, got %q", gotConstraint)
+	if gotChannel != "beta" {
+		t.Fatalf("expected the tracked channel %q to carry through to UpgradeVersion, got %q", "beta", gotChannel)
 	}
 }
 
-func TestRuntimeOnUpdateEnded_NoInstalledConstraint_LatestStableError_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/self@stable-1.0")
+// TestRuntimeOnUpdateEnded_PrefersRecommendedRef proves onUpdateEnded reuses
+// an already-computed RecommendedRef outright, the same way upgradeRef does,
+// rather than paying for a live ResolveTrackedRef call the passive drift
+// check has already made redundant.
+func TestRuntimeOnUpdateEnded_PrefersRecommendedRef(t *testing.T) {
+	oldNs := domain.Namespace("test/arrow@v1.0.0")
+	newNs := domain.Namespace("test/arrow@v1.2.0")
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1", RecommendedRef: "v1.2.0"}, nil
+		},
+		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
+			t.Fatal("ResolveTrackedRef must not run when RecommendedRef is already set")
+			return "", nil
+		},
+		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			if oldArg != oldNs || newArg != newNs {
+				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
+			}
+			return &domain.Arrow{Namespace: newArg}, nil
+		},
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
+		Ref: oldNs,
+		LastReturn: &domainRuntime.Return{
+			Method:  domain.MethodUpdate,
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	})
+}
+
+func TestRuntimeOnUpdateEnded_ResolveTrackedRefError_NoOp(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1.0.0")
 	upgradeCalled := false
 	a := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns}, nil
 		},
-		ResolveLatestStableFn: func(context.Context, domain.Namespace) (string, error) {
+		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
 			return "", errors.New("no stable release published")
 		},
 		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
@@ -1100,7 +1160,7 @@ func TestRuntimeOnUpdateEnded_NoInstalledConstraint_LatestStableError_NoOp(t *te
 	})
 
 	if upgradeCalled {
-		t.Fatal("expected no UpgradeVersion call when ResolveLatestStable fails")
+		t.Fatal("expected no UpgradeVersion call when ResolveTrackedRef fails")
 	}
 }
 
@@ -1135,35 +1195,6 @@ func TestRuntimeOnUpdateEnded_ArrowNotFound_NoOp(t *testing.T) {
 			Outcome: domainRuntime.ExecutionOutcomeSuccess,
 		},
 	})
-}
-
-func TestRuntimeOnUpdateEnded_ResolveConstraintError_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.0.0")
-	upgradeCalled := false
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
-		},
-		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
-			return "", errors.New("upstream unreachable")
-		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if upgradeCalled {
-		t.Fatal("expected no UpgradeVersion call when constraint resolution fails")
-	}
 }
 
 // TestRuntimeOnUpdateEnded_SelfNamespace_NoOp pins the fix for the race this
@@ -1206,7 +1237,7 @@ func TestRuntimeOnUpdateEnded_UpgradeVersionError_Logged(t *testing.T) {
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
 		},
-		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
+		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
 			return "stable-1.1", nil
 		},
 		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
@@ -1231,7 +1262,7 @@ func TestRuntimeOnEnded_MethodUpdate_CallsOnUpdateEnded(t *testing.T) {
 		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
 		},
-		ResolveConstraintFn: func(context.Context, domain.Namespace, string) (string, error) {
+		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
 			resolveCalled = true
 			return "", errors.New("network unreachable")
 		},
