@@ -105,8 +105,6 @@ func TestHost_DefaultBranches_AreTheConfiguredOnes(t *testing.T) {
 	assert.Equal(t, []string{"main", "master"}, p.DefaultBranches())
 }
 
-// ─── latest release ──────────────────────────────────────────────────────────
-
 // ─── search capability ───────────────────────────────────────────────────────
 
 func TestHost_CanSearch(t *testing.T) {

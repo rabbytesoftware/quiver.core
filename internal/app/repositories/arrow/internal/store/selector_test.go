@@ -265,10 +265,28 @@ func TestResolveInstall_Errors(t *testing.T) {
 			wantErr: apperrors.ErrInvalidNamespace,
 		},
 		{
-			name: "empty ref component is an invalid namespace",
+			name: "doubled slash ref component is an invalid namespace",
 			ns:   selectorBare.WithRef("feat//x"),
 			m: &mocks.Manifold{SnapshotResult: domain.RefSnapshot{
 				Branches: map[string]string{"feat//x": "cfeat", "main": "cmain"},
+				Head:     "main",
+			}},
+			wantErr: apperrors.ErrInvalidNamespace,
+		},
+		{
+			name: "trailing slash ref component is an invalid namespace",
+			ns:   selectorBare.WithRef("feat/"),
+			m: &mocks.Manifold{SnapshotResult: domain.RefSnapshot{
+				Branches: map[string]string{"feat/": "cfeat", "main": "cmain"},
+				Head:     "main",
+			}},
+			wantErr: apperrors.ErrInvalidNamespace,
+		},
+		{
+			name: "leading slash ref component is an invalid namespace",
+			ns:   selectorBare.WithRef("/feat"),
+			m: &mocks.Manifold{SnapshotResult: domain.RefSnapshot{
+				Branches: map[string]string{"/feat": "cfeat", "main": "cmain"},
 				Head:     "main",
 			}},
 			wantErr: apperrors.ErrInvalidNamespace,

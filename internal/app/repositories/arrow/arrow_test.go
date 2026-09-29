@@ -2632,23 +2632,126 @@ func TestAdopt_PresentRow_AdvancesItAndReplacesTheCache(t *testing.T) {
 	assert.Equal(t, yamlManifest, v.PutArrowFiles[0].Content)
 }
 
-func TestAdopt_UnchangedResolved_IsANoOp(t *testing.T) {
+// adoptedManifest is a parsed manifest with every field RefreshManifest
+// carries set, so a comparison that skipped one would show.
+func adoptedManifest(name string) *domain.Arrow {
+	return &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{Name: name, Description: name + " description"},
+		Variables: []domain.Variable{{Name: name + "_VAR", Default: "1"}},
+		Targets:   map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
+		Readme:    name + " readme",
+	}
+}
+
+// Adopt runs on every core boot, so an adopt that changes nothing must write
+// nothing: no event and no cache churn.
+func TestAdopt_UnchangedResolvedAndManifest_WritesNothing(t *testing.T) {
 	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
 	axArrow := newTestAsynxArrow(t)
 	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "abc123"}
-	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, resolved)
-	available := &domain.Available{Ref: "v1.3.0", Commit: "def456"}
-	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
-	require.NoError(t, err)
-	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Changed"}})
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	m := failOnNetworkManifold(t, adoptedManifest("Quiver"))
+	first := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	require.NoError(t, first.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest"), "ARROW.md"))
+
+	var sent []string
+	ax := &arrowMocks.AsynxArrow{
+		ExistsFn: func(ctx context.Context, id string) (bool, error) { return axArrow.Exists(ctx, id) },
+		GetFn:    func(ctx context.Context, id string) (domain.Arrow, error) { return axArrow.Get(ctx, id) },
+		SendWaitFn: func(_ context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			sent = append(sent, cmd.EventName())
+			return asynxModels.Event[domain.Arrow]{}, nil
+		},
+	}
+	v := &mocks.Vault{}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, v, failOnNetworkManifold(t, adoptedManifest("Quiver")))
 
 	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest"), "ARROW.md"))
 
+	assert.Empty(t, sent)
+	assert.Empty(t, v.ArrowOps)
+}
+
+// Seeding the same identity again with different bytes must land the new
+// manifest on the row, not only in the cache, and touch nothing else.
+func TestAdopt_UnchangedResolved_NewManifest_RefreshesTheRow(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+	m := failOnNetworkManifold(t, adoptedManifest("First"))
+	v := &mocks.Vault{}
+	cat, err := arrowRepo.New(db, axArrow, v, m, nil)
+	require.NoError(t, err)
+	resolved := domain.Resolved{Ref: "v1.0.0"}
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorPin, resolved, []byte("first"), "ARROW.md"))
+	installedAt := time.Now().UTC().Truncate(time.Second)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.MarkInstalled{Namespace: ns, InstalledAt: installedAt})
+	require.NoError(t, err)
+	available := &domain.Available{Ref: "v1.1.0", Commit: "c11"}
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+	require.NoError(t, err)
+
+	m.ParseArrowResult = adoptedManifest("Second")
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorPin, resolved, []byte("second"), "ARROW.md"))
+
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "Old", got.Name, "an unchanged adopt must not rewrite the row")
+	want := adoptedManifest("Second")
+	assert.Equal(t, want.ArrowMeta, got.ArrowMeta)
+	assert.Equal(t, want.Variables, got.Variables)
+	assert.Equal(t, want.Targets, got.Targets)
+	assert.Equal(t, want.Readme, got.Readme)
+	assert.Equal(t, resolved, got.Resolved)
 	assert.Equal(t, available, got.Available)
+	assert.Equal(t, domain.SelectorPin, got.SelectorKind)
+	assert.True(t, got.UserInstalled)
+	assert.True(t, installedAt.Equal(got.InstalledAt))
+
+	projected, err := cat.GetManifest(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, "Second", projected.Name)
+	assert.Equal(t, "Second readme", projected.Readme)
+	require.NotEmpty(t, v.PutArrowFiles)
+	assert.Equal(t, []byte("second"), v.PutArrowFiles[len(v.PutArrowFiles)-1].Content)
+}
+
+// A row Add created carries a commit, so a seed of the same ref names a
+// different Resolved: it advances the row onto the seeded bytes.
+func TestAdopt_RowWithCommit_SeedOfTheSameRef_Advances(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	axArrow := newTestAsynxArrow(t)
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "v1.0.0", Commit: "c100", Fingerprint: "c100"})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, failOnNetworkManifold(t, adoptedManifest("Seeded")))
+
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorPin, domain.Resolved{Ref: "v1.0.0"}, []byte("seeded"), "ARROW.md"))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "Seeded", got.Name)
+	assert.Equal(t, domain.Resolved{Ref: "v1.0.0"}, got.Resolved)
+}
+
+func TestAdopt_RefreshRejected_IsMapped(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	resolved := domain.Resolved{Ref: "v1.0.0"}
+	var sent []string
+	ax := &arrowMocks.AsynxArrow{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
+			return domain.Arrow{Namespace: ns, Resolved: resolved, UserInstalled: true}, nil
+		},
+		SendWaitFn: func(_ context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			sent = append(sent, cmd.EventName())
+			return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrValidation)
+		},
+	}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, failOnNetworkManifold(t, adoptedManifest("New")))
+
+	err := cat.Adopt(context.Background(), ns, domain.SelectorPin, resolved, []byte("new"), "ARROW.md")
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
+	assert.Equal(t, []string{"arrow.manifest_refreshed." + ns.String()}, sent)
 }
 
 func TestAdopt_Failures(t *testing.T) {

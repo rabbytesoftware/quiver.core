@@ -78,6 +78,17 @@ func (tc *TypedClient) GetDetail(ns string) (dto.ArrowDetailDTO, int) {
 	return env.Data, resp.StatusCode
 }
 
+// GetManifest returns the arrow manifest and the HTTP status code.
+func (tc *TypedClient) GetManifest(ns string) (dto.ArrowManifestDTO, int) {
+	resp := tc.raw.GetManifest(ns)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.ArrowManifestDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.GetManifest: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
 // Update patches the arrow manifest and returns the HTTP status code.
 func (tc *TypedClient) Update(ns string, body map[string]any) int {
 	resp := tc.raw.Update(ns, body)

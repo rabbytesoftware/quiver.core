@@ -88,6 +88,15 @@ func (c *Client) List() *http.Response {
 	return resp
 }
 
+func (c *Client) GetManifest(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/manifest"))
+	if err != nil {
+		c.t.Fatalf("Client.GetManifest: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) GetDetail(ns string) *http.Response {
 	c.t.Helper()
 	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns)))

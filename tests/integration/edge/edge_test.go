@@ -209,6 +209,26 @@ func (s *EdgeSuite) TestEdge_TagsInDetail() {
 	s.Contains(detail.Tags, "integration-tag-b")
 }
 
+// Seeding an identity again with different bytes replaces its manifest
+// everywhere it is read: the cached manifest and the catalog row.
+func (s *EdgeSuite) TestEdge_ReseedReplacesTheManifest() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor("quiver-test/reseeded", "v1")
+
+	s.Equal(http.StatusCreated, tc.Seed(ns, kit.BuildMinimalYAML("first-seed")))
+	env.WaitForArrow(s.T(), ns, 120*time.Second)
+	s.Equal(http.StatusCreated, tc.Seed(ns, kit.BuildMinimalYAML("second-seed")))
+
+	manifest, status := tc.GetManifest(ns)
+	s.Equal(http.StatusOK, status)
+	s.Equal("second-seed", manifest.Name)
+
+	detail, status := tc.GetDetail(ns)
+	s.Equal(http.StatusOK, status)
+	s.Equal("second-seed", detail.Name)
+}
+
 func (s *EdgeSuite) TestEdge_FetchStep() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())

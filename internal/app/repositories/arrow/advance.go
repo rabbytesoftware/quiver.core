@@ -1,7 +1,9 @@
 package arrow
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -51,11 +53,13 @@ func (s *arrowService) Advance(
 	})
 }
 
-// Adopt parses manifest locally, caches it under ns as filename and records
-// resolved as what ns has installed: a new user-installed row when ns is
-// absent, an advance of the existing row otherwise, and nothing when the row
-// already carries resolved. Whoever adopts a row installed it, so an existing
-// row without the user-installed flag gets it back.
+// Adopt parses manifest locally and records it, with resolved, as what ns
+// has installed: a new user-installed row when ns is absent, an advance when
+// resolved moved, a manifest refresh when only the manifest changed, and
+// nothing at all when the row already holds both — Adopt runs on every core
+// boot. The cache is replaced, under filename, exactly when the row is
+// written, so the two never disagree. Whoever adopts a row installed it, so
+// an existing row without the user-installed flag gets it back.
 func (s *arrowService) Adopt(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -75,15 +79,16 @@ func (s *arrowService) Adopt(
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w: %w", ns, apperrors.ErrInvalidManifest, err)
 	}
-	if err := s.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, manifest, filename)); err != nil {
-		return fmt.Errorf("adopt %s: %w", ns, err)
-	}
+	cache := arrowstore.Cacheable(m, manifest, filename)
 
 	exists, err := s.axArrow.Exists(ctx, ns.String())
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w", ns, err)
 	}
 	if !exists {
+		if err := s.replaceCachedManifest(ctx, ns, cache); err != nil {
+			return fmt.Errorf("adopt %s: %w", ns, err)
+		}
 		return s.sendAdopted(ctx, ns, m, kind, resolved)
 	}
 
@@ -91,16 +96,69 @@ func (s *arrowService) Adopt(
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w", ns, err)
 	}
-	if current.Resolved != resolved {
-		if err := s.sendAdvance(ctx, ns, m, resolved); err != nil {
-			return err
-		}
+	if err := s.adoptOnto(ctx, ns, current, m, resolved, cache); err != nil {
+		return err
 	}
 	if current.UserInstalled {
 		return nil
 	}
 	_, err = s.axArrow.SendWait(ctx, arrowcmds.SetUserInstalled{Namespace: ns})
 	return mapSendErr("adopt", ns, err)
+}
+
+// adoptOnto writes m and resolved onto the existing row current, replacing
+// the cache first, or writes nothing when the row already holds both.
+func (s *arrowService) adoptOnto(
+	ctx context.Context,
+	ns domain.Namespace,
+	current domain.Arrow,
+	m *domain.Arrow,
+	resolved domain.Resolved,
+	cache vault.ManifestFile,
+) error {
+	advance := current.Resolved != resolved
+	if !advance && sameManifest(&current, m) {
+		return nil
+	}
+	if err := s.replaceCachedManifest(ctx, ns, cache); err != nil {
+		return fmt.Errorf("adopt %s: %w", ns, err)
+	}
+	if advance {
+		return s.sendAdvance(ctx, ns, m, resolved)
+	}
+	_, err := s.axArrow.SendWait(ctx, arrowcmds.RefreshManifest{
+		Namespace: ns,
+		ArrowMeta: m.ArrowMeta,
+		Variables: m.Variables,
+		Netbridge: m.Netbridge,
+		Targets:   m.Targets,
+		Readme:    m.Readme,
+	})
+	return mapSendErr("adopt", ns, err)
+}
+
+// sameManifest compares the manifest fields a row stores through their JSON
+// form, the form the row itself is persisted in, so a field the encoding
+// drops can never make an unchanged manifest look different.
+func sameManifest(
+	row *domain.Arrow,
+	parsed *domain.Arrow,
+) bool {
+	a, errA := json.Marshal(manifestOf(row))
+	b, errB := json.Marshal(manifestOf(parsed))
+	return errA == nil && errB == nil && bytes.Equal(a, b)
+}
+
+func manifestOf(
+	a *domain.Arrow,
+) domain.Arrow {
+	return domain.Arrow{
+		ArrowMeta: a.ArrowMeta,
+		Variables: a.Variables,
+		Netbridge: a.Netbridge,
+		Targets:   a.Targets,
+		Readme:    a.Readme,
+	}
 }
 
 // replaceCachedManifest deletes before writing because PutArrow only
