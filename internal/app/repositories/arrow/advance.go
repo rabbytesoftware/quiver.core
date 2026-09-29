@@ -54,7 +54,8 @@ func (s *arrowService) Advance(
 // Adopt parses manifest locally, caches it under ns as filename and records
 // resolved as what ns has installed: a new user-installed row when ns is
 // absent, an advance of the existing row otherwise, and nothing when the row
-// already carries resolved.
+// already carries resolved. Whoever adopts a row installed it, so an existing
+// row without the user-installed flag gets it back.
 func (s *arrowService) Adopt(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -90,10 +91,16 @@ func (s *arrowService) Adopt(
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w", ns, err)
 	}
-	if current.Resolved == resolved {
+	if current.Resolved != resolved {
+		if err := s.sendAdvance(ctx, ns, m, resolved); err != nil {
+			return err
+		}
+	}
+	if current.UserInstalled {
 		return nil
 	}
-	return s.sendAdvance(ctx, ns, m, resolved)
+	_, err = s.axArrow.SendWait(ctx, arrowcmds.SetUserInstalled{Namespace: ns})
+	return mapSendErr("adopt", ns, err)
 }
 
 // replaceCachedManifest deletes before writing because PutArrow only

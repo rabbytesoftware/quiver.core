@@ -3864,3 +3864,160 @@ func TestProjectAvailableChecked_ReachesTheReadModel(t *testing.T) {
 	assert.Equal(t, available, projected[1].Available)
 	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted, apphub.CatalogUpserted}, hub.kinds())
 }
+
+// ─── User-installed and last-used reach the read model ──────────────────────
+
+// newReadModelCatalog builds a catalog over a real read model, so a test can
+// read back what the projections wrote.
+func newReadModelCatalog(t *testing.T) (arrowRepo.Arrow, asynx.Asynx[domain.Arrow]) {
+	t.Helper()
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+	cat, err := arrowRepo.New(db, axArrow, &mocks.Vault{}, nil, nil)
+	require.NoError(t, err)
+	return cat, axArrow
+}
+
+func seedDependencyRow(
+	t *testing.T,
+	axArrow asynx.Asynx[domain.Arrow],
+	ns domain.Namespace,
+) {
+	t.Helper()
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Dep"},
+	})
+	require.NoError(t, err)
+}
+
+func listedNamespaces(views []models.ArrowView) []domain.Namespace {
+	var out []domain.Namespace
+	for _, view := range views {
+		for _, version := range view.Versions {
+			out = append(out, version.Namespace)
+		}
+	}
+	return out
+}
+
+func TestProjectUserInstalled_ReachesTheReadModel(t *testing.T) {
+	ns := testNs()
+	cat, axArrow := newReadModelCatalog(t)
+	seedDependencyRow(t, axArrow, ns)
+	userInstalled := true
+
+	before, err := cat.List(context.Background(), &userInstalled)
+	require.NoError(t, err)
+	require.Empty(t, before)
+
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.SetUserInstalled{Namespace: ns})
+	require.NoError(t, err)
+
+	after, err := cat.List(context.Background(), &userInstalled)
+	require.NoError(t, err)
+	assert.Equal(t, []domain.Namespace{ns}, listedNamespaces(after))
+}
+
+func TestProjectLastUsed_ReachesTheReadModel(t *testing.T) {
+	ns := testNs()
+	cat, axArrow := newReadModelCatalog(t)
+	seedDependencyRow(t, axArrow, ns)
+	at := time.Unix(1_790_000_000, 0).UTC()
+
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.MarkLastUsed{Namespace: ns, LastUsedAt: at})
+	require.NoError(t, err)
+
+	views, err := cat.List(context.Background(), nil)
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	require.Len(t, views[0].Versions, 1)
+	assert.Equal(t, at.Unix(), views[0].Versions[0].Metadata.LastUsedAt.Unix())
+}
+
+// A row filed without the user-installed flag (a dependency, or a self row an
+// earlier build swapped) is repaired by Adopt whether or not what it has
+// installed changed, and the repair reaches the read model.
+func TestAdopt_RowNotUserInstalled_IsRepaired(t *testing.T) {
+	stored := domain.Resolved{Ref: "v1.1.0", Commit: "old111", Fingerprint: "old111"}
+	testCases := []struct {
+		name     string
+		resolved domain.Resolved
+	}{
+		{name: "unchanged resolved", resolved: stored},
+		{name: "advanced resolved", resolved: domain.Resolved{Ref: "v1.2.0", Commit: "new222", Fingerprint: "new222"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+			db, err := adapterSQLite.OpenDB(":memory:")
+			require.NoError(t, err)
+			axArrow := newTestAsynxArrow(t)
+			t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+			m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver"}})
+			cat, err := arrowRepo.New(db, axArrow, &mocks.Vault{}, m, nil)
+			require.NoError(t, err)
+			_, err = axArrow.SendWait(context.Background(), arrowcmds.AddArrow{
+				Namespace:    ns,
+				ArrowMeta:    domain.ArrowMeta{Name: "Old"},
+				SelectorKind: domain.SelectorChannel,
+				Resolved:     stored,
+			})
+			require.NoError(t, err)
+
+			require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, tc.resolved, []byte("manifest"), "ARROW.md"))
+
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.True(t, got.UserInstalled)
+			assert.Equal(t, tc.resolved, got.Resolved)
+			userInstalled := true
+			views, err := cat.List(context.Background(), &userInstalled)
+			require.NoError(t, err)
+			assert.Equal(t, []domain.Namespace{ns}, listedNamespaces(views))
+		})
+	}
+}
+
+func TestAdopt_RepairRejected_IsMapped(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123"}
+	ax := &arrowMocks.AsynxArrow{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
+			return domain.Arrow{Namespace: ns, Resolved: resolved}, nil
+		},
+		SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrValidation)
+		},
+	}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, &mocks.Manifold{ParseArrowResult: &domain.Arrow{}})
+
+	err := cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest"), "ARROW.md")
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
+}
+
+func TestAdopt_AdvanceFailure_SkipsTheRepair(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	var sent []string
+	ax := &arrowMocks.AsynxArrow{
+		ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
+			return domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "v1.1.0"}}, nil
+		},
+		SendWaitFn: func(_ context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			sent = append(sent, cmd.EventName())
+			return asynxModels.Event[domain.Arrow]{}, errors.New("db down")
+		},
+	}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, &mocks.Manifold{ParseArrowResult: &domain.Arrow{}})
+
+	err := cat.Adopt(context.Background(), ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.2.0", Commit: "abc"}, []byte("manifest"), "ARROW.md")
+
+	require.Error(t, err)
+	assert.Equal(t, []string{"arrow.advanced." + ns.String()}, sent)
+}

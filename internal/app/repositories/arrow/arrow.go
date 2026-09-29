@@ -342,6 +342,8 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.version_checked.*", s.projectVersionCheck},
 		{"arrow.available_checked.*", s.projectVersionCheck},
 		{"arrow.channel_set.*", s.projectChannelSet},
+		{"arrow.user_installed.*", s.projectUsage},
+		{"arrow.last_used.*", s.projectUsage},
 	}
 
 	for _, t := range topics {
@@ -441,6 +443,15 @@ func (s *arrowService) projectVersionCheck(
 // installed ref (the one case an ensuing version-check finds no drift to
 // report either).
 func (s *arrowService) projectChannelSet(
+	ctx context.Context,
+	evt asynxModels.Event[domain.Arrow],
+) {
+	s.project(ctx, evt.Aggregate, nil)
+}
+
+// projectUsage carries the user-installed flag and the last-used stamp into
+// the read model, which the library's user_installed filter reads.
+func (s *arrowService) projectUsage(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {
