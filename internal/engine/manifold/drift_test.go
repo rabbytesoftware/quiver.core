@@ -123,6 +123,32 @@ func TestDrift(t *testing.T) {
 			resolved: domain.Resolved{Ref: "main", Commit: "cm"}, snap: releaseSnapshot(),
 		},
 		{
+			name: "deleted pointer tag never falls back to a same-name branch that is not the default", kind: domain.SelectorChannel, selector: "nightly",
+			resolved: domain.Resolved{Ref: "nightly", Commit: "tagged"},
+			snap: domain.RefSnapshot{
+				Tags:     map[string]string{"v1.2.0": "c1"},
+				Branches: map[string]string{"main": "cm", "nightly": "branch-tip"},
+				Head:     "main",
+			},
+			wantErr: ErrUnknownSelector,
+		},
+		{
+			name: "default-branch channel whose branch is gone", kind: domain.SelectorChannel, selector: "main",
+			resolved: domain.Resolved{Ref: "main", Commit: "cm"},
+			snap:     domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c1"}, Head: "main"},
+			wantErr:  ErrUnknownSelector,
+		},
+		{
+			name: "vanished ordered channel never falls back to a same-name branch", kind: domain.SelectorChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"},
+			snap: domain.RefSnapshot{
+				Tags:     map[string]string{"nightly-latest": "n"},
+				Branches: map[string]string{"stable": "cs"},
+				Head:     "stable",
+			},
+			wantErr: ErrUnknownSelector,
+		},
+		{
 			name: "channel absent from snapshot", kind: domain.SelectorChannel, selector: "beta",
 			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
 		},
@@ -176,7 +202,7 @@ func TestTarget(t *testing.T) {
 		{name: "escaped tag reaches the shadowed tag", kind: domain.SelectorPin, selector: "refs/tags/stable", snap: stableCollision, want: domain.Available{Ref: "stable", Commit: "c-stable-tag"}},
 		{name: "escaped branch", kind: domain.SelectorPin, selector: "refs/heads/main", snap: releaseSnapshot(), want: domain.Available{Ref: "main", Commit: "cm"}},
 		{name: "default branch fallback channel", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Branches: map[string]string{"main": "cm"}, Head: "main"}, want: domain.Available{Ref: "main", Commit: "cm"}},
-		{name: "default branch channel keeps its branch once tags exist", kind: domain.SelectorChannel, selector: "main", snap: releaseSnapshot(), want: domain.Available{Ref: "main", Commit: "cm"}},
+		{name: "a default branch that is no longer a listed channel is no install target", kind: domain.SelectorChannel, selector: "main", snap: releaseSnapshot(), wantErr: ErrUnknownSelector},
 		{name: "channel whose latest has no commit", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Head: "main"}, wantErr: ErrUnknownSelector},
 	}
 

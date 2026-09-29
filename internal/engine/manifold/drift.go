@@ -46,6 +46,9 @@ func Drift(
 	}
 
 	target, err := Target(kind, selector, snap)
+	if err != nil && kind == domain.SelectorChannel {
+		target, err = defaultBranchTarget(selector, resolved, snap, err)
+	}
 	if err != nil {
 		return domain.Available{}, false, fmt.Errorf("drift: %w", err)
 	}
@@ -55,19 +58,12 @@ func Drift(
 	return target, true, nil
 }
 
-// channelTarget resolves a channel to its latest member. A repository's
-// default branch is listed as a channel only while it has no tags, so a row
-// that settled on that fallback keeps following its branch after the first
-// release: a later tag push never changes what an identity means.
 func channelTarget(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
 	channel, ok := findChannel(selector, snap)
 	if !ok {
-		if commit, isBranch := snap.Branches[selector]; isBranch {
-			return domain.Available{Ref: selector, Commit: commit}, nil
-		}
 		return domain.Available{}, fmt.Errorf("target channel %q: %w", selector, ErrUnknownSelector)
 	}
 	commit, ok := snap.Commit(channel.Latest)
@@ -89,4 +85,26 @@ func constraintTarget(
 		return domain.Available{}, fmt.Errorf("target constraint %q: no tag matches: %w", selector, ErrUnknownSelector)
 	}
 	return domain.Available{Ref: ref, Commit: snap.Tags[ref]}, nil
+}
+
+// defaultBranchTarget keeps a row that settled on a repository's default
+// branch following it once the repository publishes a first release: the
+// branch is listed as a channel only while there are no tags, and a later tag
+// push never changes what an identity means. Only the HEAD branch the row
+// itself resolved to qualifies, so an ordered channel (resolved to one of its
+// tags) or a deleted pointer tag never quietly turns into a same-name branch.
+func defaultBranchTarget(
+	selector string,
+	resolved domain.Resolved,
+	snap domain.RefSnapshot,
+	notFound error,
+) (domain.Available, error) {
+	if selector != snap.Head || resolved.Ref != selector {
+		return domain.Available{}, notFound
+	}
+	commit, ok := snap.Branches[selector]
+	if !ok {
+		return domain.Available{}, notFound
+	}
+	return domain.Available{Ref: selector, Commit: commit}, nil
 }
