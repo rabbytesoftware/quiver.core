@@ -244,8 +244,9 @@ func AddTaggedCommitToRepo(t *testing.T, storer *memory.Storage, tag string, con
 	createTag(t, repo, tag, hash)
 }
 
-// AddV2ToRepo adds a v2 commit and tag to an existing in-memory storer.
-func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
+// AddV2ToRepo adds a v2 commit and tag to an existing in-memory storer and
+// returns the commit's hash.
+func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) string {
 	t.Helper()
 
 	repo, err := gogit.Open(storer, memfs.New())
@@ -268,6 +269,7 @@ func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) {
 	}
 
 	createTag(t, repo, "v2", hash)
+	return hash.String()
 }
 
 // testResolver implements resolver.Resolver and resolvers.ConstraintResolver

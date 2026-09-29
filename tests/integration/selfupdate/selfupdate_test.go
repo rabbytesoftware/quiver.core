@@ -57,12 +57,15 @@ func (s *SelfUpdateSuite) getDetail(tc *kit.TypedClient, ns string) dto.ArrowDet
 // with no in-memory state" — exactly what a real exec handover leaves the new
 // binary with.
 func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart() {
-	selfNS := selfNamespace + "@v1"
+	// The self-arrow follows a selector (here the constraint v*, standing in
+	// for the release channel the fixture's v1/v2 tags do not classify into);
+	// an update only runs when that selector has moved ahead of what is
+	// installed, so v2 is published after the self-arrow is installed at v1.
+	selfNS := selfNamespace + "@v*"
 
 	v1Content := kit.ReadFixture(s.T(), "self-update/v1/arrow.yaml")
 	v2Content := kit.ReadFixture(s.T(), "self-update/v2/arrow.yaml")
 	storer := kit.BuildUpgradeRepo(s.T(), v1Content)
-	kit.AddV2ToRepo(s.T(), storer, v2Content)
 	s.Repos.Set(selfNamespace, storer)
 	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
 
@@ -112,6 +115,8 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.Equal(s.T(), http.StatusAccepted, tc1.Install(selfNS, bootstrapVars))
 	env1.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 120*time.Second)
 
+	v2Commit := kit.AddV2ToRepo(s.T(), storer, v2Content)
+
 	// --- fixture HTTP server standing in for the resolved release asset,
 	// exercising Task 1.5's checksum verification rather than bypassing it ---
 	payload := []byte("fake quiver.core release binary contents")
@@ -133,7 +138,9 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 
 	env1.CloseWithoutKilling() // the fixture's OS process survives — mirrors what a real exec handover leaves behind
 
-	env2 := s.NewEnvWithHome(env1.Home)
+	// The relaunched binary is the v2 build: it adopts its own new state on
+	// the self-arrow's identity, which is what settles that row.
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, env1.Home, kit.WithBuild("v2", v2Commit, "v*"))
 	tc2 := env2.TypedClient(s.T())
 
 	finalFixture := s.getDetail(tc2, fixtureNS)
@@ -147,6 +154,7 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	// prove: the PID captured before the restart is still alive after it.
 	require.True(s.T(), env2.ProcessAlive(originalPID), "unchanged PID — the process was never killed")
 
+	env2.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 30*time.Second)
 	finalSelf := s.getDetail(tc2, selfNS)
 	require.Equal(s.T(), string(domain.ArrowStateReady), finalSelf.State,
 		"the self-arrow's own record settles back to Ready — it never reaches Running, see this task's header note")

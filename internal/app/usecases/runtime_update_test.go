@@ -604,6 +604,20 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	assert.Empty(t, log.all())
 }
 
+// quiver.core's own update is no exception to the bracket: a self row that is
+// already at its selector's target runs no update steps, so the self-update
+// handover never fires for it. Only a selector that moved ahead of what is
+// installed begins an update.
+func TestRuntimeUpdate_SelfNamespace_CurrentRowRunsNoSteps(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	selfRow := self.WithRef("v1")
+	f := newBracketFixture(domain.ArrowStateReady, nil)
+
+	require.NoError(t, f.usecase().Execute(context.Background(), selfRow, domain.MethodUpdate, nil))
+
+	assert.Equal(t, []string{"check available"}, f.log.all())
+}
+
 // The commit leaves the runtime aggregate's ordered delivery before it
 // clears that aggregate's badge, which would otherwise wait for itself: the
 // handler must return before the commit does anything.
