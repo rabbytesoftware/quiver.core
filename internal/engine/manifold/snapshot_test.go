@@ -24,7 +24,6 @@ func snapshotManifold(
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
-		hosts:      hostedBy(&stubHost{}),
 		clock:      clock.Now,
 		cacheTTL:   time.Hour,
 	}

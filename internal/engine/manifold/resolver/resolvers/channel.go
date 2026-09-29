@@ -11,40 +11,18 @@ import (
 // suffix at all — the structural default, not an invented name.
 const StableChannel = "stable"
 
-// tagPattern locates a 2- or 3-part numeric-dot version core anchored so
-// that only a trailing channel suffix, if any, follows it to the end of the
-// tag. Everything before the core is an ignorable prefix (a "v", a project
-// name, a path segment) — unlike IsStableSemver, the whole tag is never
-// required to be a version.
-var tagPattern = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*)?$`)
-
-// tagPatternWithOrdinalSuffix additionally tolerates a trailing separator
-// followed by pure digits after the version core (e.g. "beta-26.5-1") —
-// needed only by the set-aware classifier below (classifyAll), which has
-// sibling tags to tell a genuine prefix-borne ordinal apart from noise.
-// The single-tag ParseTag/ChannelForTag path has no such context and
-// deliberately keeps requiring a letter-led suffix, unchanged from before
-// this fix — this is why the two patterns are kept separate rather than
-// widening tagPattern itself.
+// tagPatternWithOrdinalSuffix locates a 2- or 3-part numeric-dot version core
+// anchored so that only a trailing channel suffix, if any, follows it to the
+// end of the tag. Everything before the core is an ignorable prefix (a "v", a
+// project name, a path segment) — unlike IsStableSemver, the whole tag is
+// never required to be a version. It tolerates a trailing separator followed
+// by pure digits after the core (e.g. "beta-26.5-1"), which the set-aware
+// classifier (classifyAll) tells apart from noise using sibling tags.
 var tagPatternWithOrdinalSuffix = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
-// ParseTag splits a tag into its version core (e.g. "1.2.0") and channel
-// suffix (e.g. "rc1", "" when there is none). ok is false when the tag has
-// no numeric-dot run at all — such a tag has nothing to split, and is a
-// pointer-channel candidate instead (see ChannelForTag).
-func ParseTag(
-	tag string,
-) (core, suffix string, ok bool) {
-	m := tagPattern.FindStringSubmatch(tag)
-	if m == nil {
-		return "", "", false
-	}
-	return m[2], strings.TrimLeft(m[3], "-_."), true
-}
-
-// parseTagFull is like ParseTag but also returns the prefix, and tolerates
-// a trailing pure-digit continuation after the core that ParseTag itself
-// does not — used only by the set-aware classifier below.
+// parseTagFull splits a tag into its prefix, version core and channel suffix.
+// ok is false when the tag has no numeric-dot run at all — a pointer-channel
+// candidate instead.
 func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
@@ -80,32 +58,10 @@ func ClassifyChannel(
 	return strings.ToLower(m[1]), n, true
 }
 
-// ChannelForTag reports which channel a tag belongs to, using only that
-// tag's own suffix — it has no sibling tags to compare against, so it
-// cannot recognize a prefix-style discriminator (e.g. "beta-1.2.0"); see
-// classifyAll (used by SortInChannel/ChannelsPresent) for the set-aware
-// classification that can. ok is false for a tag with no numeric-dot run
-// at all — a pointer-channel candidate, whose identity is its own literal
-// ref name rather than anything derived here.
-func ChannelForTag(
-	tag string,
-) (channel string, ok bool) {
-	_, suffix, ok := ParseTag(tag)
-	if !ok {
-		return "", false
-	}
-	if suffix == "" {
-		return StableChannel, true
-	}
-	name, _, _ := ClassifyChannel(suffix)
-	return name, true
-}
-
 // normalizeVersionPrefix strips a trailing separator from a tag's prefix
 // and reports "" for a bare "v" (case-insensitive) — the one, pre-existing,
 // purely mechanical version marker this codebase has always stripped
-// silently (see the original ParseTag doc comment's own "v" example), not
-// a channel name. Every other prefix is returned as-is, lowercased,
+// silently, not a channel name. Every other prefix is returned as-is, lowercased,
 // unstripped further: whether it's a genuine channel marker (like "beta-")
 // or incidental noise (a project name prefix) is not decidable from the
 // prefix's shape alone — see classifyAll for how that's actually decided.
@@ -130,7 +86,7 @@ type classifiedTag struct {
 
 // classifyAll classifies every tag in tags that has a version core at all
 // (a tag with none is a pointer-channel candidate, omitted here — callers
-// already handle "not found" as pointer, via ParseTag's own ok return).
+// already handle "not found" as pointer, via parseTagFull's own ok return).
 //
 // A channel suffix (text after the version core) always wins when present,
 // exactly as before. Only when a tag has no suffix does its prefix (text
@@ -235,21 +191,6 @@ func SortInChannel(
 	return out
 }
 
-// LatestInChannel returns the tag with the highest precedence among tags
-// belonging to the given channel: highest version core wins, ties within
-// the same core broken by ordinal. ok is false when no tag in tags belongs
-// to channel.
-func LatestInChannel(
-	tags []string,
-	channel string,
-) (tag string, ok bool) {
-	sorted := SortInChannel(tags, channel)
-	if len(sorted) == 0 {
-		return "", false
-	}
-	return sorted[0], true
-}
-
 // higherPrecedenceClassified reports whether a outranks b within the same
 // channel: by version core first, then by ordinal.
 func higherPrecedenceClassified(
@@ -263,7 +204,7 @@ func higherPrecedenceClassified(
 
 // ChannelsPresent returns the distinct ordered-channel names present in
 // tags (a tag with no version core at all is a pointer-channel candidate,
-// not included here — see ParseTag). Order is alphabetical, for
+// not included here — see parseTagFull). Order is alphabetical, for
 // determinism; callers needing precedence order call SortInChannel per
 // channel.
 func ChannelsPresent(

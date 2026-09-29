@@ -83,7 +83,7 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 }
 
 // WithClock overrides the clock the fixture-backed manifold uses to judge
-// its own resolution-cache TTL (ListChannels/ResolveConstraint), so a test
+// its own resolution-cache TTL (Snapshot/ListChannels), so a test
 // can advance time deterministically — including past the real,
 // config-derived production TTL — without a real sleep. Nil (the default)
 // uses the real clock.
@@ -236,9 +236,9 @@ func stubEngines(
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
 	if cfg.clock != nil {
-		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock)
+		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, cfg.clock)
 	} else {
-		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
+		engines.Manifold = manifold.NewWithResolvers(rsv, rsv)
 	}
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)

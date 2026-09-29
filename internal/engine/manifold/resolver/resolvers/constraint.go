@@ -19,25 +19,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// ConstraintResolver answers the questions a remote's ref advertisement can
-// answer: which tag satisfies a constraint, and which branch is the default.
+// ConstraintResolver reads a remote's ref advertisement.
 type ConstraintResolver interface {
-	Resolve(ctx context.Context, ns domain.Namespace, pattern string) (string, error)
-
-	// ListTags returns every tag a namespace's repository publishes,
-	// unfiltered — the raw material a channel classifier buckets.
-	ListTags(ctx context.Context, ns domain.Namespace) ([]string, error)
-
-	// DefaultBranch reports the branch the remote's HEAD points at, and the
-	// commit hash that branch currently resolves to. It is the repository's
-	// real default branch on any git host, whatever it is named.
-	DefaultBranch(ctx context.Context, ns domain.Namespace) (branch, hash string, err error)
-
-	// RefCommit reports the commit hash the tag or branch named ref currently
-	// resolves to. It is how a rolling tag that is force-moved onto a new
-	// commit is told apart from the same tag left where it was.
-	RefCommit(ctx context.Context, ns domain.Namespace, ref string) (string, error)
-
 	// Refs snapshots every tag, branch and the HEAD branch in one ref
 	// advertisement, with annotated tags peeled to the commit they point at.
 	Refs(ctx context.Context, ns domain.Namespace) (domain.RefSnapshot, error)
@@ -51,36 +34,6 @@ type constraintResolver struct {
 
 func NewConstraintResolver(timeout time.Duration) ConstraintResolver {
 	return &constraintResolver{timeout: timeout}
-}
-
-func (c *constraintResolver) Resolve(
-	ctx context.Context,
-	ns domain.Namespace,
-	pattern string,
-) (string, error) {
-	return c.resolveWithCloneURL(ctx, ns.BareNamespace().CloneURL(), pattern)
-}
-
-func (c *constraintResolver) ListTags(
-	ctx context.Context,
-	ns domain.Namespace,
-) ([]string, error) {
-	return c.listTagsWithCloneURL(ctx, ns.BareNamespace().CloneURL())
-}
-
-func (c *constraintResolver) DefaultBranch(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, string, error) {
-	return c.defaultBranchWithCloneURL(ctx, ns.BareNamespace().CloneURL())
-}
-
-func (c *constraintResolver) RefCommit(
-	ctx context.Context,
-	ns domain.Namespace,
-	ref string,
-) (string, error) {
-	return c.refCommitWithCloneURL(ctx, ns.BareNamespace().CloneURL(), ref)
 }
 
 func (c *constraintResolver) Refs(
@@ -136,81 +89,6 @@ func snapshotOf(
 	return snap
 }
 
-func (c *constraintResolver) refCommitWithCloneURL(
-	ctx context.Context,
-	cloneURL string,
-	ref string,
-) (string, error) {
-	refs, err := c.listRefs(ctx, cloneURL)
-	if err != nil {
-		return "", fmt.Errorf("ref commit: list refs for %s: %w", cloneURL, err)
-	}
-	return commitOfRef(refs, ref, cloneURL)
-}
-
-// commitOfRef finds ref among a ref advertisement's tags and branches. An
-// annotated tag is advertised twice, once as the tag object and once peeled to
-// the commit it points at; the commit is what identifies the release, so the
-// peeled entry wins.
-func commitOfRef(
-	refs []*plumbing.Reference,
-	ref string,
-	cloneURL string,
-) (string, error) {
-	var found string
-	for _, r := range refs {
-		name := r.Name()
-		if !name.IsTag() && !name.IsBranch() {
-			continue
-		}
-		short := name.Short()
-		if short == ref+"^{}" {
-			return r.Hash().String(), nil
-		}
-		if short == ref {
-			found = r.Hash().String()
-		}
-	}
-	if found == "" {
-		return "", fmt.Errorf("%w: %s has no ref %q", ErrRefNotFound, cloneURL, ref)
-	}
-	return found, nil
-}
-
-func (c *constraintResolver) defaultBranchWithCloneURL(
-	ctx context.Context,
-	cloneURL string,
-) (string, string, error) {
-	refs, err := c.listRefs(ctx, cloneURL)
-	if err != nil {
-		return "", "", fmt.Errorf("default branch: list refs for %s: %w", cloneURL, err)
-	}
-	return headBranch(refs, cloneURL)
-}
-
-// headBranch reads the branch a remote's HEAD points at, and that branch's own
-// current commit hash. The ref advertisement carries HEAD as a symbolic
-// reference, so its target names the default branch without any host-specific
-// API and without guessing from a list; the branch's hash comes from that same
-// ref's own entry in the same advertisement, so answering both costs no extra
-// round trip.
-func headBranch(
-	refs []*plumbing.Reference,
-	cloneURL string,
-) (string, string, error) {
-	target := headTarget(refs)
-	if target == "" || !target.IsBranch() {
-		return "", "", fmt.Errorf("%w: %s advertises no HEAD symref", ErrNoDefaultBranch, cloneURL)
-	}
-
-	for _, ref := range refs {
-		if ref.Name() == target {
-			return target.Short(), ref.Hash().String(), nil
-		}
-	}
-	return "", "", fmt.Errorf("%w: %s advertises HEAD -> %s but not the ref itself", ErrNoDefaultBranch, cloneURL, target)
-}
-
 func headTarget(
 	refs []*plumbing.Reference,
 ) plumbing.ReferenceName {
@@ -220,15 +98,6 @@ func headTarget(
 		}
 	}
 	return ""
-}
-
-// listRefs performs the one network round trip both remote questions are
-// answered from.
-func (c *constraintResolver) listRefs(
-	ctx context.Context,
-	cloneURL string,
-) ([]*plumbing.Reference, error) {
-	return c.listRefsPeeling(ctx, cloneURL, gogit.IgnorePeeled)
 }
 
 func (c *constraintResolver) listRefsPeeling(
@@ -244,26 +113,6 @@ func (c *constraintResolver) listRefsPeeling(
 	})
 
 	return remote.ListContext(ctx, &gogit.ListOptions{PeelingOption: peeling})
-}
-
-func (c *constraintResolver) resolveWithCloneURL(
-	ctx context.Context,
-	cloneURL string,
-	pattern string,
-) (string, error) {
-	refs, err := c.listRefs(ctx, cloneURL)
-	if err != nil {
-		return "", fmt.Errorf("constraint: list refs for %s: %w", cloneURL, err)
-	}
-
-	tag, ok, err := HighestMatch(tagNames(refs), pattern)
-	if err != nil {
-		return "", fmt.Errorf("constraint: invalid pattern %q: %w", pattern, err)
-	}
-	if !ok {
-		return "", fmt.Errorf("constraint: no git tags match pattern %q for %s", pattern, cloneURL)
-	}
-	return tag, nil
 }
 
 // HighestMatch returns the highest-ranked tag matching the glob pattern, by
@@ -324,30 +173,6 @@ func sortLexDesc(tags []string) {
 	sort.Slice(tags, func(i, j int) bool {
 		return tags[i] > tags[j]
 	})
-}
-
-// tagNames extracts every tag's short name from a ref advertisement.
-func tagNames(
-	refs []*plumbing.Reference,
-) []string {
-	names := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if ref.Name().IsTag() {
-			names = append(names, ref.Name().Short())
-		}
-	}
-	return names
-}
-
-func (c *constraintResolver) listTagsWithCloneURL(
-	ctx context.Context,
-	cloneURL string,
-) ([]string, error) {
-	refs, err := c.listRefs(ctx, cloneURL)
-	if err != nil {
-		return nil, fmt.Errorf("constraint: list refs for %s: %w", cloneURL, err)
-	}
-	return tagNames(refs), nil
 }
 
 // IsStableSemver reports whether a tag names a stable release: two or three

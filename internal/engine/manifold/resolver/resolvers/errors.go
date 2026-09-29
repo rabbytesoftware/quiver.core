@@ -9,12 +9,3 @@ var ErrNotFound = errors.New("resolver: manifest not found")
 // ErrFetchFailed is returned when the remote git repository cannot be cloned,
 // HTTP request fails, or the file cannot be read from the in-memory worktree.
 var ErrFetchFailed = errors.New("resolver: fetch failed")
-
-// ErrNoDefaultBranch is returned when a remote answers the ref advertisement
-// without a HEAD symbolic reference, so git itself cannot name the default
-// branch. It is a miss, not a failure.
-var ErrNoDefaultBranch = errors.New("resolver: no default branch")
-
-// ErrRefNotFound is returned when a remote's ref advertisement carries no tag
-// or branch of the requested name.
-var ErrRefNotFound = errors.New("resolver: ref not found")

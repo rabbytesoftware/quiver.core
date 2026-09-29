@@ -218,7 +218,7 @@ func AddCommitToRepo(t *testing.T, storer *memory.Storage, content []byte) {
 // AddTaggedCommitToRepo adds a new commit on the default branch and tags it
 // with an arbitrary, caller-chosen tag — unlike AddV2ToRepo, which always
 // tags "v2". Use this when the test needs a specific stable-semver tag (e.g.
-// "v1.1.0") for manifold.ResolveLatestStable to accept.
+// "v1.1.0") that a stable channel or constraint selector must pick up.
 func AddTaggedCommitToRepo(t *testing.T, storer *memory.Storage, tag string, content []byte) {
 	t.Helper()
 
@@ -342,56 +342,6 @@ func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace)
 	return readFromRepo(storer, ns.Ref(), "collection.yaml")
 }
 
-func (r *testResolver) Resolve(_ context.Context, ns domain.Namespace, pattern string) (string, error) {
-	key := fixtureKey(ns)
-	storer, ok := r.repos.Get(key)
-	if !ok {
-		return "", fmt.Errorf("fixture repo not found for constraint: %s", ns)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return resolveConstraintFromTags(storer, pattern)
-}
-
-// ListTags returns every tag the fixture repo has, unfiltered — the same tag
-// set Resolve matches a constraint pattern against.
-func (r *testResolver) ListTags(_ context.Context, ns domain.Namespace) ([]string, error) {
-	key := fixtureKey(ns)
-	storer, ok := r.repos.Get(key)
-	if !ok {
-		return nil, fmt.Errorf("fixture repo not found for list tags: %s", ns)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return listTagsFromRepo(storer)
-}
-
-// DefaultBranch reads the fixture repo's HEAD symref, the same thing the real
-// resolver reads off a remote's ref advertisement.
-func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (string, string, error) {
-	key := fixtureKey(ns)
-	storer, ok := r.repos.Get(key)
-	if !ok {
-		return "", "", fmt.Errorf("fixture repo not found for default branch: %s", ns)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return headBranchOf(storer)
-}
-
-// RefCommit reads the commit a fixture repo's tag or branch points at, the
-// same thing the real resolver reads off a remote's ref advertisement.
-func (r *testResolver) RefCommit(_ context.Context, ns domain.Namespace, ref string) (string, error) {
-	key := fixtureKey(ns)
-	storer, ok := r.repos.Get(key)
-	if !ok {
-		return "", fmt.Errorf("fixture repo not found for ref commit: %s", ns)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return refCommitOf(storer, ref)
-}
-
 // Refs snapshots the fixture repo's tags (peeled to their commits), branches
 // and HEAD branch, the same view the real resolver reads off a remote's ref
 // advertisement.
@@ -446,19 +396,6 @@ func peeledCommit(repo *gogit.Repository, hash plumbing.Hash) plumbing.Hash {
 		return tag.Target
 	}
 	return hash
-}
-
-func refCommitOf(storer *memory.Storage, ref string) (string, error) {
-	repo, err := gogit.Open(storer, memfs.New())
-	if err != nil {
-		return "", fmt.Errorf("open repo: %w", err)
-	}
-	for _, name := range []plumbing.ReferenceName{plumbing.NewTagReferenceName(ref), plumbing.NewBranchReferenceName(ref)} {
-		if resolved, err := repo.Reference(name, true); err == nil {
-			return resolved.Hash().String(), nil
-		}
-	}
-	return "", fmt.Errorf("ref %q not found in fixture repo", ref)
 }
 
 // testdataCollectionsDir returns the path to testdata/collections/ relative to any suite package.
@@ -858,70 +795,4 @@ func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) 
 		return nil, fmt.Errorf("read %s: %w", filename, err)
 	}
 	return data, nil
-}
-
-func headBranchOf(storer *memory.Storage) (string, string, error) {
-	repo, err := gogit.Open(storer, memfs.New())
-	if err != nil {
-		return "", "", fmt.Errorf("open repo: %w", err)
-	}
-	head, err := repo.Reference(plumbing.HEAD, false)
-	if err != nil {
-		return "", "", fmt.Errorf("read HEAD: %w", err)
-	}
-	target := head.Target()
-	if !target.IsBranch() {
-		return "", "", fmt.Errorf("HEAD does not point at a branch: %s", target)
-	}
-	branchRef, err := repo.Reference(target, true)
-	if err != nil {
-		return "", "", fmt.Errorf("read branch ref: %w", err)
-	}
-	return target.Short(), branchRef.Hash().String(), nil
-}
-
-// listTagsFromRepo returns every tag name a fixture repo has, unfiltered and
-// unsorted — the raw material both resolveConstraintFromTags and
-// testResolver.ListTags read from.
-func listTagsFromRepo(storer *memory.Storage) ([]string, error) {
-	repo, err := gogit.Open(storer, memfs.New())
-	if err != nil {
-		return nil, fmt.Errorf("open repo: %w", err)
-	}
-	tagIter, err := repo.Tags()
-	if err != nil {
-		return nil, fmt.Errorf("list tags: %w", err)
-	}
-	defer tagIter.Close()
-	var tags []string
-	err = tagIter.ForEach(func(ref *plumbing.Reference) error {
-		tags = append(tags, ref.Name().Short())
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("iterate tags: %w", err)
-	}
-	return tags, nil
-}
-
-func resolveConstraintFromTags(storer *memory.Storage, pattern string) (string, error) {
-	tags, err := listTagsFromRepo(storer)
-	if err != nil {
-		return "", err
-	}
-	var matched []string
-	for _, tagName := range tags {
-		ok, merr := path.Match(pattern, tagName)
-		if merr != nil {
-			return "", fmt.Errorf("invalid pattern %q: %w", pattern, merr)
-		}
-		if ok {
-			matched = append(matched, tagName)
-		}
-	}
-	if len(matched) == 0 {
-		return "", fmt.Errorf("constraint: no git tags match pattern %q", pattern)
-	}
-	sort.Sort(sort.Reverse(sort.StringSlice(matched)))
-	return matched[0], nil
 }

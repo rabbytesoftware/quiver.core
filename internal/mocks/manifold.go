@@ -8,37 +8,25 @@ import (
 )
 
 type Manifold struct {
-	ResolveArrowResult        *domain.Arrow
-	ResolveArrowRaw           []byte
-	ResolveArrowFilename      string
-	ResolveArrowErr           error
-	ResolveArrowAtResult      *domain.Arrow
-	ResolveArrowAtRaw         []byte
-	ResolveArrowAtFilename    string
-	ResolveArrowAtErr         error
-	ResolveCollectionResult   *domain.Collection
-	ResolveCollectionErr      error
-	ParseCollectionResult     *domain.Collection
-	ParseCollectionErr        error
-	ParseArrowResult          *domain.Arrow
-	ParseArrowErr             error
-	ResolveConstraintResult   string
-	ResolveConstraintErr      error
-	ResolveLatestStableRef    string
-	ResolveLatestStableErr    error
-	DefaultBranchRef          string
-	DefaultBranchHash         string
-	DefaultBranchErr          error
-	ResolveLatestInChannelRef string
-	ResolveLatestInChannelErr error
-	ResolveRefCommitHash      string
-	ResolveRefCommitErr       error
-	ResolveRefCommitCalls     int
-	ListChannelsResult        []manifold.ChannelInfo
-	ListChannelsErr           error
-	SnapshotResult            domain.RefSnapshot
-	SnapshotErr               error
-	SnapshotCalls             int
+	ResolveArrowResult      *domain.Arrow
+	ResolveArrowRaw         []byte
+	ResolveArrowFilename    string
+	ResolveArrowErr         error
+	ResolveArrowAtResult    *domain.Arrow
+	ResolveArrowAtRaw       []byte
+	ResolveArrowAtFilename  string
+	ResolveArrowAtErr       error
+	ResolveCollectionResult *domain.Collection
+	ResolveCollectionErr    error
+	ParseCollectionResult   *domain.Collection
+	ParseCollectionErr      error
+	ParseArrowResult        *domain.Arrow
+	ParseArrowErr           error
+	ListChannelsResult      []manifold.ChannelInfo
+	ListChannelsErr         error
+	SnapshotResult          domain.RefSnapshot
+	SnapshotErr             error
+	SnapshotCalls           int
 	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
 	// from the same SnapshotFn/SnapshotResult as Snapshot.
 	FreshSnapshotCalls int
@@ -74,13 +62,6 @@ type Manifold struct {
 		path string,
 	) (*domain.Arrow, []byte, string, error)
 
-	// ResolveRefCommitFn, when set, answers per namespace so a test can make a
-	// rolling tag resolve to a different commit on each call.
-	ResolveRefCommitFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
-
 	// SnapshotFn, when set, answers per namespace so a test can move a ref
 	// between calls.
 	SnapshotFn func(
@@ -95,14 +76,6 @@ type Manifold struct {
 		ns domain.Namespace,
 		commit string,
 	) (*domain.Arrow, []byte, string, error)
-
-	// ResolveLatestInChannelFn, when set, answers per channel so a test can
-	// assert exactly which channel string a caller passed.
-	ResolveLatestInChannelFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-	) (string, error)
 }
 
 func (m *Manifold) ResolveArrow(
@@ -145,50 +118,6 @@ func (m *Manifold) ResolveCollection(
 	_ domain.Namespace,
 ) (*domain.Collection, error) {
 	return m.ResolveCollectionResult, m.ResolveCollectionErr
-}
-
-func (m *Manifold) ResolveConstraint(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
-) (string, error) {
-	return m.ResolveConstraintResult, m.ResolveConstraintErr
-}
-
-func (m *Manifold) ResolveLatestStable(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return m.ResolveLatestStableRef, m.ResolveLatestStableErr
-}
-
-func (m *Manifold) ResolveDefaultBranch(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, string, error) {
-	return m.DefaultBranchRef, m.DefaultBranchHash, m.DefaultBranchErr
-}
-
-func (m *Manifold) ResolveRefCommit(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	m.ResolveRefCommitCalls++
-	if m.ResolveRefCommitFn != nil {
-		return m.ResolveRefCommitFn(ctx, ns)
-	}
-	return m.ResolveRefCommitHash, m.ResolveRefCommitErr
-}
-
-func (m *Manifold) ResolveLatestInChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (string, error) {
-	if m.ResolveLatestInChannelFn != nil {
-		return m.ResolveLatestInChannelFn(ctx, ns, channel)
-	}
-	return m.ResolveLatestInChannelRef, m.ResolveLatestInChannelErr
 }
 
 func (m *Manifold) ListChannels(

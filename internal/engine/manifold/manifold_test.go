@@ -124,7 +124,7 @@ func TestNewWithClock_UsesInjectedClock(t *testing.T) {
 func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
 	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	crs := &stubConstraintResolver{}
-	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, hostedBy(&stubHost{}), func() time.Time { return fixed }).(*manifold)
+	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, func() time.Time { return fixed }).(*manifold)
 	if !ok {
 		t.Fatal("NewWithResolversAndClock(...).(*manifold) assertion failed")
 	}
@@ -178,7 +178,6 @@ func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
 	now := time.Now()
 	clock := &fakeClock{now: now}
 	built.constraint = crs
-	built.hosts = hostedBy(&stubHost{})
 	built.clock = clock.Now
 
 	ns := domain.Namespace("github.com/u/r")
@@ -214,38 +213,6 @@ func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
 	}
 	if crs.listTagsCall != 2 {
 		t.Errorf("listTagsCall = %d, want 2 (past the constructor-supplied TTL must refetch)", crs.listTagsCall)
-	}
-}
-
-// A manifold wired to no host lookup asks no host anything: every namespace
-// resolves by cloning, and the latest-release step is a miss rather than a
-// panic.
-func TestNew_NilHostLookup_MissesEveryHostQuestion(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-
-	m := NewWithResolvers(&stubResolver{}, crs, nil)
-	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("ref = %q, want %q", got, "v1.10.0")
-	}
-}
-
-// A namespace on a host the lookup does not know skips the release step
-// entirely: git tags answer for every host.
-func TestResolveLatestStable_UnknownHostFallsBackToTags(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-	noHost := func(_ domain.Namespace) (Host, bool) { return nil, false }
-
-	m := NewWithResolvers(&stubResolver{}, crs, noHost)
-	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("git.example.test/u/r"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("ref = %q, want %q", got, "v1.10.0")
 	}
 }
 
@@ -822,28 +789,20 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result        string
-	err           error
-	branchHash    string
-	patterns      []string
-	branch        string
-	branchErr     error
-	branchCall    int
-	listTags      []string
-	listTagsErr   error
-	refCommit     string
-	refCommitErr  error
-	refCommitRefs []string
-	listTagsCall  int
-	refs          *domain.RefSnapshot
-	refsErr       error
-	refsCall      int
+	branchHash   string
+	branch       string
+	branchErr    error
+	branchCall   int
+	listTags     []string
+	listTagsErr  error
+	listTagsCall int
+	refs         *domain.RefSnapshot
+	refsErr      error
+	refsCall     int
 }
 
-// Refs answers from refs when set, else builds the snapshot from the same
-// listTags/branch fields the older per-question methods answer from, and
-// counts itself as both of those questions so the ListChannels tests written
-// against them keep their meaning.
+// Refs answers from refs when set, else builds the snapshot from the
+// listTags/branch fields, counting itself as both a tag and a branch lookup.
 func (s *stubConstraintResolver) Refs(_ context.Context, _ domain.Namespace) (domain.RefSnapshot, error) {
 	s.refsCall++
 	s.listTagsCall++
@@ -866,26 +825,6 @@ func (s *stubConstraintResolver) Refs(_ context.Context, _ domain.Namespace) (do
 		snap.Head = s.branch
 	}
 	return snap, nil
-}
-
-func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
-	s.patterns = append(s.patterns, pattern)
-	return s.result, s.err
-}
-
-func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
-	s.branchCall++
-	return s.branch, s.branchHash, s.branchErr
-}
-
-func (s *stubConstraintResolver) RefCommit(_ context.Context, _ domain.Namespace, ref string) (string, error) {
-	s.refCommitRefs = append(s.refCommitRefs, ref)
-	return s.refCommit, s.refCommitErr
-}
-
-func (s *stubConstraintResolver) ListTags(_ context.Context, _ domain.Namespace) ([]string, error) {
-	s.listTagsCall++
-	return s.listTags, s.listTagsErr
 }
 
 // stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
@@ -921,7 +860,7 @@ func hostedBy(h *stubHost) HostLookup {
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	_ = NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
+	_ = NewWithResolvers(rsv, crs)
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
@@ -929,7 +868,7 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	rsv := &stubResolver{arrowErr: resolveErr}
 	crs := &stubConstraintResolver{}
 
-	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(rsv, crs)
 	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	if !errors.Is(err, resolveErr) {
@@ -937,475 +876,7 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	}
 }
 
-// ─── ResolveLatestStable ──────────────────────────────────────────────────────
-
-func TestResolveLatestStable_ReleasePermalinkWins(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v0.1.0"}
-
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
-	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/cli/cli"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v2.96.0" {
-		t.Errorf("ref = %q, want %q", got, "v2.96.0")
-	}
-	if len(crs.patterns) != 0 {
-		t.Errorf("constraint resolver called %v, want no call", crs.patterns)
-	}
-}
-
-func TestResolveLatestStable_FallsBackToTags(t *testing.T) {
-	testCases := []struct {
-		name string
-		host *stubHost
-	}{
-		{
-			name: "the host publishes no release",
-			host: &stubHost{err: errors.New("no latest release")},
-		},
-		{
-			name: "the host answers with an empty ref",
-			host: &stubHost{},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			crs := &stubConstraintResolver{result: "v1.10.0"}
-
-			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(tc.host))
-			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != "v1.10.0" {
-				t.Errorf("ref = %q, want %q", got, "v1.10.0")
-			}
-			if tc.host.called != 1 {
-				t.Errorf("host asked %d times, want 1", tc.host.called)
-			}
-			if len(crs.patterns) != 1 || crs.patterns[0] != "*" {
-				t.Errorf("constraint patterns = %v, want [*]", crs.patterns)
-			}
-		})
-	}
-}
-
-func TestResolveLatestStable_NoTagsIsAMiss(t *testing.T) {
-	crs := &stubConstraintResolver{err: errors.New("no git tags match pattern")}
-
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
-	got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
-
-	if !errors.Is(err, ErrNoLatestStable) {
-		t.Fatalf("expected ErrNoLatestStable, got %v", err)
-	}
-	if got != "" {
-		t.Errorf("ref = %q, want empty", got)
-	}
-}
-
-func TestResolveLatestStable_PrereleaseOnlyIsAMiss(t *testing.T) {
-	testCases := []string{"nightly", "v2.0.0-rc.1", "latest"}
-
-	for _, tag := range testCases {
-		t.Run(tag, func(t *testing.T) {
-			crs := &stubConstraintResolver{result: tag}
-
-			m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{err: errors.New("no latest release")}))
-			got, err := m.ResolveLatestStable(context.Background(), domain.Namespace("github.com/u/r"))
-
-			if !errors.Is(err, ErrNoLatestStable) {
-				t.Fatalf("expected ErrNoLatestStable, got %v", err)
-			}
-			if got != "" {
-				t.Errorf("ref = %q, want empty", got)
-			}
-		})
-	}
-}
-
-func TestResolveLatestInChannel_Stable_UsesLatestStablePath(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("got %q, want %q", got, "v1.10.0")
-	}
-}
-
-func TestResolveLatestInChannel_Stable_UsesReleasePermalink(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{ref: "v2.96.0"}))
-
-	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), StableChannel)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v2.96.0" {
-		t.Errorf("got %q, want %q", got, "v2.96.0")
-	}
-}
-
-func TestResolveLatestInChannel_NonStable_PicksHighestInChannel(t *testing.T) {
-	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1", "v1.2.0-rc2", "v1.4.0"}}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.2.0-rc2" {
-		t.Errorf("got %q, want %q", got, "v1.2.0-rc2")
-	}
-}
-
-func TestResolveLatestInChannel_NonStable_NeverAsksHostPermalink(t *testing.T) {
-	host := &stubHost{ref: "v9.9.9"}
-	crs := &stubConstraintResolver{listTags: []string{"v1.2.0-rc1"}}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
-
-	if _, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "rc"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if host.called != 0 {
-		t.Errorf("host.LatestRelease called %d times, want 0 — only \"stable\" has a permalink shortcut", host.called)
-	}
-}
-
-func TestResolveLatestInChannel_NoTagInChannel_ReturnsErrNoTagInChannel(t *testing.T) {
-	crs := &stubConstraintResolver{listTags: []string{"v1.4.0"}}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
-	if !errors.Is(err, ErrNoTagInChannel) {
-		t.Fatalf("err = %v, want ErrNoTagInChannel", err)
-	}
-}
-
-func TestResolveLatestInChannel_PointerChannel_ResolvesToItsOwnTag(t *testing.T) {
-	crs := &stubConstraintResolver{listTags: []string{"v1.4.0", "nightly-latest", "beta-26.5"}}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "nightly-latest")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "nightly-latest" {
-		t.Errorf("ref = %q, want %q", got, "nightly-latest")
-	}
-}
-
-func TestResolveLatestInChannel_ListTagsError_Propagates(t *testing.T) {
-	listErr := errors.New("dial tcp: connection refused")
-	crs := &stubConstraintResolver{listTagsErr: listErr}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	_, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "beta")
-	if !errors.Is(err, listErr) {
-		t.Fatalf("err = %v, want wrapping %v", err, listErr)
-	}
-}
-
-// ─── ResolveDefaultBranch ─────────────────────────────────────────────────────
-
-func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
-	crs := &stubConstraintResolver{branch: "develop", branchHash: "abc123"}
-
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("git.example.test/u/r"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "develop" {
-		t.Errorf("branch = %q, want %q", got, "develop")
-	}
-	if hash != "abc123" {
-		t.Errorf("hash = %q, want %q", hash, "abc123")
-	}
-	if crs.branchCall != 1 {
-		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
-	}
-}
-
-// ─── ResolveRefCommit ─────────────────────────────────────────────────────────
-
-func TestResolveRefCommit_AsksForTheNamespacesOwnRef(t *testing.T) {
-	crs := &stubConstraintResolver{refCommit: "abc123"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	got, err := m.ResolveRefCommit(context.Background(), domain.Namespace("github.com/u/r@nightly"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "abc123" {
-		t.Errorf("hash = %q, want %q", got, "abc123")
-	}
-	if len(crs.refCommitRefs) != 1 || crs.refCommitRefs[0] != "nightly" {
-		t.Errorf("RefCommit refs = %v, want [nightly]", crs.refCommitRefs)
-	}
-}
-
-func TestResolveRefCommit_ResolverErrorPropagates(t *testing.T) {
-	crs := &stubConstraintResolver{refCommitErr: resolvers.ErrRefNotFound}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	_, err := m.ResolveRefCommit(context.Background(), domain.Namespace("github.com/u/r@nightly"))
-	if !errors.Is(err, resolvers.ErrRefNotFound) {
-		t.Fatalf("err = %v, want ErrRefNotFound", err)
-	}
-}
-
-func TestResolveDefaultBranch_UnreachableRemoteIsAnError(t *testing.T) {
-	crs := &stubConstraintResolver{branchErr: resolvers.ErrNoDefaultBranch}
-
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	got, hash, err := m.ResolveDefaultBranch(context.Background(), domain.Namespace("github.com/u/r"))
-
-	if !errors.Is(err, resolvers.ErrNoDefaultBranch) {
-		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
-	}
-	if got != "" {
-		t.Errorf("branch = %q, want empty", got)
-	}
-	if hash != "" {
-		t.Errorf("hash = %q, want empty", hash)
-	}
-}
-
-func TestResolveConstraint_Success(t *testing.T) {
-	rsv := &stubResolver{}
-	crs := &stubConstraintResolver{result: "v1.2.3"}
-
-	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.2.3" {
-		t.Errorf("expected v1.2.3, got %q", got)
-	}
-}
-
-func TestResolveConstraint_Error(t *testing.T) {
-	constraintErr := errors.New("no matching tags")
-	rsv := &stubResolver{}
-	crs := &stubConstraintResolver{err: constraintErr}
-
-	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
-	_, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/repo@v1.*"), "v1.*")
-
-	if !errors.Is(err, constraintErr) {
-		t.Fatalf("expected constraintErr, got %v", err)
-	}
-}
-
-func TestNewWithResolvers_ConstraintResolver_UsedOnResolveConstraint(t *testing.T) {
-	_ = resolvers.NewConstraintResolver(0)
-
-	rsv := &stubResolver{}
-	crs := &stubConstraintResolver{result: "v2.0.0"}
-
-	m := NewWithResolvers(rsv, crs, hostedBy(&stubHost{}))
-	got, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/org/pkg@v2.*"), "v2.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v2.0.0" {
-		t.Errorf("expected v2.0.0, got %q", got)
-	}
-}
-
-// TestResolveConstraint_SecondCall_ServedFromCache is the actual regression
-// guard for graphService.resolveEdgeNs hitting ResolveConstraint on every
-// dependency-graph resolution: a repeated call with the same (namespace,
-// pattern) must not touch the underlying constraint resolver again.
-func TestResolveConstraint_SecondCall_ServedFromCache(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.2.3"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	ns := domain.Namespace("github.com/user/repo")
-
-	first, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	second, err := m.ResolveConstraint(context.Background(), ns, "v1.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if first != second || second != "v1.2.3" {
-		t.Fatalf("first=%q second=%q, want both v1.2.3", first, second)
-	}
-	if len(crs.patterns) != 1 {
-		t.Errorf("Resolve called %d times, want 1 (second call must be served from cache)", len(crs.patterns))
-	}
-}
-
-// TestResolveConstraint_DifferentPattern_NotServedFromCache proves the
-// cache key is (namespace, pattern) together, not the namespace alone: two
-// different patterns against the same namespace must each resolve live.
-func TestResolveConstraint_DifferentPattern_NotServedFromCache(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.2.3"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	ns := domain.Namespace("github.com/user/repo")
-
-	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := m.ResolveConstraint(context.Background(), ns, "v2.*"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(crs.patterns) != 2 {
-		t.Errorf("Resolve called %d times, want 2 (different patterns must not share a cache entry)", len(crs.patterns))
-	}
-}
-
-// TestResolveConstraint_DifferentNamespace_NotServedFromCache is the
-// namespace-side counterpart of the pattern test above.
-func TestResolveConstraint_DifferentNamespace_NotServedFromCache(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.2.3"}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-
-	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/one"), "v1.*"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, err := m.ResolveConstraint(context.Background(), domain.Namespace("github.com/user/two"), "v1.*"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(crs.patterns) != 2 {
-		t.Errorf("Resolve called %d times, want 2 (one live call per distinct namespace)", len(crs.patterns))
-	}
-}
-
-// TestResolveConstraint_Error_NotCached mirrors ListChannels's own rule: a
-// failed lookup must never be cached, so a repeated call after a failure
-// still attempts to resolve live.
-func TestResolveConstraint_Error_NotCached(t *testing.T) {
-	constraintErr := errors.New("no matching tags")
-	crs := &stubConstraintResolver{err: constraintErr}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
-	ns := domain.Namespace("github.com/user/repo")
-
-	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
-		t.Fatalf("expected constraintErr, got %v", err)
-	}
-	if _, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); !errors.Is(err, constraintErr) {
-		t.Fatalf("expected constraintErr, got %v", err)
-	}
-
-	if len(crs.patterns) != 2 {
-		t.Errorf("Resolve called %d times, want 2 (an error must never be cached)", len(crs.patterns))
-	}
-}
-
-// TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive is the
-// ResolveConstraint counterpart of TestListChannels_CacheExpiresAfterTTL_RefetchesLive.
-func TestResolveConstraint_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
-	const testTTL = 24 * time.Hour
-	crs := &stubConstraintResolver{result: "v1.0.0"}
-	now := time.Now()
-	clock := &fakeClock{now: now}
-	m := &manifold{
-		constraint: crs,
-		hosts:      hostedBy(&stubHost{}),
-		clock:      clock.Now,
-		cacheTTL:   testTTL,
-	}
-	ns := domain.Namespace("github.com/u/r")
-
-	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
-		t.Fatalf("first call: got=%q err=%v, want v1.0.0/nil", got, err)
-	}
-
-	// Still within TTL: served from cache, unaffected by the new result.
-	crs.result = "v1.1.0"
-	clock.now = now.Add(time.Hour)
-	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.0.0" {
-		t.Fatalf("cached call: got=%q err=%v, want the stale-but-still-fresh v1.0.0", got, err)
-	}
-	if len(crs.patterns) != 1 {
-		t.Errorf("Resolve called %d times, want 1 (still within TTL)", len(crs.patterns))
-	}
-
-	// Past TTL: must refetch and pick up the new result.
-	clock.now = now.Add(testTTL + time.Minute)
-	if got, err := m.ResolveConstraint(context.Background(), ns, "v1.*"); err != nil || got != "v1.1.0" {
-		t.Fatalf("post-TTL call: got=%q err=%v, want the refetched v1.1.0", got, err)
-	}
-	if len(crs.patterns) != 2 {
-		t.Errorf("Resolve called %d times, want 2 (past TTL must refetch)", len(crs.patterns))
-	}
-}
-
-// TestResolveLatestStable_SharesResolveConstraintCache proves
-// ResolveLatestStable's fallback (m.constraint.Resolve(ns, anyTag), via
-// ResolveConstraint) shares the same cache ResolveConstraint itself uses,
-// rather than getting its own separate one: a ResolveConstraint(ns, anyTag)
-// call primes the cache, and a subsequent ResolveLatestStable(ns) call —
-// whose host has no release permalink, so it must fall through to the same
-// path — is answered without a second live Resolve call.
-func TestResolveLatestStable_SharesResolveConstraintCache(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-	host := &stubHost{err: errors.New("no latest release")}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
-	ns := domain.Namespace("github.com/u/r")
-
-	primed, err := m.ResolveConstraint(context.Background(), ns, anyTag)
-	if err != nil {
-		t.Fatalf("unexpected error priming the cache: %v", err)
-	}
-	if primed != "v1.10.0" {
-		t.Fatalf("primed = %q, want v1.10.0", primed)
-	}
-
-	got, err := m.ResolveLatestStable(context.Background(), ns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("got = %q, want v1.10.0", got)
-	}
-	if len(crs.patterns) != 1 {
-		t.Errorf("Resolve called %d times, want 1 (ResolveLatestStable must reuse ResolveConstraint's cache entry)", len(crs.patterns))
-	}
-}
-
-// TestResolveConstraint_SharesResolveLatestStableCache is the reverse
-// direction: a ResolveLatestStable(ns) call primes the (ns, anyTag) cache
-// entry, and a subsequent direct ResolveConstraint(ns, anyTag) call reuses it.
-func TestResolveConstraint_SharesResolveLatestStableCache(t *testing.T) {
-	crs := &stubConstraintResolver{result: "v1.10.0"}
-	host := &stubHost{err: errors.New("no latest release")}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
-	ns := domain.Namespace("github.com/u/r")
-
-	primed, err := m.ResolveLatestStable(context.Background(), ns)
-	if err != nil {
-		t.Fatalf("unexpected error priming the cache: %v", err)
-	}
-	if primed != "v1.10.0" {
-		t.Fatalf("primed = %q, want v1.10.0", primed)
-	}
-
-	got, err := m.ResolveConstraint(context.Background(), ns, anyTag)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("got = %q, want v1.10.0", got)
-	}
-	if len(crs.patterns) != 1 {
-		t.Errorf("Resolve called %d times, want 1 (ResolveConstraint must reuse ResolveLatestStable's cache entry)", len(crs.patterns))
-	}
-}
+// ─── ParseCollection ─────────────────────────────────────────────────────────
 
 func TestParseCollection_DeriveLocalArrowNamespace(t *testing.T) {
 	m := &manifold{
@@ -2452,31 +1923,6 @@ func TestResolveArrow_NonQuiverHosted_SkipsCollectionLookup(t *testing.T) {
 	}
 }
 
-func TestClassifyChannel_DelegatesToResolvers(t *testing.T) {
-	testCases := []struct {
-		name        string
-		tag         string
-		wantChannel string
-		wantOK      bool
-	}{
-		{name: "stable tag", tag: "v1.4.0", wantChannel: "stable", wantOK: true},
-		{name: "rc tag", tag: "v1.5.0-rc2", wantChannel: "rc", wantOK: true},
-		{name: "pointer-shaped tag has no channel", tag: "nightly", wantChannel: "", wantOK: false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			channel, ok := ClassifyChannel(tc.tag)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
-			}
-			if channel != tc.wantChannel {
-				t.Errorf("channel = %q, want %q", channel, tc.wantChannel)
-			}
-		})
-	}
-}
-
 // TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist
 // proves both that tag bucketing itself is correct AND that the default
 // branch is never listed once the repository has any tag at all — even a
@@ -2492,7 +1938,7 @@ func TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist(t 
 		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2548,7 +1994,7 @@ func TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch(t *testing.T) {
 		listTags: nil,
 		branch:   "develop",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2574,7 +2020,7 @@ func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
 			"nightly-latest",
 		},
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2640,7 +2086,7 @@ func TestListChannels_DeterministicOrderAcrossRepeatedCalls(t *testing.T) {
 		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	const runs = 20
 	var first []ChannelInfo
@@ -2665,9 +2111,9 @@ func TestListChannels_DeterministicOrderAcrossRepeatedCalls(t *testing.T) {
 func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
 	crs := &stubConstraintResolver{
 		listTags:  []string{"v1.0.0"},
-		branchErr: resolvers.ErrNoDefaultBranch,
+		branchErr: errors.New("no HEAD symref"),
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2681,7 +2127,7 @@ func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
 func TestListChannels_ListTagsError_Propagates(t *testing.T) {
 	listErr := errors.New("dial tcp: connection refused")
 	crs := &stubConstraintResolver{listTagsErr: listErr}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	_, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if !errors.Is(err, listErr) {
@@ -2697,7 +2143,7 @@ func TestListChannels_ListTagsError_Propagates(t *testing.T) {
 func TestListChannels_ListTagsError_NotCached(t *testing.T) {
 	listErr := errors.New("dial tcp: connection refused")
 	crs := &stubConstraintResolver{listTagsErr: listErr}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 	ns := domain.Namespace("github.com/u/r")
 
 	_, err1 := m.ListChannels(context.Background(), ns)
@@ -2724,7 +2170,7 @@ func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
 		listTags: nil,
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 	ns := domain.Namespace("github.com/u/r")
 
 	first, err := m.ListChannels(context.Background(), ns)
@@ -2752,7 +2198,7 @@ func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
 // is keyed per namespace, not a single global slot.
 func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
 	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
-	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+	m := NewWithResolvers(&stubResolver{}, crs)
 
 	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/one")); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2779,7 +2225,6 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
-		hosts:      hostedBy(&stubHost{}),
 		clock:      clock.Now,
 		cacheTTL:   testTTL,
 	}

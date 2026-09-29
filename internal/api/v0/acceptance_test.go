@@ -112,43 +112,6 @@ func (m *countingManifold) ParseCollection(
 	return nil, fmt.Errorf("manifold: collections not used")
 }
 
-func (m *countingManifold) ResolveConstraint(
-	context.Context,
-	domain.Namespace,
-	string,
-) (string, error) {
-	return acceptanceRef, nil
-}
-
-func (m *countingManifold) ResolveLatestStable(
-	context.Context,
-	domain.Namespace,
-) (string, error) {
-	return acceptanceRef, nil
-}
-
-func (m *countingManifold) ResolveDefaultBranch(
-	context.Context,
-	domain.Namespace,
-) (string, string, error) {
-	return "", "", fmt.Errorf("manifold: default branch not used")
-}
-
-func (m *countingManifold) ResolveRefCommit(
-	context.Context,
-	domain.Namespace,
-) (string, error) {
-	return "", fmt.Errorf("manifold: ref commit not used")
-}
-
-func (m *countingManifold) ResolveLatestInChannel(
-	context.Context,
-	domain.Namespace,
-	string,
-) (string, error) {
-	return "", fmt.Errorf("manifold: latest in channel not used")
-}
-
 func (m *countingManifold) ListChannels(
 	context.Context,
 	domain.Namespace,

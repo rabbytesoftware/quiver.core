@@ -124,43 +124,6 @@ func (s *stubManifold) ParseArrow(
 	return nil, errors.New("not used")
 }
 
-func (s *stubManifold) ResolveConstraint(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
-) (string, error) {
-	return "", errors.New("not used")
-}
-
-func (s *stubManifold) ResolveLatestStable(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errors.New("not used")
-}
-
-func (s *stubManifold) ResolveDefaultBranch(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, string, error) {
-	return "", "", errors.New("not used")
-}
-
-func (s *stubManifold) ResolveRefCommit(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errors.New("not used")
-}
-
-func (s *stubManifold) ResolveLatestInChannel(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
-) (string, error) {
-	return "", errors.New("not used")
-}
-
 func (s *stubManifold) ListChannels(
 	_ context.Context,
 	_ domain.Namespace,
