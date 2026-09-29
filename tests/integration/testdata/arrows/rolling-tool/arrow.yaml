@@ -13,17 +13,22 @@ targets:
           exit_on_failure: true
       update:
         - type: run
-          command: if [ -f "${WORKDIR}/hold" ]; then while [ ! -f "${WORKDIR}/release" ]; do sleep 0.05; done; rm -f "${WORKDIR}/hold" "${WORKDIR}/release"; fi; echo "${REF}" >> "${WORKDIR}/update-refs"
+          command: echo update-ran >> "${WORKDIR}/events"; if [ -f "${WORKDIR}/hold" ]; then while [ ! -f "${WORKDIR}/release" ]; do sleep 0.05; done; rm -f "${WORKDIR}/hold" "${WORKDIR}/release"; fi; echo "${REF}" >> "${WORKDIR}/update-refs"
           title: Update
           timeout: 120s
           exit_on_failure: true
       execute:
         - type: run
-          command: sleep 3600
+          command: echo $$ > "${WORKDIR}/serve.pid"; trap 'echo stop-signalled >> "${WORKDIR}/events"; exit 0' TERM; sleep 3600 & wait
           title: Serve
           timeout: 3700s
           exit_on_failure: false
       stop:
+        - type: run
+          command: sleep 1
+          title: Drain
+          timeout: 10s
+          exit_on_failure: false
         - type: signal
           signal: graceful
           timeout: 10s

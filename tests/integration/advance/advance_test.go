@@ -12,6 +12,9 @@ package advance_test
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -171,8 +174,14 @@ func (s *AdvanceSuite) TestAdvance_MovedMidUpdate_StaysOutdated() {
 	stale := s.detail(tc, ns)
 	s.Equal(installed, stale.InstalledCommit, "the bits installed are not first's: nothing may be stamped")
 	s.Require().NotNil(stale.Available, "the row stays outdated")
+	s.Equal(first, stale.Available.Commit,
+		"the bracket re-resolves without recording: the row still names the target the update began toward")
 	s.True(stale.Outdated)
 	s.Equal([]string{"nightly"}, s.updateRuns(env, ns), "the update steps did run")
+
+	rechecked := s.checkAvailable(tc, ns)
+	s.Require().NotNil(rechecked)
+	s.Equal(second, rechecked.Commit, "the next check records where the tag moved to")
 
 	s.update(tc, ns)
 	s.waitAdvanced(tc, ns, second)
@@ -470,38 +479,142 @@ func (s *AdvanceSuite) TestAdvance_RunningArrowIsStoppedBeforeAdvance() {
 	s.update(tc, ns)
 	advanced := s.waitAdvanced(tc, ns, moved)
 
-	s.False(env.ProcessAlive(pid), "the running process is stopped before the update")
+	events, ok := s.workFile(env, ns, "events")
+	s.Require().True(ok)
+	s.Equal([]string{"stop-signalled", "update-ran"}, strings.Fields(events),
+		"the served process was told to stop before the update steps ran")
+	s.False(env.ProcessAlive(pid))
+	s.Contains(env.StateHistory(ns), string(domain.ArrowStateStopping), "the update went through a stop")
 	s.Require().NotNil(advanced.LastReturn)
 	s.Equal(domain.MethodUpdate, advanced.LastReturn.Method)
 	s.Equal([]string{"nightly"}, s.updateRuns(env, ns))
 }
 
-// The target gains a service and drops a tool: the row lands outdated with
-// the dependency sync pending, the sync runs, and only then the target's own
-// update steps.
+// The target gains a service: the row lands outdated with the dependency sync
+// pending, the sync installs the new dependency, and only then do the
+// target's own update steps run. Both steps append to one log, so the order
+// they ran in is recorded by the processes themselves.
 func (s *AdvanceSuite) TestAdvance_GainedDependency_SyncedBeforeUpdateSteps() {
-	f := s.newFixture("versioned-update", "v1", kit.ReadFixture(s.T(), "versioned-update/v1/arrow.yaml"))
+	logPath := filepath.Join(s.T().TempDir(), "events")
+	testName := s.T().Name()
+	slug := strings.ToLower(strings.ReplaceAll(testName[strings.LastIndex(testName, "/")+1:], "_", "-"))
+	depKey := "quiver-test/gained-service-" + slug
+	depNS := kit.NSFor(depKey, "v1")
+
+	s.Repos.Set(depKey, kit.BuildUpgradeRepo(s.T(), gainedService(logPath)))
+	s.T().Cleanup(func() { s.Repos.Delete(depKey) })
+	f := s.newFixture("gains-dependency", "v1", gainsDependency(logPath, ""))
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
 	ns := f.ns("v*")
-	toolA := kit.NSFor("quiver-test/tool-a", "v1")
-	serviceB := kit.NSFor("quiver-test/service-b", "v1")
 
 	s.install(env, tc, ns)
-	env.WaitForState(s.T(), toolA, domain.ArrowStateReady, wait)
 
 	var v2 string
 	s.Repos.Mutate(func() {
-		v2 = kit.AddV2ToRepo(s.T(), f.storer, kit.ReadFixture(s.T(), "versioned-update/v2/arrow.yaml"))
+		v2 = kit.AddV2ToRepo(s.T(), f.storer, gainsDependency(logPath, depNS))
 	})
 
 	s.update(tc, ns)
-	env.WaitForState(s.T(), serviceB, domain.ArrowStateRunning, wait)
 	advanced := s.waitAdvanced(tc, ns, v2)
-	env.WaitForState(s.T(), toolA, domain.ArrowStateAbsent, wait)
+	env.WaitForState(s.T(), depNS, domain.ArrowStateRunning, wait)
 
 	s.Equal("v2", advanced.ResolvedRef)
 	s.Require().NotNil(advanced.LastReturn)
-	s.Equal(domain.MethodUpdate, advanced.LastReturn.Method, "the update steps ran after the dependency sync")
+	s.Equal(domain.MethodUpdate, advanced.LastReturn.Method)
 	s.Equal("success", advanced.LastReturn.Outcome)
+
+	events, err := os.ReadFile(logPath) // #nosec G304 -- a temp file this test owns
+	s.Require().NoError(err)
+	s.Equal([]string{"dependency-installed", "update-ran"}, strings.Fields(string(events)),
+		"the gained dependency is installed before the update steps run")
+
+	history := env.StateHistory(ns)
+	outdatedAt := slices.Index(history, string(domain.ArrowStateOutdated))
+	updatingAt := slices.Index(history, string(domain.ArrowStateUpdating))
+	s.Require().NotEqual(-1, outdatedAt, "the row lands outdated with the sync pending: %v", history)
+	s.Require().NotEqual(-1, updatingAt, "%v", history)
+	s.Less(outdatedAt, updatingAt, "the update begins only from the outdated row: %v", history)
+}
+
+// gainedService is a long-running service whose install records itself in
+// the shared log.
+func gainedService(logPath string) []byte {
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: quiver-test.gained-service
+  description: A service a target gains
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo dependency-installed >> "` + logPath + `"
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: sleep 3600
+          title: Serve
+          timeout: 3700s
+          exit_on_failure: false
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+}
+
+// gainsDependency is the dependent's manifest; with a service it is the
+// release that gains it, and its update step records itself in the log.
+func gainsDependency(logPath, service string) []byte {
+	services := ""
+	if service != "" {
+		services = "    services:\n      - " + service + "\n"
+	}
+	return []byte(`schema: "arrow@v0"
+metadata:
+  name: quiver-test.gains-dependency
+  description: An arrow whose next release gains a service
+targets:
+  "*":
+` + services + `    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      update:
+        - type: run
+          command: echo update-ran >> "` + logPath + `"
+          title: Update
+          timeout: 10s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: echo executed
+          title: Execute
+          timeout: 10s
+          exit_on_failure: true
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
 }

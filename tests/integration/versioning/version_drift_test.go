@@ -280,8 +280,7 @@ func (s *VersioningSuite) TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRech
 		detail := s.getDetail(tc, ns)
 		s.Equal("v1.1.0", detail.Available.Ref, "a read inside the TTL window answers from the last check")
 	}
-	s.Never(func() bool { return live.calls.Load() > 1 }, 500*time.Millisecond, 20*time.Millisecond,
-		"no read inside the TTL window may launch a second check")
+	s.Equal(int32(1), live.calls.Load(), "no read inside the TTL window reached the remote")
 }
 
 // The explicit check reads the remote live: a release the snapshot cache has

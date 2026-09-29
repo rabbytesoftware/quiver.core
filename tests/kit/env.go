@@ -185,6 +185,12 @@ func (e *Env) WaitForState(t *testing.T, ns string, want domain.ArrowState, time
 	e.states.WaitFor(t, ns, want, timeout)
 }
 
+// StateHistory returns every runtime state the stream reported for ns, in
+// the order the runtime aggregate went through them.
+func (e *Env) StateHistory(ns string) []string {
+	return e.states.statesOf(ns)
+}
+
 // WaitForActivePID blocks until a non-zero PID is recorded for ns or timeout elapses.
 // Use this before CloseWithoutKilling() to ensure RecordPID has been persisted.
 func (e *Env) WaitForActivePID(t *testing.T, ns string, timeout time.Duration) {
@@ -411,7 +417,8 @@ type activeRunFields struct {
 type stateWatcher struct {
 	mu         sync.Mutex
 	current    map[string]string // latest state per namespace
-	currentPID map[string]int    // latest active PID per namespace
+	history    map[string][]string
+	currentPID map[string]int // latest active PID per namespace
 	subs       []chan struct{}
 	done       chan struct{}
 }
@@ -420,6 +427,7 @@ func newStateWatcher(t *testing.T, baseURL, socketPath string) *stateWatcher {
 	t.Helper()
 	w := &stateWatcher{
 		current:    make(map[string]string),
+		history:    make(map[string][]string),
 		currentPID: make(map[string]int),
 		done:       make(chan struct{}),
 	}
@@ -456,6 +464,7 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 		if json.Unmarshal(msg, &evt) == nil && evt.State != "" {
 			w.mu.Lock()
 			w.current[evt.Namespace] = evt.State
+			w.history[evt.Namespace] = append(w.history[evt.Namespace], evt.State)
 			if evt.ActiveRun != nil && evt.ActiveRun.PID > 0 {
 				w.currentPID[evt.Namespace] = evt.ActiveRun.PID
 			}
@@ -588,6 +597,13 @@ func (w *stateWatcher) WaitFor(
 			return
 		}
 	}
+}
+
+// statesOf returns every state ns was observed in, in order.
+func (w *stateWatcher) statesOf(ns string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.history[ns]...)
 }
 
 func (w *stateWatcher) close() {
