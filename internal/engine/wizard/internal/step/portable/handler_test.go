@@ -102,7 +102,7 @@ func TestHandler_Execute_Failures(t *testing.T) {
 				return "a.tar"
 			},
 			to:      "out",
-			timeout: "1ns",
+			timeout: "-1ns",
 			wantErr: context.DeadlineExceeded,
 		},
 		{

@@ -84,7 +84,7 @@ func TestHandler_Execute_Failures(t *testing.T) {
 			setup: func(t *testing.T, dir string) (string, string) {
 				return mocks.WriteFile(t, filepath.Join(dir, "a.tar"), mocks.HelloTar(t)), filepath.Join(dir, "out")
 			},
-			timeout: "1ns",
+			timeout: "-1ns",
 			wantErr: context.DeadlineExceeded,
 		},
 		{
