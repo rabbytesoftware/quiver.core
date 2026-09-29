@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
 )
 
 type Tagger interface {
@@ -82,7 +82,7 @@ func (b *bundles) Enclosing(
 	target string,
 ) Holder {
 	for dir := filepath.Dir(target); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		if !strings.HasSuffix(dir, platform.BundleExt) {
+		if !strings.HasSuffix(dir, models.BundleExt) {
 			continue
 		}
 		if h := b.Owner(dir); h.Namespace != "" {

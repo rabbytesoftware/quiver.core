@@ -10,25 +10,57 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/fsguard"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/host"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
 )
 
-func (p *placer) sign(
+type Signer interface {
+	Sign(
+		ctx context.Context,
+		workdir string,
+		target string,
+	)
+}
+
+type unsigned struct{}
+
+func Unsigned() Signer {
+	return unsigned{}
+}
+
+func (unsigned) Sign(
+	_ context.Context,
+	_ string,
+	_ string,
+) {
+}
+
+type codesign struct {
+	commander host.Commander
+}
+
+func Codesign(
+	commander host.Commander,
+) Signer {
+	return &codesign{commander: commander}
+}
+
+func (c *codesign) Sign(
 	ctx context.Context,
 	workdir string,
 	target string,
 ) {
-	if p.host.GOOS != platform.GOOSDarwin || p.host.GOARCH != platform.GOARCHARM64 || insideBundle(target) {
+	if insideBundle(target) {
 		return
 	}
 	if _, ok := fsguard.ResolveInside(workdir, target); !ok || !isMachO(target) {
 		return
 	}
-	if _, err := p.host.Commander.Run(ctx, nil, "codesign", "-v", target); err == nil {
+	if _, err := c.commander.Run(ctx, "codesign", "-v", target); err == nil {
 		return
 	}
 
-	out, err := p.host.Commander.Run(ctx, nil, "codesign", "-s", "-", "-f", target)
+	out, err := c.commander.Run(ctx, "codesign", "-s", "-", "-f", target)
 	if err != nil {
 		slog.WarnContext(ctx, "shelf: ad-hoc signing failed", "target", target, "err", err, "output", string(out))
 	}
@@ -38,7 +70,7 @@ func insideBundle(
 	target string,
 ) bool {
 	for _, part := range strings.Split(filepath.ToSlash(filepath.Dir(target)), "/") {
-		if strings.HasSuffix(part, platform.BundleExt) {
+		if strings.HasSuffix(part, models.BundleExt) {
 			return true
 		}
 	}

@@ -11,14 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/ownership"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/mocks"
 )
 
 func TestShelf_Apply_DarwinMovesBundleAndSetsXattr(t *testing.T) {
-	f := newFixture(t, platform.GOOSDarwin)
-	f.shelf = newShelf(f.Host(), ownership.NewTagger(), f.UserPath)
+	f := newFixture(t, "darwin")
+	f.shelf = newShelf("darwin", f.Host(), platform.Seams{Tagger: ownership.NewTagger(), UserPath: f.UserPath})
 	wd := f.Workdir(t, mocks.NsA)
 	mocks.WriteBundle(t, filepath.Join(wd, "Tool.app"), "v1")
 	expose := domain.Expose{Desktop: []domain.ExposeEntry{{Name: "Tool", Path: domain.ExposeAuto}}}
@@ -43,8 +43,8 @@ func TestShelf_Apply_DarwinMovesBundleAndSetsXattr(t *testing.T) {
 }
 
 func TestShelf_Remove_DarwinKeepsCopiedBundle(t *testing.T) {
-	f := newFixture(t, platform.GOOSDarwin)
-	f.shelf = newShelf(f.Host(), ownership.NewTagger(), f.UserPath)
+	f := newFixture(t, "darwin")
+	f.shelf = newShelf("darwin", f.Host(), platform.Seams{Tagger: ownership.NewTagger(), UserPath: f.UserPath})
 	wd := f.Workdir(t, mocks.NsA)
 	mocks.WriteBundle(t, filepath.Join(wd, "Tool.app"), "v1")
 	expose := domain.Expose{Desktop: []domain.ExposeEntry{{Name: "Tool", Path: domain.ExposeAuto}}}

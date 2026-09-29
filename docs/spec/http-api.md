@@ -309,7 +309,7 @@ Returns the query envelope with a `PathStatusDTO`:
 
 | Field | Meaning |
 |---|---|
-| `bin_dir` | Absolute path of the directory `cli` expose entries live in (`~/.quiver/bin`) |
+| `bin_dir` | Absolute path of `~/.quiver/bin`, where `cli` expose entries live on macOS and Linux (on Windows each command's own folder goes on the user `Path` instead) |
 | `on_path` | Whether `bin_dir` is on the daemon's current `PATH` |
 | `configured` | Whether it is configured to stay there: the Quiver block in the shell rc files on unix, the user `Path` on Windows |
 | `files` | Where that configuration is checked and written: the shell rc files on unix, the user `Path` location on Windows (always an array, possibly empty) |
@@ -318,7 +318,7 @@ Errors: 500.
 
 #### POST /system/path — PATH setup
 
-Adds `bin_dir` to `PATH` — only ever on this explicit call, never on its own. On unix it appends a block to the shell rc files (never prepends); on Windows it sets the user `Path`. Idempotent: once configured, calling it again changes nothing. Returns **200 OK** with the updated `PathStatusDTO`. A shell already running does not see the change until it is restarted. The CLI equivalents are `quiver path status` and `quiver path setup`.
+Adds `bin_dir` to `PATH` — only ever on this explicit call, never on its own. On unix it appends a block to the shell rc files (never prepends); on Windows it appends to the user `Path` and broadcasts `WM_SETTINGCHANGE`, so Explorer and newly opened terminals pick it up. Idempotent: once configured, calling it again changes nothing. Returns **200 OK** with the updated `PathStatusDTO`. A shell already running does not see the change until it is restarted. The CLI equivalents are `quiver path status` and `quiver path setup`.
 
 Errors: 500.
 

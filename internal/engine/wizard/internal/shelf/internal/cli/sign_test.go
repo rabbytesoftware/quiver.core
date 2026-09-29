@@ -8,8 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/mocks"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/mocks"
 )
 
 func TestIsMachO(t *testing.T) {
@@ -40,7 +39,7 @@ func TestIsMachO(t *testing.T) {
 	assert.False(t, isMachO(filepath.Join(dir, "missing")))
 }
 
-func TestPlacer_Sign(t *testing.T) {
+func TestCodesign_Sign(t *testing.T) {
 	dir := t.TempDir()
 	machO := filepath.Join(dir, "tool")
 	mocks.WriteFile(t, machO, string([]byte{0xcf, 0xfa, 0xed, 0xfe}), 0o755)
@@ -54,38 +53,36 @@ func TestPlacer_Sign(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		goos      string
-		goarch    string
 		workdir   string
 		target    string
 		verifyErr error
 		signErr   error
 		want      [][]string
 	}{
-		{name: "linux", goos: "linux", goarch: platform.GOARCHARM64, workdir: dir, target: machO},
-		{name: "intel mac", goos: platform.GOOSDarwin, goarch: "amd64", workdir: dir, target: machO},
-		{name: "not mach-o", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: dir, target: script},
-		{name: "inside a bundle", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: dir, target: inBundle},
-		{name: "outside the workdir", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: filepath.Join(dir, "Tool.app"), target: machO},
-		{name: "already signed", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: dir, target: machO, want: [][]string{verify}},
-		{name: "unsigned", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: dir, target: machO, verifyErr: boom, want: [][]string{verify, adhoc}},
-		{name: "signing fails", goos: platform.GOOSDarwin, goarch: platform.GOARCHARM64, workdir: dir, target: machO, verifyErr: boom, signErr: boom, want: [][]string{verify, adhoc}},
+		{name: "not mach-o", workdir: dir, target: script},
+		{name: "inside a bundle", workdir: dir, target: inBundle},
+		{name: "outside the workdir", workdir: filepath.Join(dir, "Tool.app"), target: machO},
+		{name: "already signed", workdir: dir, target: machO, want: [][]string{verify}},
+		{name: "unsigned", workdir: dir, target: machO, verifyErr: boom, want: [][]string{verify, adhoc}},
+		{name: "signing fails", workdir: dir, target: machO, verifyErr: boom, signErr: boom, want: [][]string{verify, adhoc}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t, tc.goos)
-			f.placer.host.GOARCH = tc.goarch
-			f.Cmd.Respond = func(_ string, args, _ []string) ([]byte, error) {
+			cmd := &mocks.Commander{Respond: func(_ string, args []string) ([]byte, error) {
 				if args[0] == "-v" {
 					return nil, tc.verifyErr
 				}
 				return []byte("out"), tc.signErr
-			}
+			}}
 
-			f.placer.sign(context.Background(), tc.workdir, tc.target)
+			Codesign(cmd).Sign(context.Background(), tc.workdir, tc.target)
 
-			assert.Equal(t, tc.want, f.Cmd.Calls)
+			assert.Equal(t, tc.want, cmd.Calls)
 		})
 	}
+}
+
+func TestUnsigned_SignsNothing(t *testing.T) {
+	assert.NotPanics(t, func() { Unsigned().Sign(context.Background(), "/wd", "/wd/tool") })
 }

@@ -717,10 +717,13 @@ targets:
 
 Per-OS meaning:
 
-- **`cli`** — an entry in `~/.quiver/bin` pointing at the resolved path: a symlink on macOS and
-  Linux, a `.cmd` shim on Windows. Quiver never edits `PATH` on its own; putting
-  `~/.quiver/bin` on it is a one-time, explicit user action (`POST /v0/system/path`,
-  `quiver path setup`), which appends — never prepends. On macOS and Linux, a declared `cli`
+- **`cli`** — on macOS and Linux, a symlink in `~/.quiver/bin` pointing at the resolved path;
+  putting `~/.quiver/bin` on `PATH` is a one-time, explicit user action (`POST
+  /v0/system/path`, `quiver path setup`), which appends — never prepends. On Windows the
+  resolved path must be an `.exe` inside the workdir, and its folder is appended to the user
+  `Path` (never prepended, existing entries kept) as part of the Arrow's own install/update,
+  and dropped by its uninstall — so the command is the executable's own name, whatever the
+  entry's `name`. On macOS and Linux, a declared `cli`
   target that is a regular file inside the workdir but lacks exec bits is marked executable. On `darwin/arm64`
   an unsigned Mach-O `cli` target outside any `.app` bundle is ad-hoc signed.
 - **`desktop`** — macOS: the `.app` bundle moved to `/Applications`, falling back to
@@ -735,7 +738,7 @@ Per-OS meaning:
   repository name or the entry's `name`; failing that, every executable at the shallowest depth
   found. Each is registered under the executable's own base name (`.exe`
   stripped on Windows), not the entry's `name`: a `ripgrep` entry resolving to `rg` exposes
-  `~/.quiver/bin/rg`. Ownership, collision and prune checks all use that name.
+  `~/.quiver/bin/rg` (on Windows, the folder holding `rg.exe`). Ownership, collision and prune checks all use that name.
 - `desktop` — candidates are taken from the first of these sources that yields any:
   1. the apps in `${WORKDIR}/.quiver-apps.json`, the record `portable` writes (§8.5). The
      record is untrusted input: it is read only when it is a regular file of at most 1 MiB
@@ -784,11 +787,14 @@ the child omits the key entirely (`nil`), it inherits the parent's list unchange
 
 **Ownership and collisions.** A registration Quiver did not create — owned by another Arrow, or
 by the user (a file Quiver never wrote) — is never overwritten. Ownership lives on the entry
-itself, with no separate store: a symlink or shim pointing into the Arrow's workdir, an
+itself, with no separate store: a symlink pointing into the Arrow's workdir, a Windows user
+`Path` entry inside the Quiver namespaces directory, an
 `X-Quiver-Namespace=` line in a `.desktop` file, an extended attribute on a moved `.app` naming
 both the namespace and the bundle's own file name (so a Finder copy under another name is the
 user's, never pruned), a
-shortcut under the `Quiver` Start Menu folder. `ExposeEntriesRule` also
+shortcut under the `Quiver` Start Menu folder whose description names the owner. On Windows,
+an entry `name` that is a reserved device name (`CON`, `NUL`, `COM1`, …) or ends in a dot or a
+space is refused. `ExposeEntriesRule` also
 rejects duplicate `name`s within the same kind (`cli` or `desktop`) inside one target; the same
 `name` may appear once in `cli` and once in `desktop`.
 

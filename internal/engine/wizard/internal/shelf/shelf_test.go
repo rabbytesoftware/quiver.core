@@ -14,11 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/fsguard"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/desktop/lnk"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/host"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/pathenv"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/userpath"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/mocks"
 )
 
 type fixture struct {
@@ -34,16 +35,16 @@ func newFixture(
 	sb := mocks.NewSandbox(t, goos)
 	return &fixture{
 		Sandbox: sb,
-		shelf:   newShelf(sb.Host(), sb.Tagger, sb.UserPath),
+		shelf:   newShelf(goos, sb.Host(), platform.Seams{Tagger: sb.Tagger, UserPath: sb.UserPath}),
 	}
 }
 
 func homeAt(
 	dir string,
 ) Shelf {
-	host := platform.NewHost()
-	host.HomeDir = dir
-	return newShelf(host, &mocks.Tagger{}, &mocks.UserPath{})
+	h := host.New()
+	h.HomeDir = dir
+	return newShelf("linux", h, platform.Seams{Tagger: &mocks.Tagger{}, UserPath: &mocks.UserPath{}})
 }
 
 func lnkDir(
@@ -65,14 +66,17 @@ func cliExpose(
 	return domain.Expose{CLI: []domain.ExposeEntry{{Name: name, Path: path}}}
 }
 
+func (f *fixture) userPath() []string {
+	return strings.Split(f.UserPath.Value, userpath.Separator)
+}
+
 func TestNew_Defaults(t *testing.T) {
 	s := New().(*shelf)
 
-	assert.Equal(t, runtime.GOOS, s.host.GOOS)
 	assert.Equal(t, runtime.GOARCH, s.host.GOARCH)
-	assert.Equal(t, pathenv.NewUserPath(), s.userPath)
 	assert.Empty(t, s.host.HomeDir)
 	assert.Nil(t, s.host.AppsDirs)
+	assert.NotNil(t, s.platform.CLI)
 	assert.Equal(t, "/h", New(WithSandboxHome("/h")).(*shelf).host.SandboxHome)
 }
 
@@ -127,11 +131,10 @@ func TestShelf_Apply_PrunesStaleOwnedEntries(t *testing.T) {
 }
 
 func TestShelf_Apply_PruneError_ReturnsError(t *testing.T) {
-	f := newFixture(t, platform.GOOSWindows)
+	f := newFixture(t, "windows")
 	wd := f.Workdir(t, mocks.NsA)
-	mocks.WriteFile(t, filepath.Join(lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "stale.lnk"), "", 0o600)
 	errBoom := errors.New("boom")
-	f.Cmd.Respond = func(string, []string, []string) ([]byte, error) { return nil, errBoom }
+	f.UserPath.ReadErr = errBoom
 
 	_, err := f.shelf.Apply(context.Background(), mocks.NsA, wd, domain.Expose{}, domain.ArrowMedia{})
 
@@ -231,59 +234,48 @@ func TestShelf_Apply_PlaceError_ReturnsError(t *testing.T) {
 
 	testCases := []struct {
 		name   string
-		expose func(wd string) domain.Expose
-		check  func(t *testing.T, f *fixture, err error)
+		expose domain.Expose
+		check  func(t *testing.T, err error)
 	}{
 		{
-			name: "cli",
-			expose: func(string) domain.Expose {
-				return cliExpose("tool", "tool")
-			},
-			check: func(t *testing.T, f *fixture, err error) {
-				require.Error(t, err)
-				assert.FileExists(t, filepath.Join(f.Bin, "tool.cmd"+fsguard.StagedSuffix, "x"))
-				assert.NoFileExists(t, filepath.Join(f.Bin, "tool.cmd"))
-			},
+			name:   "cli",
+			expose: cliExpose("tool", "tool.exe"),
+			check:  func(t *testing.T, err error) { require.ErrorIs(t, err, errBoom) },
 		},
 		{
-			name: "desktop",
-			expose: func(string) domain.Expose {
-				return domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: "tool"}}}
-			},
-			check: func(t *testing.T, _ *fixture, err error) {
-				require.ErrorIs(t, err, errBoom)
-			},
+			name:   "desktop",
+			expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: "tool.exe"}}},
+			check:  func(t *testing.T, err error) { require.Error(t, err) },
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newFixture(t, platform.GOOSWindows)
+			f := newFixture(t, "windows")
 			wd := f.Workdir(t, mocks.NsA)
-			mocks.WriteFile(t, filepath.Join(wd, "tool"), "x", 0o755)
-			mocks.WriteFile(t, filepath.Join(f.Bin, "tool.cmd"+fsguard.StagedSuffix, "x"), "", 0o600)
-			f.Cmd.Respond = func(string, []string, []string) ([]byte, error) { return nil, errBoom }
-			mocks.WriteFile(t, filepath.Join(lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "tool.lnk"), "", 0o600)
+			mocks.WriteFile(t, filepath.Join(wd, "tool.exe"), "x", 0o755)
+			f.UserPath.WriteErr = errBoom
+			mocks.WriteFile(t, lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "", 0o600)
 
-			_, err := f.shelf.Apply(context.Background(), mocks.NsA, wd, tc.expose(wd), domain.ArrowMedia{})
+			_, err := f.shelf.Apply(context.Background(), mocks.NsA, wd, tc.expose, domain.ArrowMedia{})
 
-			tc.check(t, f, err)
+			tc.check(t, err)
 		})
 	}
 }
 
-func TestShelf_Place_UnknownKind_ReturnsError(t *testing.T) {
+func TestShelf_Exposer_UnknownKind_ReturnsError(t *testing.T) {
 	f := newFixture(t, "linux")
 
-	got, err := f.shelf.place(context.Background(), models.ApplyRequest{}, "bogus", domain.ExposeEntry{}, models.Candidate{})
+	got, err := f.shelf.exposer("bogus")
 
 	require.Error(t, err)
-	assert.Zero(t, got)
+	assert.Nil(t, got)
 }
 
 func TestShelf_Apply_DesktopBundleRelocatesCLITargets(t *testing.T) {
 	mocks.RequireUnixHost(t)
-	f := newFixture(t, platform.GOOSDarwin)
+	f := newFixture(t, "darwin")
 	wd := f.Workdir(t, mocks.NsA)
 	mocks.WriteFile(t, filepath.Join(wd, "Tool.app", "Contents", "MacOS", "tool"), "x", 0o755)
 	expose := domain.Expose{
@@ -390,10 +382,10 @@ func TestShelf_Remove_InvalidRequest_RemovesNothing(t *testing.T) {
 }
 
 func TestShelf_Remove_JoinsErrors(t *testing.T) {
-	f := newFixture(t, platform.GOOSWindows)
-	mocks.WriteFile(t, filepath.Join(lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "tool.lnk"), "", 0o600)
+	f := newFixture(t, "windows")
+	mocks.WriteFile(t, lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "", 0o600)
 	errBoom := errors.New("boom")
-	f.Cmd.Respond = func(string, []string, []string) ([]byte, error) { return nil, errBoom }
+	f.UserPath.ReadErr = errBoom
 
 	err := f.shelf.Remove(context.Background(), f.Workdir(t, mocks.NsA))
 
@@ -424,7 +416,7 @@ func TestShelf_Apply_AutoEntryThatResolvesToNothingIsSkipped(t *testing.T) {
 	}{
 		{
 			name:   "auto desktop on darwin without a bundle",
-			goos:   platform.GOOSDarwin,
+			goos:   "darwin",
 			expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}},
 		},
 		{
@@ -445,7 +437,7 @@ func TestShelf_Apply_AutoEntryThatResolvesToNothingIsSkipped(t *testing.T) {
 		},
 		{
 			name:        "declared desktop that does not exist",
-			goos:        platform.GOOSDarwin,
+			goos:        "darwin",
 			expose:      domain.Expose{Desktop: []domain.ExposeEntry{{Name: "Tool", Path: "${INSTALL_PATH}/Tool.app"}}},
 			wantRefused: []Refusal{{Kind: domain.ExposeKindDesktop, Name: "Tool", Reason: models.ReasonNotFound}},
 		},
@@ -477,22 +469,13 @@ func TestShelf_Apply_AutoEntryThatResolvesToNothingIsSkipped(t *testing.T) {
 }
 
 func TestWithSandboxHome_ResolvesNothingOutsideHome(t *testing.T) {
-	testCases := []struct {
-		name string
-		goos string
-	}{
-		{name: "darwin", goos: platform.GOOSDarwin},
-		{name: "linux", goos: "linux"},
-		{name: "windows", goos: platform.GOOSWindows},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux", "windows"} {
+		t.Run(goos, func(t *testing.T) {
 			home := t.TempDir()
-			host := platform.NewHost()
-			host.GOOS = tc.goos
-			host.Env = func(key string) string { return "/real/" + key }
-			WithSandboxHome(home)(&host)
-			s := newShelf(host, &mocks.Tagger{}, &mocks.UserPath{})
+			cfg := config{host: host.New()}
+			cfg.host.Env = func(key string) string { return "/real/" + key }
+			WithSandboxHome(home)(&cfg)
+			s := newShelf(goos, cfg.host, cfg.seams)
 
 			l, err := s.host.Layout()
 			require.NoError(t, err)
@@ -502,7 +485,8 @@ func TestWithSandboxHome_ResolvesNothingOutsideHome(t *testing.T) {
 				l.Namespaces,
 				l.UserHome,
 				xdgDir(l.UserHome),
-				lnkDir(s.host.AppData(l.UserHome)),
+				lnkDir(l.AppData),
+				cfg.seams.UserPath.Location(),
 			}, l.Apps...)
 			for _, dir := range dirs {
 				rel, err := filepath.Rel(home, dir)
@@ -527,12 +511,6 @@ func TestShelf_Remove_SparesEntriesTakenOverBySiblingRef(t *testing.T) {
 			goos:    "linux",
 			expose:  domain.Expose{CLI: []domain.ExposeEntry{{Name: "tool", Path: "tool"}}, Desktop: []domain.ExposeEntry{{Name: "Tool", Path: "Tool.AppImage"}}},
 			entries: 2,
-		},
-		{
-			name:    "cli shim",
-			goos:    platform.GOOSWindows,
-			expose:  cliExpose("tool", "tool"),
-			entries: 1,
 		},
 	}
 
@@ -589,4 +567,84 @@ func TestShelf_Remove_OutsideNamespacesIsNotAWorkdir(t *testing.T) {
 	err := f.shelf.Remove(context.Background(), t.TempDir())
 
 	require.ErrorIs(t, err, ErrNotAWorkdir)
+}
+
+func readShortcut(
+	t *testing.T,
+	path string,
+) lnk.Link {
+	t.Helper()
+	data, err := os.ReadFile(path) // #nosec G304 -- test reads the shortcut the shelf placed
+	require.NoError(t, err)
+	l, err := lnk.Decode(data)
+	require.NoError(t, err)
+	return l
+}
+
+func TestShelf_Windows_Lifecycle(t *testing.T) {
+	f := newFixture(t, "windows")
+	f.UserPath.Value = `C:\Windows;%USERPROFILE%\tools`
+	wd1 := f.Workdir(t, mocks.NsA)
+	wd2 := f.Workdir(t, mocks.NsA2)
+	for _, wd := range []string{wd1, wd2} {
+		mocks.WriteFile(t, filepath.Join(wd, "bin", "tool.exe"), "MZ", 0o644)
+		mocks.WriteFile(t, filepath.Join(wd, "bin", "helper.exe"), "MZ", 0o644)
+		mocks.WriteFile(t, filepath.Join(wd, "Tool.exe"), "MZ", 0o644)
+	}
+	expose := domain.Expose{
+		CLI:     []domain.ExposeEntry{{Name: "tool", Path: "bin/tool.exe"}, {Name: "helper", Path: "bin/helper.exe"}},
+		Desktop: []domain.ExposeEntry{{Name: "Tool", Path: domain.ExposeAuto}},
+	}
+	shortcut := filepath.Join(lnkDir(filepath.Join(f.UserHome, "AppData", "Roaming")), "Tool.lnk")
+
+	first, err := f.shelf.Apply(context.Background(), mocks.NsA, wd1, expose, domain.ArrowMedia{})
+	require.NoError(t, err)
+	assert.Empty(t, first.Refused)
+	assert.Equal(t, []string{`C:\Windows`, `%USERPROFILE%\tools`, filepath.Join(wd1, "bin")}, f.userPath())
+	assert.Equal(t, filepath.Join(wd1, "Tool.exe"), readShortcut(t, shortcut).Target)
+
+	_, err = f.shelf.Apply(context.Background(), mocks.NsA2, wd2, expose, domain.ArrowMedia{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`C:\Windows`, `%USERPROFILE%\tools`, filepath.Join(wd2, "bin")}, f.userPath())
+	assert.Equal(t, filepath.Join(wd2, "Tool.exe"), readShortcut(t, shortcut).Target)
+
+	require.NoError(t, f.shelf.Remove(context.Background(), wd1))
+	assert.Equal(t, []string{`C:\Windows`, `%USERPROFILE%\tools`, filepath.Join(wd2, "bin")}, f.userPath())
+	assert.FileExists(t, shortcut)
+
+	require.NoError(t, f.shelf.Remove(context.Background(), wd2))
+	assert.Equal(t, []string{`C:\Windows`, `%USERPROFILE%\tools`}, f.userPath())
+	assert.NoFileExists(t, shortcut)
+}
+
+func TestShelf_Windows_RefusesNamesWindowsCannotHold(t *testing.T) {
+	f := newFixture(t, "windows")
+	wd := f.Workdir(t, mocks.NsA)
+	mocks.WriteFile(t, filepath.Join(wd, "tool.exe"), "MZ", 0o644)
+	expose := domain.Expose{
+		CLI:     []domain.ExposeEntry{{Name: "CON", Path: "tool.exe"}},
+		Desktop: []domain.ExposeEntry{{Name: "Tool.", Path: "tool.exe"}, {Name: "nul", Path: domain.ExposeAuto}},
+	}
+
+	got, err := f.shelf.Apply(context.Background(), mocks.NsA, wd, expose, domain.ArrowMedia{})
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Entries)
+	assert.Equal(t, []Refusal{
+		{Kind: domain.ExposeKindDesktop, Index: 0, Name: "Tool.", Reason: models.ReasonUnsafeName},
+		{Kind: domain.ExposeKindDesktop, Index: 1, Name: "nul", Reason: models.ReasonUnsafeName},
+		{Kind: domain.ExposeKindCLI, Index: 0, Name: "CON", Reason: models.ReasonUnsafeName},
+	}, got.Refused)
+	assert.Zero(t, f.UserPath.Writes)
+}
+
+func TestShelf_Windows_SetupPathBroadcasts(t *testing.T) {
+	f := newFixture(t, "windows")
+
+	status, err := f.shelf.SetupPath(context.Background())
+
+	require.NoError(t, err)
+	assert.True(t, status.Configured)
+	assert.Equal(t, []string{f.Bin}, f.userPath())
+	assert.Equal(t, 1, f.UserPath.Broadcasts)
 }

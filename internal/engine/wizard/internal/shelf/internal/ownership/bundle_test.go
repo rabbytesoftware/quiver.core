@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/mocks"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/mocks"
 )
 
 func TestBundleTagHolder(t *testing.T) {
@@ -54,6 +54,7 @@ func TestBundles_Holder_Absent(t *testing.T) {
 }
 
 func TestBundles_Holder_InspectError(t *testing.T) {
+	mocks.RequireUnixHost(t)
 	b := NewBundles(&mocks.Tagger{})
 	file := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
@@ -95,7 +96,7 @@ func TestBundles_Enclosing(t *testing.T) {
 	tagged := filepath.Join(apps, "Tool.app")
 	mocks.WriteBundle(t, tagged, "x")
 	require.NoError(t, tagger.Write(tagged, BundleTag(mocks.BareA, "/wd", tagged)))
-	untagged := filepath.Join(apps, "Other"+platform.BundleExt)
+	untagged := filepath.Join(apps, "Other"+models.BundleExt)
 	mocks.WriteBundle(t, untagged, "x")
 
 	assert.Equal(t, Holder{Exists: true, Namespace: mocks.BareA, Target: "/wd"}, b.Enclosing(filepath.Join(tagged, "Contents", "MacOS", "tool")))

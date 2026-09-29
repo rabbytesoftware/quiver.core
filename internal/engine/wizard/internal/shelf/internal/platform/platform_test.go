@@ -1,108 +1,112 @@
-package platform_test
+package platform
 
 import (
-	"os"
+	"context"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/mocks"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/mocks"
 )
 
-func TestHost_Layout_ExplicitDirs(t *testing.T) {
-	f := mocks.NewSandbox(t, "linux")
-
-	l, err := f.Host().Layout()
-
-	require.NoError(t, err)
-	assert.Equal(t, platform.Layout{Bin: f.Bin, Namespaces: f.NsDir, UserHome: f.UserHome, Apps: f.Apps}, l)
+func forSandbox(
+	sb *mocks.Sandbox,
+) Platform {
+	return ForOS(sb.GOOS, sb.Host(), Seams{Tagger: sb.Tagger, UserPath: sb.UserPath})
 }
 
-func TestHost_Layout_Errors(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(file, nil, 0o600))
-	nsBlocked := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(nsBlocked, "namespaces"), nil, 0o600))
+func TestForOS_ComposesEveryStrategy(t *testing.T) {
+	for _, goos := range []string{"darwin", "linux", "windows", "freebsd"} {
+		t.Run(goos, func(t *testing.T) {
+			p := forSandbox(mocks.NewSandbox(t, goos))
 
-	testCases := []struct {
-		name string
-		home string
-	}{
-		{
-			name: "bin unavailable",
-			home: file,
-		},
-		{
-			name: "namespaces unavailable",
-			home: nsBlocked,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			h := platform.NewHost()
-			h.HomeDir = tc.home
-
-			_, err := h.Layout()
-
-			require.Error(t, err)
+			assert.NotNil(t, p.CLI)
+			assert.NotNil(t, p.Desktop)
+			assert.NotNil(t, p.Path)
+			assert.NotNil(t, p.SafeName)
 		})
 	}
 }
 
-func TestHost_Layout_UserHomeUnavailable(t *testing.T) {
-	if runtime.GOOS == platform.GOOSWindows {
-		t.Skip("os.UserHomeDir reads USERPROFILE on windows")
+func TestForOS_CLIStrategy(t *testing.T) {
+	testCases := []struct {
+		name     string
+		goos     string
+		file     string
+		location func(sb *mocks.Sandbox, wd string) string
+	}{
+		{name: "linux links into the bin dir", goos: "linux", file: "tool", location: func(sb *mocks.Sandbox, _ string) string { return filepath.Join(sb.Bin, "tool") }},
+		{name: "darwin links into the bin dir", goos: "darwin", file: "tool", location: func(sb *mocks.Sandbox, _ string) string { return filepath.Join(sb.Bin, "tool") }},
+		{name: "windows puts the folder on the user path", goos: "windows", file: "tool.exe", location: func(_ *mocks.Sandbox, wd string) string { return wd }},
 	}
-	t.Setenv("HOME", "")
-	h := platform.NewHost()
-	h.HomeDir = t.TempDir()
 
-	_, err := h.Layout()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.goos != "windows" {
+				mocks.RequireUnixHost(t)
+			}
+			sb := mocks.NewSandbox(t, tc.goos)
+			req, wd := sb.Request(t, mocks.NsA)
+			target := filepath.Join(wd, tc.file)
+			mocks.WriteFile(t, target, "x", 0o755)
 
-	require.Error(t, err)
+			got, err := forSandbox(sb).CLI.Place(context.Background(), req, domain.ExposeEntry{}, models.Candidate{Name: "tool", Target: target})
+
+			require.NoError(t, err)
+			assert.Equal(t, models.Placement{Location: tc.location(sb, wd)}, got)
+		})
+	}
 }
 
-func TestHost_Layout_DefaultHomeUsesProcessHome(t *testing.T) {
-	quiverHome := t.TempDir()
-	userHome := t.TempDir()
-	t.Setenv("QUIVER_HOME", quiverHome)
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
-	h := platform.NewHost()
-	h.GOOS = "linux"
-	h.Env = func(string) string { return "" }
+func TestDarwinSigner_OnlyOnAppleSilicon(t *testing.T) {
+	testCases := []struct {
+		arch      string
+		wantCalls int
+	}{
+		{arch: "arm64", wantCalls: 1},
+		{arch: "amd64", wantCalls: 0},
+	}
 
-	l, err := h.Layout()
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.arch, func(t *testing.T) {
+			sb := mocks.NewSandbox(t, "darwin")
+			sb.GOARCH = tc.arch
+			wd := sb.Workdir(t, mocks.NsA)
+			target := filepath.Join(wd, "tool")
+			mocks.WriteFile(t, target, string([]byte{0xcf, 0xfa, 0xed, 0xfe}), 0o755)
 
-	wantBin, err := paths.BinAt(quiverHome)
-	require.NoError(t, err)
-	wantNamespaces, err := paths.NamespacesAt(quiverHome)
-	require.NoError(t, err)
-	assert.Equal(t, wantBin, l.Bin)
-	assert.Equal(t, wantNamespaces, l.Namespaces)
-	assert.Equal(t, userHome, l.UserHome)
-	assert.Equal(t, []string{"/Applications", filepath.Join(userHome, "Applications")}, l.Apps)
+			darwinSigner(sb.Host()).Sign(context.Background(), wd, target)
+
+			assert.Len(t, sb.Cmd.Calls, tc.wantCalls)
+		})
+	}
 }
 
-func TestHost_AppData(t *testing.T) {
-	f := mocks.NewSandbox(t, platform.GOOSWindows)
+func TestWindowsSafeName(t *testing.T) {
+	testCases := []struct {
+		name string
+		want bool
+	}{
+		{name: "tool", want: true},
+		{name: "My App", want: true},
+		{name: "console", want: true},
+		{name: "CON", want: false},
+		{name: "nul", want: false},
+		{name: "com1", want: false},
+		{name: "LPT9.txt", want: false},
+		{name: "tool.", want: false},
+		{name: "tool ", want: false},
+		{name: "a/b", want: false},
+		{name: "a:b", want: false},
+	}
 
-	assert.Equal(t, filepath.Join("/home", "AppData", "Roaming"), f.Host().AppData("/home"))
-	f.Env["APPDATA"] = `C:\Roaming`
-	assert.Equal(t, `C:\Roaming`, f.Host().AppData("/home"))
-}
-
-func TestHost_AppData_SandboxWinsOverEnv(t *testing.T) {
-	h := platform.NewHost()
-	h.SandboxHome = "/h"
-	h.Env = func(string) string { return "real" }
-
-	assert.Equal(t, filepath.Join("/h", "AppData", "Roaming"), h.AppData("/u"))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, windowsSafeName(tc.name))
+		})
+	}
 }

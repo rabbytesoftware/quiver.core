@@ -27,7 +27,7 @@ func newExposeSandbox(
 ) exposeSandbox {
 	t.Helper()
 	if goruntime.GOOS == "windows" {
-		t.Skip("exposes .cmd shims instead of symlinks")
+		t.Skip("exposes command folders on the user Path instead of symlinks")
 	}
 	home := t.TempDir()
 	bin, err := paths.BinAt(home)

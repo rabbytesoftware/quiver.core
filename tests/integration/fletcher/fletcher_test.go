@@ -199,7 +199,7 @@ func (s *FletcherSuite) exposedDir(
 	s.Require().NoError(err)
 	s.Run("executes "+want, func() {
 		if runtime.GOOS == "windows" {
-			s.T().Skip("windows exposes a .cmd shim, not an executable symlink")
+			s.T().Skip("windows exposes the command folder on the user Path, not an executable symlink")
 		}
 		out, err := exec.Command(link).Output()
 		s.Require().NoError(err)
