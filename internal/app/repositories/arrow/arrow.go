@@ -456,33 +456,59 @@ func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) {
-	available, ok := s.store.CheckDrift(ctx, arrow)
-	if !ok {
+	available, answered, err := s.recordAvailable(ctx, arrow.Namespace,
+		func(current domain.Arrow) (*domain.Available, bool, error) {
+			available, ok := s.store.CheckDrift(ctx, current)
+			return available, ok, nil
+		})
+	if !answered {
 		return
 	}
-
-	s.recordAvailable(ctx, arrow.Namespace, available)
+	if err != nil {
+		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", err)
+	}
 	s.syncVersionOutdated(ctx, arrow.Namespace, available != nil)
 }
 
+// maxRecordAttempts bounds how often a check re-judges a row that another
+// writer changed under it.
+const maxRecordAttempts = 3
+
+// availableFn judges what is ahead of current; answered is false when it has
+// no trustworthy answer.
+type availableFn func(current domain.Arrow) (available *domain.Available, answered bool, err error)
+
+// recordAvailable records judge's answer about ns's row, judged against the
+// row as it stands when written: an answer about a Resolved the row has
+// already left would mark a row outdated right after its update. Asynx
+// appends optimistically, so a write that races another one to the same row
+// (a passive check, an advance) fails with a version conflict; the row is
+// then re-read and judged again.
 func (s *arrowService) recordAvailable(
 	ctx context.Context,
 	ns domain.Namespace,
-	available *domain.Available,
-) {
-	current, err := s.axArrow.Get(ctx, ns.String())
-	if err != nil {
-		return
-	}
-	if sameAvailable(current.Available, available) {
-		return
-	}
+	judge availableFn,
+) (*domain.Available, bool, error) {
+	for attempt := 1; ; attempt++ {
+		current, err := s.axArrow.Get(ctx, ns.String())
+		if err != nil {
+			return nil, false, err
+		}
+		available, answered, err := judge(current)
+		if err != nil || !answered {
+			return nil, answered, err
+		}
+		if sameAvailable(current.Available, available) {
+			return available, true, nil
+		}
 
-	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{
-		Namespace: ns,
-		Available: available,
-	}); sendErr != nil {
-		slog.WarnContext(ctx, "arrow version check: record", "ns", ns, "err", sendErr)
+		_, err = s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+		if err == nil {
+			return available, true, nil
+		}
+		if !errors.Is(err, asynxModels.ErrPipelineFailed) || attempt == maxRecordAttempts {
+			return available, true, err
+		}
 	}
 }
 

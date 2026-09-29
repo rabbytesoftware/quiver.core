@@ -21,29 +21,31 @@ func (s *arrowService) CheckAvailable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Available, error) {
-	current, err := s.existingRow(ctx, ns)
+	exists, err := s.axArrow.Exists(ctx, ns.String())
 	if err != nil {
 		return nil, fmt.Errorf("check available %s: %w", ns, err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("check available %s: %w", ns, apperrors.ErrNotFound)
 	}
 
 	snap, err := s.manifold.FreshSnapshot(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("check available %s: %w", ns, mapResolveErr(err))
 	}
-	target, outdated, err := manifold.Drift(current.SelectorKind, ns.Ref(), current.Resolved, snap)
-	if err != nil {
-		return nil, fmt.Errorf("check available %s: %w: %w", ns, apperrors.ErrNotFound, err)
-	}
 
-	var available *domain.Available
-	if outdated {
-		available = &target
-	}
-	if !sameAvailable(current.Available, available) {
-		_, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: available})
-		if sendErr != nil {
-			return nil, mapSendErr("check available", ns, sendErr)
+	available, _, err := s.recordAvailable(ctx, ns, func(current domain.Arrow) (*domain.Available, bool, error) {
+		target, outdated, err := manifold.Drift(current.SelectorKind, ns.Ref(), current.Resolved, snap)
+		if err != nil {
+			return nil, false, fmt.Errorf("%w: %w", apperrors.ErrNotFound, err)
 		}
+		if !outdated {
+			return nil, true, nil
+		}
+		return &target, true, nil
+	})
+	if err != nil {
+		return nil, mapSendErr("check available", ns, err)
 	}
 
 	s.syncVersionOutdated(ctx, ns, available != nil)
@@ -144,18 +146,4 @@ func (s *arrowService) AddDependency(
 		return "", mapSendErr("add dependency", identity, err)
 	}
 	return identity, nil
-}
-
-func (s *arrowService) existingRow(
-	ctx context.Context,
-	ns domain.Namespace,
-) (domain.Arrow, error) {
-	exists, err := s.axArrow.Exists(ctx, ns.String())
-	if err != nil {
-		return domain.Arrow{}, err
-	}
-	if !exists {
-		return domain.Arrow{}, apperrors.ErrNotFound
-	}
-	return s.axArrow.Get(ctx, ns.String())
 }
