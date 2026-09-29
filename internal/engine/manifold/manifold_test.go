@@ -816,16 +816,19 @@ func (s *stubCompiler) Compile(_ *domain.Arrow, _ map[string]models.PrecompiledT
 }
 
 type stubConstraintResolver struct {
-	result       string
-	err          error
-	branchHash   string
-	patterns     []string
-	branch       string
-	branchErr    error
-	branchCall   int
-	listTags     []string
-	listTagsErr  error
-	listTagsCall int
+	result        string
+	err           error
+	branchHash    string
+	patterns      []string
+	branch        string
+	branchErr     error
+	branchCall    int
+	listTags      []string
+	listTagsErr   error
+	refCommit     string
+	refCommitErr  error
+	refCommitRefs []string
+	listTagsCall  int
 }
 
 func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, pattern string) (string, error) {
@@ -836,6 +839,11 @@ func (s *stubConstraintResolver) Resolve(_ context.Context, _ domain.Namespace, 
 func (s *stubConstraintResolver) DefaultBranch(_ context.Context, _ domain.Namespace) (string, string, error) {
 	s.branchCall++
 	return s.branch, s.branchHash, s.branchErr
+}
+
+func (s *stubConstraintResolver) RefCommit(_ context.Context, _ domain.Namespace, ref string) (string, error) {
+	s.refCommitRefs = append(s.refCommitRefs, ref)
+	return s.refCommit, s.refCommitErr
 }
 
 func (s *stubConstraintResolver) ListTags(_ context.Context, _ domain.Namespace) ([]string, error) {
@@ -1043,6 +1051,19 @@ func TestResolveLatestInChannel_NoTagInChannel_ReturnsErrNoTagInChannel(t *testi
 	}
 }
 
+func TestResolveLatestInChannel_PointerChannel_ResolvesToItsOwnTag(t *testing.T) {
+	crs := &stubConstraintResolver{listTags: []string{"v1.4.0", "nightly-latest", "beta-26.5"}}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveLatestInChannel(context.Background(), domain.Namespace("github.com/u/r"), "nightly-latest")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "nightly-latest" {
+		t.Errorf("ref = %q, want %q", got, "nightly-latest")
+	}
+}
+
 func TestResolveLatestInChannel_ListTagsError_Propagates(t *testing.T) {
 	listErr := errors.New("dial tcp: connection refused")
 	crs := &stubConstraintResolver{listTagsErr: listErr}
@@ -1072,6 +1093,34 @@ func TestResolveDefaultBranch_ReturnsWhateverHEADPointsAt(t *testing.T) {
 	}
 	if crs.branchCall != 1 {
 		t.Errorf("DefaultBranch called %d times, want 1", crs.branchCall)
+	}
+}
+
+// ─── ResolveRefCommit ─────────────────────────────────────────────────────────
+
+func TestResolveRefCommit_AsksForTheNamespacesOwnRef(t *testing.T) {
+	crs := &stubConstraintResolver{refCommit: "abc123"}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	got, err := m.ResolveRefCommit(context.Background(), domain.Namespace("github.com/u/r@nightly"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "abc123" {
+		t.Errorf("hash = %q, want %q", got, "abc123")
+	}
+	if len(crs.refCommitRefs) != 1 || crs.refCommitRefs[0] != "nightly" {
+		t.Errorf("RefCommit refs = %v, want [nightly]", crs.refCommitRefs)
+	}
+}
+
+func TestResolveRefCommit_ResolverErrorPropagates(t *testing.T) {
+	crs := &stubConstraintResolver{refCommitErr: resolvers.ErrRefNotFound}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(&stubHost{}))
+
+	_, err := m.ResolveRefCommit(context.Background(), domain.Namespace("github.com/u/r@nightly"))
+	if !errors.Is(err, resolvers.ErrRefNotFound) {
+		t.Fatalf("err = %v, want ErrRefNotFound", err)
 	}
 }
 

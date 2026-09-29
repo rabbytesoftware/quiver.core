@@ -30,6 +30,11 @@ type ConstraintResolver interface {
 	// commit hash that branch currently resolves to. It is the repository's
 	// real default branch on any git host, whatever it is named.
 	DefaultBranch(ctx context.Context, ns domain.Namespace) (branch, hash string, err error)
+
+	// RefCommit reports the commit hash the tag or branch named ref currently
+	// resolves to. It is how a rolling tag that is force-moved onto a new
+	// commit is told apart from the same tag left where it was.
+	RefCommit(ctx context.Context, ns domain.Namespace, ref string) (string, error)
 }
 
 type constraintResolver struct {
@@ -60,6 +65,55 @@ func (c *constraintResolver) DefaultBranch(
 	ns domain.Namespace,
 ) (string, string, error) {
 	return c.defaultBranchWithCloneURL(ctx, ns.BareNamespace().CloneURL())
+}
+
+func (c *constraintResolver) RefCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	ref string,
+) (string, error) {
+	return c.refCommitWithCloneURL(ctx, ns.BareNamespace().CloneURL(), ref)
+}
+
+func (c *constraintResolver) refCommitWithCloneURL(
+	ctx context.Context,
+	cloneURL string,
+	ref string,
+) (string, error) {
+	refs, err := c.listRefs(ctx, cloneURL)
+	if err != nil {
+		return "", fmt.Errorf("ref commit: list refs for %s: %w", cloneURL, err)
+	}
+	return commitOfRef(refs, ref, cloneURL)
+}
+
+// commitOfRef finds ref among a ref advertisement's tags and branches. An
+// annotated tag is advertised twice, once as the tag object and once peeled to
+// the commit it points at; the commit is what identifies the release, so the
+// peeled entry wins.
+func commitOfRef(
+	refs []*plumbing.Reference,
+	ref string,
+	cloneURL string,
+) (string, error) {
+	var found string
+	for _, r := range refs {
+		name := r.Name()
+		if !name.IsTag() && !name.IsBranch() {
+			continue
+		}
+		short := name.Short()
+		if short == ref+"^{}" {
+			return r.Hash().String(), nil
+		}
+		if short == ref {
+			found = r.Hash().String()
+		}
+	}
+	if found == "" {
+		return "", fmt.Errorf("%w: %s has no ref %q", ErrRefNotFound, cloneURL, ref)
+	}
+	return found, nil
 }
 
 func (c *constraintResolver) defaultBranchWithCloneURL(

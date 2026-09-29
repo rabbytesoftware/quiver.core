@@ -539,6 +539,80 @@ func TestUpdateArrowManifest_UpdatesReadme(t *testing.T) {
 	assert.Equal(t, "# Updated Docs", got.Readme)
 }
 
+func TestUpdateArrowManifest_RecordedCommit_MarksTheArrowCurrentAtIt(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: true, RecommendedRef: ns.Ref(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.UpdateArrowManifest{
+		Namespace:    ns,
+		ArrowMeta:    domain.ArrowMeta{Name: "Updated Name"},
+		RefCommitSHA: "bbb222",
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "bbb222", got.RefCommitSHA)
+	assert.False(t, got.Outdated)
+	assert.Empty(t, got.RecommendedRef)
+}
+
+func TestUpdateArrowManifest_NoRecordedCommit_LeavesTheDriftAnswerAlone(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0",
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.UpdateArrowManifest{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, got.Outdated, "a refresh that learned no commit cannot claim the arrow is current")
+	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+	assert.Empty(t, got.RefCommitSHA)
+}
+
+// ─── RecordRefCommit ──────────────────────────────────────────────────────────
+
+func TestRecordRefCommit_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.RecordRefCommit{Namespace: testNs(), RefCommitSHA: "aaa111"})
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordRefCommit_StampsTheCommitAndClearsTheDriftAnswer(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	seedArrow(t, ax, ns, false)
+	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
+		Namespace: ns, Outdated: true, RecommendedRef: ns.Ref(),
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.RecordRefCommit{Namespace: ns, RefCommitSHA: "bbb222"})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "bbb222", got.RefCommitSHA)
+	assert.False(t, got.Outdated)
+	assert.Empty(t, got.RecommendedRef)
+}
+
 // ─── UpgradeArrow ─────────────────────────────────────────────────────────────
 
 func TestUpgradeArrow_OnExisting_Fails(t *testing.T) {
@@ -578,6 +652,23 @@ func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
 	assert.False(t, got.UserInstalled)
 	assert.Equal(t, "# Docs v2", got.Readme)
 	assert.False(t, got.AlreadyReady, "AlreadyReady defaults to false when the command does not set it")
+}
+
+func TestUpgradeArrow_RefCommitSHA_CarriesThrough(t *testing.T) {
+	ax := buildAsynx(t)
+	newNs := domain.Namespace("github.com/user/repo@nightly")
+
+	_, err := ax.Send(context.Background(), commands.UpgradeArrow{
+		Namespace:    newNs,
+		OldNamespace: testNs(),
+		ArrowMeta:    domain.ArrowMeta{Name: "Test Arrow"},
+		RefCommitSHA: "a95333b",
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "a95333b", got.RefCommitSHA)
 }
 
 // TestUpgradeArrow_Channel_IndependentOfInstalledConstraint guards the

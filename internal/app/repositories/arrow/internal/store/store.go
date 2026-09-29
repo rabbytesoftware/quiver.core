@@ -105,6 +105,14 @@ type Store interface {
 		ctx context.Context,
 		arrow domain.Arrow,
 	) (string, error)
+	// PointerCommit reports the commit ns's ref currently points at when that
+	// ref is a rolling pointer tag, and "" for any other ref or when the
+	// remote cannot say. It is what an upgrade stamps onto the arrow it moves
+	// onto a pointer tag, so a later drift check has something to compare.
+	PointerCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+	) string
 }
 
 type storeService struct {
@@ -366,6 +374,7 @@ func (r *storeService) ResolveManifest(
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
 		arrow.Namespace = ns
+		arrow.RefCommitSHA = r.PointerCommit(ctx, ns)
 		return arrow, nil
 	}
 
@@ -463,6 +472,10 @@ func (r *storeService) ResolveForInstall(
 	}
 	if c, ok := manifold.ClassifyChannel(ns.Ref()); ok {
 		arrow.Channel = c
+	}
+	if r.isPointerTag(ctx, ns, ns.Ref()) {
+		arrow.Channel = ns.Ref()
+		arrow.RefCommitSHA = r.PointerCommit(ctx, ns)
 	}
 	return ns, arrow, "", nil
 }
@@ -637,7 +650,46 @@ func (r *storeService) resolveAt(
 	if err != nil {
 		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
 	}
+	arrow.RefCommitSHA = r.PointerCommit(ctx, resolvedNs)
 	return resolvedNs, arrow, "", nil
+}
+
+func (r *storeService) PointerCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+) string {
+	ref := ns.Ref()
+	if ref == "" {
+		return ""
+	}
+	if !r.isPointerTag(ctx, ns, ref) {
+		return ""
+	}
+	hash, err := r.manifold.ResolveRefCommit(ctx, ns)
+	if err != nil {
+		return ""
+	}
+	return hash
+}
+
+// isPointerTag reports whether ref is a rolling tag: a listed pointer channel
+// whose only member is that tag. A synthetic default-branch entry is not one;
+// branches are tracked through their own RefIsBranch path.
+func (r *storeService) isPointerTag(
+	ctx context.Context,
+	ns domain.Namespace,
+	ref string,
+) bool {
+	channels, err := r.manifold.ListChannels(ctx, ns)
+	if err != nil {
+		return false
+	}
+	for _, c := range channels {
+		if c.Kind == "pointer" && !c.IsDefaultBranchFallback && c.Latest == ref {
+			return true
+		}
+	}
+	return false
 }
 
 // Search translates the storage result into the app-layer contract: the
@@ -752,10 +804,32 @@ func (r *storeService) checkTagDrift(
 	if err != nil {
 		return false, "", false
 	}
+	if r.isPointerTag(ctx, arrow.Namespace, latest) {
+		return r.checkPointerDrift(ctx, arrow, latest)
+	}
 	if latest != arrow.Namespace.Ref() {
 		return true, latest, true
 	}
 	return false, "", true
+}
+
+// checkPointerDrift compares commits rather than names: a rolling tag keeps
+// its name while it is force-moved onto new commits, so the ref alone can
+// never show drift. An arrow with no recorded commit cannot prove it is
+// current, so it is reported behind until an update stamps one.
+func (r *storeService) checkPointerDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+	pointer string,
+) (bool, string, bool) {
+	remote, err := r.manifold.ResolveRefCommit(ctx, arrow.Namespace.WithRef(pointer))
+	if err != nil {
+		return false, "", false
+	}
+	if arrow.RefCommitSHA != "" && remote == arrow.RefCommitSHA {
+		return false, "", true
+	}
+	return true, pointer, true
 }
 
 func (r *storeService) ResolveTrackedRef(
@@ -767,6 +841,9 @@ func (r *storeService) ResolveTrackedRef(
 	}
 	if arrow.PinnedRef != "" {
 		return arrow.PinnedRef, nil
+	}
+	if arrow.Channel == "" && r.isPointerTag(ctx, arrow.Namespace, arrow.Namespace.Ref()) {
+		return arrow.Namespace.Ref(), nil
 	}
 	return r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channelOf(arrow))
 }

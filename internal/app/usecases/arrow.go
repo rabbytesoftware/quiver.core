@@ -253,7 +253,10 @@ func (u *arrowUsecase) upgradeRef(
 
 	newNs := ns.WithRef(latestRef)
 	if newNs.String() == ns.String() { //nolint:nestif
-		newArrow, resolveErr := u.arrow.ResolveManifest(ctx, ns)
+		// The ref is unchanged because a rolling tag keeps its name while its
+		// commit moves, so the cached manifest is exactly what must not be
+		// served.
+		newArrow, resolveErr := u.arrow.RefreshManifest(ctx, ns)
 		if resolveErr != nil {
 			return models.UpdateResult{}, fmt.Errorf("upgrade ref: fetch manifest: %w", resolveErr)
 		}

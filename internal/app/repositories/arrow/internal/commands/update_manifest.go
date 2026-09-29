@@ -16,6 +16,11 @@ type UpdateArrowManifest struct {
 	Netbridge []netbridge.PortDef
 	Targets   map[domain.OS]domain.Target
 	Readme    string
+	// RefCommitSHA is the commit the refreshed manifest was resolved at, set
+	// only when the ref is a rolling tag. A non-empty value marks the arrow
+	// current at that commit, which is why it also clears the outdated flag
+	// the previous commit earned.
+	RefCommitSHA string
 }
 
 func (c UpdateArrowManifest) AggregateID() string {
@@ -48,5 +53,10 @@ func (c UpdateArrowManifest) EmitEvent(
 	updated.Netbridge = c.Netbridge
 	updated.Targets = c.Targets
 	updated.Readme = c.Readme
+	if c.RefCommitSHA != "" {
+		updated.RefCommitSHA = c.RefCommitSHA
+		updated.Outdated = false
+		updated.RecommendedRef = ""
+	}
 	return updated
 }

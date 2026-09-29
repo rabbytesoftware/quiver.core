@@ -597,6 +597,7 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 
 	newNs := ns.WithRef(latestRef)
 	if newNs == ns {
+		u.refreshRollingTag(ctx, ns, current)
 		return
 	}
 
@@ -605,6 +606,30 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		current.PinnedRef,
 	); err != nil {
 		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
+	}
+}
+
+// refreshRollingTag lands a finished update on a rolling tag: the ref is
+// unchanged, so nothing swaps identity, but the arrow was flagged outdated
+// because the tag moved. Re-resolving records the commit it now points at,
+// which is what clears that flag; without it the arrow would report itself
+// behind forever.
+func (u *runtimeUsecase) refreshRollingTag(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+) {
+	if !current.Outdated || current.RecommendedRef != ns.Ref() {
+		return
+	}
+
+	refreshed, err := u.arrow.RefreshManifest(ctx, ns)
+	if err != nil {
+		slog.ErrorContext(ctx, "onUpdateEnded: refresh rolling tag", "ns", ns, "err", err)
+		return
+	}
+	if err := u.arrow.UpdateManifest(ctx, ns, refreshed); err != nil {
+		slog.ErrorContext(ctx, "onUpdateEnded: record rolling tag commit", "ns", ns, "err", err)
 	}
 }
 

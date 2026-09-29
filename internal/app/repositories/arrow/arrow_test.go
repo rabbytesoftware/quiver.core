@@ -770,6 +770,26 @@ func TestUpdateManifest_SendsCommand(t *testing.T) {
 	assert.Equal(t, "Updated Arrow", got.Name)
 }
 
+func TestUpdateManifest_RecordsTheCommitTheRefreshResolvedAt(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+	err = cat.UpdateManifest(context.Background(), ns, &domain.Arrow{
+		Namespace:    ns,
+		ArrowMeta:    domain.ArrowMeta{Name: "Updated Arrow"},
+		RefCommitSHA: "bbb222",
+	})
+	require.NoError(t, err)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "bbb222", got.RefCommitSHA)
+}
+
 // TestResolveTrackedRef_DelegatesToStore proves this repository-layer method
 // is a pure passthrough to arrowstore.Store.ResolveTrackedRef — the single
 // source of truth the passive drift-check (checkTagDrift) already uses,
@@ -1059,6 +1079,111 @@ func TestUpgradeVersion_CarriesConstraintAndChannelTogether(t *testing.T) {
 	assert.Equal(t, "stable", got.Channel)
 }
 
+func TestUpgradeVersion_OntoARollingTag_RecordsItsCommit(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	newNs := ns.BareNamespace().WithRef("nightly")
+	m := &mocks.Manifold{
+		ResolveArrowResult:   &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}},
+		ResolveArrowRaw:      []byte("raw"),
+		ResolveArrowFilename: "ARROW.md",
+	}
+	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
+	st := &arrowStoreMocks.MockCQRS{
+		PointerCommitFn: func(_ context.Context, ns domain.Namespace) string {
+			if ns.Ref() == "nightly" {
+				return "bbb222"
+			}
+			return ""
+		},
+	}
+
+	cat := arrowRepo.NewTestable(st, axArrow, v, m)
+	upgraded, err := cat.UpgradeVersion(context.Background(), ns, newNs, "", "nightly", true, false, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, "bbb222", upgraded.RefCommitSHA)
+
+	got, err := axArrow.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "bbb222", got.RefCommitSHA)
+}
+
+func TestUpgradeVersionSeeded_RecordsTheBuildCommit(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	oldNs := testNs()
+	newNs := oldNs.BareNamespace().WithRef("nightly-latest")
+	m := &mocks.Manifold{ParseArrowResult: testArrow()}
+
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	require.NoError(t, cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("bytes"), "a95333b"))
+
+	got, err := axArrow.Get(context.Background(), newNs.String())
+	require.NoError(t, err)
+	assert.Equal(t, "a95333b", got.RefCommitSHA)
+}
+
+func TestRecordRefCommit(t *testing.T) {
+	testCases := []struct {
+		name   string
+		prior  string
+		record string
+	}{
+		{name: "a new commit is recorded", prior: "aaa111", record: "bbb222"},
+		{name: "the commit the row already carries is left alone", prior: "aaa111", record: "aaa111"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			ns := testNs()
+			_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+			require.NoError(t, err)
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+			require.NoError(t, cat.RecordRefCommit(context.Background(), ns, tc.prior))
+
+			require.NoError(t, cat.RecordRefCommit(context.Background(), ns, tc.record))
+
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.record, got.RefCommitSHA)
+		})
+	}
+}
+
+func TestRecordRefCommit_UnknownArrow_ReturnsError(t *testing.T) {
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, nil)
+
+	err := cat.RecordRefCommit(context.Background(), testNs(), "aaa111")
+
+	require.Error(t, err)
+}
+
+func TestSeedAtCommit(t *testing.T) {
+	testCases := []struct {
+		name    string
+		commit  string
+		wantSHA string
+	}{
+		{name: "new row records the commit", commit: "a95333b", wantSHA: "a95333b"},
+		{name: "plain seed records none", wantSHA: ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			ns := testNs()
+			m := &mocks.Manifold{ParseArrowResult: testArrow()}
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+
+			require.NoError(t, cat.SeedAtCommit(context.Background(), ns, []byte("valid manifest"), tc.commit))
+
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSHA, got.RefCommitSHA)
+		})
+	}
+}
+
 // TestUpgradeVersion_UserInstalled_CarriesThrough guards the regression a
 // review caught: UpgradeArrow's EmitEvent used to build the new aggregate
 // without ever setting UserInstalled, silently resetting an arrow the user
@@ -1170,7 +1295,7 @@ func TestUpgradeVersionSeeded_NeverCallsManifold(t *testing.T) {
 	}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("embedded manifest bytes"))
+	err := cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("embedded manifest bytes"), "")
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), newNs.String())
@@ -1186,7 +1311,7 @@ func TestUpgradeVersionSeeded_InvalidManifest_ReturnsError(t *testing.T) {
 	m := &mocks.Manifold{ParseArrowErr: errors.New("bad manifest")}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("bad"))
+	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("bad"), "")
 	require.Error(t, err)
 }
 
@@ -1197,7 +1322,7 @@ func TestUpgradeVersionSeeded_VaultPutError_ReturnsError(t *testing.T) {
 	m := &mocks.Manifold{ParseArrowResult: arrow}
 
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("data"))
+	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("data"), "")
 	require.Error(t, err)
 }
 

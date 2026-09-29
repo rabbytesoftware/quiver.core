@@ -46,6 +46,7 @@ type Container struct {
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
 	version  string
+	commit   string
 	homeDir  string
 }
 
@@ -63,7 +64,7 @@ func (c *Container) Start(ctx context.Context) {
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
 	channel := config.GetArrows().SelfUpdateChannel
-	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, channel); err != nil {
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
 }
@@ -150,6 +151,7 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 type appOpts struct {
 	homeDir           string
 	version           string
+	commit            string
 	selfUpdateTrigger *selfupdate.Trigger
 }
 
@@ -164,6 +166,12 @@ func WithHomeDir(dir string) Option {
 // daemon into its own arrow catalog on boot. See selfarrow.EnsureRegistered.
 func WithVersion(v string) Option {
 	return func(o *appOpts) { o.version = v }
+}
+
+// WithCommit sets the full hash of the commit the running build came from,
+// recorded against this daemon's own catalog row on boot.
+func WithCommit(c string) Option {
+	return func(o *appOpts) { o.commit = c }
 }
 
 // WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
@@ -274,6 +282,7 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 		version:    cfg.version,
+		commit:     cfg.commit,
 		homeDir:    cfg.homeDir,
 	}, nil
 }

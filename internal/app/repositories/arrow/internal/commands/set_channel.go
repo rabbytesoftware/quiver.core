@@ -82,7 +82,7 @@ func (c SetChannel) Validate(
 // stampConfiguredChannel: it re-stamps the self-arrow's channel on every
 // boot whenever a channel is effective -- explicitly configured via
 // self_update_channel, or inferred from the running build's own version
-// (selfarrow.resolveChannel, e.g. any unconfigured nightly build) -- so it
+// (selfarrow.resolveChannel, e.g. any unconfigured beta build) -- so it
 // wipes that row's Outdated/RecommendedRef on every such boot too.
 // stampConfiguredChannel calls CheckVersionNow right after SetChannel for
 // exactly this reason, landing a fresh answer immediately rather than

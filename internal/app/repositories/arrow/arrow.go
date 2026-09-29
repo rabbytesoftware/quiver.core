@@ -95,6 +95,20 @@ type Arrow interface {
 		ns domain.Namespace,
 		data []byte,
 	) error
+	// SeedAtCommit is Seed for bytes known to belong to refCommit.
+	SeedAtCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+		data []byte,
+		refCommit string,
+	) error
+	// RecordRefCommit records the commit ns's ref stands at, and reports
+	// nothing to do when the row already carries it.
+	RecordRefCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+		refCommit string,
+	) error
 	ValidateManifest(
 		ctx context.Context,
 		data []byte,
@@ -171,12 +185,14 @@ type Arrow interface {
 	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
 	// caller already holds newNs's manifest bytes (the same shape Seed
 	// accepts) and needs no remote fetch to move the row's identity onto it.
-	// It always lands the new row straight at Ready.
+	// It always lands the new row straight at Ready, recording refCommit as
+	// the commit the new ref was built from.
 	UpgradeVersionSeeded(
 		ctx context.Context,
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		data []byte,
+		refCommit string,
 	) error
 	Shutdown(
 		ctx context.Context,
@@ -776,6 +792,17 @@ func (s *arrowService) Seed(
 	ns domain.Namespace,
 	data []byte,
 ) error {
+	return s.SeedAtCommit(ctx, ns, data, "")
+}
+
+// SeedAtCommit is Seed for bytes that belong to a known commit, so a rolling
+// build can later be compared against the tag it came from.
+func (s *arrowService) SeedAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	data []byte,
+	refCommit string,
+) error {
 	if ns.Validate() != nil {
 		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidNamespace)
 	}
@@ -800,6 +827,7 @@ func (s *arrowService) Seed(
 	}
 
 	m.UserInstalled = true
+	m.RefCommitSHA = refCommit
 	err = s.addArrowCommand(ctx, ns, m, "")
 	if err == nil {
 		return nil
@@ -815,6 +843,8 @@ func (s *arrowService) Seed(
 		Netbridge: m.Netbridge,
 		Targets:   m.Targets,
 		Readme:    m.Readme,
+
+		RefCommitSHA: refCommit,
 	}
 	_, err = s.axArrow.SendWait(ctx, cmd)
 	return err
@@ -912,8 +942,33 @@ func (s *arrowService) UpdateManifest(
 		Netbridge: arrow.Netbridge,
 		Targets:   arrow.Targets,
 		Readme:    arrow.Readme,
+
+		RefCommitSHA: arrow.RefCommitSHA,
 	})
 	return err
+}
+
+// RecordRefCommit waits for the write: a boot that records its commit reads the
+// row straight back to decide whether a version check is due.
+func (s *arrowService) RecordRefCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	refCommit string,
+) error {
+	current, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("record ref commit: %w", err)
+	}
+	if current.RefCommitSHA == refCommit {
+		return nil
+	}
+	if _, err := s.axArrow.SendWait(ctx, arrowcmds.RecordRefCommit{
+		Namespace:    ns,
+		RefCommitSHA: refCommit,
+	}); err != nil {
+		return fmt.Errorf("record ref commit: %w", err)
+	}
+	return nil
 }
 
 func (s *arrowService) Shutdown(ctx context.Context) error {
@@ -1102,10 +1157,14 @@ func (s *arrowService) UpgradeVersion(
 		}
 	}
 
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled, pinnedRef); err != nil {
+	refCommit := s.store.PointerCommit(ctx, newNs)
+	if err := s.sendUpgradeArrow(
+		ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled, pinnedRef, refCommit,
+	); err != nil {
 		return nil, err
 	}
 
+	newArrow.RefCommitSHA = refCommit
 	return newArrow, nil
 }
 
@@ -1120,6 +1179,7 @@ func (s *arrowService) UpgradeVersionSeeded(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	data []byte,
+	refCommit string,
 ) error {
 	m, err := s.manifold.ParseArrow(data)
 	if err != nil {
@@ -1141,7 +1201,7 @@ func (s *arrowService) UpgradeVersionSeeded(
 	// is passed false: self-registration never carries a real UserInstalled
 	// fact. pinnedRef is passed empty for the same reason: self-registration
 	// never pins to a specific ref.
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false, "")
+	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false, "", refCommit)
 }
 
 // sendUpgradeArrow builds and sends the arrow.upgraded command shared by
@@ -1161,6 +1221,7 @@ func (s *arrowService) sendUpgradeArrow(
 	alreadyReady bool,
 	userInstalled bool,
 	pinnedRef string,
+	refCommit string,
 ) error {
 	cmd := arrowcmds.UpgradeArrow{
 		Namespace:           newNs,
@@ -1175,6 +1236,7 @@ func (s *arrowService) sendUpgradeArrow(
 		AlreadyReady:        alreadyReady,
 		UserInstalled:       userInstalled,
 		PinnedRef:           pinnedRef,
+		RefCommitSHA:        refCommit,
 	}
 	_, sendErr := s.axArrow.Send(ctx, cmd)
 	if sendErr != nil {

@@ -929,6 +929,110 @@ func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
 	}
 }
 
+func TestRuntimeOnUpdateEnded_RollingTagMoved_RecordsTheNewCommit(t *testing.T) {
+	ns := domain.Namespace("test/arrow@nightly")
+	refreshed := &domain.Arrow{Namespace: ns, RefCommitSHA: "bbb222"}
+	var updated *domain.Arrow
+	upgradeCalled := false
+
+	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{
+				Namespace: ns, Channel: "nightly", RefCommitSHA: "aaa111", Outdated: true, RecommendedRef: "nightly",
+			}, nil
+		},
+		RefreshManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return refreshed, nil },
+		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, arrow *domain.Arrow) error {
+			updated = arrow
+			return nil
+		},
+		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
+			upgradeCalled = true
+			return nil, nil
+		},
+	}
+	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
+		Ref: ns,
+		LastReturn: &domainRuntime.Return{
+			Method:  domain.MethodUpdate,
+			Outcome: domainRuntime.ExecutionOutcomeSuccess,
+		},
+	})
+
+	if updated != refreshed {
+		t.Fatalf("expected the refreshed arrow to be recorded, got %+v", updated)
+	}
+	if upgradeCalled {
+		t.Fatal("a rolling tag keeps its ref, so no UpgradeVersion swap is expected")
+	}
+}
+
+func TestRuntimeRefreshRollingTag(t *testing.T) {
+	ns := domain.Namespace("test/arrow@nightly")
+	refreshErr := errors.New("dial tcp: connection refused")
+	testCases := []struct {
+		name        string
+		current     *domain.Arrow
+		refreshErr  error
+		updateErr   error
+		wantRefresh bool
+		wantUpdate  bool
+	}{
+		{
+			name:        "outdated on its own ref refreshes and records",
+			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
+			wantRefresh: true,
+			wantUpdate:  true,
+		},
+		{
+			name:    "current arrow needs nothing",
+			current: &domain.Arrow{},
+		},
+		{
+			name:    "outdated toward a different ref is another flow's job",
+			current: &domain.Arrow{Outdated: true, RecommendedRef: "v2.0.0"},
+		},
+		{
+			name:        "refresh failure records nothing",
+			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
+			refreshErr:  refreshErr,
+			wantRefresh: true,
+		},
+		{
+			name:        "record failure is survived",
+			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
+			updateErr:   refreshErr,
+			wantRefresh: true,
+			wantUpdate:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var refreshed, updated bool
+			a := &ucmocks.MockArrow{
+				RefreshManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+					refreshed = true
+					return &domain.Arrow{Namespace: ns}, tc.refreshErr
+				},
+				UpdateManifestFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
+					updated = true
+					return tc.updateErr
+				},
+			}
+			uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+
+			uc.refreshRollingTag(context.Background(), ns, tc.current)
+
+			if refreshed != tc.wantRefresh || updated != tc.wantUpdate {
+				t.Fatalf("refreshed=%v updated=%v, want refreshed=%v updated=%v",
+					refreshed, updated, tc.wantRefresh, tc.wantUpdate)
+			}
+		})
+	}
+}
+
 // TestRuntimeOnUpdateEnded_PinnedRef_StaysOnPinnedVersion pins the fix this
 // bug report exists for: an arrow pinned to an exact ref must not be swapped
 // onto a newer release just because its own update: steps ran. Delegating

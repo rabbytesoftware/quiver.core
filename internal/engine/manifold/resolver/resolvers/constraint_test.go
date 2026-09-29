@@ -10,6 +10,8 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -506,4 +508,116 @@ func TestIsStableSemver_NegativeComponent(t *testing.T) {
 	if IsStableSemver("v1.-1.0") {
 		t.Error("IsStableSemver(v1.-1.0) = true, want false (negative component)")
 	}
+}
+
+// ─── RefCommit ────────────────────────────────────────────────────────────────
+
+func commitOnRepo(
+	t *testing.T,
+	dir string,
+	name string,
+) plumbing.Hash {
+	t.Helper()
+
+	repo, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := os.WriteFile(dir+"/"+name, []byte(name), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := wt.Add(name); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	hash, err := wt.Commit(name, &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	})
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	return hash
+}
+
+func TestConstraintResolver_RefCommit_FollowsAForceMovedTag(t *testing.T) {
+	dir := makeRepoOnBranch(t, "main")
+	repo, err := gogit.PlainOpen(dir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+
+	tag := plumbing.NewTagReferenceName("nightly")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(tag, head.Hash())))
+
+	cr := newCR(5 * time.Second)
+	before, err := cr.refCommitWithCloneURL(context.Background(), dir, "nightly")
+	require.NoError(t, err)
+	assert.Equal(t, head.Hash().String(), before)
+
+	next := commitOnRepo(t, dir, "second")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(tag, next)))
+
+	after, err := cr.refCommitWithCloneURL(context.Background(), dir, "nightly")
+	require.NoError(t, err)
+	assert.Equal(t, next.String(), after)
+	assert.NotEqual(t, before, after)
+}
+
+func TestConstraintResolver_RefCommit_ResolvesABranch(t *testing.T) {
+	dir := makeRepoOnBranch(t, "main")
+	cr := newCR(5 * time.Second)
+
+	_, wantHash, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
+	require.NoError(t, err)
+
+	got, err := cr.refCommitWithCloneURL(context.Background(), dir, "main")
+	require.NoError(t, err)
+	assert.Equal(t, wantHash, got)
+}
+
+func TestConstraintResolver_RefCommit_MissingRef(t *testing.T) {
+	dir := makeRepoOnBranch(t, "main")
+	cr := newCR(5 * time.Second)
+
+	_, err := cr.refCommitWithCloneURL(context.Background(), dir, "nightly")
+	assert.ErrorIs(t, err, ErrRefNotFound)
+}
+
+func TestConstraintResolver_RefCommit_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.refCommitWithCloneURL(context.Background(), t.TempDir(), "nightly")
+	assert.Error(t, err)
+}
+
+func TestCommitOfRef_PrefersThePeeledCommitOfAnAnnotatedTag(t *testing.T) {
+	tagObject := plumbing.NewHash("1111111111111111111111111111111111111111")
+	commit := plumbing.NewHash("2222222222222222222222222222222222222222")
+	refs := []*plumbing.Reference{
+		plumbing.NewHashReference(plumbing.NewTagReferenceName("nightly"), tagObject),
+		plumbing.NewHashReference(plumbing.NewTagReferenceName("nightly^{}"), commit),
+	}
+
+	got, err := commitOfRef(refs, "nightly", "https://git.example.test/u/r")
+	require.NoError(t, err)
+	assert.Equal(t, commit.String(), got)
+}
+
+func TestCommitOfRef_IgnoresRefsThatAreNeitherTagNorBranch(t *testing.T) {
+	refs := []*plumbing.Reference{
+		plumbing.NewHashReference(plumbing.ReferenceName("refs/pull/1/head"), plumbing.NewHash("3333333333333333333333333333333333333333")),
+	}
+
+	_, err := commitOfRef(refs, "head", "https://git.example.test/u/r")
+	assert.ErrorIs(t, err, ErrRefNotFound)
+}
+
+func TestConstraintResolver_RefCommit_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.RefCommit(context.Background(), domain.Namespace("localhost/user/nonexistent"), "nightly")
+	assert.Error(t, err)
 }

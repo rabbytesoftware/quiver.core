@@ -39,11 +39,11 @@ jobs:
 
         {
           echo "SHORT_SHA=${SHORT_SHA}"
-          echo "VERSION=nightly-${SHORT_SHA}"
+          echo "VERSION=nightly-latest"
           echo "PREV_SHA=${PREV_SHA}"
         } >> "$GITHUB_OUTPUT"
 
-        echo "Nightly version: nightly-${SHORT_SHA}"
+        echo "Nightly version: nightly-latest (${SHORT_SHA})"
         echo "Previous nightly commit: ${PREV_SHA:-<none>}"
 
   build:

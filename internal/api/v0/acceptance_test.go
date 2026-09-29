@@ -133,6 +133,13 @@ func (m *countingManifold) ResolveDefaultBranch(
 	return "", "", fmt.Errorf("manifold: default branch not used")
 }
 
+func (m *countingManifold) ResolveRefCommit(
+	context.Context,
+	domain.Namespace,
+) (string, error) {
+	return "", fmt.Errorf("manifold: ref commit not used")
+}
+
 func (m *countingManifold) ResolveLatestInChannel(
 	context.Context,
 	domain.Namespace,

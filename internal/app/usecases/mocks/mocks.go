@@ -70,6 +70,17 @@ type MockArrow struct {
 		ns domain.Namespace,
 		data []byte,
 	) error
+	SeedAtCommitFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		data []byte,
+		refCommit string,
+	) error
+	RecordRefCommitFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		refCommit string,
+	) error
 	ValidateManifestFn func(
 		ctx context.Context,
 		data []byte,
@@ -131,6 +142,7 @@ type MockArrow struct {
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		data []byte,
+		refCommit string,
 	) error
 	SearchFn func(
 		ctx context.Context,
@@ -309,6 +321,29 @@ func (m *MockArrow) Seed(
 	return nil
 }
 
+func (m *MockArrow) SeedAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	data []byte,
+	refCommit string,
+) error {
+	if m.SeedAtCommitFn != nil {
+		return m.SeedAtCommitFn(ctx, ns, data, refCommit)
+	}
+	return nil
+}
+
+func (m *MockArrow) RecordRefCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	refCommit string,
+) error {
+	if m.RecordRefCommitFn != nil {
+		return m.RecordRefCommitFn(ctx, ns, refCommit)
+	}
+	return nil
+}
+
 func (m *MockArrow) ValidateManifest(
 	ctx context.Context,
 	data []byte,
@@ -435,9 +470,10 @@ func (m *MockArrow) UpgradeVersionSeeded(
 	oldNs domain.Namespace,
 	newNs domain.Namespace,
 	data []byte,
+	refCommit string,
 ) error {
 	if m.UpgradeVersionSeededFn != nil {
-		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data)
+		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data, refCommit)
 	}
 	return nil
 }

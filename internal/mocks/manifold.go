@@ -31,6 +31,9 @@ type Manifold struct {
 	DefaultBranchErr          error
 	ResolveLatestInChannelRef string
 	ResolveLatestInChannelErr error
+	ResolveRefCommitHash      string
+	ResolveRefCommitErr       error
+	ResolveRefCommitCalls     int
 	ListChannelsResult        []manifold.ChannelInfo
 	ListChannelsErr           error
 
@@ -53,6 +56,13 @@ type Manifold struct {
 		ns domain.Namespace,
 		path string,
 	) (*domain.Arrow, []byte, string, error)
+
+	// ResolveRefCommitFn, when set, answers per namespace so a test can make a
+	// rolling tag resolve to a different commit on each call.
+	ResolveRefCommitFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
 
 	// ResolveLatestInChannelFn, when set, answers per channel so a test can
 	// assert exactly which channel string a caller passed.
@@ -125,6 +135,17 @@ func (m *Manifold) ResolveDefaultBranch(
 	_ domain.Namespace,
 ) (string, string, error) {
 	return m.DefaultBranchRef, m.DefaultBranchHash, m.DefaultBranchErr
+}
+
+func (m *Manifold) ResolveRefCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	m.ResolveRefCommitCalls++
+	if m.ResolveRefCommitFn != nil {
+		return m.ResolveRefCommitFn(ctx, ns)
+	}
+	return m.ResolveRefCommitHash, m.ResolveRefCommitErr
 }
 
 func (m *Manifold) ResolveLatestInChannel(

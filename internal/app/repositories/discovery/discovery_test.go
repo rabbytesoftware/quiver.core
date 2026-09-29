@@ -146,6 +146,13 @@ func (s *stubManifold) ResolveDefaultBranch(
 	return "", "", errors.New("not used")
 }
 
+func (s *stubManifold) ResolveRefCommit(
+	_ context.Context,
+	_ domain.Namespace,
+) (string, error) {
+	return "", errors.New("not used")
+}
+
 func (s *stubManifold) ResolveLatestInChannel(
 	_ context.Context,
 	_ domain.Namespace,

@@ -38,6 +38,9 @@ type UpgradeArrow struct {
 	// channel's moving latest would silently revert to tracking that latest
 	// again the moment it upgrades.
 	PinnedRef string
+	// RefCommitSHA is the commit the new ref pointed at, set only when it is
+	// a rolling tag.
+	RefCommitSHA string
 }
 
 func (c UpgradeArrow) AggregateID() string {
@@ -73,5 +76,6 @@ func (c UpgradeArrow) EmitEvent(_ *domain.Arrow) domain.Arrow {
 		AlreadyReady:        c.AlreadyReady,
 		UserInstalled:       c.UserInstalled,
 		PinnedRef:           c.PinnedRef,
+		RefCommitSHA:        c.RefCommitSHA,
 	}
 }

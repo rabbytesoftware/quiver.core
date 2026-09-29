@@ -377,6 +377,32 @@ func (r *testResolver) DefaultBranch(_ context.Context, ns domain.Namespace) (st
 	return headBranchOf(storer)
 }
 
+// RefCommit reads the commit a fixture repo's tag or branch points at, the
+// same thing the real resolver reads off a remote's ref advertisement.
+func (r *testResolver) RefCommit(_ context.Context, ns domain.Namespace, ref string) (string, error) {
+	key := fixtureKey(ns)
+	storer, ok := r.repos.Get(key)
+	if !ok {
+		return "", fmt.Errorf("fixture repo not found for ref commit: %s", ns)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return refCommitOf(storer, ref)
+}
+
+func refCommitOf(storer *memory.Storage, ref string) (string, error) {
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		return "", fmt.Errorf("open repo: %w", err)
+	}
+	for _, name := range []plumbing.ReferenceName{plumbing.NewTagReferenceName(ref), plumbing.NewBranchReferenceName(ref)} {
+		if resolved, err := repo.Reference(name, true); err == nil {
+			return resolved.Hash().String(), nil
+		}
+	}
+	return "", fmt.Errorf("ref %q not found in fixture repo", ref)
+}
+
 // testdataCollectionsDir returns the path to testdata/collections/ relative to any suite package.
 func testdataCollectionsDir() string {
 	return filepath.Join("..", "testdata", "collections")

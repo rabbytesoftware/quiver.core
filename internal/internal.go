@@ -209,6 +209,7 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 
 type internalOpts struct {
 	homeDir           string
+	commit            string
 	selfUpdateTrigger *selfupdate.Trigger
 	listener          net.Listener
 	scheme            string
@@ -224,6 +225,13 @@ type Option func(*internalOpts)
 // every layer falls back to the process home.
 func WithHomeDir(dir string) Option {
 	return func(o *internalOpts) { o.homeDir = dir }
+}
+
+// WithCommit sets the full hash of the commit the running build came from,
+// which quiver.core records against its own catalog row so a rolling release
+// tag can be told apart from the build already installed.
+func WithCommit(commit string) Option {
+	return func(o *internalOpts) { o.commit = commit }
 }
 
 // WithSelfUpdateTrigger hands the container the trigger quiver.core's own
@@ -286,6 +294,7 @@ func New(
 		adapters,
 		app.WithHomeDir(cfg.homeDir),
 		app.WithVersion(version),
+		app.WithCommit(cfg.commit),
 		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
 	)
 	if err != nil {

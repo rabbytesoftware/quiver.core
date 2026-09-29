@@ -482,6 +482,38 @@ func TestArrowUpdate_UpgradeRef_SameRef(t *testing.T) {
 	}
 }
 
+func TestArrowUpdate_UpgradeRef_SameRef_RefetchesInsteadOfServingTheCache(t *testing.T) {
+	ns := domain.Namespace("test/arrow@nightly")
+	current := &domain.Arrow{Namespace: ns, Channel: "nightly", Outdated: true, RecommendedRef: "nightly"}
+	refreshed := &domain.Arrow{Namespace: ns, RefCommitSHA: "bbb222"}
+	var updated *domain.Arrow
+
+	a := &ucmocks.MockArrow{
+		GetFn:               func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return current, nil },
+		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) { return "nightly", nil },
+		RefreshManifestFn:   func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return refreshed, nil },
+		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			t.Fatal("a same-ref upgrade must re-fetch, not resolve through the manifest cache")
+			return nil, nil
+		},
+		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, arrow *domain.Arrow) error {
+			updated = arrow
+			return nil
+		},
+	}
+	g := &ucmocks.MockGraph{
+		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
+	}
+
+	uc := NewArrowUsecase(a, g, &ucmocks.MockRuntime{})
+	if _, err := uc.Update(context.Background(), ns, models.UpdateOptions{UpgradeRef: true}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated != refreshed {
+		t.Fatalf("expected the freshly fetched arrow to be recorded, got %+v", updated)
+	}
+}
+
 func TestArrowUpdate_UpgradeRef_NewRef(t *testing.T) {
 	oldNs := domain.Namespace("test/arrow@v1.0.0")
 	newNs := domain.Namespace("test/arrow@v1.1.0")

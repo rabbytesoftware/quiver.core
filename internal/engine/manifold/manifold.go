@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -114,6 +115,15 @@ type Manifold interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (branch, hash string, err error)
+
+	// ResolveRefCommit reports the commit hash the tag or branch ns names
+	// currently resolves to, read off the same ref advertisement. A rolling
+	// tag keeps its name while its commit changes, so this is the only way to
+	// tell a moved one from one left in place.
+	ResolveRefCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
@@ -527,11 +537,15 @@ func (m *manifold) ResolveLatestInChannel(
 		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, err)
 	}
 
-	ref, ok := resolvers.LatestInChannel(tags, channel)
-	if !ok {
-		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
+	if ref, ok := resolvers.LatestInChannel(tags, channel); ok {
+		return ref, nil
 	}
-	return ref, nil
+	// A pointer channel is named after the one tag that is its only member,
+	// so the channel resolves to that tag itself.
+	if slices.Contains(tags, channel) {
+		return channel, nil
+	}
+	return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
 }
 
 func (m *manifold) ListChannels(
@@ -659,6 +673,17 @@ func (m *manifold) ResolveDefaultBranch(
 		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
 	}
 	return branch, hash, nil
+}
+
+func (m *manifold) ResolveRefCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	hash, err := m.constraint.RefCommit(ctx, ns, ns.Ref())
+	if err != nil {
+		return "", fmt.Errorf("manifold: ref commit %s: %w", ns, err)
+	}
+	return hash, nil
 }
 
 func (m *manifold) ResolveCollection(

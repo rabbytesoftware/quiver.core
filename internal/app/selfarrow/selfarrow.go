@@ -26,10 +26,13 @@ type arrowCatalog interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (bool, error)
-	Seed(
+	// SeedAtCommit seeds the row and records the commit the running build
+	// was made from.
+	SeedAtCommit(
 		ctx context.Context,
 		ns domain.Namespace,
 		data []byte,
+		refCommit string,
 	) error
 	List(
 		ctx context.Context,
@@ -42,6 +45,14 @@ type arrowCatalog interface {
 		oldNs domain.Namespace,
 		newNs domain.Namespace,
 		data []byte,
+		refCommit string,
+	) error
+	// RecordRefCommit records the commit the running build was made from on a
+	// row that already exists at this ref.
+	RecordRefCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+		refCommit string,
 	) error
 	SetChannel(
 		ctx context.Context,
@@ -87,6 +98,7 @@ func EnsureRegistered(
 	arrows arrowCatalog,
 	rt runtimeMarker,
 	version string,
+	commit string,
 	channel string,
 ) error {
 	if version == "" || version == "dev" {
@@ -102,7 +114,7 @@ func EnsureRegistered(
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	if exists {
-		return finishRegistration(ctx, arrows, rt, newNs, channel)
+		return recordCommitAndFinish(ctx, arrows, rt, newNs, commit, channel)
 	}
 
 	oldNs, found, err := currentSelfRow(ctx, arrows, self)
@@ -110,16 +122,37 @@ func EnsureRegistered(
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	if !found {
-		if err := arrows.Seed(ctx, newNs, selfmanifest.Raw()); err != nil {
+		if err := arrows.SeedAtCommit(ctx, newNs, selfmanifest.Raw(), commit); err != nil {
 			return fmt.Errorf("selfarrow: ensure registered: %w", err)
 		}
 		return finishRegistration(ctx, arrows, rt, newNs, channel)
 	}
 
-	if err := arrows.UpgradeVersionSeeded(ctx, oldNs, newNs, selfmanifest.Raw()); err != nil {
+	if err := arrows.UpgradeVersionSeeded(ctx, oldNs, newNs, selfmanifest.Raw(), commit); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return finishRegistration(ctx, arrows, rt, newNs, channel)
+}
+
+// recordCommitAndFinish handles a row already filed at this ref. A release
+// tag that moves (nightly-latest) keeps its ref across builds, so the commit
+// the running build was made from is the only thing that changes between one
+// boot and the next; recording it here is what lets an update that re-launches
+// the daemon land as "now current".
+func recordCommitAndFinish(
+	ctx context.Context,
+	arrows arrowCatalog,
+	rt runtimeMarker,
+	ns domain.Namespace,
+	commit string,
+	channel string,
+) error {
+	if commit != "" {
+		if err := arrows.RecordRefCommit(ctx, ns, commit); err != nil {
+			return fmt.Errorf("selfarrow: ensure registered: %w", err)
+		}
+	}
+	return finishRegistration(ctx, arrows, rt, ns, channel)
 }
 
 // finishRegistration applies every follow-up a freshly seeded, moved, or
@@ -141,32 +174,29 @@ func finishRegistration(
 }
 
 // selfChannelPrefixes maps this project's own release-tag prefixes (see
-// .github/workflows/{nightly,prerelease}.yml) to the channel name a version
-// stamped with that prefix unambiguously belongs to. "stable-" carries no
-// entry: it already resolves to "" (stable) the same way any version
-// matching no recognized prefix does.
+// .github/workflows/prerelease.yml) to the channel name a version stamped
+// with that prefix unambiguously belongs to. "stable-" carries no entry: it
+// already resolves to "" (stable) the same way any version matching no
+// recognized prefix does. "nightly-latest" carries none either: it is a
+// rolling tag, which the drift check already tracks under its own name.
 var selfChannelPrefixes = map[string]string{
-	"nightly-": "nightly",
-	"beta-":    "beta",
-	"hotfix-":  "hotfix",
+	"beta-":   "beta",
+	"hotfix-": "hotfix",
 }
 
 // resolveChannel decides the channel EnsureRegistered stamps on this boot's
 // self-arrow row. An explicitly configured channel always wins outright.
 // With none configured, a channel is inferred from the running build's own
-// version string only when its prefix unambiguously matches one of this
-// project's own known non-stable release-tag formats (selfChannelPrefixes)
-// -- concretely, this is what keeps a real nightly build (version
-// "nightly-<sha>") from silently registering onto the stable channel: a
-// short git SHA carries no numeric-dot version core, so
-// resolvers.ChannelForTag itself cannot classify it (see that package's own
-// ParseTag doc comment) and is not used here. Anything else -- a
-// "stable-" version, a bare semver with no prefix, or any unrecognized
-// format -- resolves to "" (stable), exactly as before this existed. This
-// check is pure string matching against the version already in hand: it
-// never touches the network, keeping EnsureRegistered's "no network
-// dependency" contract (see TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve)
-// intact.
+// version only when its prefix unambiguously matches one of this project's
+// own known non-stable release-tag formats (selfChannelPrefixes): a
+// prefix-borne discriminator like "beta-26.5-4" cannot be classified from
+// that tag alone (see resolvers.ChannelForTag), and the classifier that can
+// needs the repository's other tags -- a network call this function must
+// never make, keeping EnsureRegistered's "no network dependency" contract
+// (see TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve) intact.
+// Anything else -- a "stable-" version, a bare semver with no prefix, or any
+// unrecognized format -- resolves to "" (stable), exactly as before this
+// existed.
 func resolveChannel(
 	configured string,
 	version string,
@@ -194,9 +224,9 @@ func resolveChannel(
 // CheckVersionNow follows SetChannel here for the same reason switchChannel
 // (usecases/arrow.go) already pairs the two: SetChannel unconditionally
 // clears Outdated/RecommendedRef (see its own EmitEvent doc comment), and
-// since resolveChannel now infers "nightly" (etc.) for every unconfigured
+// since resolveChannel now infers "beta" (etc.) for every unconfigured
 // build of that kind rather than only an explicitly configured one, this
-// pair now runs on every single boot of the common, unconfigured-nightly
+// pair now runs on every single boot of the common, unconfigured-beta
 // case -- not just an operator's one-time opt-in. Without an eager check
 // right after, that clear would otherwise stay stale until some external
 // caller happens to query this arrow's detail (GetDetail's own

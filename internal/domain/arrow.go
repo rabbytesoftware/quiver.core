@@ -56,8 +56,8 @@ type Arrow struct {
 	// pinned as written or matched to a tag — stamped only by the
 	// refless-resolution fallback when no stable release exists.
 	RefIsBranch bool `json:"ref_is_branch,omitempty"`
-	// RefCommitSHA is the commit hash the branch ref pointed at when resolved.
-	// Meaningful only when RefIsBranch is true.
+	// RefCommitSHA is the commit hash a moving ref pointed at when resolved: a
+	// branch (RefIsBranch) or a rolling tag. Empty for a ref that never moves.
 	RefCommitSHA string `json:"ref_commit_sha,omitempty"`
 	// Outdated is true once a version check found a better ref available.
 	Outdated bool `json:"outdated"`

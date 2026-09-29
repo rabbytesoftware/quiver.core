@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       version:
-        description: 'Version string injected into main.version via ldflags'
+        description: 'Release ref (the git tag the build is published under) injected into main.version via ldflags'
         required: true
         type: string
 
@@ -44,7 +44,8 @@ jobs:
         mkdir -p bin
         QUIVER_EPOCH=1775932380
         BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 ))
-        LDFLAGS="-X main.version=${VERSION} -X main.buildID=${BUILD_ID}"
+        COMMIT=$(git rev-parse HEAD)
+        LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildID=${BUILD_ID}"
 
         GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-amd64       ./cmd/quiver
         GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-arm64       ./cmd/quiver
