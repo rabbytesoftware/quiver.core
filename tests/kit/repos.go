@@ -20,6 +20,7 @@ import (
 	"github.com/go-git/go-billy/v5/memfs"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -32,6 +33,11 @@ import (
 type FixtureRepos struct {
 	mu    sync.RWMutex
 	store map[string]*memory.Storage
+
+	// io serializes git I/O on every storer in the set. go-git's
+	// memory.Storage is not safe for concurrent use, and a test rewrites a
+	// repo (a moved tag, a new release) while the daemon may be reading it.
+	io sync.Mutex
 }
 
 func newFixtureRepos() *FixtureRepos {
@@ -55,6 +61,14 @@ func (f *FixtureRepos) Delete(key string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.store, key)
+}
+
+// Mutate runs fn while no resolver reads any repo of the set. Wrap every
+// change a test makes to a repo a running daemon may read.
+func (f *FixtureRepos) Mutate(fn func()) {
+	f.io.Lock()
+	defer f.io.Unlock()
+	fn()
 }
 
 var versionDirRe = regexp.MustCompile(`^v\d+$`)
@@ -134,29 +148,36 @@ func BuildFixtureRepos(t *testing.T) *FixtureRepos {
 // Use AddV2ToRepo to inject v2 mid-test for upgrade path tests.
 func BuildUpgradeRepo(t *testing.T, v1Content []byte) *memory.Storage {
 	t.Helper()
+	return BuildTaggedRepo(t, "v1", v1Content)
+}
+
+// BuildTaggedRepo creates an in-memory repo with one commit of content as
+// arrow.yaml, tagged tag — the shape a rolling tag such as "nightly" or a
+// release such as "v1.2.0" starts from.
+func BuildTaggedRepo(t *testing.T, tag string, content []byte) *memory.Storage {
+	t.Helper()
 
 	storer := memory.NewStorage()
-	fs := memfs.New()
-	repo, err := gogit.Init(storer, fs)
+	repo, err := gogit.Init(storer, memfs.New())
 	if err != nil {
-		t.Fatalf("BuildUpgradeRepo: git init: %v", err)
+		t.Fatalf("BuildTaggedRepo: git init: %v", err)
 	}
 
 	wt, err := repo.Worktree()
 	if err != nil {
-		t.Fatalf("BuildUpgradeRepo: worktree: %v", err)
+		t.Fatalf("BuildTaggedRepo: worktree: %v", err)
 	}
 
-	commitFile(t, wt, "arrow.yaml", v1Content)
-	hash, err := wt.Commit("v1", &gogit.CommitOptions{
+	commitFile(t, wt, "arrow.yaml", content)
+	hash, err := wt.Commit(tag, &gogit.CommitOptions{
 		Author:            testAuthor(),
 		AllowEmptyCommits: false,
 	})
 	if err != nil {
-		t.Fatalf("BuildUpgradeRepo: commit v1: %v", err)
+		t.Fatalf("BuildTaggedRepo: commit %s: %v", tag, err)
 	}
 
-	createTag(t, repo, "v1", hash)
+	createTag(t, repo, tag, hash)
 	return storer
 }
 
@@ -272,12 +293,134 @@ func AddV2ToRepo(t *testing.T, storer *memory.Storage, v2Content []byte) string 
 	return hash.String()
 }
 
+// TagCommit returns the commit tag points at. Run it inside
+// FixtureRepos.Mutate when a daemon may be reading the repo.
+func TagCommit(t *testing.T, storer *memory.Storage, tag string) string {
+	t.Helper()
+
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("TagCommit: open repo: %v", err)
+	}
+	ref, err := storer.Reference(plumbing.NewTagReferenceName(tag))
+	if err != nil {
+		t.Fatalf("TagCommit: tag %s: %v", tag, err)
+	}
+	return peeledCommit(repo, ref.Hash()).String()
+}
+
+// moveMarkerFile is the file a moved tag's fresh commit adds, so the commit
+// differs from the one the tag left while every manifest stays byte-identical.
+const moveMarkerFile = ".quiver-test-moved"
+
+// MoveTagToNewCommit force-moves tag the way a rolling release re-points its
+// tag: refs/tags/<tag> is deleted and recreated at a fresh commit whose tree
+// is the old one plus a marker file, so the manifest is unchanged and only
+// the commit moved. It returns the new commit. The default branch and HEAD
+// are left where they are. Run it inside FixtureRepos.Mutate when a daemon
+// may be reading the repo.
+func MoveTagToNewCommit(t *testing.T, storer *memory.Storage, tag string) string {
+	t.Helper()
+
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: open repo: %v", err)
+	}
+	name := plumbing.NewTagReferenceName(tag)
+	ref, err := storer.Reference(name)
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: tag %s: %v", tag, err)
+	}
+	parent, err := repo.CommitObject(peeledCommit(repo, ref.Hash()))
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: commit of %s: %v", tag, err)
+	}
+
+	tree := treeWithMarker(t, storer, parent, fmt.Sprintf("%s moved from %s\n", tag, parent.Hash))
+	sig := testAuthor()
+	moved := &object.Commit{
+		Author:       *sig,
+		Committer:    *sig,
+		Message:      "move " + tag,
+		TreeHash:     tree,
+		ParentHashes: []plumbing.Hash{parent.Hash},
+	}
+	hash := storeObject(t, storer, moved)
+
+	if err := storer.RemoveReference(name); err != nil {
+		t.Fatalf("MoveTagToNewCommit: delete tag %s: %v", tag, err)
+	}
+	if err := storer.SetReference(plumbing.NewHashReference(name, hash)); err != nil {
+		t.Fatalf("MoveTagToNewCommit: recreate tag %s: %v", tag, err)
+	}
+	return hash.String()
+}
+
+// treeWithMarker writes parent's tree with moveMarkerFile set to marker.
+func treeWithMarker(
+	t *testing.T,
+	storer *memory.Storage,
+	parent *object.Commit,
+	marker string,
+) plumbing.Hash {
+	t.Helper()
+
+	tree, err := parent.Tree()
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: tree of %s: %v", parent.Hash, err)
+	}
+
+	blob := storer.NewEncodedObject()
+	blob.SetType(plumbing.BlobObject)
+	w, err := blob.Writer()
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: blob writer: %v", err)
+	}
+	if _, err := w.Write([]byte(marker)); err != nil {
+		t.Fatalf("MoveTagToNewCommit: write blob: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("MoveTagToNewCommit: close blob: %v", err)
+	}
+	blobHash, err := storer.SetEncodedObject(blob)
+	if err != nil {
+		t.Fatalf("MoveTagToNewCommit: store blob: %v", err)
+	}
+
+	entries := make([]object.TreeEntry, 0, len(tree.Entries)+1)
+	for _, e := range tree.Entries {
+		if e.Name != moveMarkerFile {
+			entries = append(entries, e)
+		}
+	}
+	entries = append(entries, object.TreeEntry{Name: moveMarkerFile, Mode: filemode.Regular, Hash: blobHash})
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+
+	return storeObject(t, storer, &object.Tree{Entries: entries})
+}
+
+type encodable interface {
+	Encode(plumbing.EncodedObject) error
+}
+
+func storeObject(t *testing.T, storer *memory.Storage, obj encodable) plumbing.Hash {
+	t.Helper()
+	encoded := storer.NewEncodedObject()
+	if err := obj.Encode(encoded); err != nil {
+		t.Fatalf("encode object: %v", err)
+	}
+	hash, err := storer.SetEncodedObject(encoded)
+	if err != nil {
+		t.Fatalf("store object: %v", err)
+	}
+	return hash
+}
+
 // testResolver implements resolver.Resolver and resolvers.ConstraintResolver
-// using in-memory fixture repos. The mutex serializes repo I/O because
-// go-git's memory.Storage is not safe for concurrent use. Map access is
-// handled by FixtureRepos's own lock.
+// using in-memory fixture repos. Repo I/O holds the owning set's io lock,
+// the one FixtureRepos.Mutate takes, because go-git's memory.Storage is not
+// safe for concurrent use.
 type testResolver struct {
-	mu              sync.Mutex
 	repos           *FixtureRepos
 	collectionRepos *FixtureRepos
 }
@@ -298,8 +441,8 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 	if !ok {
 		return nil, "", fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.repos.io.Lock()
+	defer r.repos.io.Unlock()
 	if data, err := readFromRepo(storer, ns.Ref(), "ARROW.md"); err == nil {
 		return data, "ARROW.md", nil
 	}
@@ -316,8 +459,8 @@ func (r *testResolver) ResolveArrowAt(_ context.Context, ns domain.Namespace, pa
 	if !ok {
 		return nil, "", fmt.Errorf("fixture repo not found: %s (key=%s)", ns, key)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.repos.io.Lock()
+	defer r.repos.io.Unlock()
 	if data, err := readFromRepo(storer, ns.Ref(), path+".md"); err == nil {
 		return data, path + ".md", nil
 	}
@@ -334,8 +477,8 @@ func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace)
 	if !ok {
 		return nil, fmt.Errorf("collection fixture repo not found: %s (key=%s)", ns, key)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.collectionRepos.io.Lock()
+	defer r.collectionRepos.io.Unlock()
 	if data, err := readFromRepo(storer, ns.Ref(), "COLLECTION.md"); err == nil {
 		return data, nil
 	}
@@ -351,8 +494,8 @@ func (r *testResolver) Refs(_ context.Context, ns domain.Namespace) (domain.RefS
 	if !ok {
 		return domain.RefSnapshot{}, fmt.Errorf("fixture repo not found for refs: %s", ns)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.repos.io.Lock()
+	defer r.repos.io.Unlock()
 	return refSnapshotOf(storer)
 }
 

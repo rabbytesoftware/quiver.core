@@ -106,6 +106,15 @@ func (c *Client) GetDetail(ns string) *http.Response {
 	return resp
 }
 
+func (c *Client) Channels(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/channels"))
+	if err != nil {
+		c.t.Fatalf("Client.Channels: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) Update(ns string, body map[string]any) *http.Response {
 	c.t.Helper()
 	b, err := json.Marshal(body)

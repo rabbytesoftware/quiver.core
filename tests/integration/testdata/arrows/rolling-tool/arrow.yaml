@@ -1,0 +1,36 @@
+schema: "arrow@v0"
+metadata:
+  name: quiver-test.rolling-tool
+  description: Rolling-tag tool whose update steps record the ref they ran for
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed > "${WORKDIR}/install-marker"
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      update:
+        - type: run
+          command: if [ -f "${WORKDIR}/hold" ]; then while [ ! -f "${WORKDIR}/release" ]; do sleep 0.05; done; rm -f "${WORKDIR}/hold" "${WORKDIR}/release"; fi; echo "${REF}" >> "${WORKDIR}/update-refs"
+          title: Update
+          timeout: 120s
+          exit_on_failure: true
+      execute:
+        - type: run
+          command: sleep 3600
+          title: Serve
+          timeout: 3700s
+          exit_on_failure: false
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 10s
+          exit_on_failure: false
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false

@@ -96,6 +96,30 @@ func (tc *TypedClient) Update(ns string, body map[string]any) int {
 	return resp.StatusCode
 }
 
+// CheckAvailable sends PATCH /v0/arrow/:ns, which re-resolves what is ahead
+// of the row, and returns what it reported and the HTTP status code.
+func (tc *TypedClient) CheckAvailable(ns string) (dto.UpdateResultDTO, int) {
+	resp := tc.raw.Update(ns, map[string]any{})
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.UpdateResultDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.CheckAvailable: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// Channels returns the channels ns's repository publishes and the HTTP
+// status code.
+func (tc *TypedClient) Channels(ns string) (dto.ChannelListDTO, int) {
+	resp := tc.raw.Channels(ns)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.ChannelListDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Channels: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
 // Execute triggers a lifecycle method and returns the HTTP status code.
 func (tc *TypedClient) Execute(ns, method string, vars map[string]string) int {
 	resp := tc.raw.Execute(ns, method, vars)
