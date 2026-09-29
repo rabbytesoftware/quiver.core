@@ -814,8 +814,6 @@ func TestAdd_StampsIdentityAndSelectorState(t *testing.T) {
 	}
 }
 
-// The channel option names the selector of a refless namespace; a namespace
-// that already carries a selector keeps it.
 // Adding an identity that is already installed must leave its row and its
 // cached manifest alone even when the selector's target has since moved: the
 // cache belongs to what Resolved says is installed, and only an update moves

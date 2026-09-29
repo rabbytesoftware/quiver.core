@@ -5,10 +5,13 @@ type SelectorKind string
 
 const (
 	// SelectorPin is the zero value: a row with no stored kind is a pin.
-	SelectorPin        SelectorKind = ""
-	SelectorChannel    SelectorKind = "channel"
+	SelectorPin SelectorKind = ""
+	// SelectorChannel tracks the newest ref of a release channel.
+	SelectorChannel SelectorKind = "channel"
+	// SelectorConstraint tracks the newest tag satisfying a semver constraint.
 	SelectorConstraint SelectorKind = "constraint"
-	SelectorCommit     SelectorKind = "commit"
+	// SelectorCommit pins one commit, named by its full or abbreviated hash.
+	SelectorCommit SelectorKind = "commit"
 )
 
 // Resolved carries the installed ref and its resolved commit.
@@ -36,7 +39,7 @@ type Available struct {
 type RefSnapshot struct {
 	Tags     map[string]string `json:"tags" yaml:"tags"`
 	Branches map[string]string `json:"branches" yaml:"branches"`
-	Head     string            `json:"head" yaml:"head"`
+	Head     string            `json:"head,omitempty" yaml:"head,omitempty"`
 }
 
 // Valid returns true if the selector kind is one of the four defined constants.
@@ -51,15 +54,9 @@ func (k SelectorKind) Valid() bool {
 
 // Commit looks up a ref in the snapshot, preferring tags over branches.
 func (s RefSnapshot) Commit(ref string) (string, bool) {
-	if s.Tags != nil {
-		if commit, ok := s.Tags[ref]; ok {
-			return commit, true
-		}
+	if commit, ok := s.Tags[ref]; ok {
+		return commit, true
 	}
-	if s.Branches != nil {
-		if commit, ok := s.Branches[ref]; ok {
-			return commit, true
-		}
-	}
-	return "", false
+	commit, ok := s.Branches[ref]
+	return commit, ok
 }

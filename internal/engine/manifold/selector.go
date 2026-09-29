@@ -23,10 +23,15 @@ const (
 // ClassifySelector decides what a selector follows: a listed channel name is
 // a channel; else an exact tag or branch (or a refs/tags/, refs/heads/ escape)
 // is a pin; else a glob is a constraint; else 7–40 hex characters are a commit.
+// A selector with an empty ref component names nothing, whatever the snapshot
+// holds: two spellings of one ref must never become two identities.
 func ClassifySelector(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.SelectorKind, error) {
+	if hasEmptyComponent(selector) {
+		return domain.SelectorPin, fmt.Errorf("classify selector %q: empty ref component: %w", selector, ErrUnknownSelector)
+	}
 	if _, ok := findChannel(selector, snap); ok {
 		return domain.SelectorChannel, nil
 	}
@@ -93,6 +98,14 @@ func pinnedRef(
 	}
 	commit, ok = snap.Commit(selector)
 	return selector, commit, ok
+}
+
+func hasEmptyComponent(
+	selector string,
+) bool {
+	return strings.HasPrefix(selector, "/") ||
+		strings.HasSuffix(selector, "/") ||
+		strings.Contains(selector, "//")
 }
 
 func isGlob(

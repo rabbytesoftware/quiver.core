@@ -45,6 +45,19 @@ func withTag(
 	return snap
 }
 
+func withBranch(
+	snap domain.RefSnapshot,
+	branch string,
+) domain.RefSnapshot {
+	branches := make(map[string]string, len(snap.Branches)+1)
+	for k, v := range snap.Branches {
+		branches[k] = v
+	}
+	branches[branch] = "c-" + branch
+	snap.Branches = branches
+	return snap
+}
+
 func TestClassifySelector(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -74,6 +87,11 @@ func TestClassifySelector(t *testing.T) {
 		{name: "escaped branch is a pin", selector: "refs/heads/develop", snap: sharedSnapshot(), want: domain.SelectorPin},
 		{name: "escaped missing tag", selector: "refs/tags/stable", snap: sharedSnapshot(), wantErr: ErrUnknownSelector},
 		{name: "escaped missing branch", selector: "refs/heads/nope", snap: sharedSnapshot(), wantErr: ErrUnknownSelector},
+		{name: "doubled slash names nothing", selector: "feat//x", snap: withBranch(sharedSnapshot(), "feat//x"), wantErr: ErrUnknownSelector},
+		{name: "trailing slash names nothing", selector: "feat/", snap: withBranch(sharedSnapshot(), "feat/"), wantErr: ErrUnknownSelector},
+		{name: "leading slash names nothing", selector: "/feat", snap: withBranch(sharedSnapshot(), "/feat"), wantErr: ErrUnknownSelector},
+		{name: "escape with no name names nothing", selector: "refs/heads/", snap: withBranch(sharedSnapshot(), ""), wantErr: ErrUnknownSelector},
+		{name: "nested branch is a pin", selector: "feat/x", snap: withBranch(sharedSnapshot(), "feat/x"), want: domain.SelectorPin},
 		{name: "tagless repo head branch is a channel", selector: "develop", snap: domain.RefSnapshot{Branches: map[string]string{"develop": "c"}, Head: "develop"}, want: domain.SelectorChannel},
 	}
 

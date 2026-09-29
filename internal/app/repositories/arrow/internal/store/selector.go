@@ -112,7 +112,7 @@ func (r *storeService) fetchAtCommit(
 	if err != nil {
 		return nil, wrapManifoldErr("fetch at commit", err)
 	}
-	if r.vault == nil || exists == nil {
+	if exists == nil {
 		return arrow, nil
 	}
 

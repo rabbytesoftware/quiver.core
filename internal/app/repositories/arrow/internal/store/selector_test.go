@@ -265,6 +265,15 @@ func TestResolveInstall_Errors(t *testing.T) {
 			wantErr: apperrors.ErrInvalidNamespace,
 		},
 		{
+			name: "empty ref component is an invalid namespace",
+			ns:   selectorBare.WithRef("feat//x"),
+			m: &mocks.Manifold{SnapshotResult: domain.RefSnapshot{
+				Branches: map[string]string{"feat//x": "cfeat", "main": "cmain"},
+				Head:     "main",
+			}},
+			wantErr: apperrors.ErrInvalidNamespace,
+		},
+		{
 			name:    "malformed glob is an invalid namespace",
 			ns:      selectorBare.WithRef("v1.[*"),
 			m:       &mocks.Manifold{SnapshotResult: selectorSnapshot()},
