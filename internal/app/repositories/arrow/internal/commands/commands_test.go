@@ -1074,3 +1074,58 @@ func isValidationErr(err error) bool {
 	return errors.Is(err, asynxModels.ErrValidation) ||
 		errors.Is(err, asynxModels.ErrPipelineFailed)
 }
+
+func TestRefreshManifest_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.RefreshManifest{Namespace: testNs()})
+
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// A refresh stages the target's manifest for its update: what is installed
+// (Resolved) and what the check found ahead (Available) stay until the
+// update commits.
+func TestRefreshManifest_ReplacesOnlyTheManifest(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@stable")
+	resolved := domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "c1"}
+	available := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Old"},
+		Readme:        "old readme",
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorChannel,
+		Resolved:      resolved,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: available})
+	require.NoError(t, err)
+
+	targets := map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}}
+	variables := []domain.Variable{{Name: "PORT"}}
+	evt, err := ax.Send(context.Background(), commands.RefreshManifest{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "New"},
+		Variables: variables,
+		Targets:   targets,
+		Readme:    "new readme",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arrow.manifest_refreshed."+ns.String(), evt.EventName)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "New", got.Name)
+	assert.Equal(t, "new readme", got.Readme)
+	assert.Equal(t, variables, got.Variables)
+	assert.Equal(t, targets, got.Targets)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.Equal(t, available, got.Available)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.True(t, got.UserInstalled)
+}

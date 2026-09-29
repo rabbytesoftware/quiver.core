@@ -175,6 +175,13 @@ func (s *stubManifold) Snapshot(
 	return domain.RefSnapshot{}, errors.New("not used")
 }
 
+func (s *stubManifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return s.Snapshot(ctx, ns)
+}
+
 func (s *stubManifold) ResolveArrowAtCommit(
 	_ context.Context,
 	_ domain.Namespace,

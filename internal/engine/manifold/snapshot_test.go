@@ -90,6 +90,52 @@ func TestSnapshot_ErrorIsNotCached(t *testing.T) {
 	assert.Equal(t, 2, crs.refsCall)
 }
 
+// An update re-resolves right before it starts and again before it commits;
+// a snapshot cached for the version-check TTL would hide a tag that moved in
+// between, so FreshSnapshot always reads the remote and refreshes the cache.
+func TestFreshSnapshot_BypassesAndRefreshesTheCache(t *testing.T) {
+	before := domain.RefSnapshot{Tags: map[string]string{"nightly": "old"}}
+	crs := &stubConstraintResolver{refs: &before}
+	m := snapshotManifold(crs, &fakeClock{now: time.Now()})
+	ns := domain.Namespace("github.com/u/r@nightly")
+
+	_, err := m.Snapshot(context.Background(), ns)
+	require.NoError(t, err)
+
+	after := domain.RefSnapshot{Tags: map[string]string{"nightly": "new"}}
+	crs.refs = &after
+
+	fresh, err := m.FreshSnapshot(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, after, fresh)
+
+	cached, err := m.Snapshot(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, after, cached)
+	assert.Equal(t, 2, crs.refsCall)
+}
+
+func TestFreshSnapshot_ErrorKeepsTheCachedSnapshot(t *testing.T) {
+	snap := sharedSnapshot()
+	crs := &stubConstraintResolver{refs: &snap}
+	m := snapshotManifold(crs, &fakeClock{now: time.Now()})
+	ns := domain.Namespace("github.com/u/r")
+
+	_, err := m.Snapshot(context.Background(), ns)
+	require.NoError(t, err)
+
+	refsErr := errors.New("dial tcp: connection refused")
+	crs.refsErr = refsErr
+	_, err = m.FreshSnapshot(context.Background(), ns)
+	assert.ErrorIs(t, err, refsErr)
+
+	crs.refsErr = nil
+	cached, err := m.Snapshot(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, snap, cached)
+	assert.Equal(t, 2, crs.refsCall)
+}
+
 func TestChannelsOf(t *testing.T) {
 	testCases := []struct {
 		name string

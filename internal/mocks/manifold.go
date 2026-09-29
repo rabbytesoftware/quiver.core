@@ -39,6 +39,9 @@ type Manifold struct {
 	SnapshotResult            domain.RefSnapshot
 	SnapshotErr               error
 	SnapshotCalls             int
+	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
+	// from the same SnapshotFn/SnapshotResult as Snapshot.
+	FreshSnapshotCalls int
 
 	ResolveArrowAtCommitResult   *domain.Arrow
 	ResolveArrowAtCommitRaw      []byte
@@ -194,6 +197,17 @@ func (m *Manifold) Snapshot(
 	ns domain.Namespace,
 ) (domain.RefSnapshot, error) {
 	m.SnapshotCalls++
+	if m.SnapshotFn != nil {
+		return m.SnapshotFn(ctx, ns)
+	}
+	return m.SnapshotResult, m.SnapshotErr
+}
+
+func (m *Manifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	m.FreshSnapshotCalls++
 	if m.SnapshotFn != nil {
 		return m.SnapshotFn(ctx, ns)
 	}

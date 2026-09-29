@@ -137,6 +137,24 @@ type MockArrow struct {
 		userInstalled bool,
 		pinnedRef string,
 	) (*domain.Arrow, error)
+	CheckAvailableFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Available, error)
+	TargetUnmovedFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (bool, error)
+	RefreshToTargetFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (*domain.Arrow, error)
+	AddDependencyFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	AdvanceFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -489,6 +507,48 @@ func (m *MockArrow) UpgradeVersionSeeded(
 		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data, refCommit)
 	}
 	return nil
+}
+
+func (m *MockArrow) CheckAvailable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	if m.CheckAvailableFn != nil {
+		return m.CheckAvailableFn(ctx, ns)
+	}
+	return nil, nil
+}
+
+func (m *MockArrow) TargetUnmoved(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (bool, error) {
+	if m.TargetUnmovedFn != nil {
+		return m.TargetUnmovedFn(ctx, ns, target)
+	}
+	return true, nil
+}
+
+func (m *MockArrow) RefreshToTarget(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, error) {
+	if m.RefreshToTargetFn != nil {
+		return m.RefreshToTargetFn(ctx, ns, target)
+	}
+	return &domain.Arrow{Namespace: ns}, nil
+}
+
+func (m *MockArrow) AddDependency(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if m.AddDependencyFn != nil {
+		return m.AddDependencyFn(ctx, ns)
+	}
+	return ns, nil
 }
 
 func (m *MockArrow) Advance(

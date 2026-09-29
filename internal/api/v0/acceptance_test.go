@@ -166,6 +166,13 @@ func (m *countingManifold) Snapshot(
 	}, nil
 }
 
+func (m *countingManifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.Snapshot(ctx, ns)
+}
+
 func (m *countingManifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,

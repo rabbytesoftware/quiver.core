@@ -25,7 +25,20 @@ func (m *manifold) Snapshot(
 	if cached, ok := m.cachedSnapshot(bare); ok {
 		return cached, nil
 	}
+	return m.liveSnapshot(ctx, bare)
+}
 
+func (m *manifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.liveSnapshot(ctx, ns.BareNamespace())
+}
+
+func (m *manifold) liveSnapshot(
+	ctx context.Context,
+	bare domain.Namespace,
+) (domain.RefSnapshot, error) {
 	snap, err := m.constraint.Refs(ctx, bare)
 	if err != nil {
 		return domain.RefSnapshot{}, fmt.Errorf("manifold: snapshot %s: %w", bare, err)

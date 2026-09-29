@@ -116,6 +116,32 @@ type Arrow interface {
 		ns domain.Namespace,
 		target domain.Available,
 	) error
+	// CheckAvailable re-resolves ns against a live snapshot, records what is
+	// ahead of it as its Available (nil when current) and returns it.
+	CheckAvailable(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Available, error)
+	// TargetUnmoved reports whether target's ref still stands at target's
+	// commit on the remote right now.
+	TargetUnmoved(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (bool, error)
+	// RefreshToTarget stages the manifest at target's commit on ns's row,
+	// leaving what is installed untouched, and returns it.
+	RefreshToTarget(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (*domain.Arrow, error)
+	// AddDependency catalogues the row a dependency declaration installs, if
+	// it is not catalogued yet, and returns its identity.
+	AddDependency(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
 	// Adopt registers already-installed state for ns from manifest bytes the
 	// caller holds, named filename, creating the row or advancing it, without
 	// any network.
@@ -310,6 +336,7 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.upgraded.*", s.projectUpgraded},
 		{"arrow.updated.*", s.projectUpdated},
 		{"arrow.advanced.*", s.projectUpdated},
+		{"arrow.manifest_refreshed.*", s.projectUpdated},
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
 		{"arrow.version_checked.*", s.projectVersionCheck},

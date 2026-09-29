@@ -132,6 +132,13 @@ type Manifold interface {
 		ns domain.Namespace,
 	) (domain.RefSnapshot, error)
 
+	// FreshSnapshot is Snapshot read live from the remote, refreshing the
+	// cache: for a decision that must not act on a view up to a TTL old.
+	FreshSnapshot(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
+
 	// ResolveArrowAtCommit fetches ns's manifest at commit and returns it
 	// stamped with ns itself. Raw-file hosts serve a commit SHA as a ref; the
 	// clone path only checks out tags and branches, so when the fetch at the
