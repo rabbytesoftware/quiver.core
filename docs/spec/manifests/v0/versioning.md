@@ -372,7 +372,9 @@ Every update is one in-place operation on the same aggregate. `AdvanceArrow` (ev
 `Resolved` to the target and clears `Available`. Identity, runtime aggregate and workdir are
 untouched; the update steps overwrite files in place. Before every advance the vault
 manifest cache for the identity is replaced with the manifest fetched at the target commit
-(`ns.WithRef(commit)`; hosts serve raw files by SHA).
+(`ns.WithRef(commit)`; hosts serve raw files by SHA). On a host that cannot serve a SHA the
+fetch falls back to the identity's own ref, which is why the bracket re-verifies the commit
+before it stamps anything (see [manifold.md §2](../../manifold.md#2-public-api)).
 
 Two entry points reach it.
 
@@ -407,7 +409,7 @@ sequenceDiagram
     U->>U: open per-row bracket; refuse if a previous one is unsettled
     U->>A: CheckAvailable(ns)
     A->>M: FreshSnapshot + Drift
-    A-->>U: Available (nil -> nothing to do)
+    A-->>U: Available (nil -> nothing to do, HTTP 200 no-op)
     U->>R: stop and wait, if running
     U->>A: RefreshToTarget(ns, target)
     A->>M: manifest at target commit
@@ -428,7 +430,9 @@ sequenceDiagram
 1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`; a bracket whose
    predecessor began but has not been closed yet is refused with a state violation (422).
 2. **Re-resolve.** The last check may be an hour old, so the target is resolved again
-   against a fresh snapshot and recorded as `Available`. Nothing ahead: nothing to do.
+   against a fresh snapshot and recorded as `Available`. Nothing ahead: nothing to do, and
+   the request is answered **200** as an idempotent no-op (no runtime event follows)
+   instead of 202.
    A runtime not in `ready`, `outdated` or `running` skips the bracket and goes to the
    runtime's ordinary method path, which applies its own state rules.
 3. **Stop.** A running arrow is stopped, and the bracket waits for the stop to finish.

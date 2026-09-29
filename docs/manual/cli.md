@@ -70,7 +70,7 @@ quiver update --check                         # see what would update, change no
 quiver install github.com/new/tool -m ./arrow.yaml  # install from a local manifest
 ```
 
-`quiver update` moves an installed arrow to the newest version of what it follows: the channel's latest release, the highest tag matching its pattern, or — for a pinned tag — the same tag after it was moved to a new commit. A running arrow is stopped first, the new version's own update steps run, and the arrow keeps its name, settings, and install directory. If there is nothing newer, no update steps run. If the release moves again while the update is running, Quiver does not record it as current; running `quiver update` again picks up the newer build.
+`quiver update` moves an installed arrow to the newest version of what it follows: the channel's latest release, the highest tag matching its pattern, or — for a pinned tag — the same tag after it was moved to a new commit. A running arrow is stopped first, the new version's own update steps run, and the arrow keeps its name, settings, and install directory. If there is nothing newer, no update steps run and `quiver update` reports the arrow as already up to date and exits at once. If the release moves again while the update is running, Quiver does not record it as current; running `quiver update` again picks up the newer build.
 
 When you detach, the arrow keeps running in the background:
 

@@ -27,11 +27,8 @@ Event names use dot notation: `aggregate.action`. Several runtime commands share
 
 `ShouldSnapshot()` controls whether Asynx writes a snapshot row after applying the event. Snapshots speed up replay by giving projections a fast-forward starting point. The current policy is:
 
-- **Snapshot on durable transitions.** Anything that changes the aggregate's identity, state, or installation status writes a snapshot. Examples: `arrow.added`, `arrow.advanced`, `runtime.begun`, `runtime.ended`, `runtime.detached`, `runtime.recovered`, `runtime.outdated`, `collection.followed`.
-- **No snapshot for high-frequency or transient updates.** Step progress and PID recording fire many times per execution and would bloat the snapshot table without saving meaningful replay time. Examples: `runtime.step_advanced`, `runtime.pid_recorded`.
-- **No snapshot for short-lived port allocations.** Port aggregates are tiny and recycle frequently; snapshotting on every allocation would dominate disk traffic without a payoff.
-
-The aggregate replay flow with this mixed policy is shown below.
+- **Snapshot on every command.** `ShouldSnapshot()` returns `true` unconditionally. Under asynx v0.8 a snapshot is one row upserted per aggregate (O(1) read, constant storage), so there is no cost tier left to optimise for — high-frequency commands such as step advances, PID records and port allocations snapshot too (see AGENTS.md §4.3).
+The command flow is shown below; the `ShouldSnapshot` branch always takes `yes` today.
 
 ```mermaid
 flowchart LR
@@ -112,8 +109,8 @@ Lifecycle methods are constants in the `domain` package: `MethodInstall`, `Metho
 | `BeginStop` | `runtime.begun.<ns>` | yes | state is `running` or `detached`; not already stopping |
 | `BeginUpdate` | `runtime.begun.<ns>` | yes | state is `outdated` or `ready` |
 | `EndExecution` | `runtime.ended.<ns>` | yes | `Execution != nil` |
-| `AdvanceStep` | `runtime.step_advanced.<ns>` | no | `Execution != nil` |
-| `RecordPID` | `runtime.pid_recorded.<ns>` | no | `Execution != nil` |
+| `AdvanceStep` | `runtime.step_advanced.<ns>` | yes | `Execution != nil` |
+| `RecordPID` | `runtime.pid_recorded.<ns>` | yes | `Execution != nil` |
 | `RecordDetached` | `runtime.detached.<ns>` | yes | current state has a transition to `detached` |
 | `RecoverInterrupted` | `runtime.recovered.<ns>` | yes | current state is transient (`installing`, `uninstalling`, `updating`, `running`, `stopping`, `draining`) |
 | `MarkOutdated` | `runtime.outdated.<ns>` | yes | aggregate absent OR state is `ready` |
@@ -144,11 +141,11 @@ Terminates whatever execution is in progress and records its outcome (`success`,
 
 ### `AdvanceStep` (`runtime.step_advanced`)
 
-Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. No snapshot — replays reapply the sequence cheaply.
+Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. It snapshots like every command: a snapshot is one upserted row, so frequency costs nothing.
 
 ### `RecordPID` (`runtime.pid_recorded`)
 
-Captures the OS process ID that the wizard launched. Stored on the active `Execution` so a later `BeginStop` can recover it. No snapshot.
+Captures the OS process ID that the wizard launched. Stored on the active `Execution` so a later `BeginStop` can recover it.
 
 ### `RecordDetached` (`runtime.detached`)
 
@@ -180,12 +177,12 @@ Triggered when the user follows a collection through the API. The use case layer
 
 ## PortAllocation Commands
 
-`PortAllocation` is the netbridge engine's aggregate. Each port (TCP or UDP, specific number) is a distinct aggregate identified by the port string. The aggregate carries the port number, protocol, owner key (the consumer that holds the lease), and a flag indicating whether external port forwarding has been configured. Snapshots are intentionally disabled on both commands — port aggregates are short-lived and easy to replay from raw events.
+`PortAllocation` is the netbridge engine's aggregate. Each port (TCP or UDP, specific number) is a distinct aggregate identified by the port string. The aggregate carries the port number, protocol, owner key (the consumer that holds the lease), and a flag indicating whether external port forwarding has been configured. Both commands snapshot, like every command (see Snapshot Policy).
 
 | Command | Event Name | Snapshot | Validates |
 |---|---|---|---|
-| `AllocatePort` | `port.Allocated` | no | `current == nil` or zero-valued (port currently unallocated) |
-| `DeallocatePort` | `port.Deallocated` | no | `current != nil` (port currently allocated) |
+| `AllocatePort` | `port.Allocated` | yes | `current == nil` or zero-valued (port currently unallocated) |
+| `DeallocatePort` | `port.Deallocated` | yes | `current != nil` (port currently allocated) |
 
 ### `AllocatePort` (`port.Allocated`)
 

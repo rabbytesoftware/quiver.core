@@ -263,7 +263,7 @@ The Runtime resource invokes lifecycle methods on installed arrows and streams e
 
 | Method | Path | Summary | Async? |
 |---|---|---|---|
-| POST | `/runtime/{ns}/{method}` | Trigger a lifecycle method on an arrow | Async (202) |
+| POST | `/runtime/{ns}/{method}` | Trigger a lifecycle method on an arrow | Async (202; 200 for an idempotent no-op) |
 | GET | `/runtime` | WebSocket — runtime events for all arrows | n/a |
 | GET | `/runtime/{ns}` | WebSocket — runtime events for one arrow | n/a |
 
@@ -277,10 +277,10 @@ Triggers a lifecycle method. The optional JSON body is `{"variables": {"KEY": "v
 | `uninstall` | `Uninstall(ns, vars)` — reverse-deps check + cascade cleanup |
 | `execute` | `Execute(ns, MethodExecute, vars)` — run the manifest's `_execute` |
 | `stop` | `Stop(ns)` — stop a running execution; ignores body variables |
-| `update` / `_update` | `Execute(ns, MethodUpdate, vars)` — the update bracket: re-resolve the selector, stop if running, stage the target manifest, sync dependency changes, run the target's `update` steps, and advance the row in place only if the target is unmoved when they succeed. A row with nothing ahead begins nothing, though the response is still 202. The only route that runs update steps; see [manifests/v0/versioning.md §8](manifests/v0/versioning.md) |
+| `update` / `_update` | `Update(ns, vars)` — the update bracket: re-resolve the selector, stop if running, stage the target manifest, sync dependency changes, run the target's `update` steps, and advance the row in place only if the target is unmoved when they succeed. A row with nothing ahead begins nothing and the response is **200** (idempotent no-op; no runtime event follows). The only route that runs update steps; see [manifests/v0/versioning.md §8](manifests/v0/versioning.md) |
 | anything else | `Execute(ns, method, vars)` — custom user-defined method |
 
-Returns **202 Accepted** with the mutation envelope as soon as the use case layer accepts the command. Progress is streamed exclusively via the `/runtime` WS endpoints — no polling endpoint exists. Errors: 404 (arrow not found, method not found), 422 (state violation, missing required variable, no platform target, dependents block uninstall), 409 (already running, cyclic dependency), 502 (fetch failed during install), 500.
+Returns **202 Accepted** with the mutation envelope as soon as the use case layer accepts the command. The exceptions are idempotent no-ops, answered **200** with the same envelope and followed by no runtime event: `install` of an arrow that is already installed, and `update` of an arrow with nothing newer. Progress is streamed exclusively via the `/runtime` WS endpoints — no polling endpoint exists. Errors: 404 (arrow not found, method not found), 422 (state violation, missing required variable, no platform target, dependents block uninstall), 409 (already running, cyclic dependency), 502 (fetch failed during install), 500.
 
 #### GET /runtime, GET /runtime/{ns} — WebSocket subscriptions
 
@@ -323,7 +323,7 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `GET /v0/collection/{ns}/manifest` | Sync (raw bytes) | 200 |
 | `POST /v0/collection/{ns}/manifest` | Sync | 201 |
 | `POST /v0/collection/{ns}/manifest/validate` | Sync | 200 / 422 |
-| `POST /v0/runtime/{ns}/{method}` | **Async** | **202** |
+| `POST /v0/runtime/{ns}/{method}` | **Async** | **202** (200 when there is nothing to do: `install` of an installed arrow, `update` with nothing newer) |
 | `GET /v0/runtime` | WS only | 101 (Switching Protocols) |
 | `GET /v0/runtime/{ns}` | WS only | 101 |
 | `GET /v0/health` | Sync | 200 |
@@ -375,14 +375,16 @@ flowchart LR
     A[Client: POST /v0/runtime/ns/install] --> B[Handler dispatches to UsecaseRuntime]
     B --> C{Sentinel error?}
     C -- yes --> E[apierr.StatusAndMessage<br/>libs.WriteErr]
-    C -- no --> D[202 Accepted<br/>mutation envelope]
+    C -- no --> S{Work started?}
+    S -- no --> N[200 OK<br/>idempotent no-op,<br/>no runtime event]
+    S -- yes --> D[202 Accepted<br/>mutation envelope]
     D -.-> F[Client opens WS<br/>GET /v0/runtime/ns]
     F --> G[Broadcaster pushes<br/>ArrowRuntimeDTO]
     G --> H[Steps stream:<br/>pending -> running -> completed/failed]
     H --> I[Final state<br/>last_return populated]
 ```
 
-The 202 only signals that the use case layer accepted the command (e.g. state machine allowed the transition); the actual install/execute/stop work runs in the runtime engine and is observable only via the WS channel.
+The 202 only signals that the use case layer accepted the command (e.g. state machine allowed the transition); the actual install/execute/stop/update work runs in the runtime engine and is observable only via the WS channel. A 200 means nothing was started (an idempotent no-op), so a client must not wait for runtime events.
 
 ---
 
