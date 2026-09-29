@@ -126,7 +126,7 @@ func (s *arrowService) adoptOnto(
 	if advance {
 		return s.sendAdvance(ctx, ns, m, resolved)
 	}
-	_, err := s.axArrow.SendWait(ctx, arrowcmds.RefreshManifest{
+	err := s.sendRetryingConflicts(ctx, arrowcmds.RefreshManifest{
 		Namespace: ns,
 		ArrowMeta: m.ArrowMeta,
 		Variables: m.Variables,
@@ -186,7 +186,7 @@ func (s *arrowService) sendAdvance(
 	m *domain.Arrow,
 	resolved domain.Resolved,
 ) error {
-	_, err := s.axArrow.SendWait(ctx, arrowcmds.AdvanceArrow{
+	err := s.sendRetryingConflicts(ctx, arrowcmds.AdvanceArrow{
 		Namespace: ns,
 		ArrowMeta: m.ArrowMeta,
 		Variables: m.Variables,
@@ -196,6 +196,23 @@ func (s *arrowService) sendAdvance(
 		Resolved:  resolved,
 	})
 	return mapSendErr("advance", ns, err)
+}
+
+// sendRetryingConflicts sends a write whose event depends only on the row
+// existing, sending it again when it loses a version-conflict race to another
+// append of the row. Callers have already swapped the vault cache for it, so
+// giving up at the first conflict would leave the cache and the row
+// disagreeing until the next advance or adopt.
+func (s *arrowService) sendRetryingConflicts(
+	ctx context.Context,
+	cmd asynxModels.Command[domain.Arrow],
+) error {
+	for attempt := 1; ; attempt++ {
+		_, err := s.axArrow.SendWait(ctx, cmd)
+		if err == nil || !errors.Is(err, asynxModels.ErrPipelineFailed) || attempt == maxWriteAttempts {
+			return err
+		}
+	}
 }
 
 func (s *arrowService) sendAdopted(

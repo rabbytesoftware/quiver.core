@@ -95,7 +95,7 @@ func (s *arrowService) RefreshToTarget(
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, err)
 	}
 
-	_, err = s.axArrow.SendWait(ctx, arrowcmds.RefreshManifest{
+	err = s.sendRetryingConflicts(ctx, arrowcmds.RefreshManifest{
 		Namespace: ns,
 		ArrowMeta: m.ArrowMeta,
 		Variables: m.Variables,
