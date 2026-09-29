@@ -222,40 +222,43 @@ func respondErr(err error) provider.DoFunc {
 	}
 }
 
-// countingManifold wraps the fixture-backed manifold and counts resolves, which
-// are the only calls that would cost a network request in production. ParseArrow
-// works on bytes already held, so it is counted apart.
+// countingManifold wraps the fixture-backed manifold and counts manifest
+// fetches, the calls that cost a network request in production: a fetch at a
+// ref and a fetch at a commit alike.
 type countingManifold struct {
 	manifold.Manifold
 
 	mu       sync.Mutex
 	resolves int
-	parses   int
 }
 
 func (m *countingManifold) ResolveArrow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
-	m.mu.Lock()
-	m.resolves++
-	m.mu.Unlock()
+	m.count()
 	return m.Manifold.ResolveArrow(ctx, ns)
 }
 
-func (m *countingManifold) ParseArrow(
-	data []byte,
-) (*domain.Arrow, error) {
-	m.mu.Lock()
-	m.parses++
-	m.mu.Unlock()
-	return m.Manifold.ParseArrow(data)
+func (m *countingManifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	m.count()
+	return m.Manifold.ResolveArrowAtCommit(ctx, ns, commit)
 }
 
-func (m *countingManifold) counts() (resolves, parses int) {
+func (m *countingManifold) count() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.resolves, m.parses
+	m.resolves++
+}
+
+func (m *countingManifold) fetches() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.resolves
 }
 
 // streamFrameTimeout bounds a read that is expected to deliver.
