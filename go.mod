@@ -3,6 +3,7 @@ module github.com/rabbytesoftware/quiver.core
 go 1.26.2
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/char2cs/asynx v0.8.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -34,7 +35,6 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/anchore/go-lzo v0.1.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect

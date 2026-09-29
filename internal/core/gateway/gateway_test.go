@@ -1,8 +1,11 @@
 package gateway_test
 
 import (
+	"context"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -76,5 +79,73 @@ func TestScheme_Unix(t *testing.T) {
 
 func TestScheme_InvalidURI_ReturnsError(t *testing.T) {
 	_, _, err := gateway.Scheme("not-a-uri")
+	assert.Error(t, err)
+}
+
+func TestScheme_NPipe(t *testing.T) {
+	scheme, authority, err := gateway.Scheme("npipe://quiver")
+	require.NoError(t, err)
+	assert.Equal(t, "npipe", scheme)
+	assert.Equal(t, "quiver", authority)
+}
+
+func TestPipePath_EmptyResolvesToQuiver(t *testing.T) {
+	assert.Equal(t, `\\.\pipe\quiver`, gateway.PipePath(""))
+}
+
+func TestPipePath_NameIsUsed(t *testing.T) {
+	assert.Equal(t, `\\.\pipe\custom`, gateway.PipePath("custom"))
+}
+
+func TestLocalSocket_MatchesPlatform(t *testing.T) {
+	got := gateway.LocalSocket("/home/u/.quiver")
+
+	if runtime.GOOS == "windows" {
+		assert.Equal(t, gateway.PipePath(""), got)
+		return
+	}
+	assert.Equal(t, filepath.Join("/home/u/.quiver", "quiver.sock"), got)
+}
+
+func TestLocalURI_TableDriven(t *testing.T) {
+	testCases := []struct {
+		name   string
+		socket string
+		want   string
+	}{
+		{name: "pipe path", socket: `\\.\pipe\quiver`, want: "npipe://quiver"},
+		{name: "unix path", socket: "/tmp/quiver.sock", want: "unix:///tmp/quiver.sock"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, gateway.LocalURI(tc.socket))
+		})
+	}
+}
+
+func TestDial_UnixSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	defer ln.Close()
+
+	conn, err := gateway.Dial(context.Background(), path)
+	require.NoError(t, err)
+	conn.Close()
+}
+
+func TestDial_MissingSocketErrors(t *testing.T) {
+	_, err := gateway.Dial(context.Background(), filepath.Join(t.TempDir(), "missing.sock"))
+	assert.Error(t, err)
+}
+
+func TestNew_NPipeScheme_UnsupportedOffWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("named pipes are supported here")
+	}
+
+	_, err := gateway.New(config.API{Host: "npipe://quiver-test"})
+
 	assert.Error(t, err)
 }

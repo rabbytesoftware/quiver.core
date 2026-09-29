@@ -79,8 +79,8 @@ type Arrows struct {
 
 // Auth configures the device-pairing flow used to authenticate quiver.desktop
 // when the daemon is reachable over tcp://. It is never consulted when the
-// daemon is bound to unix://, since a Unix socket connection is already
-// trusted by filesystem permissions.
+// daemon is bound to unix:// or npipe://, since those connections are already
+// trusted by filesystem and pipe permissions.
 type Auth struct {
 	PairingCodeTTL   string `yaml:"pairing_code_ttl"   json:"pairing_code_ttl"   validate:"duration"`
 	RedeemRateLimit  int    `yaml:"redeem_rate_limit"  json:"redeem_rate_limit"  validate:"min=1"`
