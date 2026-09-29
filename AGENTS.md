@@ -72,13 +72,13 @@ Read files under `internal/domain/` for current struct fields — they change wi
 
 ### 3.1 Namespace
 
-A string type (`domain.Namespace`) in `domain/user/repo` format, optionally with `@ref` and optionally with a 4th segment for quiver-hosted arrows (`domain/user/repo/auid`). Key operations: strip ref, extract ref, replace ref, validate, extract segments (QUID = first 3, AUID = 4th), derive clone URL.
+A string type (`domain.Namespace`) in `domain/user/repo` format, optionally with `@ref` (for a catalog row: its selector, see §3.8) and optionally with a 4th segment for quiver-hosted arrows (`domain/user/repo/auid`). Key operations: strip ref, extract ref, replace ref, validate, extract segments (QUID = first 3, AUID = 4th), derive clone URL.
 
 Read `internal/domain/namespace.go` for exact methods.
 
 ### 3.2 Arrow
 
-The canonical installed package aggregate. Holds the compiled manifest (name, description, version, variables, netbridge port definitions, per-OS targets) plus installation metadata (installed ref, constraint, timestamp).
+The canonical catalog aggregate, keyed by `namespace@selector`. Holds the compiled manifest (name, description, variables, netbridge port definitions, per-OS targets — no version field) plus row state: the stored selector kind, what is installed (`Resolved`: ref, commit, fingerprint), what is ahead (`Available`, nil when current — "outdated" is derived from it), and installation metadata (user-installed flag, install and last-used timestamps).
 
 **ArrowState** is a string enum with the following valid transitions:
 
@@ -121,6 +121,16 @@ These are the names passed to `wizard.Start` and appear as method keys in Arrow.
 ### 3.7 OS identifiers
 
 String enum covering: `linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`, `darwin/amd64`, `darwin/arm64`. `domain.CurrentOS()` returns the running platform.
+
+### 3.8 Versioning model
+
+- **Identity is the selector.** A catalog row is `ns@selector`: a channel (`crowbar@stable`, `crowbar@nightly-latest`), a constraint (`crowbar@v1.*`), a pin (`crowbar@v1.2.0`) or a commit. The kind is classified once from a ref snapshot and stored on the row (zero value = pin). It never changes; switching what a row follows is uninstall + install. A refless add is given the repository's default channel.
+- **Version is state.** `Resolved` is what is installed, `Available` what a check found ahead. The resolved ref is the version and is what `${REF}` carries (the target ref during `_update`) — never the selector.
+- **Drift is pure.** `manifold.Drift` compares `Resolved` with what the selector points at in one `RefSnapshot`; channel decisions stay tag-name heuristics (`resolvers/channel.go`).
+- **One advance.** Every update moves the same aggregate in place (`arrow.advanced`); there are no successor rows. Only `POST /v0/runtime/:ns/update` runs update steps; `PATCH /v0/arrow/:ns` only re-checks (and advances a row nothing is installed from).
+- **Adoption.** `Arrow.Adopt` registers already-installed state offline — quiver.core's own row on boot, seeded manifests, collection-local arrows.
+
+Full model: `docs/spec/manifests/v0/versioning.md`.
 
 ---
 
@@ -363,11 +373,15 @@ These describe the general call chain for major operations. Read the actual code
 
 ### Add arrow (POST /v0/arrow/:ns)
 
-Handler validates namespace → ArrowUsecase.Add → arrow repository adds: resolves manifest via manifold, caches to vault, sends Asynx command → projection updates read model → reaction syncs dependency graph → hub broadcasts to WS clients.
+Handler validates namespace → ArrowUsecase.Add → arrow repository adds: reads a ref snapshot, classifies the selector (refless → default channel), fetches the manifest at the target commit via manifold, caches it to vault under the identity, sends `AddArrow` (selector kind + `Resolved`) → the single arrow-topic subscriber runs the callbacks (dependency graph sync), writes the read model, then broadcasts to WS clients.
 
 ### Install arrow (POST /v0/runtime/:ns/install)
 
-RuntimeUsecase.Install → dependency graph resolves topological order → for each dep: resolve manifest if missing, register, begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+RuntimeUsecase.Install → dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+
+### Update arrow (advance)
+
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Execute(`_update`) opens a per-row bracket: re-resolve + record `Available` → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
 
 ### Runtime reaction flow
 
@@ -447,7 +461,7 @@ Single API for local files and HTTP/HTTPS. `fns.Read`, `fns.Write`, `fns.Fetch`,
 
 ### 15.6 Manifest resolution — `engine/manifold`
 
-Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+compile+validate pipeline. Use `manifold.ResolveCollection(ctx, ns)` for collections. Use `manifold.ParseArrow(data)` for seeding from raw bytes. Read the interface in `internal/engine/manifold/` for current method signatures.
+Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+compile+validate pipeline (`ResolveArrowAtCommit` to read it at a commit). Use `manifold.ResolveCollection(ctx, ns)` for collections. Use `manifold.ParseArrow(data)` for raw bytes. Use `Snapshot` / `FreshSnapshot` for a repository's refs, and the package's pure functions over a snapshot (`ClassifySelector`, `Target`, `Drift`, `ChannelsOf`, `DefaultChannel`) for version decisions. Read the interface in `internal/engine/manifold/` for current method signatures.
 
 **Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually.
 
@@ -475,7 +489,7 @@ Called internally by the variable assembler when resolving port variables. You w
 
 ### 15.11 Arrow catalog — `app/repositories/arrow`
 
-Injected into usecases. Methods include: `Get`, `Exists`, `List`, `Add` (triggers manifold resolve), `Remove`, `UpdateManifest`, `MarkInstalled`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`, `OnArrowUpgraded`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
+Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
 
 **Do NOT:** call `asynx.Send` directly from usecases, read `domain.Arrow` from Asynx directly.
 
