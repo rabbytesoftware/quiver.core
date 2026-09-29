@@ -26,7 +26,7 @@ func detectFile(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	format, ok, err := New(mocks.TestMaxBytes, guard.NameRules{FoldCase: true})(src, info.Size())
+	format, ok, err := New(mocks.TestMaxBytes, guard.HostRules{FoldCase: true})(src, info.Size())
 	require.NoError(t, err)
 
 	return format, ok

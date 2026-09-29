@@ -14,6 +14,11 @@ import (
 
 const maxLinkHops = 40
 
+type untypedLink struct {
+	name   string
+	target string
+}
+
 func (g *Guard) Symlink(
 	name string,
 	target string,
@@ -36,10 +41,12 @@ func (g *Guard) Symlink(
 		return err
 	}
 
-	if err := g.root.Symlink(filepath.FromSlash(target), cleaned); err != nil {
+	native := filepath.FromSlash(target)
+	if err := g.root.Symlink(native, cleaned); err != nil {
 		return fmt.Errorf("unpack: symlink %s: %w", cleaned, err)
 	}
 	g.links = append(g.links, physical)
+	g.trackUntyped(cleaned, native)
 	g.recordTop(cleaned)
 
 	return nil
@@ -76,6 +83,51 @@ func (g *Guard) Hardlink(
 	g.recordTop(cleaned)
 
 	return nil
+}
+
+func (g *Guard) trackUntyped(
+	name string,
+	target string,
+) {
+	if !g.rules.TypedLinks {
+		return
+	}
+	if _, err := g.root.Stat(linkTarget(name, target)); err == nil {
+		return
+	}
+
+	g.untyped = append(g.untyped, untypedLink{name: name, target: target})
+}
+
+// retype re-creates a link made before its target existed once that target
+// turns out to be a directory, so the host now types it as a directory link.
+func (g *Guard) retype(
+	link untypedLink,
+) error {
+	if current, err := g.root.Readlink(link.name); err != nil || current != link.target {
+		return nil
+	}
+
+	info, err := g.root.Stat(linkTarget(link.name, link.target))
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+
+	if err := g.root.Remove(link.name); err != nil {
+		return fmt.Errorf("unpack: retype %s: %w", link.name, err)
+	}
+	if err := g.root.Symlink(link.target, link.name); err != nil {
+		return fmt.Errorf("unpack: retype %s: %w", link.name, err)
+	}
+
+	return nil
+}
+
+func linkTarget(
+	name string,
+	target string,
+) string {
+	return filepath.Join(filepath.Dir(name), target)
 }
 
 func (g *Guard) tolerateEscape(

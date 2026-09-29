@@ -54,7 +54,7 @@ func runExtractDmg(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	format, ok, err := dmg.New(mocks.TestMaxBytes, guard.NameRules{FoldCase: true})(src, info.Size())
+	format, ok, err := dmg.New(mocks.TestMaxBytes, guard.HostRules{FoldCase: true})(src, info.Size())
 	require.NoError(t, err)
 	require.True(t, ok)
 

@@ -164,19 +164,19 @@ func TestGuard_Apps_ListsTopLevelEntriesBySuffix(t *testing.T) {
 func TestWithNameRules_AppliesToEveryEntryKind(t *testing.T) {
 	testCases := []struct {
 		name    string
-		rules   guard.NameRules
+		rules   guard.HostRules
 		add     func(g *guard.Guard) error
 		wantErr error
 	}{
 		{
 			name:    "reserved directory",
-			rules:   guard.NameRules{WindowsNames: true},
+			rules:   guard.HostRules{WindowsNames: true},
 			add:     func(g *guard.Guard) error { return g.Dir("aux", 0o755) },
 			wantErr: models.ErrReservedName,
 		},
 		{
 			name:  "reserved file",
-			rules: guard.NameRules{WindowsNames: true},
+			rules: guard.HostRules{WindowsNames: true},
 			add: func(g *guard.Guard) error {
 				return g.File(context.Background(), "sub/con.txt", 0o644, strings.NewReader("x"))
 			},
@@ -184,19 +184,19 @@ func TestWithNameRules_AppliesToEveryEntryKind(t *testing.T) {
 		},
 		{
 			name:    "reserved symlink",
-			rules:   guard.NameRules{WindowsNames: true},
+			rules:   guard.HostRules{WindowsNames: true},
 			add:     func(g *guard.Guard) error { return g.Symlink("prn", "plain") },
 			wantErr: models.ErrReservedName,
 		},
 		{
 			name:    "colliding hardlink",
-			rules:   guard.NameRules{FoldCase: true},
+			rules:   guard.HostRules{FoldCase: true},
 			add:     func(g *guard.Guard) error { return g.Hardlink("PLAIN", "plain") },
 			wantErr: models.ErrNameCollision,
 		},
 		{
 			name:  "colliding file",
-			rules: guard.NameRules{FoldCase: true, WindowsNames: true},
+			rules: guard.HostRules{FoldCase: true, WindowsNames: true},
 			add: func(g *guard.Guard) error {
 				return g.File(context.Background(), "Plain", 0o644, strings.NewReader("y"))
 			},
@@ -204,7 +204,7 @@ func TestWithNameRules_AppliesToEveryEntryKind(t *testing.T) {
 		},
 		{
 			name:  "ordinary names pass every rule",
-			rules: guard.NameRules{FoldCase: true, WindowsNames: true},
+			rules: guard.HostRules{FoldCase: true, WindowsNames: true},
 			add: func(g *guard.Guard) error {
 				return g.File(context.Background(), "plain-copy", 0o644, strings.NewReader("y"))
 			},
@@ -213,7 +213,7 @@ func TestWithNameRules_AppliesToEveryEntryKind(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			g, dest := openGuard(t, guard.WithNameRules(tc.rules))
+			g, dest := openGuard(t, guard.WithHostRules(tc.rules))
 			require.NoError(t, g.File(context.Background(), "plain", 0o644, strings.NewReader("x")))
 
 			err := tc.add(g)

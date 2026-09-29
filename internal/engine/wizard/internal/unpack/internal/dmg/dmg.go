@@ -26,20 +26,20 @@ type mounter struct {
 type dmg struct {
 	src      *os.File
 	maxBytes int64
-	rules    guard.NameRules
+	rules    guard.HostRules
 	mounter  mounter
 }
 
 func New(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 ) models.Detect {
 	return newWith(maxBytes, rules, hdiutil())
 }
 
 func newWith(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 	m mounter,
 ) models.Detect {
 	return func(src *os.File, size int64) (models.Format, bool, error) {
@@ -63,7 +63,7 @@ func (d *dmg) Unpack(
 	ctx context.Context,
 	target models.Target,
 ) (models.Result, error) {
-	g, err := guard.Open(ctx, target.Dir, d.maxBytes, guard.WithNameRules(d.rules))
+	g, err := guard.Open(ctx, target.Dir, d.maxBytes, guard.WithHostRules(d.rules))
 	if err != nil {
 		return models.Result{}, err
 	}

@@ -63,7 +63,7 @@ func TestNew_Detection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			src, size := openImage(t, tc.data)
 
-			format, ok, err := dmg.New(mocks.TestMaxBytes, guard.NameRules{})(src, size)
+			format, ok, err := dmg.New(mocks.TestMaxBytes, guard.HostRules{})(src, size)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, ok)

@@ -20,7 +20,7 @@ func TestUnpack_UnsupportedOffWindows(t *testing.T) {
 	src, err := os.Open(writePackage(t, "setup.msi", oleFile()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = src.Close() })
-	format, ok, err := New(mocks.TestMaxBytes, guard.NameRules{})(src, 0)
+	format, ok, err := New(mocks.TestMaxBytes, guard.HostRules{})(src, 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 	to := filepath.Join(t.TempDir(), "tool")

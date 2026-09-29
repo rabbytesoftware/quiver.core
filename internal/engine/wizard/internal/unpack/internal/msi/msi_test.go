@@ -44,7 +44,7 @@ func detectWith(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	format, ok, err := newWith(mocks.TestMaxBytes, guard.NameRules{FoldCase: true, WindowsNames: true}, run)(src, info.Size())
+	format, ok, err := newWith(mocks.TestMaxBytes, guard.HostRules{FoldCase: true, WindowsNames: true}, run)(src, info.Size())
 	require.NoError(t, err)
 
 	return format, ok

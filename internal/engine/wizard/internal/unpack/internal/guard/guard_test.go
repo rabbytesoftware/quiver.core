@@ -43,7 +43,7 @@ func runUnpack(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	format, ok, err := archive.New(maxBytes, guard.NameRules{})(src, info.Size())
+	format, ok, err := archive.New(maxBytes, guard.HostRules{})(src, info.Size())
 	require.NoError(t, err)
 	require.True(t, ok)
 

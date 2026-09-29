@@ -34,12 +34,12 @@ type appImage struct {
 	src      *os.File
 	size     int64
 	maxBytes int64
-	rules    guard.NameRules
+	rules    guard.HostRules
 }
 
 func New(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 ) models.Detect {
 	return func(src *os.File, size int64) (models.Format, bool, error) {
 		if !is(src) {
@@ -86,7 +86,7 @@ func (a *appImage) extractTo(
 	ctx context.Context,
 	dir string,
 ) error {
-	g, err := guard.Open(ctx, dir, a.maxBytes, guard.SkipEscapingLinks(), guard.WithNameRules(a.rules))
+	g, err := guard.Open(ctx, dir, a.maxBytes, guard.SkipEscapingLinks(), guard.WithHostRules(a.rules))
 	if err != nil {
 		return err
 	}

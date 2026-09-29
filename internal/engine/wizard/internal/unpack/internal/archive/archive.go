@@ -33,12 +33,12 @@ type archive struct {
 	layout   layout
 	codec    codec
 	maxBytes int64
-	rules    guard.NameRules
+	rules    guard.HostRules
 }
 
 func New(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 ) models.Detect {
 	return func(src *os.File, size int64) (models.Format, bool, error) {
 		a, err := detect(src, size)
@@ -66,7 +66,7 @@ func (a *archive) Unpack(
 	ctx context.Context,
 	target models.Target,
 ) (models.Result, error) {
-	g, err := guard.Open(ctx, target.Dir, a.maxBytes, guard.WithNameRules(a.rules))
+	g, err := guard.Open(ctx, target.Dir, a.maxBytes, guard.WithHostRules(a.rules))
 	if err != nil {
 		return models.Result{}, err
 	}

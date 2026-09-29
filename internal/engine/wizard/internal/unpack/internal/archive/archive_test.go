@@ -120,7 +120,7 @@ func unpackNamed(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	format, ok, err := archive.New(maxBytes, guard.NameRules{})(src, info.Size())
+	format, ok, err := archive.New(maxBytes, guard.HostRules{})(src, info.Size())
 	if err != nil {
 		return models.Result{}, err
 	}

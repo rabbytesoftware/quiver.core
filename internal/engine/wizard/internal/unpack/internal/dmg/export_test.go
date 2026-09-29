@@ -12,5 +12,5 @@ func NewWithMounter(
 	attach func(ctx context.Context, image, mount string) error,
 	detach func(ctx context.Context, mount string),
 ) models.Detect {
-	return newWith(maxBytes, guard.NameRules{}, mounter{attach: attach, detach: detach})
+	return newWith(maxBytes, guard.HostRules{}, mounter{attach: attach, detach: detach})
 }

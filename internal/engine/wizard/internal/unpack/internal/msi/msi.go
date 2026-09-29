@@ -22,20 +22,20 @@ const (
 type msi struct {
 	src      *os.File
 	maxBytes int64
-	rules    guard.NameRules
+	rules    guard.HostRules
 	run      runner
 }
 
 func New(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 ) models.Detect {
 	return newWith(maxBytes, rules, msiexec)
 }
 
 func newWith(
 	maxBytes int64,
-	rules guard.NameRules,
+	rules guard.HostRules,
 	run runner,
 ) models.Detect {
 	return func(src *os.File, _ int64) (models.Format, bool, error) {
@@ -59,7 +59,7 @@ func (m *msi) Unpack(
 	ctx context.Context,
 	target models.Target,
 ) (models.Result, error) {
-	g, err := guard.Open(ctx, target.Dir, m.maxBytes, guard.WithNameRules(m.rules))
+	g, err := guard.Open(ctx, target.Dir, m.maxBytes, guard.WithHostRules(m.rules))
 	if err != nil {
 		return models.Result{}, err
 	}

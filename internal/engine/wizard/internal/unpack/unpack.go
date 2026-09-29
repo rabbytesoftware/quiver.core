@@ -56,7 +56,7 @@ func newForOS(
 	maxBytes int64,
 	goos string,
 ) Unpacker {
-	rules := nameRules(goos)
+	rules := hostRules(goos)
 
 	return &unpacker{formats: []models.Detect{
 		appimage.New(maxBytes, rules),
@@ -81,15 +81,15 @@ func (u *unpacker) Detect(
 	return nil, fmt.Errorf("unpack: %s: %w", src.Name(), ErrUnknownFormat)
 }
 
-func nameRules(
+func hostRules(
 	goos string,
-) guard.NameRules {
+) guard.HostRules {
 	switch goos {
 	case "windows":
-		return guard.NameRules{WindowsNames: true, FoldCase: true}
+		return guard.HostRules{WindowsNames: true, FoldCase: true, TypedLinks: true}
 	case "darwin":
-		return guard.NameRules{FoldCase: true}
+		return guard.HostRules{FoldCase: true}
 	default:
-		return guard.NameRules{}
+		return guard.HostRules{}
 	}
 }

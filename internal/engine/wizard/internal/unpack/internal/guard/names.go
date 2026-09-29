@@ -14,19 +14,6 @@ import (
 
 const windowsInvalidChars = `<>:"|?*`
 
-type NameRules struct {
-	WindowsNames bool
-	FoldCase     bool
-}
-
-func WithNameRules(
-	rules NameRules,
-) Option {
-	return func(g *Guard) {
-		g.rules = rules
-	}
-}
-
 func IsAbsolute(
 	path string,
 ) bool {

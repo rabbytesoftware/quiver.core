@@ -14,20 +14,20 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
-func TestNameRules_ChosenOncePerOS(t *testing.T) {
+func TestHostRules_ChosenOncePerOS(t *testing.T) {
 	testCases := []struct {
 		goos string
-		want guard.NameRules
+		want guard.HostRules
 	}{
-		{goos: "windows", want: guard.NameRules{WindowsNames: true, FoldCase: true}},
-		{goos: "darwin", want: guard.NameRules{FoldCase: true}},
-		{goos: "linux", want: guard.NameRules{}},
-		{goos: "freebsd", want: guard.NameRules{}},
+		{goos: "windows", want: guard.HostRules{WindowsNames: true, FoldCase: true, TypedLinks: true}},
+		{goos: "darwin", want: guard.HostRules{FoldCase: true}},
+		{goos: "linux", want: guard.HostRules{}},
+		{goos: "freebsd", want: guard.HostRules{}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.goos, func(t *testing.T) {
-			assert.Equal(t, tc.want, nameRules(tc.goos))
+			assert.Equal(t, tc.want, hostRules(tc.goos))
 		})
 	}
 }

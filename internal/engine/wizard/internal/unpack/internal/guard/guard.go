@@ -31,11 +31,29 @@ type Guard struct {
 	links        []string
 	tops         map[string]struct{}
 	skipEscaping bool
-	rules        NameRules
+	rules        HostRules
 	seen         map[string]string
+	untyped      []untypedLink
+}
+
+// HostRules are the host filesystem's quirks, chosen once per process.
+// TypedLinks: a symlink is a file or a directory link from the moment it is
+// created (Windows), so one made before its directory target is broken.
+type HostRules struct {
+	WindowsNames bool
+	FoldCase     bool
+	TypedLinks   bool
 }
 
 type Option func(*Guard)
+
+func WithHostRules(
+	rules HostRules,
+) Option {
+	return func(g *Guard) {
+		g.rules = rules
+	}
+}
 
 func SkipEscapingLinks() Option {
 	return func(g *Guard) {
@@ -85,7 +103,10 @@ func (g *Guard) Close() {
 // Verify re-checks every symlink once the whole tree exists: a target may
 // point at an entry extracted after the link itself.
 func (g *Guard) Verify() error {
-	errs := make([]error, 0, len(g.links))
+	errs := make([]error, 0, len(g.untyped)+len(g.links))
+	for _, link := range g.untyped {
+		errs = append(errs, g.retype(link))
+	}
 	for _, link := range g.links {
 		errs = append(errs, g.verifyLink(link))
 	}

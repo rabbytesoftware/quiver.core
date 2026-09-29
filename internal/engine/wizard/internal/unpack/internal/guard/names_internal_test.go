@@ -10,7 +10,7 @@ import (
 )
 
 func admitAll(
-	rules NameRules,
+	rules HostRules,
 	names ...string,
 ) error {
 	g := &Guard{rules: rules, seen: make(map[string]string)}
@@ -42,10 +42,10 @@ func TestAdmitName_WindowsNames(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.ErrorIs(t, admitAll(NameRules{WindowsNames: true}, tc.entry), models.ErrReservedName)
-			assert.ErrorIs(t, admitAll(NameRules{WindowsNames: true, FoldCase: true}, tc.entry), models.ErrReservedName)
-			require.NoError(t, admitAll(NameRules{}, tc.entry))
-			require.NoError(t, admitAll(NameRules{FoldCase: true}, tc.entry))
+			assert.ErrorIs(t, admitAll(HostRules{WindowsNames: true}, tc.entry), models.ErrReservedName)
+			assert.ErrorIs(t, admitAll(HostRules{WindowsNames: true, FoldCase: true}, tc.entry), models.ErrReservedName)
+			require.NoError(t, admitAll(HostRules{}, tc.entry))
+			require.NoError(t, admitAll(HostRules{FoldCase: true}, tc.entry))
 		})
 	}
 }
@@ -53,7 +53,7 @@ func TestAdmitName_WindowsNames(t *testing.T) {
 func TestAdmitName_WindowsNamesAllowsOrdinaryNames(t *testing.T) {
 	for _, entry := range []string{"console", "COM0", "COM10", "con-fig/.hidden", "a.b.c", "LPTX"} {
 		t.Run(entry, func(t *testing.T) {
-			require.NoError(t, admitAll(NameRules{WindowsNames: true}, entry))
+			require.NoError(t, admitAll(HostRules{WindowsNames: true}, entry))
 		})
 	}
 }
@@ -74,9 +74,9 @@ func TestAdmitName_FoldCase(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.NoError(t, admitAll(NameRules{}, tc.entries...))
-			require.NoError(t, admitAll(NameRules{WindowsNames: true}, tc.entries...))
-			for _, rules := range []NameRules{{FoldCase: true}, {FoldCase: true, WindowsNames: true}} {
+			require.NoError(t, admitAll(HostRules{}, tc.entries...))
+			require.NoError(t, admitAll(HostRules{WindowsNames: true}, tc.entries...))
+			for _, rules := range []HostRules{{FoldCase: true}, {FoldCase: true, WindowsNames: true}} {
 				err := admitAll(rules, tc.entries...)
 				if tc.collide {
 					assert.ErrorIs(t, err, models.ErrNameCollision)

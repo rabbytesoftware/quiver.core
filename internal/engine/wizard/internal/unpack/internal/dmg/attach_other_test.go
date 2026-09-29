@@ -19,7 +19,7 @@ import (
 
 func TestUnpack_UnsupportedOffDarwin(t *testing.T) {
 	to := filepath.Join(t.TempDir(), "out")
-	format := detectWith(t, dmg.New(mocks.TestMaxBytes, guard.NameRules{}))
+	format := detectWith(t, dmg.New(mocks.TestMaxBytes, guard.HostRules{}))
 
 	_, err := format.Unpack(context.Background(), models.Target{Dir: to})
 
