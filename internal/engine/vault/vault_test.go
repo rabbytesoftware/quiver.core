@@ -208,7 +208,8 @@ func TestPutArrow_CreatesWorkdir(t *testing.T) {
 	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
 
 	s := v.(*store)
-	workdir := s.workdirPath(ns)
+	workdir, err := s.namespacePath(ns)
+	require.NoError(t, err)
 	_, err = os.Stat(workdir)
 	require.NoError(t, err, "workdir should exist on disk")
 }

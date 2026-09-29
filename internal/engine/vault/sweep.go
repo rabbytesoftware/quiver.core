@@ -75,7 +75,7 @@ func (s *store) sweepQuivers() {
 		if err != nil {
 			return nil
 		}
-		_ = deleteCollection(s, domain.Namespace(filepath.ToSlash(rel)))
+		_ = deleteCollection(s, decodeNSDir(filepath.ToSlash(rel)))
 		return nil
 	})
 }

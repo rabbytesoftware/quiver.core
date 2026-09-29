@@ -92,6 +92,11 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		return err
 	}
 
+	workdir, err := s.namespacePath(ns)
+	if err != nil {
+		return err
+	}
+
 	// Write raw manifest verbatim.
 	manifestPath := s.manifestFilePath(ns, file.Filename)
 	if err := atomicWrite(manifestPath, file.Content); err != nil {
@@ -119,7 +124,7 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 	}
 
 	// Create namespace workdir as a side effect.
-	return os.MkdirAll(s.workdirPath(ns), 0o700)
+	return os.MkdirAll(workdir, 0o700)
 }
 
 func deleteArrow(s *store, ns domain.Namespace) error {
@@ -263,10 +268,9 @@ func atomicWrite(path string, data []byte) error {
 }
 
 func acquireNamespace(s *store, ns domain.Namespace) (*sync.Mutex, string, error) {
-	base := s.namespacesPath
-	resolved := filepath.Clean(filepath.Join(base, filepath.FromSlash(ns.String())))
-	if !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
-		return nil, "", ErrInvalidNamespace
+	resolved, err := s.namespacePath(ns)
+	if err != nil {
+		return nil, "", err
 	}
 	return s.namespaceLock(ns.String()), resolved, nil
 }
@@ -385,7 +389,7 @@ func listCachedQuivers(s *store) ([]domain.Namespace, error) {
 func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
 	quiverPath := filepath.Join(dir, quiverFilename)
 	if _, err := os.Stat(quiverPath); err == nil {
-		ns := domain.Namespace(filepath.ToSlash(relPath))
+		ns := decodeNSDir(filepath.ToSlash(relPath))
 		return []domain.Namespace{ns}, nil
 	}
 

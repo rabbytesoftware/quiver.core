@@ -237,7 +237,9 @@ func TestHelperPutArrow_CreatesWorkdir(t *testing.T) {
 
 	require.NoError(t, putArrow(s, ns, testFile))
 
-	_, err := os.Stat(s.workdirPath(ns))
+	workdir, err := s.namespacePath(ns)
+	require.NoError(t, err)
+	_, err = os.Stat(workdir)
 	assert.NoError(t, err)
 }
 

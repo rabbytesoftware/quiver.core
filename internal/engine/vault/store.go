@@ -3,7 +3,6 @@ package vault
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -170,11 +169,6 @@ func (s *store) namespaceLock(key string) *sync.Mutex {
 	return m
 }
 
-// encodeNS URL-encodes a namespace so it is safe to use as a flat filename.
-func encodeNS(ns domain.Namespace) string {
-	return url.PathEscape(string(ns))
-}
-
 func (s *store) metaFilePath(ns domain.Namespace) string {
 	return filepath.Join(s.vaultPath, encodeNS(ns)+".meta.json")
 }
@@ -184,10 +178,6 @@ func (s *store) manifestFilePath(ns domain.Namespace, filename string) string {
 	return filepath.Join(s.vaultPath, encodeNS(ns)+ext)
 }
 
-func (s *store) workdirPath(ns domain.Namespace) string {
-	return filepath.Join(s.namespacesPath, filepath.FromSlash(string(ns)))
-}
-
 func (s *store) WorkDir(
 	_ context.Context,
 	ns domain.Namespace,
@@ -195,7 +185,10 @@ func (s *store) WorkDir(
 	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	dir := s.workdirPath(ns)
+	dir, err := s.namespacePath(ns)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("workdir %s: %w", ns, err)
 	}
@@ -275,7 +268,10 @@ func (s *store) DeleteWorkDir(
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	dir := s.workdirPath(ns)
+	dir, err := s.namespacePath(ns)
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("workdir delete %s: %w", ns, err)
 	}
