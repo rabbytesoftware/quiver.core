@@ -196,15 +196,6 @@ func (p *blockingProvider) Search(
 	}}, nil
 }
 
-// The host questions below complete the provider contract. Discovery asks a
-// provider to search and nothing else.
-func (p *blockingProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotProviderSearch
-}
-
 func (p *blockingProvider) RawFileURL(
 	_ domain.Namespace,
 	_ string,

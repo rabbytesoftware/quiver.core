@@ -46,13 +46,6 @@ func (s stubHost) DefaultBranches() []string {
 	return s.branches
 }
 
-func (s stubHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errors.New("the fetcher never asks this")
-}
-
 // hostFor answers for one domain only, which is what makes "no host serves
 // this namespace" a case the fetcher can be shown.
 func hostFor(

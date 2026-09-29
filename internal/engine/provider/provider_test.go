@@ -56,18 +56,16 @@ const githubPayload = `{"items": [
 func platforms() metadata.Platforms {
 	return metadata.Platforms{
 		"github.com": {
-			Kind:             metadata.KindGitHub,
-			RawURL:           "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
-			DefaultBranches:  []string{"main", "master"},
-			LatestReleaseURL: "https://github.com/{user}/{repo}/releases/latest",
-			SearchURL:        "https://api.github.com/search/repositories?q={query}",
+			Kind:            metadata.KindGitHub,
+			RawURL:          "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
+			DefaultBranches: []string{"main", "master"},
+			SearchURL:       "https://api.github.com/search/repositories?q={query}",
 		},
 		"gitlab.com": {
-			Kind:             metadata.KindGitLab,
-			RawURL:           "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
-			DefaultBranches:  []string{"main", "master"},
-			LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
-			SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
+			Kind:            metadata.KindGitLab,
+			RawURL:          "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+			DefaultBranches: []string{"main", "master"},
+			SearchURL:       "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
 		},
 		"bitbucket.org": {
 			Kind:            metadata.KindBitbucket,

@@ -1,7 +1,6 @@
 package hosts_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,13 +23,6 @@ func (stubHost) RawFileURL(
 }
 
 func (stubHost) DefaultBranches() []string { return []string{"main"} }
-
-func (stubHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "v1.0.0", nil
-}
 
 func TestNone_KnowsNoHost(t *testing.T) {
 	host, ok := hosts.None(domain.Namespace("github.com/u/r"))

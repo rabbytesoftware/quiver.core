@@ -669,15 +669,6 @@ func (s *stubSearchProvider) Search(
 	return s.candidates, nil
 }
 
-// The host questions below complete the provider contract. Discovery asks a
-// provider to search and nothing else.
-func (s *stubSearchProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotSearch
-}
-
 func (s *stubSearchProvider) RawFileURL(
 	_ domain.Namespace,
 	_ string,

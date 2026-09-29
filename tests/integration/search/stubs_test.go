@@ -115,16 +115,6 @@ func (p *stubProvider) Search(
 	return slices.Clone(r.candidates), nil
 }
 
-// The host questions below complete the provider contract. A discovery pass
-// asks a provider to search and nothing else: the manifest that proves a
-// candidate is fetched through the fixture-backed manifold.
-func (p *stubProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotAskedOfProvider
-}
-
 func (p *stubProvider) RawFileURL(
 	_ domain.Namespace,
 	_ string,

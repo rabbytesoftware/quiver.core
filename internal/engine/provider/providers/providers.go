@@ -1,7 +1,6 @@
 // Package providers holds one implementation per git host. Everything that is
-// true of a host and not of git — its search dialect, its raw-file URL shape,
-// the redirect its release permalink answers with — lives here, one file per
-// host, and nothing outside the provider engine imports it.
+// true of a host and not of git — its search dialect, its raw-file URL shape —
+// lives here, one file per host, and nothing outside the provider engine imports it.
 package providers
 
 import (
@@ -31,14 +30,6 @@ type Provider interface {
 		req SearchRequest,
 	) ([]Candidate, error)
 
-	// LatestRelease is the ref the host's latest stable release carries. It
-	// returns ErrNoLatestRelease when the host publishes none, which is a miss
-	// and not a failure.
-	LatestRelease(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
-
 	// RawFileURL is where file lives at ref inside the repository ns names.
 	RawFileURL(
 		ns domain.Namespace,
@@ -65,13 +56,12 @@ type DoFunc func(
 // Kind names the host itself. No implementation reads it — it is what picks the
 // implementation, so it is read once, by the constructor.
 type Config struct {
-	Host             string
-	Kind             string
-	RawURL           string
-	DefaultBranches  []string
-	LatestReleaseURL string
-	SearchURL        string
-	Timeout          time.Duration
-	Do               DoFunc
-	Now              func() time.Time
+	Host            string
+	Kind            string
+	RawURL          string
+	DefaultBranches []string
+	SearchURL       string
+	Timeout         time.Duration
+	Do              DoFunc
+	Now             func() time.Time
 }

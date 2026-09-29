@@ -47,16 +47,6 @@ func (s *stubProvider) Search(
 	return s.candidates, s.err
 }
 
-// The host questions below are the rest of the provider contract. Discovery
-// asks a provider to search and nothing else, so a stub that is asked one of
-// these has been wired somewhere it does not belong.
-func (s *stubProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotDiscovery
-}
-
 func (s *stubProvider) RawFileURL(
 	_ domain.Namespace,
 	_ string,

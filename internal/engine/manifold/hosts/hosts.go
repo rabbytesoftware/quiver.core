@@ -1,6 +1,5 @@
 // Package hosts declares what manifold needs to know about a git host and does
-// not own: where the host serves a raw file, which refs it defaults to, and
-// which ref its latest release carries.
+// not own: where the host serves a raw file and which refs it defaults to.
 //
 // Manifold owns manifest knowledge — which filenames are a manifest, which refs
 // to try, what the bytes mean — and none of that is host knowledge. The
@@ -9,8 +8,6 @@
 package hosts
 
 import (
-	"context"
-
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -28,13 +25,6 @@ type Host interface {
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
-
-	// LatestRelease is the ref the host's latest stable release carries. An
-	// error is a miss — the host publishes none — and never a reason to stop.
-	LatestRelease(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
 }
 
 // Lookup resolves the host serving ns, reporting false when none does. A

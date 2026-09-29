@@ -827,19 +827,9 @@ func (s *stubConstraintResolver) Refs(_ context.Context, _ domain.Namespace) (do
 	return snap, nil
 }
 
-// stubHost is a git host as manifold sees one. Only LatestRelease is ever asked
-// here: the resolver is injected whole, so nothing in these tests reaches a raw
-// file URL.
-type stubHost struct {
-	ref    string
-	err    error
-	called int
-}
-
-func (s *stubHost) LatestRelease(_ context.Context, _ domain.Namespace) (string, error) {
-	s.called++
-	return s.ref, s.err
-}
+// stubHost is a git host as manifold sees one. The resolver is injected
+// whole, so nothing in these tests reaches a raw file URL.
+type stubHost struct{}
 
 func (s *stubHost) RawFileURL(
 	_ domain.Namespace,

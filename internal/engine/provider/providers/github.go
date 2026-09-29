@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-// githubReleaseMarker precedes the ref in the redirect GitHub's latest-release
-// permalink answers with.
-const githubReleaseMarker = "/releases/tag/"
-
 type githubProvider struct {
 	host
 	searchURL string
@@ -22,7 +18,7 @@ func NewGitHub(
 	cfg Config,
 ) Provider {
 	return &githubProvider{
-		host:      newHost(cfg, githubReleaseMarker),
+		host:      newHost(cfg),
 		searchURL: cfg.SearchURL,
 	}
 }

@@ -276,8 +276,8 @@ func (d *discovery) verifyOne(
 
 	// The branch the manifest was fetched from is the only revision a discovered
 	// arrow has: discovery runs on the metered path and never spends a request
-	// asking a host for its latest release. The namespace carries it, and nothing
-	// stores a second copy.
+	// resolving another. The namespace carries it, and nothing stores a second
+	// copy.
 	arrow.Namespace = resolvedNs
 
 	// Both stores are asked before index runs. Indexing writes this very arrow
