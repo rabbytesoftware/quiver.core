@@ -1,7 +1,6 @@
 package install_test
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -111,7 +110,9 @@ func TestInstall_ExecutableFailures(t *testing.T) {
 			setup: func(t *testing.T, workDir string) {
 				mocks.WriteFile(t, filepath.Join(workDir, "bin", "tool", "x"), []byte("x"))
 			},
-			wantErr: fs.ErrExist,
+			check: func(t *testing.T, workDir string) {
+				assert.Equal(t, "x", mocks.ReadString(t, filepath.Join(workDir, "bin", "tool", "x")))
+			},
 		},
 	}
 

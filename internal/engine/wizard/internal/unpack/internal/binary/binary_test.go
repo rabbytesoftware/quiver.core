@@ -2,7 +2,6 @@ package binary
 
 import (
 	"context"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -140,7 +139,6 @@ func TestUnpack_Failures(t *testing.T) {
 				mocks.WriteFile(t, filepath.Join(to, "tool", "x"), []byte("x"))
 				return to
 			},
-			wantErr: fs.ErrExist,
 		},
 	}
 
@@ -168,9 +166,12 @@ func TestUnpack_ClosedSourceFails(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, src.Close())
 
-	_, err = format.Unpack(context.Background(), models.Target{Dir: t.TempDir()})
+	to := t.TempDir()
 
-	require.ErrorIs(t, err, os.ErrClosed)
+	_, err = format.Unpack(context.Background(), models.Target{Dir: to})
+
+	require.Error(t, err)
+	assert.NoFileExists(t, filepath.Join(to, "tool"))
 }
 
 func TestSizeError_DescribesTheLimit(t *testing.T) {

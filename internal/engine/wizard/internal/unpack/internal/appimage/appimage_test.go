@@ -87,7 +87,7 @@ func TestExtractAppImage_WritesTree(t *testing.T) {
 
 	target, err := os.Readlink(filepath.Join(to, ".DirIcon"))
 	require.NoError(t, err)
-	assert.Equal(t, "usr/share/icons/app.png", target)
+	assert.Equal(t, filepath.FromSlash("usr/share/icons/app.png"), target)
 
 	if runtime.GOOS == "windows" {
 		return

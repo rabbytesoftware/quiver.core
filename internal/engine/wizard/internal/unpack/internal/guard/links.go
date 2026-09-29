@@ -36,7 +36,7 @@ func (g *Guard) Symlink(
 		return err
 	}
 
-	if err := g.root.Symlink(target, cleaned); err != nil {
+	if err := g.root.Symlink(filepath.FromSlash(target), cleaned); err != nil {
 		return fmt.Errorf("unpack: symlink %s: %w", cleaned, err)
 	}
 	g.links = append(g.links, physical)

@@ -149,13 +149,21 @@ func TestClaim_UnownedDestinationsAreMergedInPlace(t *testing.T) {
 	}
 }
 
+// Unix rejects the path at the claim (ENOTDIR); Windows reports it as absent,
+// so the failure surfaces when the staged destination is created.
 func TestClaim_DestinationUnderAFileFails(t *testing.T) {
 	workDir := t.TempDir()
-	mocks.WriteFile(t, filepath.Join(workDir, "file"), []byte("x"))
+	file := mocks.WriteFile(t, filepath.Join(workDir, "file"), []byte("x"))
 
-	_, err := dest.Claim(workDir, filepath.Join(workDir, "tool.zip"), filepath.Join(workDir, "file", "tool"))
+	d, err := dest.Claim(workDir, filepath.Join(workDir, "tool.zip"), filepath.Join(file, "tool"))
+	if err == nil {
+		_, err = d.Stage(unpack.Unit{}, func(dir string) (unpack.Result, error) {
+			return unpack.Result{}, os.MkdirAll(dir, 0o755)
+		})
+	}
 
 	require.Error(t, err)
+	assert.Equal(t, "x", mocks.ReadString(t, file))
 }
 
 func TestStage_OwnedDestinationIsStagedMarkedAndSwapped(t *testing.T) {

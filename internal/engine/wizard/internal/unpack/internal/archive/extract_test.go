@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,23 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
+
+// assertPerm checks permission bits only where the filesystem keeps them;
+// Windows records nothing but a read-only flag.
+func assertPerm(
+	t *testing.T,
+	path string,
+	want os.FileMode,
+) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	assert.Equal(t, want, info.Mode().Perm())
+}
 
 func TestArchive_Extract_TarPreservesLayoutAndModes(t *testing.T) {
 	dir := t.TempDir()
@@ -34,17 +52,13 @@ func TestArchive_Extract_TarPreservesLayoutAndModes(t *testing.T) {
 
 	require.NoError(t, runUnpack(t, mocks.TestMaxBytes, from, to, 0))
 
-	tool, err := os.Stat(filepath.Join(to, "pkg", "bin", "tool"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), tool.Mode().Perm())
-
-	readme, err := os.Stat(filepath.Join(to, "pkg", "README"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o644), readme.Mode().Perm())
+	assertPerm(t, filepath.Join(to, "pkg", "bin", "tool"), 0o755)
+	assertPerm(t, filepath.Join(to, "pkg", "README"), 0o644)
 
 	target, err := os.Readlink(filepath.Join(to, "pkg", "current"))
 	require.NoError(t, err)
-	assert.Equal(t, "bin/tool", target)
+	assert.Equal(t, filepath.FromSlash("bin/tool"), target)
+	assert.Equal(t, "#!/bin/sh\n", mocks.ReadString(t, filepath.Join(to, "pkg", "current")))
 
 	assert.Equal(t, "#!/bin/sh\n", mocks.ReadString(t, filepath.Join(to, "pkg", "tool-hard")))
 
@@ -189,17 +203,13 @@ func TestArchive_Extract_ZipPreservesLayoutAndModes(t *testing.T) {
 
 	require.NoError(t, runUnpack(t, mocks.TestMaxBytes, from, to, 0))
 
-	tool, err := os.Stat(filepath.Join(to, "pkg", "bin", "tool"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), tool.Mode().Perm())
-
-	readme, err := os.Stat(filepath.Join(to, "pkg", "README"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o644), readme.Mode().Perm())
+	assertPerm(t, filepath.Join(to, "pkg", "bin", "tool"), 0o755)
+	assertPerm(t, filepath.Join(to, "pkg", "README"), 0o644)
 
 	target, err := os.Readlink(filepath.Join(to, "pkg", "current"))
 	require.NoError(t, err)
-	assert.Equal(t, "bin/tool", target)
+	assert.Equal(t, filepath.FromSlash("bin/tool"), target)
+	assert.Equal(t, "#!/bin/sh\n", mocks.ReadString(t, filepath.Join(to, "pkg", "current")))
 }
 
 func TestArchive_Extract_ZipRejectsEscapes(t *testing.T) {

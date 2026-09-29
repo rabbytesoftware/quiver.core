@@ -86,15 +86,20 @@ func buildSquashfs(
 	}
 	slices.Sort(names)
 
+	taken := make(map[string]string)
 	links := make(map[string]string)
 	for _, name := range names {
 		e := entries[name]
-		if e.Link != "" {
-			placeholder := linkPlaceholder(t, e.Link, links)
-			links[placeholder] = e.Link
-			e.Link = placeholder
+		path := filepath.Join(sfs.Workspace(), filepath.FromSlash(name))
+		if e.Link == "" {
+			writeEntry(t, path, e)
+			continue
 		}
-		writeEntry(t, filepath.Join(sfs.Workspace(), filepath.FromSlash(name)), e)
+		target := e.Link
+		e.Link = linkPlaceholder(t, target, taken)
+		taken[e.Link] = target
+		writeEntry(t, path, e)
+		links[storedLink(t, path, target)] = target
 	}
 
 	t.Chdir(sfs.Workspace())
@@ -126,6 +131,22 @@ func linkPlaceholder(
 	require.FailNow(t, "no unique placeholder for link target", target)
 
 	return ""
+}
+
+// storedLink is the placeholder as the host recorded it (Windows rewrites
+// slashes), which is what the squashfs image ends up carrying.
+func storedLink(
+	t testing.TB,
+	path string,
+	target string,
+) string {
+	t.Helper()
+
+	stored, err := os.Readlink(path)
+	require.NoError(t, err)
+	require.Len(t, stored, len(target))
+
+	return stored
 }
 
 func dotSlashPattern(
