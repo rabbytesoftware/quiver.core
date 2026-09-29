@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -520,17 +519,24 @@ func TestRuntimeOnUpdateEnded_StampsNothing(t *testing.T) {
 	}
 }
 
-// A failed attempt keeps its target, so a retried update that succeeds still
-// commits it.
-func TestRuntimeOnUpdateEnded_FailedAttemptKeepsTheTarget(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
+// Every end releases the row's remembered target, whatever its outcome, so
+// the guard against an unhandled end can never wedge the row: a failed
+// update is followed by an admitted one.
+func TestRuntimeOnUpdateEnded_FailedUpdateReleasesTheRow(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	uc := f.usecase()
+	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed))
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge"}, log.all())
+	_, remembered := uc.targets.take(rollingRow)
+	assert.False(t, remembered)
+	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+	assert.Equal(t, []string{
+		"check available", "refresh to c2", "begin update",
+		"check available", "refresh to c2", "begin update",
+	}, f.log.all())
 }
 
 // A version check during the update may record a newer target on the row;
@@ -662,102 +668,104 @@ func TestRuntimeOnUpdateEnded_CommitHasADeadline(t *testing.T) {
 
 // ─── concurrent brackets on one identity ─────────────────────────────────────
 
-// A second update of the same identity waits for the first bracket to close;
-// by then the first update is running, so the second is rejected instead of
-// staging its own target under the first one's live update.
+// holdFirstBracket starts an update that stays inside its bracket until the
+// returned release is called, and reports a second bracket waiting on it.
+func holdFirstBracket(t *testing.T, f *bracketFixture, uc *runtimeUsecase) (waiting <-chan struct{}, release func(), firstErr func() error) {
+	t.Helper()
+	entered := make(chan struct{})
+	unblock := make(chan struct{})
+	refresh := f.arrow.RefreshToTargetFn
+	var once sync.Once
+	f.arrow.RefreshToTargetFn = func(ctx context.Context, ns domain.Namespace, target domain.Available) (*domain.Arrow, error) {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(entered)
+			<-unblock
+		}
+		return refresh(ctx, ns, target)
+	}
+	waitingCh := make(chan struct{})
+	var waitOnce sync.Once
+	uc.targets.onWait = func(domain.Namespace) { waitOnce.Do(func() { close(waitingCh) }) }
+
+	done := make(chan error, 1)
+	go func() { done <- uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil) }()
+	<-entered
+	return waitingCh, func() { close(unblock) }, func() error { return <-done }
+}
+
+// A second update of the same identity waits on the first bracket, and by
+// the time it gets in, the first update is running: it is rejected without
+// re-resolving, staging a manifest or beginning anything.
 func TestRuntimeExecute_Update_SecondBracketWaitsForTheFirst(t *testing.T) {
 	first := domain.Available{Ref: "nightly-latest", Commit: "c2"}
-	second := domain.Available{Ref: "nightly-latest", Commit: "c3"}
-	f := newBracketFixture(domain.ArrowStateReady, nil)
-	var checks, inFlight, maxInFlight, refreshes, begins atomic.Int32
-	enter := func() {
-		n := inFlight.Add(1)
-		for {
-			m := maxInFlight.Load()
-			if n <= m || maxInFlight.CompareAndSwap(m, n) {
-				return
-			}
-		}
-	}
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	f.arrow.CheckAvailableFn = func(context.Context, domain.Namespace) (*domain.Available, error) {
-		if checks.Add(1) == 1 {
-			return &first, nil
-		}
-		return &second, nil
-	}
-	f.arrow.RefreshToTargetFn = func(_ context.Context, ns domain.Namespace, _ domain.Available) (*domain.Arrow, error) {
-		enter()
-		defer inFlight.Add(-1)
-		if refreshes.Add(1) == 1 {
-			close(entered)
-			<-release
-		}
-		return &domain.Arrow{Namespace: ns}, nil
-	}
+	f := newBracketFixture(domain.ArrowStateReady, &first)
 	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
-		enter()
-		defer inFlight.Add(-1)
-		begins.Add(1)
-		if f.currentState() == domain.ArrowStateUpdating {
-			return apperrors.ErrStateViolation
-		}
+		f.log.add("begin update")
 		f.setState(domain.ArrowStateUpdating)
 		return nil
 	}
-	f.runtime.BeginExecutionFn = func(context.Context, domain.Namespace, string, map[string]string) error {
-		return apperrors.ErrStateViolation
-	}
 	uc := f.usecase()
+	waiting, release, firstErr := holdFirstBracket(t, f, uc)
 
-	var firstErr, secondErr error
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		firstErr = uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
-	}()
-	<-entered
-	secondStarted := make(chan struct{})
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		close(secondStarted)
-		secondErr = uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
-	}()
-	<-secondStarted
-	close(release)
-	wg.Wait()
+	secondErr := make(chan error, 1)
+	go func() { secondErr <- uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil) }()
+	<-waiting
+	release()
 
-	require.NoError(t, firstErr)
-	require.ErrorIs(t, secondErr, apperrors.ErrStateViolation)
-	assert.Equal(t, int32(1), refreshes.Load(), "the second bracket never stages a manifest")
-	assert.Equal(t, int32(1), begins.Load())
-	assert.Equal(t, int32(1), maxInFlight.Load())
+	require.NoError(t, firstErr())
+	require.ErrorIs(t, <-secondErr, apperrors.ErrStateViolation)
+	assert.Equal(t, []string{"check available", "refresh to c2", "begin update"}, f.log.all())
 	remembered, ok := uc.targets.take(rollingRow)
 	require.True(t, ok)
 	assert.Equal(t, first, remembered)
 }
 
-// An update whose end is not handled yet may still have a remembered target
-// when another bracket opens; a bracket that then fails to begin must leave
-// that target exactly as it found it.
-func TestRuntimeExecute_Update_FailedBracketRestoresTheRememberedTarget(t *testing.T) {
-	earlier := domain.Available{Ref: "nightly-latest", Commit: "c1"}
+// A caller that gives up while waiting for the row's bracket is not held for
+// the whole of the first update.
+func TestRuntimeExecute_Update_WaitingCallerCanGiveUp(t *testing.T) {
 	target := rollingTarget()
 	f := newBracketFixture(domain.ArrowStateReady, &target)
-	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
-		return errors.New("boom")
-	}
 	uc := f.usecase()
-	uc.targets.put(rollingRow, earlier)
+	waiting, release, firstErr := holdFirstBracket(t, f, uc)
 
-	require.Error(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	secondErr := make(chan error, 1)
+	go func() { secondErr <- uc.Execute(ctx, rollingRow, domain.MethodUpdate, nil) }()
+	<-waiting
+	cancel()
 
-	remembered, ok := uc.targets.take(rollingRow)
-	require.True(t, ok)
-	assert.Equal(t, earlier, remembered)
+	require.ErrorIs(t, <-secondErr, context.Canceled)
+	release()
+	require.NoError(t, firstErr())
+	assert.Equal(t, []string{"check available", "refresh to c2", "begin update"}, f.log.all())
+}
+
+// An update has ended (the row is Ready again) but its end handler has not
+// run yet. A new update must not start: it would replace the remembered
+// target the pending handler is about to commit. Once the handler runs, it
+// commits its own target.
+func TestRuntimeExecute_Update_PendingEndHandlerRejectsTheNextBracket(t *testing.T) {
+	first := domain.Available{Ref: "nightly-latest", Commit: "c1"}
+	moved := domain.Available{Ref: "nightly-latest", Commit: "c2"}
+	f := newBracketFixture(domain.ArrowStateReady, &first)
+	a, rt, commits := commitFixture(true, nil)
+	f.arrow.TargetUnmovedFn = a.TargetUnmovedFn
+	f.arrow.AdvanceFn = a.AdvanceFn
+	f.runtime.ClearVersionBadgeFn = rt.ClearVersionBadgeFn
+	uc := f.usecase()
+	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+
+	f.available = &moved
+	err := uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
+	assert.Equal(t, []string{"check available", "refresh to c1", "begin update"}, f.log.all())
+
+	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c1", "advance c1", "clear badge"}, commits.all())
 }
 
 func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {

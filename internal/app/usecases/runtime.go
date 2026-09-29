@@ -320,7 +320,14 @@ func (u *runtimeUsecase) executeUpdate(
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
-	defer u.targets.open(ns)()
+	closeBracket, err := u.targets.open(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	defer closeBracket()
+	if u.targets.pending(ns) {
+		return fmt.Errorf("update: previous update of %s not settled: %w", ns, apperrors.ErrStateViolation)
+	}
 
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
@@ -590,7 +597,9 @@ func (u *runtimeUsecase) Start(ctx context.Context) {
 	u.runtime.Start(ctx)
 }
 
-// onUpdateEnded closes the update bracket once the update steps succeed.
+// onUpdateEnded closes the update bracket: it always releases the row's
+// remembered target, so the next update is admitted, and commits it only
+// once the update steps succeeded.
 // quiver.core's own update is excluded: its relaunched binary adopts its new
 // state on boot.
 //
@@ -598,14 +607,13 @@ func (u *runtimeUsecase) Start(ctx context.Context) {
 // aggregate's own ordered event queue, and clearing the badge waits for that
 // same queue: done inline, it would wait for itself.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+	target, ok := u.targets.take(rt.Ref)
 	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
 		return
 	}
 	if isSelfNamespace(rt.Ref) {
 		return
 	}
-
-	target, ok := u.targets.take(rt.Ref)
 	if !ok {
 		slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
 		return

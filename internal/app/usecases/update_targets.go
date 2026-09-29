@@ -1,6 +1,8 @@
 package usecases
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -13,7 +15,11 @@ type updateTargets struct {
 	mu       sync.Mutex
 	next     uint64
 	targets  map[domain.Namespace]rememberedTarget
-	brackets map[domain.Namespace]*sync.Mutex
+	brackets map[domain.Namespace]chan struct{}
+
+	// onWait, when set, is told a bracket is about to wait for another one
+	// of the same row; tests use it to interleave brackets deterministically.
+	onWait func(ns domain.Namespace)
 }
 
 type rememberedTarget struct {
@@ -24,25 +30,52 @@ type rememberedTarget struct {
 func newUpdateTargets() *updateTargets {
 	return &updateTargets{
 		targets:  make(map[domain.Namespace]rememberedTarget),
-		brackets: make(map[domain.Namespace]*sync.Mutex),
+		brackets: make(map[domain.Namespace]chan struct{}),
 	}
 }
 
 // open serializes update brackets of one row and returns the call that
-// closes this one.
+// closes this one. A caller whose ctx ends while it waits gives up.
 func (t *updateTargets) open(
+	ctx context.Context,
 	ns domain.Namespace,
-) func() {
+) (func(), error) {
 	t.mu.Lock()
 	bracket, ok := t.brackets[ns]
 	if !ok {
-		bracket = &sync.Mutex{}
+		bracket = make(chan struct{}, 1)
 		t.brackets[ns] = bracket
 	}
+	onWait := t.onWait
 	t.mu.Unlock()
 
-	bracket.Lock()
-	return bracket.Unlock
+	release := func() { <-bracket }
+	select {
+	case bracket <- struct{}{}:
+		return release, nil
+	default:
+	}
+
+	if onWait != nil {
+		onWait(ns)
+	}
+	select {
+	case bracket <- struct{}{}:
+		return release, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("wait for update of %s: %w", ns, ctx.Err())
+	}
+}
+
+// pending reports whether an update of ns began and its end has not been
+// handled yet.
+func (t *updateTargets) pending(
+	ns domain.Namespace,
+) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.targets[ns]
+	return ok
 }
 
 // put remembers target for ns and returns the undo for a bracket that fails
