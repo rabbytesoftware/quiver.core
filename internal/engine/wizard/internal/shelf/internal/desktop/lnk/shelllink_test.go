@@ -16,12 +16,22 @@ func golden() string {
 	return strings.Join([]string{
 		// ShellLinkHeader: HeaderSize, LinkCLSID
 		"4c000000", "0114020000000000c000000000000046",
-		// LinkFlags: HasLinkInfo|HasName|HasWorkingDir|IsUnicode, FileAttributes: NORMAL
-		"96000000", "80000000",
+		// LinkFlags: HasLinkTargetIDList|HasLinkInfo|HasName|HasWorkingDir|IsUnicode, FileAttributes: NORMAL
+		"97000000", "80000000",
 		// CreationTime, AccessTime, WriteTime, FileSize, IconIndex
 		"0000000000000000", "0000000000000000", "0000000000000000", "00000000", "00000000",
 		// ShowCommand: SW_SHOWNORMAL, HotKey, Reserved1-3
 		"01000000", "0000", "0000", "00000000", "00000000",
+		// LinkTargetIDList: IDListSize 0x43
+		"4300",
+		// My Computer root item: size 0x14, type 0x1f, sort 0x50, CLSID_MyComputer
+		"1400", "1f50", "e04fd020ea3a6910a2d808002b30309d",
+		// Drive item: size 0x19, type 0x2f, "C:\" NUL-padded
+		"1900", "2f", "433a5c" + strings.Repeat("00", 19),
+		// File item: size 0x14, type 0x32, zero size/date/attributes, "a.exe"
+		"1400", "32", "00", "00000000", "00000000", "0000", "612e65786500",
+		// TerminalID
+		"0000",
 		// LinkInfo: Size 0x54, HeaderSize 0x24, Flags VolumeIDAndLocalBasePath
 		"54000000", "24000000", "01000000",
 		// VolumeIDOffset, LocalBasePathOffset, CommonNetworkRelativeLinkOffset, CommonPathSuffixOffset
@@ -185,12 +195,13 @@ func TestDecode_Malformed(t *testing.T) {
 	wrongSize[0] = 0x4d
 	wrongCLSID := append([]byte{}, valid...)
 	wrongCLSID[4] = 0xff
+	infoAt := headerSize + 2 + int(binary.LittleEndian.Uint16(valid[headerSize:]))
 	hugeInfo := append([]byte{}, valid...)
-	binary.LittleEndian.PutUint32(hugeInfo[headerSize:], 0xffffffff)
+	binary.LittleEndian.PutUint32(hugeInfo[infoAt:], 0xffffffff)
 	tinyInfo := append([]byte{}, valid...)
-	binary.LittleEndian.PutUint32(tinyInfo[headerSize:], 2)
+	binary.LittleEndian.PutUint32(tinyInfo[infoAt:], 2)
 	hugeIDList := append([]byte{}, valid...)
-	binary.LittleEndian.PutUint32(hugeIDList[0x14:], hasLinkTargetIDList|hasLinkInfo)
+	binary.LittleEndian.PutUint16(hugeIDList[headerSize:], 0xffff)
 
 	testCases := []struct {
 		name string
@@ -233,4 +244,37 @@ func TestDecode_NeverPanicsOnNoise(t *testing.T) {
 			assert.NotPanics(t, func() { _, _ = Decode(mutated) }, "byte %d = %#x", i, b)
 		}
 	}
+}
+
+func TestIDList(t *testing.T) {
+	testCases := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "not a drive path", target: "/tmp/a.exe", want: ""},
+		{name: "unc path", target: `\\server\share\a.exe`, want: ""},
+		{name: "drive root only", target: `D:\`, want: "2f00" + myComputerHex() + "1900" + "2f" + "443a5c" + strings.Repeat("00", 19) + "0000"},
+		{
+			name:   "folder then file, unicode name when not ascii",
+			target: `C:\é\a.exe`,
+			want: "5500" + myComputerHex() + "1900" + "2f" + "433a5c" + strings.Repeat("00", 19) +
+				"1200" + "35" + strings.Repeat("00", 11) + "e9000000" +
+				"1400" + "32" + strings.Repeat("00", 11) + "612e65786500" + "0000",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, hex.EncodeToString(idList(tc.target)))
+		})
+	}
+}
+
+func TestIDList_TooLong(t *testing.T) {
+	assert.Nil(t, idList(`C:\`+strings.Repeat(`dir\`, 0x4000)+"a.exe"))
+}
+
+func myComputerHex() string {
+	return hex.EncodeToString([]byte(myComputerItem))
 }

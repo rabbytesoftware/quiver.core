@@ -41,9 +41,6 @@ var (
 	errTooLong   = errors.New("shell link string too long")
 )
 
-// Encode writes a shell link that resolves through its LinkInfo alone:
-// header, a VolumeID/LocalBasePath LinkInfo with the Unicode path, the
-// StringData and a terminal ExtraData block.
 func Encode(
 	l Link,
 ) ([]byte, error) {
@@ -53,8 +50,12 @@ func Encode(
 		flags |= hasIconLocation
 		strs = append(strs, l.Icon)
 	}
+	ids := idList(l.Target)
+	if ids != nil {
+		flags |= hasLinkTargetIDList
+	}
 
-	out := header(flags)
+	out := append(header(flags), ids...)
 	out = append(out, linkInfo(l.Target)...)
 	for _, s := range strs {
 		units := utf16.Encode([]rune(s))

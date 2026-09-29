@@ -25,7 +25,8 @@ func shell(
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command",
+		"[Console]::OutputEncoding=[Text.Encoding]::UTF8;"+script)
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
@@ -47,37 +48,42 @@ func samePath(
 	got string,
 ) {
 	t.Helper()
+	require.NotEmpty(t, got, "want %s", want)
 	resolved, err := filepath.EvalSymlinks(got)
 	require.NoError(t, err, got)
 	assert.True(t, strings.EqualFold(want, resolved), "want %s, got %s", want, got)
 }
 
 func TestShellLink_WindowsReadsWhatEncodeWrites(t *testing.T) {
-	dir := longTempDir(t)
-	target := filepath.Join(dir, "app", "Tool.exe")
-	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o750))
-	require.NoError(t, os.WriteFile(target, []byte("MZ"), 0o600))
-	icon := filepath.Join(dir, "app", "tool.ico")
-	require.NoError(t, os.WriteFile(icon, nil, 0o600))
-	loc := filepath.Join(dir, "Tool.lnk")
-	data, err := Encode(Link{
-		Target:      target,
-		WorkingDir:  filepath.Dir(target),
-		Description: `quiver:github.com/acme/tool|` + dir,
-		Icon:        icon,
-	})
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(loc, data, 0o600))
+	for _, folder := range []string{"app", "Café app"} {
+		t.Run(folder, func(t *testing.T) {
+			dir := longTempDir(t)
+			target := filepath.Join(dir, folder, "Tool.exe")
+			require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o750))
+			require.NoError(t, os.WriteFile(target, []byte("MZ"), 0o600))
+			icon := filepath.Join(dir, folder, "tool.ico")
+			require.NoError(t, os.WriteFile(icon, nil, 0o600))
+			loc := filepath.Join(dir, "Tool.lnk")
+			data, err := Encode(Link{
+				Target:      target,
+				WorkingDir:  filepath.Dir(target),
+				Description: `quiver:github.com/acme/tool|` + dir,
+				Icon:        icon,
+			})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(loc, data, 0o600))
 
-	got := shell(t, "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:QUIVER_LNK);"+
-		"$s.TargetPath;$s.Description;$s.WorkingDirectory;$s.IconLocation",
-		"QUIVER_LNK="+loc)
+			got := shell(t, "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:QUIVER_LNK);"+
+				"$s.TargetPath;$s.Description;$s.WorkingDirectory;$s.IconLocation",
+				"QUIVER_LNK="+loc)
 
-	require.Len(t, got, 4)
-	samePath(t, target, got[0])
-	assert.Equal(t, `quiver:github.com/acme/tool|`+dir, got[1])
-	samePath(t, filepath.Dir(target), got[2])
-	assert.True(t, strings.EqualFold(icon+",0", got[3]), got[3])
+			require.Len(t, got, 4)
+			samePath(t, target, got[0])
+			assert.Equal(t, `quiver:github.com/acme/tool|`+dir, got[1])
+			samePath(t, filepath.Dir(target), got[2])
+			assert.True(t, strings.EqualFold(icon+",0", got[3]), got[3])
+		})
+	}
 }
 
 func TestShellLink_DecodeReadsWhatWindowsWrites(t *testing.T) {

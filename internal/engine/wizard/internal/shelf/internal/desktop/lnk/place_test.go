@@ -263,11 +263,9 @@ func TestExposer_Remove_Errors(t *testing.T) {
 	f := newFixture(t)
 	claim := models.NamespaceClaim(mocks.BareA)
 	missing := models.Layout{AppData: filepath.Join(t.TempDir(), "missing")}
-	blocked := t.TempDir()
-	mocks.WriteFile(t, startMenuDir(blocked), "", 0o600)
 
 	assert.NoError(t, f.exposer.Remove(context.Background(), missing, claim, nil))
-	assert.Error(t, f.exposer.Remove(context.Background(), models.Layout{AppData: blocked}, claim, nil))
+	assert.Error(t, f.exposer.Remove(context.Background(), models.Layout{AppData: mocks.Unlistable(t)}, claim, nil))
 
 	mocks.RequireUnixHost(t)
 	if os.Geteuid() == 0 {

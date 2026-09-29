@@ -244,6 +244,15 @@ func RequireUnixHost(
 	}
 }
 
+// Unlistable returns a directory path no OS can open. A regular file will not
+// do: Windows reports listing one as not-exist, which removal treats as empty.
+func Unlistable(
+	t *testing.T,
+) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "unlistable\x00dir")
+}
+
 func ReadOnlyDir(
 	t *testing.T,
 ) string {

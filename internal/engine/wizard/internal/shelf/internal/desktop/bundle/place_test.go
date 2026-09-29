@@ -310,11 +310,9 @@ func TestPlacer_CopiedBundle_IsNeverOwned(t *testing.T) {
 
 func TestPlacer_RemoveApps_Errors(t *testing.T) {
 	f := newFixture(t)
-	file := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(file, nil, 0o600))
 	mocks.WriteBundle(t, filepath.Join(f.Apps[0], "Tool.app"), "x")
 
-	assert.Error(t, f.exposer.Remove(context.Background(), models.Layout{Apps: []string{file}}, models.NamespaceClaim(mocks.BareA), nil))
+	assert.Error(t, f.exposer.Remove(context.Background(), models.Layout{Apps: []string{mocks.Unlistable(t)}}, models.NamespaceClaim(mocks.BareA), nil))
 
 	f.Tagger.ReadErr = errors.New("boom")
 	assert.NoError(t, f.exposer.Remove(context.Background(), models.Layout{Apps: f.Apps}, models.NamespaceClaim(mocks.BareA), nil))

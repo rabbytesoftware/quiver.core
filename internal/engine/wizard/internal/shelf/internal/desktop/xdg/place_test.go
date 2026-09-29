@@ -38,6 +38,15 @@ func removeEntries(
 	return (&exposer{}).Remove(context.Background(), l, claim, keep)
 }
 
+// posix spells a fixture path with forward slashes: an entry's Exec quotes a
+// POSIX path, where a backslash is reserved, and Windows file APIs accept
+// either separator, so the xdg strategy runs the same on a Windows host.
+func posix(
+	path string,
+) string {
+	return filepath.ToSlash(path)
+}
+
 func TestFileName(t *testing.T) {
 	assert.Equal(t, "quiver-841b8a1d33c8-My-App.desktop", fileName("github.com/u/r", "My App"))
 	assert.NotEqual(t, fileName("github.com/a-b/c", "x"), fileName("github.com/a/b-c", "x"))
@@ -81,9 +90,9 @@ func TestValidCategories(t *testing.T) {
 func TestExposer_Place(t *testing.T) {
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "Tool.AppImage")
+	target := posix(filepath.Join(wd, "Tool.AppImage"))
 	mocks.WriteFile(t, target, "x", 0o644)
-	dollar := filepath.Join(wd, "$Tool")
+	dollar := posix(filepath.Join(wd, "$Tool"))
 	mocks.WriteFile(t, dollar, "x", 0o755)
 	l := f.Layout(t)
 	req := models.Request{Layout: l, Bare: mocks.BareA, Workdir: wd}
@@ -101,7 +110,7 @@ func TestExposer_Place(t *testing.T) {
 		{name: "foreign entry", existing: "X-Quiver-Namespace=github.com/other/thing\n", target: target, want: models.Placement{Refused: "owned by github.com/other/thing"}},
 		{name: "user entry", existing: "[Desktop Entry]\n", target: target, want: models.Placement{Refused: models.ReasonUnmanaged}},
 		{name: "unsafe target", target: dollar, want: models.Placement{Refused: models.ReasonUnsafePath}},
-		{name: "missing target", target: filepath.Join(wd, "missing"), want: models.Placement{Refused: models.ReasonNotFound}},
+		{name: "missing target", target: posix(filepath.Join(wd, "missing")), want: models.Placement{Refused: models.ReasonNotFound}},
 	}
 
 	for _, tc := range testCases {
@@ -131,7 +140,7 @@ func TestExposer_Place_EntryAndDirAreWorldReadable(t *testing.T) {
 	}
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "Tool.AppImage")
+	target := posix(filepath.Join(wd, "Tool.AppImage"))
 	mocks.WriteFile(t, target, "x", 0o644)
 	req := models.Request{Layout: f.Layout(t), Bare: mocks.BareA, Workdir: wd}
 
@@ -150,9 +159,9 @@ func TestExposer_Place_MarksAppImageExecutable(t *testing.T) {
 	mocks.RequireUnixHost(t)
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "Tool.AppImage")
+	target := posix(filepath.Join(wd, "Tool.AppImage"))
 	mocks.WriteFile(t, target, "x", 0o644)
-	plain := filepath.Join(wd, "tool")
+	plain := posix(filepath.Join(wd, "tool"))
 	mocks.WriteFile(t, plain, "x", 0o644)
 	l := f.Layout(t)
 	req := models.Request{Layout: l, Bare: mocks.BareA, Workdir: wd}
@@ -173,7 +182,7 @@ func TestExposer_Place_MarksAppImageExecutable(t *testing.T) {
 func TestExposer_Place_Errors(t *testing.T) {
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "tool")
+	target := posix(filepath.Join(wd, "tool"))
 	mocks.WriteFile(t, target, "x", 0o755)
 	file := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
@@ -195,7 +204,7 @@ func TestExposer_Place_Errors(t *testing.T) {
 func TestExposer_Place_SwapError(t *testing.T) {
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "tool")
+	target := posix(filepath.Join(wd, "tool"))
 	mocks.WriteFile(t, target, "x", 0o755)
 	l := f.Layout(t)
 	loc := filepath.Join(entriesDir(f.UserHome), fileName(mocks.BareA, "tool"))
@@ -228,11 +237,9 @@ func TestExposer_Remove(t *testing.T) {
 
 func TestExposer_Remove_Errors(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
-	blocked := t.TempDir()
-	mocks.WriteFile(t, filepath.Join(blocked, ".local", "share", "applications"), "", 0o600)
 
 	assert.NoError(t, removeEntries(models.Layout{UserHome: missing}, models.NamespaceClaim(mocks.BareA), nil))
-	assert.Error(t, removeEntries(models.Layout{UserHome: blocked}, models.NamespaceClaim(mocks.BareA), nil))
+	assert.Error(t, removeEntries(models.Layout{UserHome: mocks.Unlistable(t)}, models.NamespaceClaim(mocks.BareA), nil))
 
 	mocks.RequireUnixHost(t)
 	if os.Geteuid() == 0 {
@@ -254,7 +261,7 @@ func TestExposer_Remove_Errors(t *testing.T) {
 func TestExposer_Place_CreateDirError(t *testing.T) {
 	f := newFixture(t)
 	wd := f.Workdir(t, mocks.NsA)
-	target := filepath.Join(wd, "tool")
+	target := posix(filepath.Join(wd, "tool"))
 	mocks.WriteFile(t, target, "x", 0o755)
 	file := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))

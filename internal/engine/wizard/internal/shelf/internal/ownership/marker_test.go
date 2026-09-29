@@ -126,11 +126,8 @@ func TestRemoveMarked(t *testing.T) {
 }
 
 func TestRemoveMarked_Errors(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(file, nil, 0o600))
-
 	assert.NoError(t, RemoveMarked(filepath.Join(t.TempDir(), "missing"), "", ".x", testMarker(), models.NamespaceClaim(mocks.BareA), nil))
-	assert.Error(t, RemoveMarked(file, "", ".x", testMarker(), models.NamespaceClaim(mocks.BareA), nil))
+	assert.Error(t, RemoveMarked(mocks.Unlistable(t), "", ".x", testMarker(), models.NamespaceClaim(mocks.BareA), nil))
 
 	mocks.RequireUnixHost(t)
 	if os.Geteuid() == 0 {
