@@ -182,3 +182,25 @@ func TestArrowEventDTOFrom_WireShape_Unchanged(t *testing.T) {
 		[]string{"event", "namespace", "name", "description", "tags", "media", "user_installed"},
 		mapKeys(m))
 }
+
+// A pin is the domain's empty kind; the stream must not surface it as an empty
+// selector_kind, nor any other versioning field.
+func TestArrowEventDTOFrom_WireShape_PinRowCarriesNoSelector(t *testing.T) {
+	for _, kind := range []hub.CatalogEventKind{hub.CatalogUpserted, hub.CatalogRemoved} {
+		data, err := json.Marshal(dto.ArrowEventDTOFrom(hub.ArrowEvent{
+			Kind:  kind,
+			Arrow: domain.Arrow{Namespace: "github.com/user/repo@v1.0.0", SelectorKind: domain.SelectorPin},
+		}))
+		require.NoError(t, err)
+
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(data, &m))
+		for _, key := range []string{
+			"selector_kind", "resolved", "resolved_ref", "installed_commit", "available",
+			"channel", "installed_constraint", "recommended_ref", "pinned_ref",
+			"ref_is_branch", "ref_commit_sha", "outdated", "installed_ref",
+		} {
+			assert.NotContains(t, m, key)
+		}
+	}
+}

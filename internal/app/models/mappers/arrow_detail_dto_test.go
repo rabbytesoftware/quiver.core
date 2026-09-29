@@ -28,6 +28,7 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "Repo",
 				Description: "desc",
+				License:     "MIT",
 				Tags:        []string{"t"},
 			},
 			Variables:     []domain.Variable{{Name: "VAR"}},
@@ -49,6 +50,7 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/org/repo@v1.0.0"), result.Namespace)
 	assert.Equal(t, "Repo", result.Name)
 	assert.Equal(t, "desc", result.Description)
+	assert.Equal(t, "MIT", result.License)
 	assert.Equal(t, []string{"t"}, result.Tags)
 	assert.Equal(t, []domain.Variable{{Name: "VAR"}}, result.Variables)
 	assert.Equal(t, at, result.InstalledAt)

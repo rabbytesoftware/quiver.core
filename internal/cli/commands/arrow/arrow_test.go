@@ -276,6 +276,7 @@ func TestArrowShow_Table_PrintsVersioning(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, want := range []string{
+		"License", "MIT",
 		"Selector", "channel",
 		"Resolved", "v1.4.0",
 		"Commit", testCommit[:7],
@@ -297,6 +298,16 @@ func TestViewDetail_CurrentPin_OmitsAvailable(t *testing.T) {
 	assert.Contains(t, out, "abc")
 	assert.NotContains(t, out, "Available")
 	assert.NotContains(t, out, "Resolved")
+}
+
+// A row that never resolved has no Resolved or Commit to show; the view
+// drops those rows instead of printing them empty.
+func TestViewDetail_Unresolved_OmitsResolvedAndCommit(t *testing.T) {
+	out := arrow.ViewDetail(apidto.ArrowDetailDTO{Namespace: testNS, SelectorKind: "pin"}, newTestTheme(t))
+
+	assert.Contains(t, out, "pin")
+	assert.NotContains(t, out, "Resolved")
+	assert.NotContains(t, out, "Commit")
 }
 
 // Structured output is for machines: commits stay whole.

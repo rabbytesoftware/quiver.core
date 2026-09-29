@@ -12,7 +12,7 @@ type InstalledVersionItemDTO struct {
 	Ref         string `json:"ref" yaml:"ref"`
 	ResolvedRef string `json:"resolved_ref" yaml:"resolved_ref"`
 	State       string `json:"state" yaml:"state"`
-	InstalledAt string `json:"installed_at" yaml:"installed_at"`
+	InstalledAt string `json:"installed_at,omitempty" yaml:"installed_at,omitempty"`
 	LastUsedAt  string `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
 }
 
@@ -30,6 +30,10 @@ func ArrowListItemDTOFrom(
 ) ArrowListItemDTO {
 	versions := make([]InstalledVersionItemDTO, 0, len(a.Versions))
 	for _, v := range a.Versions {
+		installedAt := ""
+		if !v.InstalledAt.IsZero() {
+			installedAt = v.InstalledAt.Format("2006-01-02T15:04:05Z07:00")
+		}
 		lastUsedAt := ""
 		if !v.LastUsedAt.IsZero() {
 			lastUsedAt = v.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
@@ -38,7 +42,7 @@ func ArrowListItemDTOFrom(
 			Ref:         v.Ref,
 			ResolvedRef: v.ResolvedRef,
 			State:       string(v.State),
-			InstalledAt: v.InstalledAt.Format("2006-01-02T15:04:05Z07:00"),
+			InstalledAt: installedAt,
 			LastUsedAt:  lastUsedAt,
 		})
 	}

@@ -38,6 +38,7 @@ func ArrowDetailDTOFrom(
 		Namespace:       string(a.Namespace),
 		Name:            a.Name,
 		Description:     a.Description,
+		License:         a.License,
 		State:           string(a.State),
 		Tags:            a.Tags,
 		InstalledAt:     installedAt,

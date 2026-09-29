@@ -207,3 +207,12 @@ func TestArrowDetailDTO_WireShape_NoRemovedFields(t *testing.T) {
 		assert.NotContains(t, got, key)
 	}
 }
+
+func TestArrowDetailDTO_WireShape_License(t *testing.T) {
+	got := detailWire(t, &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+		License:   "MIT",
+	})
+
+	assert.Equal(t, "MIT", got["license"])
+}

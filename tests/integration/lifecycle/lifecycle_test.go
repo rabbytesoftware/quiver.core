@@ -172,14 +172,9 @@ func (s *LifecycleSuite) TestLifecycle_UpdateMethod() {
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
 }
 
-// zeroInstalledAt is what a never-installed version row renders: the list DTO
-// formats InstalledAt unconditionally, so an absent stamp arrives as the zero
-// time rather than as an empty string.
-const zeroInstalledAt = "0001-01-01T00:00:00Z"
-
 // A list row names its ref from the moment it is added, so the ref cannot say
-// whether the arrow is on disk. The install stamp does: installed_at is the zero
-// time until _install succeeds, and only then names a real moment.
+// whether the arrow is on disk. The install stamp does: installed_at is absent
+// until _install succeeds, and only then names a real moment.
 func (s *LifecycleSuite) TestLifecycle_InstallStampInList() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -194,7 +189,7 @@ func (s *LifecycleSuite) TestLifecycle_InstallStampInList() {
 		},
 	)
 	s.Equal("v1", added[0].Versions[0].Ref, "a row names its ref before any install")
-	s.Equal(zeroInstalledAt, added[0].Versions[0].InstalledAt, "an added arrow carries no install stamp")
+	s.Empty(added[0].Versions[0].InstalledAt, "an added arrow carries no install stamp")
 
 	s.Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, 120*time.Second)
@@ -207,7 +202,7 @@ func (s *LifecycleSuite) TestLifecycle_InstallStampInList() {
 			return status == http.StatusOK &&
 				len(items) == 1 &&
 				len(items[0].Versions) == 1 &&
-				items[0].Versions[0].InstalledAt != zeroInstalledAt
+				items[0].Versions[0].InstalledAt != ""
 		},
 	)
 
