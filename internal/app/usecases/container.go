@@ -7,7 +7,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -35,11 +34,11 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		repos.Graph,
 		repos.Runtime,
 	)
-	runtimeUC := &runtimeUsecase{
-		arrow:   repos.Arrow,
-		runtime: repos.Runtime,
-		graph:   repos.Graph,
-	}
+	runtimeUC := newRuntimeUsecase(
+		repos.Arrow,
+		repos.Runtime,
+		repos.Graph,
+	)
 	quiverUC := NewCollectionUsecase(
 		repos.Collection,
 		repos.Arrow,
@@ -64,16 +63,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		runtimeUC.onRuntimeEnded(ctx, rt)
 	}); err != nil {
 		return nil, fmt.Errorf("usecases: wire OnRuntimeEnded: %w", err)
-	}
-
-	if err := repos.Arrow.OnArrowUpgraded(func(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) error {
-		runtimeUC.onArrowUpgraded(ctx, arrow)
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("usecases: wire OnArrowUpgraded: %w", err)
 	}
 
 	return &Container{

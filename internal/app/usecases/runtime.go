@@ -59,6 +59,8 @@ type runtimeUsecase struct {
 	arrow   arrowrepo.Arrow
 	runtime runtimerepo.Runtime
 	graph   graph.Graph
+	targets *updateTargets
+	detach  func(fn func())
 }
 
 func NewRuntimeUsecase(
@@ -66,10 +68,20 @@ func NewRuntimeUsecase(
 	runtime runtimerepo.Runtime,
 	graph graph.Graph,
 ) RuntimeUsecase {
+	return newRuntimeUsecase(arrow, runtime, graph)
+}
+
+func newRuntimeUsecase(
+	arrow arrowrepo.Arrow,
+	runtime runtimerepo.Runtime,
+	graph graph.Graph,
+) *runtimeUsecase {
 	return &runtimeUsecase{
 		arrow:   arrow,
 		runtime: runtime,
 		graph:   graph,
+		targets: newUpdateTargets(),
+		detach:  func(fn func()) { go fn() },
 	}
 }
 
@@ -87,7 +99,7 @@ func rejectReservedVariables(
 	return nil
 }
 
-func (u *runtimeUsecase) Install( //nolint:gocyclo
+func (u *runtimeUsecase) Install(
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
@@ -109,53 +121,12 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
-	ns, err = u.resolveOutdatedBeforeInstall(ctx, ns)
-	if err != nil {
-		return false, fmt.Errorf("install: %w", err)
-	}
-
 	plan, err := u.graph.Resolve(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("install: resolve deps: %w", err)
 	}
-
-	// A dependency edge with no version constraint resolves to a bare
-	// namespace (graph.resolveEdgeNs), but ResolveForInstall catalogues it
-	// under the ref it actually resolved to. Every later step must key off
-	// that resolved namespace — the bare form was never catalogued and has
-	// no runtime aggregate to install or listen on.
-	resolvedDeps := make(map[domain.Namespace]domain.Namespace, len(plan))
-	for _, entry := range plan {
-		resolvedDeps[entry.Namespace] = entry.Namespace
-
-		depExists, depErr := u.arrow.Exists(ctx, entry.Namespace)
-		if depErr != nil {
-			return false, fmt.Errorf("install: check dep %s: %w", entry.Namespace, depErr)
-		}
-		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, entry.Namespace, "")
-			if resolveErr != nil {
-				return false, fmt.Errorf("install: resolve dep manifest %s: %w", entry.Namespace, resolveErr)
-			}
-			arrow.UserInstalled = false
-			if addErr := u.arrow.AddDep(ctx, resolvedNs, arrow, constraint); addErr != nil &&
-				!errors.Is(addErr, apperrors.ErrAlreadyExists) {
-				return false, fmt.Errorf("install: add dep to catalog %s: %w", entry.Namespace, addErr)
-			}
-			resolvedDeps[entry.Namespace] = resolvedNs
-		}
-	}
-
-	for _, entry := range plan {
-		depNs := resolvedDeps[entry.Namespace]
-		if err := u.installOneDep(ctx, depNs); err != nil {
-			return false, err
-		}
-		if entry.Type == domain.ServiceDep {
-			if err := u.startServiceDep(ctx, depNs); err != nil {
-				return false, err
-			}
-		}
+	if err := u.installPlan(ctx, plan); err != nil {
+		return false, fmt.Errorf("install: %w", err)
 	}
 
 	state, err := u.runtime.GetState(ctx, ns)
@@ -175,38 +146,58 @@ func (u *runtimeUsecase) Install( //nolint:gocyclo
 	return true, nil
 }
 
-func (u *runtimeUsecase) resolveOutdatedBeforeInstall(
+// installPlan catalogues every dependency in plan before installing any, so
+// a dependency that cannot be resolved fails the install before anything
+// runs. A plan entry names the declaration; what gets installed is the row
+// that declaration catalogues as.
+func (u *runtimeUsecase) installPlan(
 	ctx context.Context,
-	ns domain.Namespace,
+	plan graph.Plan,
+) error {
+	identities := make(map[domain.Namespace]domain.Namespace, len(plan))
+	for _, entry := range plan {
+		identity, err := u.ensureDependency(ctx, entry.Namespace)
+		if err != nil {
+			return err
+		}
+		identities[entry.Namespace] = identity
+	}
+
+	for _, entry := range plan {
+		depNs := identities[entry.Namespace]
+		if err := u.installOneDep(ctx, depNs); err != nil {
+			return err
+		}
+		if entry.Type != domain.ServiceDep {
+			continue
+		}
+		if err := u.startServiceDep(ctx, depNs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureDependency returns the catalogued row a dependency declaration
+// installs, adding it when missing. A declaration with a selector is its own
+// identity; a bare one is decided when it is first added.
+func (u *runtimeUsecase) ensureDependency(
+	ctx context.Context,
+	declared domain.Namespace,
 ) (domain.Namespace, error) {
-	state, err := u.runtime.GetState(ctx, ns)
+	catalogued, err := u.isCatalogued(ctx, declared)
 	if err != nil {
-		return ns, err
+		return "", err
 	}
-	if state != domain.ArrowStateAbsent {
-		return ns, nil
+	if catalogued {
+		return declared, nil
 	}
 
-	current, err := u.arrow.Get(ctx, ns)
+	identity, err := u.arrow.AddDependency(ctx, declared)
 	if err != nil {
-		return ns, err
+		return "", fmt.Errorf("add dep %s: %w", declared, err)
 	}
-	if !current.Outdated || current.RecommendedRef == "" {
-		return ns, nil
-	}
-
-	newNs := ns.WithRef(current.RecommendedRef)
-	if newNs == ns {
-		return ns, nil
-	}
-
-	if _, err := u.arrow.UpgradeVersion(
-		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
-		current.PinnedRef,
-	); err != nil {
-		return ns, err
-	}
-	return newNs, nil
+	return identity, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
@@ -308,6 +299,10 @@ func (u *runtimeUsecase) Execute(
 	return u.runtime.BeginExecution(ctx, ns, method, userVars)
 }
 
+// executeUpdate opens the update bracket: it re-resolves what is ahead of
+// the row, stops it if it runs, stages the target's manifest so the target's
+// own update steps run, installs any dependency the target gained, and
+// begins the update. onUpdateEnded closes the bracket.
 func (u *runtimeUsecase) executeUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -317,16 +312,68 @@ func (u *runtimeUsecase) executeUpdate(
 	if err != nil {
 		return fmt.Errorf("execute: get state: %w", err)
 	}
-	if state == domain.ArrowStateOutdated {
-		if err := u.syncDeps(ctx, ns); err != nil {
-			return fmt.Errorf("execute: sync deps: %w", err)
+	if state != domain.ArrowStateReady &&
+		state != domain.ArrowStateOutdated &&
+		state != domain.ArrowStateRunning {
+		return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	}
+
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("update: get current: %w", err)
+	}
+	available, err := u.arrow.CheckAvailable(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	if available == nil {
+		return nil
+	}
+
+	if err := stopIfRunning(ctx, u.runtime, ns); err != nil {
+		return fmt.Errorf("update: stop: %w", err)
+	}
+	target, err := u.arrow.RefreshToTarget(ctx, ns, *available)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	if err := u.syncTargetDeps(ctx, ns, current, target); err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+
+	u.targets.put(ns, *available)
+	if err := u.runtime.BeginUpdate(ctx, ns, userVars); err != nil {
+		u.targets.take(ns)
+		return err
+	}
+	return nil
+}
+
+// syncTargetDeps lands the dependencies the target manifest gained or lost
+// as pending on the row, then syncs whatever is pending. A retried update
+// finds its manifest already staged, so it syncs what the first attempt left
+// pending rather than a diff that is now empty.
+func (u *runtimeUsecase) syncTargetDeps(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+	target *domain.Arrow,
+) error {
+	diff := u.graph.DiffDeps(current, target)
+	if len(diff.Added) > 0 || len(diff.Removed) > 0 {
+		if err := u.runtime.MarkOutdated(ctx, ns, edgesToNs(diff.Added), edgesToNs(diff.Removed)); err != nil {
+			return fmt.Errorf("mark outdated: %w", err)
 		}
-		return u.runtime.BeginUpdate(ctx, ns, userVars)
 	}
-	if state == domain.ArrowStateReady {
-		return u.runtime.BeginUpdate(ctx, ns, userVars)
+
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("get state: %w", err)
 	}
-	return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	if state != domain.ArrowStateOutdated {
+		return nil
+	}
+	return u.syncDeps(ctx, ns)
 }
 
 func (u *runtimeUsecase) Stop(
@@ -370,26 +417,17 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		return nil
 	}
 
+	identities := make(map[domain.Namespace]domain.Namespace, len(syncInfo.AddedDeps))
 	for _, depNs := range syncInfo.AddedDeps {
-		depExists, depErr := u.arrow.Exists(ctx, depNs)
+		identity, depErr := u.ensureDependency(ctx, depNs)
 		if depErr != nil {
-			return fmt.Errorf("sync deps: check dep %s: %w", depNs, depErr)
+			return fmt.Errorf("sync deps: %w", depErr)
 		}
-		if !depExists { //nolint:nestif
-			resolvedNs, arrow, constraint, resolveErr := u.arrow.ResolveForInstall(ctx, depNs, "")
-			if resolveErr != nil {
-				return fmt.Errorf("sync deps: resolve dep %s: %w", depNs, resolveErr)
-			}
-			arrow.UserInstalled = false
-			if addErr := u.arrow.AddDep(ctx, resolvedNs, arrow, constraint); addErr != nil &&
-				!errors.Is(addErr, apperrors.ErrAlreadyExists) {
-				return fmt.Errorf("sync deps: add dep %s: %w", depNs, addErr)
-			}
-		}
+		identities[depNs] = identity
 	}
 
 	for _, depNs := range syncInfo.AddedDeps {
-		if err := u.installOneDep(ctx, depNs); err != nil {
+		if err := u.installOneDep(ctx, identities[depNs]); err != nil {
 			return err
 		}
 	}
@@ -402,7 +440,7 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		}
 		for _, depNs := range syncInfo.AddedDeps {
 			if planMap[depNs] == domain.ServiceDep {
-				if startErr := u.startServiceDep(ctx, depNs); startErr != nil {
+				if startErr := u.startServiceDep(ctx, identities[depNs]); startErr != nil {
 					return fmt.Errorf("sync deps: start service dep %s: %w", depNs, startErr)
 				}
 			}
@@ -526,53 +564,13 @@ func (u *runtimeUsecase) Start(ctx context.Context) {
 	u.runtime.Start(ctx)
 }
 
-func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow) {
-	oldNs := arrow.UpgradedFromNs
-	newNs := arrow.Namespace
-
-	current, err := u.arrow.Get(ctx, oldNs)
-	if err != nil || current == nil {
-		return
-	}
-
-	diff := u.graph.DiffDeps(current, &arrow)
-	oldRuntime, _ := u.runtime.GetRuntime(ctx, oldNs)
-	oldState := domain.ArrowStateAbsent
-	if oldRuntime != nil {
-		oldState = oldRuntime.State
-	}
-
-	_ = u.arrow.Remove(ctx, oldNs)
-
-	if arrow.AlreadyReady {
-		var lastReturn *domainRuntime.Return
-		if oldRuntime != nil {
-			lastReturn = oldRuntime.LastReturn
-		}
-		_ = u.runtime.MarkReady(ctx, newNs, lastReturn)
-		return
-	}
-
-	if oldState != domain.ArrowStateReady && oldState != domain.ArrowStateOutdated {
-		return
-	}
-
-	if len(diff.Added) > 0 || len(diff.Removed) > 0 {
-		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
-	} else {
-		_ = u.runtime.BeginInstall(ctx, newNs, nil)
-	}
-}
-
-// onUpdateEnded swaps an arrow's catalog identity onto a new ref once its
-// update: execution finishes and that ref has moved. The next ref is
-// RecommendedRef when already known, otherwise ResolveTrackedRef's own
-// constraint-first, pinned-ref, tracked-channel chain -- the same rule
-// upgradeRef uses, so a pinned or channel-tracked arrow is never swapped
-// onto an unrelated latest-stable release here. quiver.core's own update is
-// excluded: its handover to the freshly exec'd binary needs the vault
-// workdir this swap's row removal would delete; its row advances instead via
-// EnsureRegistered on the relaunched process's own boot.
+// onUpdateEnded closes the update bracket once the update steps succeed.
+// quiver.core's own update is excluded: its relaunched binary adopts its new
+// state on boot.
+//
+// The commit runs detached because this handler is delivered on the runtime
+// aggregate's own ordered event queue, and clearing the badge waits for that
+// same queue: done inline, it would wait for itself.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
 	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
 		return
@@ -581,55 +579,42 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	ns := rt.Ref
-	current, err := u.arrow.Get(ctx, ns)
-	if err != nil || current == nil {
+	target, ok := u.targets.take(rt.Ref)
+	if !ok {
+		slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
 		return
 	}
 
-	latestRef := current.RecommendedRef
-	if latestRef == "" {
-		latestRef, err = u.arrow.ResolveTrackedRef(ctx, *current)
-		if err != nil || latestRef == "" {
-			return
-		}
-	}
-
-	newNs := ns.WithRef(latestRef)
-	if newNs == ns {
-		u.refreshRollingTag(ctx, ns, current)
-		return
-	}
-
-	if _, err := u.arrow.UpgradeVersion(
-		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, true, current.UserInstalled,
-		current.PinnedRef,
-	); err != nil {
-		slog.ErrorContext(ctx, "onUpdateEnded: upgrade version", "ns", ns, "newNs", newNs, "err", err)
-	}
+	commitCtx := context.WithoutCancel(ctx)
+	u.detach(func() { u.commitUpdate(commitCtx, rt.Ref, target) })
 }
 
-// refreshRollingTag lands a finished update on a rolling tag: the ref is
-// unchanged, so nothing swaps identity, but the arrow was flagged outdated
-// because the tag moved. Re-resolving records the commit it now points at,
-// which is what clears that flag; without it the arrow would report itself
-// behind forever.
-func (u *runtimeUsecase) refreshRollingTag(
+// commitUpdate stamps target as installed only if it is still what its ref
+// names: when the target moved while its update ran, the installed bits are
+// not the target's, so nothing is stamped and the row stays outdated. The
+// worst case is an extra update, never a missed one.
+func (u *runtimeUsecase) commitUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
-	current *domain.Arrow,
+	target domain.Available,
 ) {
-	if !current.Outdated || current.RecommendedRef != ns.Ref() {
+	unmoved, err := u.arrow.TargetUnmoved(ctx, ns, target)
+	if err != nil {
+		slog.WarnContext(ctx, "update: re-resolve target", "ns", ns, "err", err)
+		return
+	}
+	if !unmoved {
+		slog.WarnContext(ctx, "update: target moved during update",
+			"ns", ns, "ref", target.Ref, "commit", target.Commit)
 		return
 	}
 
-	refreshed, err := u.arrow.RefreshManifest(ctx, ns)
-	if err != nil {
-		slog.ErrorContext(ctx, "onUpdateEnded: refresh rolling tag", "ns", ns, "err", err)
+	if err := u.arrow.Advance(ctx, ns, target); err != nil {
+		slog.ErrorContext(ctx, "update: advance", "ns", ns, "err", err)
 		return
 	}
-	if err := u.arrow.UpdateManifest(ctx, ns, refreshed); err != nil {
-		slog.ErrorContext(ctx, "onUpdateEnded: record rolling tag commit", "ns", ns, "err", err)
+	if err := u.runtime.ClearVersionBadge(ctx, ns); err != nil {
+		slog.ErrorContext(ctx, "update: clear version badge", "ns", ns, "err", err)
 	}
 }
 
@@ -763,6 +748,56 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 			domain.ArrowStateRemoved:
 		}
 	}
+}
+
+// stopIfRunning stops ns and waits for the stop to finish before returning,
+// so an update never races a still-running execution. A no-op for any state
+// other than Running.
+func stopIfRunning(
+	ctx context.Context,
+	rt runtimerepo.Runtime,
+	ns domain.Namespace,
+) error {
+	state, err := rt.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("get state: %w", err)
+	}
+	if state != domain.ArrowStateRunning {
+		return nil
+	}
+
+	ch, unsub, err := rt.ListenEnded(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	defer unsub()
+
+	if err := rt.BeginStop(ctx, ns); err != nil {
+		return fmt.Errorf("begin stop: %w", err)
+	}
+
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// isCatalogued reports whether declared is already a row; a bare
+// declaration never is, since no row is keyed without a selector.
+func (u *runtimeUsecase) isCatalogued(
+	ctx context.Context,
+	declared domain.Namespace,
+) (bool, error) {
+	if declared.Ref() == "" {
+		return false, nil
+	}
+	exists, err := u.arrow.Exists(ctx, declared)
+	if err != nil {
+		return false, fmt.Errorf("check dep %s: %w", declared, err)
+	}
+	return exists, nil
 }
 
 // isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow

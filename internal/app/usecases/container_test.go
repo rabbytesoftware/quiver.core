@@ -5,6 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -29,23 +32,25 @@ func TestContainerNew_OnRuntimeEndedError(t *testing.T) {
 	}
 }
 
-func TestContainerNew_OnArrowUpgradedError(t *testing.T) {
-	expected := errors.New("upgraded subscribe error")
-	mockRT := &ucmocks.MockRuntime{}
+// An update advances its row in place, so nothing reacts to the legacy
+// successor-row upgrade event any more.
+func TestContainerNew_DoesNotReactToArrowUpgrades(t *testing.T) {
+	subscribed := false
 	mockArrow := &ucmocks.MockArrow{
-		OnArrowUpgradedFn: func(fn func(context.Context, domain.Arrow) error) error {
-			return expected
+		OnArrowUpgradedFn: func(func(context.Context, domain.Arrow) error) error {
+			subscribed = true
+			return nil
 		},
 	}
 	repos := &repositories.Container{
 		Arrow:      mockArrow,
-		Runtime:    mockRT,
+		Runtime:    &ucmocks.MockRuntime{},
 		Collection: &ucmocks.MockCollection{},
 		Graph:      &ucmocks.MockGraph{},
 	}
-	if _, err := New(repos, nil, nil); !errors.Is(err, expected) {
-		t.Fatalf("expected %v, got %v", expected, err)
-	}
+	_, err := New(repos, nil, nil)
+	require.NoError(t, err)
+	assert.False(t, subscribed)
 }
 
 func TestContainerNew_WiresOnRuntimeEnded(t *testing.T) {

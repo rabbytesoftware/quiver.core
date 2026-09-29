@@ -41,7 +41,10 @@ func (h *Handlers) Add(c *gin.Context) {
 	if c.Request.Body != nil {
 		_ = c.ShouldBindJSON(&opts)
 	}
-	if err := h.svc.Add(c.Request.Context(), ns, opts); err != nil {
+	if ns.Ref() == "" && opts.Channel != "" {
+		ns = ns.WithRef(opts.Channel)
+	}
+	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return
@@ -68,11 +71,7 @@ func (h *Handlers) Add(c *gin.Context) {
 // @Router       /arrow/{ns} [patch]
 func (h *Handlers) Update(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	opts := models.UpdateOptions{}
-	if c.Request.Body != nil {
-		_ = c.ShouldBindJSON(&opts)
-	}
-	if _, err := h.svc.Update(c.Request.Context(), ns, opts); err != nil {
+	if _, err := h.svc.Update(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return

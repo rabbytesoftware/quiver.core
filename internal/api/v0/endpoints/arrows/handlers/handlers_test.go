@@ -64,6 +64,31 @@ func TestAdd_ServiceError(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
+// The selector lives in the namespace; a channel sent in the body of a
+// refless add is folded into it.
+func TestAdd_ChannelBodyBecomesTheSelector(t *testing.T) {
+	testCases := []struct {
+		name string
+		path string
+		want domain.Namespace
+	}{
+		{"refless takes the channel", encodedNS, "github.com/user/repo@beta"},
+		{"a selector in the path wins", encodedNS + "@stable", "github.com/user/repo@stable"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &mocks.ArrowService{}
+			_, r := setup(svc)
+			w := httptest.NewRecorder()
+			body := bytes.NewBufferString(`{"channel":"beta"}`)
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tc.path, body))
+			assert.Equal(t, http.StatusCreated, w.Code)
+			assert.Equal(t, []domain.Namespace{tc.want}, svc.AddCalls)
+		})
+	}
+}
+
 func TestUpdate_OK(t *testing.T) {
 	svc := &mocks.ArrowService{}
 	_, r := setup(svc)

@@ -13,15 +13,18 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// newUC runs onUpdateEnded's detached commit inline, so a test observes it
+// without waiting on a goroutine.
 func newUC(a *ucmocks.MockArrow, rt *ucmocks.MockRuntime, g *ucmocks.MockGraph) *runtimeUsecase {
-	return &runtimeUsecase{arrow: a, runtime: rt, graph: g}
+	uc := newRuntimeUsecase(a, rt, g)
+	uc.detach = func(fn func()) { fn() }
+	return uc
 }
 
 // --- tests ---
@@ -549,748 +552,6 @@ func TestRuntimeExecute_Normal(t *testing.T) {
 	}
 }
 
-func TestRuntimeExecute_Update_Ready_CallsBeginUpdate(t *testing.T) {
-	updateCalled := false
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
-		},
-		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			updateCalled = true
-			return nil
-		},
-	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
-	if err := uc.Execute(context.Background(), "test/arrow@v1", domain.MethodUpdate, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !updateCalled {
-		t.Fatal("expected BeginUpdate to be called for Ready state")
-	}
-}
-
-func TestRuntimeExecute_Update_Outdated_NoPendingSync(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1")
-	updateCalled := false
-
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateOutdated, nil
-		},
-		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{
-				Ref:            ns,
-				State:          domain.ArrowStateOutdated,
-				PendingDepSync: nil,
-			}, nil
-		},
-		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			updateCalled = true
-			return nil
-		},
-	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
-	if err := uc.Execute(context.Background(), ns, domain.MethodUpdate, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !updateCalled {
-		t.Fatal("expected BeginUpdate to be called")
-	}
-}
-
-// ─── onArrowUpgraded ─────────────────────────────────────────────────────────
-
-func TestRuntimeOnArrowUpgraded_OldArrowNotFound_NoOp(t *testing.T) {
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return nil, nil },
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace:      "test/new@v2",
-		UpgradedFromNs: "test/old@v1",
-	})
-}
-
-func TestRuntimeOnArrowUpgraded_OldStateNotReady_JustRemoves(t *testing.T) {
-	removeCalled := false
-	beginCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error {
-			removeCalled = true
-			return nil
-		},
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateInstalling}, nil
-		},
-		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			beginCalled = true
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
-	})
-	if !removeCalled {
-		t.Fatal("expected arrow.Remove to be called")
-	}
-	if beginCalled {
-		t.Fatal("expected no BeginInstall when old state is not Ready")
-	}
-}
-
-func TestRuntimeOnArrowUpgraded_ReadyNoDiff_BeginInstall(t *testing.T) {
-	beginCalled := false
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
-		},
-		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			beginCalled = true
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
-	})
-	if !beginCalled {
-		t.Fatal("expected BeginInstall to be called")
-	}
-}
-
-// An old arrow already sitting at Outdated (a version-drift badge the user
-// acted on) must still trigger BeginInstall for the new ref — the state check
-// only ever looked at oldNs, which is already removed by this point, so
-// oldState == Outdated must not be treated as "leave it alone" the way an
-// actually-busy state (Running, Installing, ...) should be.
-func TestRuntimeOnArrowUpgraded_OldStateOutdated_BeginInstall(t *testing.T) {
-	beginCalled := false
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateOutdated}, nil
-		},
-		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			beginCalled = true
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
-	})
-	if !beginCalled {
-		t.Fatal("expected BeginInstall to be called when old state was Outdated")
-	}
-}
-
-func TestRuntimeOnArrowUpgraded_ReadyWithDiff_MarkOutdated(t *testing.T) {
-	depNs := domain.Namespace("test/dep@v1")
-	markCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
-		},
-		MarkOutdatedFn: func(_ context.Context, _ domain.Namespace, added, _ []domain.Namespace) error {
-			markCalled = true
-			if len(added) == 0 || added[0] != depNs {
-				t.Errorf("unexpected added deps: %v", added)
-			}
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff {
-			return graph.DepDiff{Added: []domain.DependencyEdge{{Namespace: depNs}}}
-		},
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1",
-	})
-	if !markCalled {
-		t.Fatal("expected MarkOutdated to be called")
-	}
-}
-
-// AlreadyReady means the new ref's software is already fetched, placed and
-// running: the swap that follows a successful update must land the row
-// Ready directly, never re-run install: on it.
-func TestRuntimeOnArrowUpgraded_AlreadyReady_MarksReadyNotInstall(t *testing.T) {
-	markReadyCalled := false
-	beginInstallCalled := false
-	var markReadyNs domain.Namespace
-	oldReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady, LastReturn: oldReturn}, nil
-		},
-		MarkReadyFn: func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-			markReadyCalled = true
-			markReadyNs = ns
-			if lastReturn != oldReturn {
-				t.Errorf("expected the old row's LastReturn to carry through, got %v", lastReturn)
-			}
-			return nil
-		},
-		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			beginInstallCalled = true
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1", AlreadyReady: true,
-	})
-	if !markReadyCalled {
-		t.Fatal("expected MarkReady to be called")
-	}
-	if markReadyNs != "test/new@v2" {
-		t.Fatalf("expected MarkReady on the new namespace, got %v", markReadyNs)
-	}
-	if beginInstallCalled {
-		t.Fatal("expected no BeginInstall when AlreadyReady is set")
-	}
-}
-
-// AlreadyReady must land the row Ready even when the old row's state was not
-// Ready/Outdated (e.g. it had already moved past Running into Stopping by
-// the time update: finished), nothing about "was this row busy" is relevant
-// once the software is already known to be correctly in place.
-func TestRuntimeOnArrowUpgraded_AlreadyReadyOldStateIrrelevant_MarksReady(t *testing.T) {
-	markReadyCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		RemoveFn: func(_ context.Context, _ domain.Namespace) error { return nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateInstalling}, nil
-		},
-		MarkReadyFn: func(_ context.Context, _ domain.Namespace, _ *domainRuntime.Return) error {
-			markReadyCalled = true
-			return nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-	}
-	newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-		Namespace: "test/new@v2", UpgradedFromNs: "test/old@v1", AlreadyReady: true,
-	})
-	if !markReadyCalled {
-		t.Fatal("expected MarkReady to be called regardless of the old row's state")
-	}
-}
-
-// ─── onUpdateEnded ────────────────────────────────────────────────────────────
-
-func TestRuntimeOnUpdateEnded_RefChanged_UpgradesVersion(t *testing.T) {
-	oldNs := domain.Namespace("test/self@stable-1.0")
-	newNs := domain.Namespace("test/self@stable-1.1")
-	var gotOld, gotNew domain.Namespace
-	var gotConstraint, gotChannel string
-	var gotAlreadyReady bool
-	var gotUserInstalled bool
-	var gotPinnedRef string
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{
-				Namespace: ns, InstalledConstraint: "*", Channel: "stable", UserInstalled: true,
-				PinnedRef: "stable-1.0.5",
-			}, nil
-		},
-		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
-			if arrow.InstalledConstraint != "*" {
-				t.Fatalf("expected the arrow's own installed constraint, got %q", arrow.InstalledConstraint)
-			}
-			return "stable-1.1", nil
-		},
-		UpgradeVersionFn: func(
-			_ context.Context, oldArg, newArg domain.Namespace, constraint, channel string,
-			runtimeAlreadyExists, alreadyReady, userInstalled bool, pinnedRef string,
-		) (*domain.Arrow, error) {
-			gotOld, gotNew, gotConstraint, gotChannel, gotAlreadyReady = oldArg, newArg, constraint, channel, alreadyReady
-			gotUserInstalled = userInstalled
-			gotPinnedRef = pinnedRef
-			if runtimeAlreadyExists {
-				t.Fatal("expected runtimeAlreadyExists to be false: the new ref has never been seen before")
-			}
-			return &domain.Arrow{Namespace: newArg}, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: oldNs,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if gotOld != oldNs || gotNew != newNs {
-		t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, gotOld, gotNew)
-	}
-	if gotConstraint != "*" {
-		t.Fatalf("expected constraint %q, got %q", "*", gotConstraint)
-	}
-	// The tracked channel must travel with this upgrade too, the same way
-	// upgradeRef's own UpgradeVersion call does — this reaction is a
-	// sibling caller of the same command, and would silently drop the
-	// channel on an in-place _update lifecycle otherwise.
-	if gotChannel != "stable" {
-		t.Fatalf("expected channel %q, got %q", "stable", gotChannel)
-	}
-	if !gotAlreadyReady {
-		t.Fatal("expected alreadyReady to be true: update: already did the real work")
-	}
-	// UserInstalled must travel with this upgrade too — dropping it here is
-	// exactly the regression this fix exists to close: an arrow the user
-	// explicitly installed must not silently lose that fact on an in-place
-	// _update lifecycle.
-	if gotPinnedRef != "stable-1.0.5" {
-		t.Fatalf("expected the pre-upgrade arrow's PinnedRef to carry through to UpgradeVersion, got %q", gotPinnedRef)
-	}
-	if !gotUserInstalled {
-		t.Fatal("expected the pre-upgrade arrow's UserInstalled to carry through to UpgradeVersion")
-	}
-}
-
-func TestRuntimeOnUpdateEnded_RefUnchanged_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.0.0")
-	upgradeCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1"}, nil
-		},
-		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
-			return "v1.0.0", nil
-		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if upgradeCalled {
-		t.Fatal("expected no UpgradeVersion call when the resolved ref did not change")
-	}
-}
-
-func TestRuntimeOnUpdateEnded_RollingTagMoved_RecordsTheNewCommit(t *testing.T) {
-	ns := domain.Namespace("test/arrow@nightly")
-	refreshed := &domain.Arrow{Namespace: ns, RefCommitSHA: "bbb222"}
-	var updated *domain.Arrow
-	upgradeCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{
-				Namespace: ns, Channel: "nightly", RefCommitSHA: "aaa111", Outdated: true, RecommendedRef: "nightly",
-			}, nil
-		},
-		RefreshManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return refreshed, nil },
-		UpdateManifestFn: func(_ context.Context, _ domain.Namespace, arrow *domain.Arrow) error {
-			updated = arrow
-			return nil
-		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if updated != refreshed {
-		t.Fatalf("expected the refreshed arrow to be recorded, got %+v", updated)
-	}
-	if upgradeCalled {
-		t.Fatal("a rolling tag keeps its ref, so no UpgradeVersion swap is expected")
-	}
-}
-
-func TestRuntimeRefreshRollingTag(t *testing.T) {
-	ns := domain.Namespace("test/arrow@nightly")
-	refreshErr := errors.New("dial tcp: connection refused")
-	testCases := []struct {
-		name        string
-		current     *domain.Arrow
-		refreshErr  error
-		updateErr   error
-		wantRefresh bool
-		wantUpdate  bool
-	}{
-		{
-			name:        "outdated on its own ref refreshes and records",
-			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
-			wantRefresh: true,
-			wantUpdate:  true,
-		},
-		{
-			name:    "current arrow needs nothing",
-			current: &domain.Arrow{},
-		},
-		{
-			name:    "outdated toward a different ref is another flow's job",
-			current: &domain.Arrow{Outdated: true, RecommendedRef: "v2.0.0"},
-		},
-		{
-			name:        "refresh failure records nothing",
-			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
-			refreshErr:  refreshErr,
-			wantRefresh: true,
-		},
-		{
-			name:        "record failure is survived",
-			current:     &domain.Arrow{Outdated: true, RecommendedRef: "nightly"},
-			updateErr:   refreshErr,
-			wantRefresh: true,
-			wantUpdate:  true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var refreshed, updated bool
-			a := &ucmocks.MockArrow{
-				RefreshManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-					refreshed = true
-					return &domain.Arrow{Namespace: ns}, tc.refreshErr
-				},
-				UpdateManifestFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
-					updated = true
-					return tc.updateErr
-				},
-			}
-			uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-
-			uc.refreshRollingTag(context.Background(), ns, tc.current)
-
-			if refreshed != tc.wantRefresh || updated != tc.wantUpdate {
-				t.Fatalf("refreshed=%v updated=%v, want refreshed=%v updated=%v",
-					refreshed, updated, tc.wantRefresh, tc.wantUpdate)
-			}
-		})
-	}
-}
-
-// TestRuntimeOnUpdateEnded_PinnedRef_StaysOnPinnedVersion pins the fix this
-// bug report exists for: an arrow pinned to an exact ref must not be swapped
-// onto a newer release just because its own update: steps ran. Delegating
-// to ResolveTrackedRef (rather than the old InstalledConstraint-or-
-// ResolveLatestStable pair) is what keeps the pin honored here.
-func TestRuntimeOnUpdateEnded_PinnedRef_StaysOnPinnedVersion(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.2.0")
-	var gotArrow domain.Arrow
-	upgradeCalled := false
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, PinnedRef: "v1.2.0"}, nil
-		},
-		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
-			gotArrow = arrow
-			return arrow.PinnedRef, nil
-		},
-		UpgradeVersionFn: func(_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if gotArrow.PinnedRef != "v1.2.0" {
-		t.Fatalf("expected ResolveTrackedRef to see the arrow's own PinnedRef, got %q", gotArrow.PinnedRef)
-	}
-	if upgradeCalled {
-		t.Fatal("expected no UpgradeVersion call: the pinned ref never moved")
-	}
-}
-
-// TestRuntimeOnUpdateEnded_ChannelTracked_FollowsChannel pins the other half
-// of this bug report's fix: an arrow following a non-stable channel must be
-// moved onto that channel's own latest ref, never onto latest-stable.
-func TestRuntimeOnUpdateEnded_ChannelTracked_FollowsChannel(t *testing.T) {
-	oldNs := domain.Namespace("test/arrow@v1.0.0-beta.1")
-	newNs := domain.Namespace("test/arrow@v1.1.0-beta.1")
-	var gotChannel string
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, Channel: "beta"}, nil
-		},
-		ResolveTrackedRefFn: func(_ context.Context, arrow domain.Arrow) (string, error) {
-			if arrow.Channel != "beta" {
-				t.Fatalf("expected ResolveTrackedRef called with Channel %q, got %q", "beta", arrow.Channel)
-			}
-			return "v1.1.0-beta.1", nil
-		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, _, channel string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			gotChannel = channel
-			if oldArg != oldNs || newArg != newNs {
-				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
-			}
-			return &domain.Arrow{Namespace: newArg}, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: oldNs,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if gotChannel != "beta" {
-		t.Fatalf("expected the tracked channel %q to carry through to UpgradeVersion, got %q", "beta", gotChannel)
-	}
-}
-
-// TestRuntimeOnUpdateEnded_PrefersRecommendedRef proves onUpdateEnded reuses
-// an already-computed RecommendedRef outright, the same way upgradeRef does,
-// rather than paying for a live ResolveTrackedRef call the passive drift
-// check has already made redundant.
-func TestRuntimeOnUpdateEnded_PrefersRecommendedRef(t *testing.T) {
-	oldNs := domain.Namespace("test/arrow@v1.0.0")
-	newNs := domain.Namespace("test/arrow@v1.2.0")
-
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "^v1", RecommendedRef: "v1.2.0"}, nil
-		},
-		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
-			t.Fatal("ResolveTrackedRef must not run when RecommendedRef is already set")
-			return "", nil
-		},
-		UpgradeVersionFn: func(_ context.Context, oldArg, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string) (*domain.Arrow, error) {
-			if oldArg != oldNs || newArg != newNs {
-				t.Fatalf("expected upgrade from %v to %v, got %v to %v", oldNs, newNs, oldArg, newArg)
-			}
-			return &domain.Arrow{Namespace: newArg}, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: oldNs,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-}
-
-func TestRuntimeOnUpdateEnded_ResolveTrackedRefError_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.0.0")
-	upgradeCalled := false
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
-			return "", errors.New("no stable release published")
-		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-
-	if upgradeCalled {
-		t.Fatal("expected no UpgradeVersion call when ResolveTrackedRef fails")
-	}
-}
-
-func TestRuntimeOnUpdateEnded_NotSuccess_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.0.0")
-	a := &ucmocks.MockArrow{
-		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
-			t.Fatal("expected no arrow lookup at all for a failed update")
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeFailed,
-		},
-	})
-}
-
-func TestRuntimeOnUpdateEnded_ArrowNotFound_NoOp(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1.0.0")
-	a := &ucmocks.MockArrow{
-		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) { return nil, nil },
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-}
-
-// TestRuntimeOnUpdateEnded_SelfNamespace_NoOp pins the fix for the race this
-// generic swap has with quiver.core's own relaunch handover (see the long
-// comment on onUpdateEnded): swapping the row here would remove the vault
-// workdir the handover still needs to exec the fetched binary from.
-func TestRuntimeOnUpdateEnded_SelfNamespace_NoOp(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	ns := self.WithRef("stable-26.5.90")
-	a := &ucmocks.MockArrow{
-		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
-			t.Fatal("expected no arrow lookup at all for quiver.core's own self-namespace")
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-}
-
-func TestRuntimeOnUpdateEnded_NilLastReturn_NoOp(t *testing.T) {
-	a := &ucmocks.MockArrow{
-		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
-			t.Fatal("expected no arrow lookup at all for a nil LastReturn")
-			return nil, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{Ref: "test/arrow@v1"})
-}
-
-func TestRuntimeOnUpdateEnded_UpgradeVersionError_Logged(t *testing.T) {
-	ns := domain.Namespace("test/self@stable-1.0")
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
-		},
-		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
-			return "stable-1.1", nil
-		},
-		UpgradeVersionFn: func(context.Context, domain.Namespace, domain.Namespace, string, string, bool, bool, bool, string) (*domain.Arrow, error) {
-			return nil, errors.New("swap failed")
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	// Must not panic; the error is logged, not propagated.
-	uc.onUpdateEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-}
-
-func TestRuntimeOnEnded_MethodUpdate_CallsOnUpdateEnded(t *testing.T) {
-	ns := domain.Namespace("test/self@stable-1.0")
-	resolveCalled := false
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, InstalledConstraint: "*"}, nil
-		},
-		ResolveTrackedRefFn: func(context.Context, domain.Arrow) (string, error) {
-			resolveCalled = true
-			return "", errors.New("network unreachable")
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-	uc.onRuntimeEnded(context.Background(), domainRuntime.ArrowRuntime{
-		Ref: ns,
-		LastReturn: &domainRuntime.Return{
-			Method:  domain.MethodUpdate,
-			Outcome: domainRuntime.ExecutionOutcomeSuccess,
-		},
-	})
-	if !resolveCalled {
-		t.Fatal("expected onRuntimeEnded to route MethodUpdate into onUpdateEnded")
-	}
-}
-
 // ─── onRuntimeEnded ───────────────────────────────────────────────────────────
 
 func TestRuntimeOnEnded_NilLastReturn_NoOp(t *testing.T) {
@@ -1644,171 +905,119 @@ func TestRuntimeInstall_DepExistsError_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestRuntimeInstall_ResolveForInstallError_ReturnsError(t *testing.T) {
+func TestRuntimeInstall_AddDependencyError_ReturnsError(t *testing.T) {
 	depNs := domain.Namespace("test/dep@v1")
 	mainNs := domain.Namespace("test/main@v1")
 	resolveErr := errors.New("resolve error")
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
-			if ns == mainNs {
-				return true, nil
-			}
-			return false, nil // dep doesn't exist
+			return ns == mainNs, nil
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return "", nil, "", resolveErr
+		AddDependencyFn: func(context.Context, domain.Namespace) (domain.Namespace, error) {
+			return "", resolveErr
 		},
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
 	}
 	g := &ucmocks.MockGraph{
 		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
 			return graph.Plan{{Namespace: depNs, Type: domain.ToolDep}}, nil
 		},
 	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, resolveErr) {
-		t.Fatalf("expected resolve error, got %v", err)
-	}
-}
-
-func TestRuntimeInstall_AddDepError_ReturnsError(t *testing.T) {
-	depNs := domain.Namespace("test/dep@v1")
-	mainNs := domain.Namespace("test/main@v1")
-	addErr := errors.New("add dep error")
-
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
-			if ns == mainNs {
-				return true, nil
-			}
-			return false, nil
-		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
-		},
-		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
-			return addErr
-		},
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
-	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
-			return graph.Plan{{Namespace: depNs, Type: domain.ToolDep}}, nil
-		},
-	}
-	uc := newUC(a, &ucmocks.MockRuntime{}, g)
-	if _, err := uc.Install(context.Background(), mainNs, nil); !errors.Is(err, addErr) {
-		t.Fatalf("expected add dep error, got %v", err)
-	}
-}
-
-func TestRuntimeInstall_AddDepAlreadyExists_Continues(t *testing.T) {
-	depNs := domain.Namespace("test/dep@v1")
-	mainNs := domain.Namespace("test/main@v1")
 	beginCalled := false
-
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
-			if ns == mainNs {
-				return true, nil
-			}
-			return false, nil
-		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return depNs, &domain.Arrow{Namespace: depNs}, "", nil
-		},
-		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
-			return apperrors.ErrAlreadyExists
-		},
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
-	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
-			return graph.Plan{{Namespace: depNs, Type: domain.ToolDep}}, nil
-		},
-	}
 	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, ns domain.Namespace) (domain.ArrowState, error) {
-			if ns == depNs {
-				return domain.ArrowStateReady, nil
-			}
-			return domain.ArrowStateAbsent, nil
-		},
-		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
-			if ns == mainNs {
-				beginCalled = true
-			}
+		BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+			beginCalled = true
 			return nil
 		},
 	}
 	uc := newUC(a, rt, g)
-	if _, err := uc.Install(context.Background(), mainNs, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !beginCalled {
-		t.Fatal("expected main BeginInstall after ErrAlreadyExists on AddDep")
-	}
+	_, err := uc.Install(context.Background(), mainNs, nil)
+	require.ErrorIs(t, err, resolveErr)
+	assert.False(t, beginCalled, "nothing installs when a dependency cannot be catalogued")
 }
 
-// An unconstrained tools:/services: edge resolves to a bare namespace
-// (graph.resolveEdgeNs), but ResolveForInstall catalogues it under its
-// resolved ref. installOneDep must be driven by that resolved ref, not the
-// bare graph-plan namespace — otherwise BeginInstall targets an aggregate ID
-// that was never catalogued and the dependency install 404s.
-func TestRuntimeInstall_DependencyResolvedNamespace_UsedForBeginInstall(t *testing.T) {
-	bareDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime")
-	resolvedDepNs := domain.Namespace("github.com/rabbytesoftware/quiver.essentials/appimage-runtime@main")
-	mainNs := domain.Namespace("test/main@v1")
-
-	var beganOn domain.Namespace
-
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
-			if ns == mainNs {
-				return true, nil
-			}
-			return false, nil // bareDepNs is not catalogued under its bare form
+// A bare tools:/services: declaration stays bare in the plan; the row it
+// installs is the identity AddDependency catalogues it as, and every later
+// step keys off that identity.
+func TestRuntimeInstall_DependencyIdentity_UsedForBeginInstall(t *testing.T) {
+	testCases := []struct {
+		name         string
+		declared     domain.Namespace
+		catalogued   bool
+		identity     domain.Namespace
+		wantAddedFor []domain.Namespace
+	}{
+		{
+			name:         "bare declaration takes the identity it is added as",
+			declared:     "github.com/rabbytesoftware/quiver.essentials/appimage-runtime",
+			identity:     "github.com/rabbytesoftware/quiver.essentials/appimage-runtime@stable",
+			wantAddedFor: []domain.Namespace{"github.com/rabbytesoftware/quiver.essentials/appimage-runtime"},
 		},
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return resolvedDepNs, &domain.Arrow{Namespace: resolvedDepNs}, "", nil
+		{
+			name:         "a selector not catalogued yet is added as itself",
+			declared:     "github.com/user/dep@v1.*",
+			identity:     "github.com/user/dep@v1.*",
+			wantAddedFor: []domain.Namespace{"github.com/user/dep@v1.*"},
 		},
-		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error {
-			return nil
-		},
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) { return &domain.Arrow{}, nil },
-	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
-			return graph.Plan{{Namespace: bareDepNs, Type: domain.ToolDep}}, nil
+		{
+			name:       "a catalogued selector is its own identity",
+			declared:   "github.com/user/dep@v1.*",
+			catalogued: true,
+			identity:   "github.com/user/dep@v1.*",
 		},
 	}
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
-			if ns != mainNs {
-				beganOn = ns
-			}
-			return nil
-		},
-		ListenEndedFn: func(_ context.Context, _ domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
-			ch := make(chan domainRuntime.ArrowRuntime, 1)
-			ch <- domainRuntime.ArrowRuntime{
-				LastReturn: &domainRuntime.Return{
-					Method:  domain.MethodInstall,
-					Outcome: domainRuntime.ExecutionOutcomeSuccess,
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mainNs := domain.Namespace("test/main@v1")
+			var beganOn domain.Namespace
+			var addedFor []domain.Namespace
+
+			a := &ucmocks.MockArrow{
+				ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+					return ns == mainNs || (tc.catalogued && ns == tc.declared), nil
+				},
+				AddDependencyFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
+					addedFor = append(addedFor, ns)
+					return tc.identity, nil
 				},
 			}
-			return ch, func() {}, nil
-		},
-	}
-	uc := newUC(a, rt, g)
+			g := &ucmocks.MockGraph{
+				ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+					return graph.Plan{{Namespace: tc.declared, Type: domain.ToolDep}}, nil
+				},
+			}
+			rt := &ucmocks.MockRuntime{
+				GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+					return domain.ArrowStateAbsent, nil
+				},
+				BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+					if ns != mainNs {
+						beganOn = ns
+					}
+					return nil
+				},
+				ListenEndedFn: endedWith(domainRuntime.ExecutionOutcomeSuccess),
+			}
+			uc := newUC(a, rt, g)
 
-	_, err := uc.Install(context.Background(), mainNs, nil)
-	require.NoError(t, err)
-	assert.Equal(t, resolvedDepNs, beganOn, "dependency install must run against the resolved ref, not the bare graph-plan namespace")
+			_, err := uc.Install(context.Background(), mainNs, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tc.identity, beganOn)
+			assert.Equal(t, tc.wantAddedFor, addedFor)
+		})
+	}
+}
+
+// endedWith answers ListenEnded with one finished execution of outcome.
+func endedWith(
+	outcome domainRuntime.ExecutionOutcome,
+) func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+	return func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+		ch := make(chan domainRuntime.ArrowRuntime, 1)
+		ch <- domainRuntime.ArrowRuntime{LastReturn: &domainRuntime.Return{Outcome: outcome}}
+		return ch, func() {}, nil
+	}
 }
 
 func TestRuntimeInstall_InstallOneDepError_ReturnsError(t *testing.T) {
@@ -1935,49 +1144,6 @@ func TestStartServiceDep_BeginExecutionStateViolation_NoError(t *testing.T) {
 }
 
 // ─── Execute: missing paths ───────────────────────────────────────────────────
-
-func TestRuntimeExecute_Update_Outdated_SyncDepsError(t *testing.T) {
-	syncErr := errors.New("sync error")
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateOutdated, nil
-		},
-		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return nil, syncErr
-		},
-	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
-	if err := uc.Execute(context.Background(), "test/arrow@v1", domain.MethodUpdate, nil); err == nil {
-		t.Fatal("expected error from syncDeps")
-	}
-}
-
-func TestRuntimeExecute_Update_Outdated_BeginError(t *testing.T) {
-	execErr := errors.New("begin error")
-	ns := domain.Namespace("test/arrow@v1")
-
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateOutdated, nil
-		},
-		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{
-				Ref:            ns,
-				State:          domain.ArrowStateOutdated,
-				PendingDepSync: nil,
-			}, nil
-		},
-		BeginUpdateFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-			return execErr
-		},
-	}
-	uc := newUC(&ucmocks.MockArrow{}, rt, &ucmocks.MockGraph{})
-	if err := uc.Execute(context.Background(), ns, domain.MethodUpdate, nil); !errors.Is(err, execErr) {
-		t.Fatalf("expected execErr, got %v", err)
-	}
-}
-
-// ─── syncDeps: missing paths ──────────────────────────────────────────────────
 
 func TestRuntimeSyncDeps_GetRuntimeError_ReturnsError(t *testing.T) {
 	getRtErr := errors.New("get runtime error")
@@ -2309,7 +1475,7 @@ func TestRuntimeSyncDeps_AddedDep_ExistsError_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestRuntimeSyncDeps_AddedDep_NotExists_ResolveError_ReturnsError(t *testing.T) {
+func TestRuntimeSyncDeps_AddedDep_AddDependencyError_ReturnsError(t *testing.T) {
 	resolveErr := errors.New("resolve error")
 	ns := domain.Namespace("test/arrow@v1")
 	depNs := domain.Namespace("test/dep@v1")
@@ -2326,41 +1492,13 @@ func TestRuntimeSyncDeps_AddedDep_NotExists_ResolveError_ReturnsError(t *testing
 	}
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return "", nil, "", resolveErr
+		AddDependencyFn: func(context.Context, domain.Namespace) (domain.Namespace, error) {
+			return "", resolveErr
 		},
 	}
 	uc := newUC(a, rt, &ucmocks.MockGraph{})
 	if err := uc.syncDeps(context.Background(), ns); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolveErr, got %v", err)
-	}
-}
-
-func TestRuntimeSyncDeps_AddedDep_AddDepError_ReturnsError(t *testing.T) {
-	addErr := errors.New("add dep error")
-	ns := domain.Namespace("test/arrow@v1")
-	depNs := domain.Namespace("test/dep@v1")
-	rt := &ucmocks.MockRuntime{
-		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{
-				Ref:   ns,
-				State: domain.ArrowStateOutdated,
-				PendingDepSync: &domainRuntime.DepSyncInfo{
-					AddedDeps: []domain.Namespace{depNs},
-				},
-			}, nil
-		},
-	}
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return false, nil },
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return depNs, &domain.Arrow{Namespace: depNs}, "v1", nil
-		},
-		AddDepFn: func(_ context.Context, _ domain.Namespace, _ *domain.Arrow, _ string) error { return addErr },
-	}
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	if err := uc.syncDeps(context.Background(), ns); !errors.Is(err, addErr) {
-		t.Fatalf("expected addErr, got %v", err)
 	}
 }
 
@@ -3153,22 +2291,20 @@ func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
-func TestRuntimeInstall_Outdated_ResolvesToRecommendedRefFirst(t *testing.T) {
-	staleNs := domain.Namespace("github.com/char2cs/crowbar@develop")
-	newNs := domain.Namespace("github.com/char2cs/crowbar@nightly")
-	var upgradedTo domain.Namespace
+// An install never swaps identity: a row that is behind installs what it
+// resolved to, and catches up through an update.
+func TestRuntimeInstall_OutdatedRow_InstallsItsOwnIdentity(t *testing.T) {
+	ns := domain.Namespace("github.com/char2cs/crowbar@nightly")
 	var begunOn domain.Namespace
 
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: staleNs, Outdated: true, RecommendedRef: "nightly", Channel: "nightly"}, nil
+			return &domain.Arrow{Namespace: ns, Available: &domain.Available{Ref: "nightly", Commit: "c2"}}, nil
 		},
-		UpgradeVersionFn: func(
-			_ context.Context, _, newArg domain.Namespace, _, _ string, _, _, _ bool, _ string,
-		) (*domain.Arrow, error) {
-			upgradedTo = newArg
-			return &domain.Arrow{Namespace: newArg}, nil
+		AdvanceFn: func(context.Context, domain.Namespace, domain.Available) error {
+			t.Error("install must not advance the row")
+			return nil
 		},
 	}
 	g := &ucmocks.MockGraph{
@@ -3178,79 +2314,18 @@ func TestRuntimeInstall_Outdated_ResolvesToRecommendedRefFirst(t *testing.T) {
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateAbsent, nil
 		},
-		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
-			begunOn = ns
+		BeginInstallFn: func(_ context.Context, got domain.Namespace, _ map[string]string) error {
+			begunOn = got
 			return nil
 		},
 	}
 	uc := newUC(a, rt, g)
 
-	started, err := uc.Install(context.Background(), staleNs, nil)
+	started, err := uc.Install(context.Background(), ns, nil)
 
 	require.NoError(t, err)
 	assert.True(t, started)
-	assert.Equal(t, newNs, upgradedTo)
-	assert.Equal(t, newNs, begunOn)
-}
-
-func TestRuntimeInstall_NotOutdated_SkipsUpgrade(t *testing.T) {
-	ns := domain.Namespace("github.com/user/app@v1")
-	upgradeCalled := false
-
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, Outdated: false}, nil
-		},
-		UpgradeVersionFn: func(
-			_ context.Context, _, _ domain.Namespace, _, _ string, _, _, _ bool, _ string,
-		) (*domain.Arrow, error) {
-			upgradeCalled = true
-			return nil, nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-	}
-	uc := newUC(a, rt, g)
-
-	_, err := uc.Install(context.Background(), ns, nil)
-
-	require.NoError(t, err)
-	assert.False(t, upgradeCalled)
-}
-
-func TestRuntimeInstall_AlreadyInstalling_SkipsUpgradeCheck(t *testing.T) {
-	ns := domain.Namespace("github.com/user/app@v1")
-	getCalled := false
-
-	a := &ucmocks.MockArrow{
-		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
-		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			getCalled = true
-			return &domain.Arrow{}, nil
-		},
-	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) { return nil, nil },
-	}
-	rt := &ucmocks.MockRuntime{
-		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateInstalling, nil
-		},
-		BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error { return nil },
-	}
-	uc := newUC(a, rt, g)
-
-	_, err := uc.Install(context.Background(), ns, nil)
-
-	require.NoError(t, err)
-	assert.False(t, getCalled)
+	assert.Equal(t, ns, begunOn)
 }
 
 func TestRuntimeGetRuntime_ResolvesBareNamespace(t *testing.T) {
@@ -3306,4 +2381,37 @@ func TestRuntimeStop_ResolvesBareNamespace(t *testing.T) {
 
 	require.NoError(t, uc.Stop(context.Background(), bare))
 	assert.Equal(t, versioned, stoppedOn)
+}
+
+func TestRuntimeInstall_RuntimeFailures(t *testing.T) {
+	boom := errors.New("boom")
+
+	testCases := []struct {
+		name     string
+		stateErr error
+		beginErr error
+	}{
+		{name: "state cannot be read", stateErr: boom},
+		{name: "install cannot begin", beginErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := domain.Namespace("github.com/user/app@stable")
+			a := &ucmocks.MockArrow{
+				ResolveCataloguedFn: func(_ context.Context, got domain.Namespace) (domain.Namespace, error) { return got, nil },
+				ExistsFn:            func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+			}
+			rt := &ucmocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+					return domain.ArrowStateAbsent, tc.stateErr
+				},
+				BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error { return tc.beginErr },
+			}
+
+			_, err := newUC(a, rt, &ucmocks.MockGraph{}).Install(context.Background(), ns, nil)
+
+			require.ErrorIs(t, err, boom)
+		})
+	}
 }

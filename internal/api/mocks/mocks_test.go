@@ -24,12 +24,12 @@ var (
 
 func TestArrowService_Add(t *testing.T) {
 	m := &mocks.ArrowService{AddErr: errTest}
-	assert.Equal(t, errTest, m.Add(ctx, testNS, models.AddOptions{}))
+	assert.Equal(t, errTest, m.Add(ctx, testNS))
 }
 
 func TestArrowService_Update(t *testing.T) {
 	m := &mocks.ArrowService{UpdateErr: errTest}
-	_, err := m.Update(ctx, testNS, models.UpdateOptions{})
+	_, err := m.Update(ctx, testNS)
 	assert.Equal(t, errTest, err)
 }
 
