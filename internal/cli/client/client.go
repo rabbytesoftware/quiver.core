@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 // Client talks to one quiver.core instance.
@@ -69,8 +71,8 @@ func WithUnauthorizedHandler(fn UnauthorizedHandler) Option {
 }
 
 // New builds a client for a server URI. Accepted forms:
-// "unix:///path/to/quiver.sock", "tcp://host:port", "http://host:port",
-// "https://host:port".
+// "unix:///path/to/quiver.sock", "npipe://quiver", "tcp://host:port",
+// "http://host:port", "https://host:port".
 func New(server string, opts ...Option) (*Client, error) {
 	if server == "" {
 		return nil, fmt.Errorf("client: server URI is empty")
@@ -84,7 +86,9 @@ func New(server string, opts ...Option) (*Client, error) {
 	var c *Client
 	switch u.Scheme {
 	case "unix":
-		c = newUnixClient(u)
+		c = newLocalClient(socketPath(u))
+	case "npipe":
+		c = newLocalClient(gateway.PipePath(u.Host))
 	case "tcp":
 		c = newTCPClient("http://" + u.Host)
 	case "http", "https":
@@ -100,14 +104,16 @@ func New(server string, opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-func newUnixClient(u *url.URL) *Client {
-	socket := u.Path
+func socketPath(u *url.URL) string {
 	if u.Host != "" {
-		socket = "/" + u.Host + u.Path
+		return "/" + u.Host + u.Path
 	}
+	return u.Path
+}
+
+func newLocalClient(socket string) *Client {
 	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, "unix", socket)
+		return gateway.Dial(ctx, socket)
 	}
 	return &Client{
 		http: &http.Client{

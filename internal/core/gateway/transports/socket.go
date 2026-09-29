@@ -14,8 +14,8 @@ import (
 
 var chmod = os.Chmod
 
-// ErrDaemonRunning is returned when a Quiver daemon is already listening on the socket path.
-var ErrDaemonRunning = errors.New("gateway: socket: daemon already running")
+// ErrDaemonRunning is returned when a Quiver daemon already owns the socket path or named pipe.
+var ErrDaemonRunning = errors.New("gateway: daemon already running")
 
 type socketTransport struct {
 	path string

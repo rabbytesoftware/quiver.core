@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 // SubscribeRuntime opens the runtime WebSocket channel for a namespace (or
@@ -24,8 +25,7 @@ func (c *Client) SubscribeRuntime(
 	if c.socket != "" {
 		socket := c.socket
 		dialer.NetDialContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(dctx, "unix", socket)
+			return gateway.Dial(dctx, socket)
 		}
 	}
 

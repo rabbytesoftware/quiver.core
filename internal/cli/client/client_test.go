@@ -79,6 +79,12 @@ func TestNew_AcceptsUnixScheme(t *testing.T) {
 	assert.NotNil(t, c)
 }
 
+func TestNew_AcceptsNPipeScheme(t *testing.T) {
+	c, err := client.New("npipe://quiver")
+	require.NoError(t, err)
+	assert.NotNil(t, c)
+}
+
 // ─── unix socket transport ───────────────────────────────────────────────────
 
 func TestClient_UnixSocketRoundtrip(t *testing.T) {

@@ -233,7 +233,7 @@ func describe(
 		)
 	case "quiverhost":
 		return fmt.Sprintf(
-			"must be a unix:// or tcp://host:port URI, got %v; recover a running daemon with --host",
+			"must be a unix://, npipe:// or tcp://host:port URI, got %v; recover a running daemon with --host",
 			fe.Value(),
 		)
 	}

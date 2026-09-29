@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,13 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/config"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
+
+func localScheme() string {
+	if runtime.GOOS == "windows" {
+		return "npipe://"
+	}
+	return "unix://"
+}
 
 func load(t *testing.T, dir string) *config.Config {
 	t.Helper()
@@ -27,8 +35,7 @@ func TestLoad_MissingFileYieldsLocalContext(t *testing.T) {
 	ctx, err := cfg.Active()
 	require.NoError(t, err)
 	assert.Equal(t, "local", ctx.Name)
-	assert.Contains(t, ctx.Server, "unix://")
-	assert.Contains(t, ctx.Server, "quiver.sock")
+	assert.Contains(t, ctx.Server, localScheme())
 }
 
 func TestLoad_RoundTripsSavedContexts(t *testing.T) {
@@ -176,7 +183,7 @@ func TestResolve_FallsBackToActive(t *testing.T) {
 	cfg := load(t, t.TempDir())
 	server, err := cfg.Resolve("", "")
 	require.NoError(t, err)
-	assert.Contains(t, server, "unix://")
+	assert.Contains(t, server, localScheme())
 }
 
 func TestResolve_UnknownContextErrors(t *testing.T) {
@@ -193,8 +200,8 @@ func TestDefaultPath_UnderHome(t *testing.T) {
 	assert.Contains(t, p, filepath.Join(".quiver", "cli.yaml"))
 }
 
-func TestDefaultLocalServer_UnixScheme(t *testing.T) {
-	assert.Contains(t, config.DefaultLocalServer(), "unix://")
+func TestDefaultLocalServer_LocalScheme(t *testing.T) {
+	assert.Contains(t, config.DefaultLocalServer(), localScheme())
 }
 
 func TestActiveName_DefaultsToLocal(t *testing.T) {

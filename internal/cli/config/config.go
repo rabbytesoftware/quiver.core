@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 // LocalContextName is the auto-created context pointing at the local socket.
@@ -47,9 +49,9 @@ func DefaultPath() (string, error) {
 func DefaultLocalServer() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "unix:///tmp/quiver.sock"
+		return gateway.LocalURI(gateway.LocalSocket("/tmp"))
 	}
-	return "unix://" + filepath.Join(home, ".quiver", "quiver.sock")
+	return gateway.LocalURI(gateway.LocalSocket(filepath.Join(home, ".quiver")))
 }
 
 // Load reads the context store, creating the in-memory default when the file
