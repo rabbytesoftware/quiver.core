@@ -1,10 +1,6 @@
 package arrow
 
 import (
-	"errors"
-	"net/http"
-	"strings"
-
 	"github.com/spf13/cobra"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
@@ -13,11 +9,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
 )
 
-const addConfirmPrompt = "this arrow was auto-generated with low confidence. Install anyway"
-
 func (c *commands) addCmd() *cobra.Command {
-	var yes bool
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "add <namespace>",
 		Short: "Register an arrow in the catalog",
 		Args:  cobra.ExactArgs(1),
@@ -25,49 +18,10 @@ func (c *commands) addCmd() *cobra.Command {
 			if err := clierr.ValidNS(args[0]); err != nil {
 				return err
 			}
-
-			cli, err := c.sess.Client(cmd.Context(), cmd)
-			if err != nil {
-				return err
-			}
-
-			if err := addWithConfirm(cmd, cli, c.sess.IsTTY(), yes, args[0]); err != nil {
-				return err
-			}
-
-			return invoke.RenderMutation(c.sess, c.rb, cmd, output.ActionAdd, args[0],
-				func() error { return nil })
+			return invoke.RunMutation(c.sess, c.rb, cmd, output.ActionAdd, args[0],
+				func(cli *client.Client) error {
+					return cli.AddArrow(cmd.Context(), args[0])
+				})
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the low-confidence confirmation prompt")
-	return cmd
-}
-
-func addWithConfirm(
-	cmd *cobra.Command,
-	cli *client.Client,
-	isTTY bool,
-	yes bool,
-	ns string,
-) error {
-	err := cli.AddArrow(cmd.Context(), ns, false)
-	if !needsConfirmation(err) {
-		return err
-	}
-
-	if confirmErr := clierr.Confirm(cmd, isTTY, yes, addConfirmPrompt); confirmErr != nil {
-		return confirmErr
-	}
-
-	return cli.AddArrow(cmd.Context(), ns, true)
-}
-
-func needsConfirmation(
-	err error,
-) bool {
-	var apiErr *client.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.Status == http.StatusConflict && strings.Contains(apiErr.Message, "confirmation required")
 }

@@ -1059,8 +1059,9 @@ func TestNewConstructor_UncreatableVaultDir_Error(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "blocker")
 	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
 
-	_, err := New(filepath.Join(blocker, "vault"), t.TempDir(), time.Hour)
-	require.ErrorContains(t, err, "vault: create dir")
+	v, err := New(filepath.Join(blocker, "vault"), t.TempDir(), time.Hour)
+	require.Error(t, err)
+	assert.Nil(t, v)
 }
 
 // Race condition in namespaceLock
@@ -1300,8 +1301,8 @@ func TestHelperDeleteArrow_ManifestRemoveError(t *testing.T) {
 	defer os.Chmod(s.vaultPath, 0o700)
 
 	err := deleteArrow(s, ns)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vault delete: remove manifest")
+	assert.ErrorIs(t, err, os.ErrPermission)
+	assert.FileExists(t, s.metaFilePath(ns), "meta outlives a manifest that could not be removed")
 }
 
 func TestHelperDeleteArrow_MetaRemoveError(t *testing.T) {
@@ -1324,8 +1325,8 @@ func TestHelperDeleteArrow_MetaRemoveError(t *testing.T) {
 	defer os.Chmod(s.vaultPath, 0o700)
 
 	err := deleteArrow(s, ns)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vault delete: remove meta")
+	assert.ErrorIs(t, err, os.ErrPermission)
+	assert.FileExists(t, s.metaFilePath(ns))
 }
 
 // renameArrow error path tests
@@ -1345,8 +1346,7 @@ func TestHelperRenameArrow_ManifestRenameError(t *testing.T) {
 	defer os.Chmod(s.vaultPath, 0o700)
 
 	err := renameArrow(s, oldNs, newNs)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vault rename manifest")
+	assert.ErrorIs(t, err, os.ErrPermission)
 
 	_, statErr := os.Stat(s.workdirPath(oldNs))
 	assert.NoError(t, statErr)
@@ -1370,7 +1370,6 @@ func TestHelperRenameArrow_MetaRenameErrorWithRollback(t *testing.T) {
 
 	err := renameArrow(s, oldNs, newNs)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vault rename meta")
 
 	// Rollback should have restored the old manifest — old entry should still be gettable
 	got, getErr := getArrow(s, oldNs)
@@ -1536,9 +1535,10 @@ func TestListCachedQuivers_NamespacesPathIsFile_Error(t *testing.T) {
 	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
 	s.namespacesPath = blocker
 
-	_, err := listCachedQuivers(s)
+	got, err := listCachedQuivers(s)
 
-	assert.ErrorContains(t, err, "vault list quivers")
+	require.Error(t, err)
+	assert.Empty(t, got)
 }
 
 func TestListCachedQuivers_SkipsTopLevelFiles(t *testing.T) {

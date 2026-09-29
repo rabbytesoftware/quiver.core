@@ -367,9 +367,10 @@ func (m *MockShelf) SetupPath(
 }
 
 type MockExposer struct {
-	ApplyFn   func(ctx context.Context, ns domain.Namespace, workdir string) *domainRuntime.ExposeResult
-	ReapplyFn func(ctx context.Context, ns domain.Namespace) *domainRuntime.ExposeResult
-	RemoveFn  func(ctx context.Context, ns domain.Namespace)
+	ApplyFn          func(ctx context.Context, ns domain.Namespace, workdir string) *domainRuntime.ExposeResult
+	ReapplyFn        func(ctx context.Context, ns domain.Namespace) *domainRuntime.ExposeResult
+	ApplyVersionedFn func(ctx context.Context, ns domain.Namespace) *domainRuntime.ExposeResult
+	RemoveFn         func(ctx context.Context, ns domain.Namespace)
 }
 
 func (m *MockExposer) Apply(
@@ -389,6 +390,16 @@ func (m *MockExposer) Reapply(
 ) *domainRuntime.ExposeResult {
 	if m.ReapplyFn != nil {
 		return m.ReapplyFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockExposer) ApplyVersioned(
+	ctx context.Context,
+	ns domain.Namespace,
+) *domainRuntime.ExposeResult {
+	if m.ApplyVersionedFn != nil {
+		return m.ApplyVersionedFn(ctx, ns)
 	}
 	return nil
 }

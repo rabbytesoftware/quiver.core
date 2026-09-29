@@ -297,16 +297,14 @@ func newDiscovery(
 	}
 
 	search := config.GetSearch()
-	fl := config.GetManifold().Fletcher
 
 	return discovery.New(providers, m, v, catalogHas(cat), discovery.Config{
 		Topics:           metadata.GetDiscovery().Topics,
 		PerProviderLimit: search.PerProviderLimit,
 		FetchConcurrency: search.FetchConcurrency,
-		Fletcher: discovery.FletcherConfig{
-			Enabled:    fl.Enabled,
-			MinStars:   fl.MinStars,
-			ProbeLimit: fl.ProbeLimit,
+		Unmarked: discovery.UnmarkedConfig{
+			MinStars:   search.Unmarked.MinStars,
+			ProbeLimit: search.Unmarked.ProbeLimit,
 		},
 	})
 }

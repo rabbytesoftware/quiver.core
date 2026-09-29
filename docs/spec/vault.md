@@ -273,6 +273,7 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 | Arrow added (manifest fetched fresh) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
 | Arrow added from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
 | Manifest seeded from raw bytes | `PutArrow(ARROW.md)` | `arrow.Seed` |
+| Arrow proven by discovery (tagged or unmarked pass), at the search's default branch | `PutArrow` with `Meta` | `discovery.verifyOne` |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
 | Arrow upgraded | `DeleteArrow(newNs)` → `RenameArrow(oldNs, newNs)` → `PutArrow(newNs, …)` | `arrow.UpgradeVersion` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |

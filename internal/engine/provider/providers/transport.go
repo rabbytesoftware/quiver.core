@@ -146,7 +146,7 @@ func (t transport) classify(
 	if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
 		return &UnauthorizedError{Host: t.host}
 	}
-	return fmt.Errorf("provider %s: search: http %d", t.host, resp.Status)
+	return fmt.Errorf("provider %s: http %d", t.host, resp.Status)
 }
 
 // isExhausted reads the budget header a 403 carries when the refusal is a rate

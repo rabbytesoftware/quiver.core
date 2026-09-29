@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
@@ -402,20 +400,6 @@ func TestFetchAndCache_ManifoldFetchFailed_NeverCachedAsAbsent(t *testing.T) {
 
 // TestFetchAndCache_UnrelatedManifoldError_NeverCachedAsAbsent covers the
 // same scope guard for a plain, unclassified error (no sentinel at all).
-func TestFetchAndCache_TransientFletchFailure_IsAppFetchFailed(t *testing.T) {
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	transient := fmt.Errorf("%w: fletcher: repo page %s: HTTP 503", manifoldresolver.ErrFetchFailed, ns)
-	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("manifold: fletch %s: %w", ns, transient)}
-
-	_, err := resolveViaManifest(t, v, m, ns)
-
-	require.ErrorIs(t, err, apperrors.ErrFetchFailed)
-	assert.NotErrorIs(t, err, apperrors.ErrNotFletchable)
-	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
-	assert.Zero(t, v.PutArrowNotFoundCalls)
-}
-
 func TestFetchAndCache_UnrelatedManifoldError_NeverCachedAsAbsent(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
@@ -529,59 +513,4 @@ func TestResolveManifest_NoVault_FetchFromManifold_TranslatesNotFound(t *testing
 	_, err := r.ResolveManifest(context.Background(), ns)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
-}
-
-func TestFetchAndCache_NotFletchable_MapsToAppNotFletchableAndNeverCachesAbsent(t *testing.T) {
-	testCases := []struct {
-		name string
-		err  error
-		want string
-	}{
-		{
-			name: "no usable asset",
-			err:  fmt.Errorf("manifold: fletch x: %w", fletcher.NotFletchableError{Reason: fletcher.ReasonNoUsableAsset}),
-			want: "not fletchable: no_usable_asset",
-		},
-		{
-			name: "disabled",
-			err:  fmt.Errorf("manifold: fletch x: %w", fletcher.NotFletchableError{Reason: fletcher.ReasonDisabled}),
-			want: "not fletchable: disabled",
-		},
-		{
-			name: "also carries manifest not found",
-			err:  fmt.Errorf("%w: %w", manifoldresolver.ErrManifestNotFound, fletcher.NotFletchableError{Reason: fletcher.ReasonNoReleaseAssets}),
-			want: "not fletchable: no_release_assets",
-		},
-		{
-			name: "sentinel without reason",
-			err:  fmt.Errorf("manifold: fletch x: %w", fletcher.ErrNotFletchable),
-			want: "not fletchable",
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-			v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-			m := &mocks.Manifold{ResolveArrowErr: tc.err}
-
-			_, err := resolveViaManifest(t, v, m, ns)
-
-			require.Error(t, err)
-			assert.ErrorIs(t, err, apperrors.ErrNotFletchable)
-			assert.NotErrorIs(t, err, apperrors.ErrNotFound)
-			assert.True(t, strings.HasSuffix(err.Error(), ": "+tc.want), err.Error())
-			assert.Zero(t, v.PutArrowNotFoundCalls)
-		})
-	}
-}
-
-func TestFetchAndCache_ManifestNotFound_StillCachesConfirmedAbsent(t *testing.T) {
-	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
-	m := &mocks.Manifold{ResolveArrowErr: fmt.Errorf("wrapped: %w", manifoldresolver.ErrManifestNotFound)}
-
-	_, err := resolveViaManifest(t, v, m, ns)
-
-	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-	assert.Equal(t, 1, v.PutArrowNotFoundCalls)
 }

@@ -903,61 +903,6 @@ func TestArrowGetDetail_GetDetailError(t *testing.T) {
 	}
 }
 
-func TestArrowPreview_Success(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1")
-	detail := &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}
-	rawBytes := []byte("# ARROW.md")
-
-	a := &ucmocks.MockArrow{
-		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
-			return detail, nil
-		},
-		ResolveManifestRawFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, error) {
-			return &detail.Metadata, rawBytes, nil
-		},
-	}
-
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	got, raw, err := uc.Preview(context.Background(), ns)
-
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, ns, got.Namespace)
-	assert.Equal(t, rawBytes, raw)
-}
-
-func TestArrowPreview_GetDetailError(t *testing.T) {
-	expected := errors.New("detail error")
-	a := &ucmocks.MockArrow{
-		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
-			return nil, expected
-		},
-	}
-
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	_, _, err := uc.Preview(context.Background(), "test/arrow@v1")
-
-	assert.ErrorIs(t, err, expected)
-}
-
-func TestArrowPreview_ResolveManifestRawError(t *testing.T) {
-	ns := domain.Namespace("test/arrow@v1")
-	expected := errors.New("resolve raw failed")
-	a := &ucmocks.MockArrow{
-		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
-			return &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}, nil
-		},
-		ResolveManifestRawFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, []byte, error) {
-			return nil, nil, expected
-		},
-	}
-
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	_, _, err := uc.Preview(context.Background(), ns)
-
-	assert.ErrorIs(t, err, expected)
-}
-
 func TestArrowGetManifest_Success(t *testing.T) {
 	ns := domain.Namespace("test/arrow")
 	a := &ucmocks.MockArrow{

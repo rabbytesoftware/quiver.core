@@ -7,6 +7,7 @@ type PortableStep struct {
 	From    Overrideable[string] `json:"from"`
 	To      Overrideable[string] `json:"to"`
 	Timeout Overrideable[string] `json:"timeout"`
+	Name    string               `json:"name,omitempty"`
 }
 
 func (s PortableStep) Resolve(
@@ -41,6 +42,7 @@ func (s PortableStep) MarshalJSON() ([]byte, error) {
 		From          Overrideable[string] `json:"from"`
 		To            Overrideable[string] `json:"to"`
 		Timeout       Overrideable[string] `json:"timeout"`
+		Name          string               `json:"name,omitempty"`
 	}
 	return json.Marshal(wire{
 		Kind:          s.Type(),
@@ -49,6 +51,7 @@ func (s PortableStep) MarshalJSON() ([]byte, error) {
 		From:          s.From,
 		To:            s.To,
 		Timeout:       s.Timeout,
+		Name:          s.Name,
 	})
 }
 
@@ -62,6 +65,7 @@ func (s *PortableStep) UnmarshalJSON(
 		From          Overrideable[string] `json:"from"`
 		To            Overrideable[string] `json:"to"`
 		Timeout       Overrideable[string] `json:"timeout"`
+		Name          string               `json:"name,omitempty"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
@@ -70,5 +74,6 @@ func (s *PortableStep) UnmarshalJSON(
 	s.From = wire.From
 	s.To = wire.To
 	s.Timeout = wire.Timeout
+	s.Name = wire.Name
 	return nil
 }

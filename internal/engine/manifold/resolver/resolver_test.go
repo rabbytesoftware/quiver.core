@@ -71,6 +71,7 @@ type stubFetcher struct {
 	data        []byte
 	err         error
 	acceptPaths map[string]bool
+	called      bool
 }
 
 func (s *stubFetcher) CanResolve(_ domain.Namespace) bool {
@@ -83,6 +84,7 @@ func (s *stubFetcher) Fetch(
 	filePaths []string,
 	_ time.Duration,
 ) ([]byte, string, error) {
+	s.called = true
 	if s.acceptPaths == nil {
 		if s.err != nil {
 			return nil, "", s.err
@@ -437,6 +439,28 @@ func (h rawHost) RawFileURL(
 	return h.base + "/" + segments[1] + "/" + segments[2] + "/" + ref + "/" + file, nil
 }
 
+func (h rawHost) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (h rawHost) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (h rawHost) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (h rawHost) DefaultBranches() []string {
 	return []string{"main"}
 }
@@ -467,28 +491,30 @@ func TestFetchManifest_ClassifiesAbsence(t *testing.T) {
 	gitCloneFailed := fmt.Errorf("%w: clone https://example: dial tcp: i/o timeout", resolvers.ErrFetchFailed)
 
 	testCases := []struct {
-		name             string
-		namespace        domain.Namespace
-		httpStatus       int
-		gitErr           error
-		wantManifestMiss bool
-		wantIs           error
-		wantContains     string
+		name              string
+		namespace         domain.Namespace
+		httpStatus        int
+		gitErr            error
+		wantManifestMiss  bool
+		wantIs            error
+		wantGitErr        error
+		wantGitFetcherRan bool
 	}{
-		{name: "http 404 and git none found", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitNoneFound, wantManifestMiss: true, wantIs: resolvers.ErrNotFound},
-		{name: "http 500 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusInternalServerError, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 500"},
-		{name: "http 503 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusServiceUnavailable, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 503"},
-		{name: "http rate limited and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusTooManyRequests, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantContains: "HTTP 429"},
-		{name: "refless http 404 and git transport failure", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantIs: resolvers.ErrFetchFailed, wantContains: "i/o timeout"},
-		{name: "pinned ref http 404 skips git transport failure", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantManifestMiss: true, wantIs: resolvers.ErrNotFound, wantContains: "absent at the pinned ref"},
+		{name: "http 404 and git none found", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitNoneFound, wantManifestMiss: true, wantIs: resolvers.ErrNotFound, wantGitFetcherRan: true},
+		{name: "http 500 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusInternalServerError, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantGitFetcherRan: true},
+		{name: "http 503 and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusServiceUnavailable, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantGitFetcherRan: true},
+		{name: "http rate limited and git not found", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusTooManyRequests, gitErr: gitNoneFound, wantIs: resolvers.ErrFetchFailed, wantGitFetcherRan: true},
+		{name: "refless http 404 and git transport failure", namespace: "github.com/user/repo", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantIs: resolvers.ErrFetchFailed, wantGitErr: gitCloneFailed, wantGitFetcherRan: true},
+		{name: "pinned ref http 404 skips git transport failure", namespace: "github.com/user/repo@v1.0.0", httpStatus: http.StatusNotFound, gitErr: gitCloneFailed, wantManifestMiss: true, wantIs: resolvers.ErrNotFound, wantGitFetcherRan: false},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			gitFetcher := &stubFetcher{canResolve: true, err: tc.gitErr}
 			r := &resolver{
 				timeout: 5 * time.Second,
 				fetchers: []resolvers.Fetcher{
 					resolvers.NewHTTP(statusServer(t, tc.httpStatus)),
-					&stubFetcher{canResolve: true, err: tc.gitErr},
+					gitFetcher,
 				},
 			}
 
@@ -497,7 +523,11 @@ func TestFetchManifest_ClassifiesAbsence(t *testing.T) {
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tc.wantIs)
 			assert.Equal(t, tc.wantManifestMiss, errors.Is(err, ErrManifestNotFound))
-			assert.Contains(t, err.Error(), tc.wantContains)
+			assert.Equal(t, tc.wantGitFetcherRan, gitFetcher.called,
+				"a pinned ref absent at the http fetcher must short-circuit before trying git")
+			if tc.wantGitErr != nil {
+				assert.ErrorIs(t, err, tc.wantGitErr)
+			}
 		})
 	}
 }

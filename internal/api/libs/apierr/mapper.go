@@ -59,10 +59,6 @@ func manifestStatusAndMessage(err error) (int, string) {
 	// message, the same reasoning ErrReservedVariable/ErrInvalidConfig use.
 	case errors.Is(err, apperrors.ErrChannelNotFound):
 		return http.StatusBadRequest, err.Error()
-	case errors.Is(err, apperrors.ErrNotFletchable):
-		return http.StatusNotFound, err.Error()
-	case errors.Is(err, apperrors.ErrConfirmationRequired):
-		return http.StatusConflict, "confirmation required"
 	case errors.Is(err, deptree.ErrCyclicDependency):
 		return http.StatusConflict, "cyclic dependency"
 	default:

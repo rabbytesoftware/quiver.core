@@ -1,6 +1,7 @@
 package portable_test
 
 import (
+	"compress/gzip"
 	"context"
 	"os"
 	"path/filepath"
@@ -14,13 +15,13 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/unpack"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
 )
 
 func TestHandler_Execute_AppImage(t *testing.T) {
 	workDir := t.TempDir()
-	from := writeAppImage(t, workDir, "bruno.AppImage", appImageEntries("bruno"))
+	from := unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
 
@@ -47,7 +48,7 @@ func TestHandler_Execute_AppImage(t *testing.T) {
 
 func TestHandler_Execute_ExpandsVariablesAndOverrides(t *testing.T) {
 	workDir := t.TempDir()
-	writeFile(t, filepath.Join(workDir, "dl", "tool"), []byte(elfExecutable))
+	unpacktest.WriteFile(t, filepath.Join(workDir, "dl", "tool"), []byte(unpacktest.ElfExecutable))
 
 	h := portable.NewHandler(unpacktest.TestMaxBytes)
 	s := domainstep.NewPortableStep("portable", "missing", "${DIR}", "", true)
@@ -56,45 +57,44 @@ func TestHandler_Execute_ExpandsVariablesAndOverrides(t *testing.T) {
 	err := h.Execute(context.Background(), req, s)
 
 	require.NoError(t, err)
-	assert.Equal(t, elfExecutable, unpacktest.ReadString(t, filepath.Join(workDir, "bin", "tool")))
+	assert.Equal(t, unpacktest.ElfExecutable, unpacktest.ReadString(t, filepath.Join(workDir, "bin", "tool")))
 }
 
 func TestHandler_Execute_UnknownFormat(t *testing.T) {
 	workDir := t.TempDir()
-	from := writeFile(t, filepath.Join(workDir, "notes.txt"), []byte("just some text"))
+	from := unpacktest.WriteFile(t, filepath.Join(workDir, "notes.txt"), []byte("just some text"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "notes.txt", ".", "")
 
 	require.ErrorIs(t, err, portable.ErrUnknownFormat)
-	assert.Equal(t, "portable: unknown format: "+from, err.Error())
 	assert.FileExists(t, from)
 }
 
 func TestHandler_Execute_InvalidTimeout(t *testing.T) {
 	workDir := t.TempDir()
-	writeFile(t, filepath.Join(workDir, "tool"), []byte(elfExecutable))
+	unpacktest.WriteFile(t, filepath.Join(workDir, "tool"), []byte(unpacktest.ElfExecutable))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "tool", "bin", "soon")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "portable: invalid timeout")
+	assert.NoDirExists(t, filepath.Join(workDir, "bin"))
 }
 
 func TestHandler_Execute_SourceOutsideWorkdirKept(t *testing.T) {
 	workDir := t.TempDir()
-	from := writeFile(t, filepath.Join(t.TempDir(), "tool"), []byte(elfExecutable))
+	from := unpacktest.WriteFile(t, filepath.Join(t.TempDir(), "tool"), []byte(unpacktest.ElfExecutable))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, from, "bin", "")
 
 	require.NoError(t, err)
 	assert.FileExists(t, from)
-	assert.Equal(t, elfExecutable, unpacktest.ReadString(t, filepath.Join(workDir, "bin", "tool")))
+	assert.Equal(t, unpacktest.ElfExecutable, unpacktest.ReadString(t, filepath.Join(workDir, "bin", "tool")))
 }
 
 func TestHandler_Execute_DestinationOutsideWorkdirRecordsNothing(t *testing.T) {
 	workDir := t.TempDir()
 	to := t.TempDir()
-	from := writeAppImage(t, workDir, "bruno.AppImage", appImageEntries("bruno"))
+	from := unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", to, "")
 
@@ -111,14 +111,13 @@ func TestHandler_Execute_Failures(t *testing.T) {
 		to      string
 		timeout string
 		wantErr error
-		wantMsg string
+		check   func(t *testing.T, workDir string)
 	}{
 		{
 			name:    "missing input",
 			setup:   func(t *testing.T, workDir string) string { return "absent" },
 			to:      "out",
 			wantErr: os.ErrNotExist,
-			wantMsg: "portable: open",
 		},
 		{
 			name: "input is a directory",
@@ -126,13 +125,15 @@ func TestHandler_Execute_Failures(t *testing.T) {
 				require.NoError(t, os.Mkdir(filepath.Join(workDir, "srcdir"), 0o755))
 				return "srcdir"
 			},
-			to:      "out",
-			wantMsg: "unpack: read ",
+			to: "out",
+			check: func(t *testing.T, workDir string) {
+				assert.NoDirExists(t, filepath.Join(workDir, "out"))
+			},
 		},
 		{
 			name: "expired timeout",
 			setup: func(t *testing.T, workDir string) string {
-				writeFile(t, filepath.Join(workDir, "a.tar"), unpacktest.HelloTar(t))
+				unpacktest.WriteFile(t, filepath.Join(workDir, "a.tar"), unpacktest.HelloTar(t))
 				return "a.tar"
 			},
 			to:      "out",
@@ -142,31 +143,36 @@ func TestHandler_Execute_Failures(t *testing.T) {
 		{
 			name: "archive destination is a file",
 			setup: func(t *testing.T, workDir string) string {
-				writeFile(t, filepath.Join(workDir, "a.tar"), unpacktest.HelloTar(t))
-				writeFile(t, filepath.Join(workDir, "out"), []byte("x"))
+				unpacktest.WriteFile(t, filepath.Join(workDir, "a.tar"), unpacktest.HelloTar(t))
+				unpacktest.WriteFile(t, filepath.Join(workDir, "out"), []byte("x"))
 				return "a.tar"
 			},
-			to:      "out",
-			wantMsg: "unpack: create",
+			to: "out",
+			check: func(t *testing.T, workDir string) {
+				assert.Equal(t, "x", unpacktest.ReadString(t, filepath.Join(workDir, "out")))
+			},
 		},
 		{
 			name: "corrupt archive",
 			setup: func(t *testing.T, workDir string) string {
-				writeFile(t, filepath.Join(workDir, "a.tar.gz"), []byte("not gzip at all"))
+				unpacktest.WriteFile(t, filepath.Join(workDir, "a.tar.gz"), []byte("not gzip at all"))
 				return "a.tar.gz"
 			},
 			to:      "out",
-			wantMsg: "unpack",
+			wantErr: gzip.ErrHeader,
 		},
 		{
 			name: "record path is a directory",
 			setup: func(t *testing.T, workDir string) string {
 				require.NoError(t, os.MkdirAll(filepath.Join(workDir, domain.PortableRecordFile, "x"), 0o755))
-				writeFile(t, filepath.Join(workDir, "Foo.zip"), zipBytes(t, map[string]string{"Foo.app/Contents/MacOS/foo": "bin"}))
+				unpacktest.WriteFile(t, filepath.Join(workDir, "Foo.zip"), unpacktest.ZipFiles(t, map[string]string{"Foo.app/Contents/MacOS/foo": "bin"}))
 				return "Foo.zip"
 			},
-			to:      ".",
-			wantMsg: "portable: read record",
+			to: ".",
+			check: func(t *testing.T, workDir string) {
+				assert.DirExists(t, filepath.Join(workDir, domain.PortableRecordFile, "x"))
+				assert.DirExists(t, filepath.Join(workDir, "Foo.app"))
+			},
 		},
 	}
 
@@ -182,7 +188,74 @@ func TestHandler_Execute_Failures(t *testing.T) {
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, err, tc.wantErr)
 			}
-			assert.Contains(t, err.Error(), tc.wantMsg)
+			if tc.check != nil {
+				tc.check(t, workDir)
+			}
 		})
 	}
+}
+
+func TestHandler_Execute_RerunReplacesRecordEntry(t *testing.T) {
+	workDir := t.TempDir()
+	req := wizstep.Request{WorkDir: workDir}
+
+	for range 2 {
+		unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
+		require.NoError(t, runPortable(t, req, "bruno.AppImage", ".", ""))
+	}
+	unpacktest.WriteAppImage(t, workDir, "zed.AppImage", unpacktest.AppImageEntries("zed"))
+	require.NoError(t, runPortable(t, req, "zed.AppImage", ".", ""))
+
+	assert.Equal(t, domain.PortableRecord{Apps: []domain.PortableApp{
+		{Name: "bruno", Entry: "bruno/.quiver-run", Icon: "bruno/usr/share/icons/hicolor/256x256/apps/bruno.png"},
+		{Name: "zed", Entry: "zed/.quiver-run", Icon: "zed/usr/share/icons/hicolor/256x256/apps/zed.png"},
+	}}, readRecord(t, workDir))
+}
+
+func TestHandler_Execute_MalformedRecordReplaced(t *testing.T) {
+	workDir := t.TempDir()
+	unpacktest.WriteFile(t, filepath.Join(workDir, domain.PortableRecordFile), []byte("{not json"))
+	unpacktest.WriteAppImage(t, workDir, "bruno.AppImage", unpacktest.AppImageEntries("bruno"))
+
+	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.PortableRecord{Apps: []domain.PortableApp{
+		{Name: "bruno", Entry: "bruno/.quiver-run", Icon: "bruno/usr/share/icons/hicolor/256x256/apps/bruno.png"},
+	}}, readRecord(t, workDir))
+}
+
+func TestHandler_Execute_ExecutableTakesTheStepName(t *testing.T) {
+	workDir := t.TempDir()
+	from := unpacktest.WriteFile(t, filepath.Join(workDir, ".tool.download"), []byte(unpacktest.ElfExecutable))
+	s := domainstep.NewPortableStep("portable", ".tool.download", "bin", "", true)
+	s.Name = "tool"
+
+	err := portable.NewHandler(unpacktest.TestMaxBytes).Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
+
+	require.NoError(t, err)
+	assert.Equal(t, unpacktest.ElfExecutable, unpacktest.ReadString(t, filepath.Join(workDir, "bin", "tool")))
+	assert.NoFileExists(t, from)
+}
+
+func TestHandler_Execute_UnsafeStepNameFails(t *testing.T) {
+	workDir := t.TempDir()
+	unpacktest.WriteFile(t, filepath.Join(workDir, "tool"), []byte(unpacktest.ElfExecutable))
+	s := domainstep.NewPortableStep("portable", "tool", "bin", "", true)
+	s.Name = "../x"
+
+	err := portable.NewHandler(unpacktest.TestMaxBytes).Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
+
+	assert.ErrorIs(t, err, portable.ErrInvalidName)
+}
+
+func TestHandler_Execute_MaxBytesLimitsExecutable(t *testing.T) {
+	workDir := t.TempDir()
+	unpacktest.WriteFile(t, filepath.Join(workDir, "tool"), []byte(unpacktest.ElfExecutable))
+	s := domainstep.NewPortableStep("portable", "tool", "bin", "", true)
+
+	err := portable.NewHandler(1).Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
+
+	require.ErrorIs(t, err, unpack.ErrTooLarge)
+	assert.FileExists(t, filepath.Join(workDir, "tool"))
 }

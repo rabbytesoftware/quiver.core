@@ -22,8 +22,6 @@ var (
 	ErrInvalidPairingCode   = errors.New("invalid or expired pairing code")
 	ErrUnauthorized         = errors.New("unauthorized")
 	ErrChannelNotFound      = errors.New("channel not found")
-	ErrNotFletchable        = errors.New("not fletchable")
-	ErrConfirmationRequired = errors.New("confirmation required")
 )
 
 // StateViolationError describes an operation rejected because the arrow was in

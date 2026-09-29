@@ -15,9 +15,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -104,10 +101,9 @@ func TestNew_NetbridgeEventStoreOpenFails_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(events, "netbridge.db"), 0o750))
 
-	_, err = New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container:")
-	assert.Contains(t, err.Error(), "eventstore:")
+	assert.Nil(t, c)
 }
 
 func TestNew_NetbridgeSnapshotStoreOpenFails_ReturnsError(t *testing.T) {
@@ -116,10 +112,9 @@ func TestNew_NetbridgeSnapshotStoreOpenFails_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(events, "netbridge_snapshots.db"), 0o750))
 
-	_, err = New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container:")
-	assert.Contains(t, err.Error(), "snapshotstore:")
+	assert.Nil(t, c)
 }
 
 // The vault is the last fallible step of New for a reason: it opens a database,
@@ -133,10 +128,10 @@ func TestNew_VaultIndexUnopenable_ReturnsError(t *testing.T) {
 		0o750,
 	))
 
-	_, err := New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container: vault")
+	assert.Nil(t, c)
 }
 
 func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
@@ -315,49 +310,44 @@ func TestHostLookup_NoProviders_MissesEveryNamespace(t *testing.T) {
 	assert.Nil(t, host)
 }
 
-func TestHostLookup_GitHubHost_SatisfiesForge(t *testing.T) {
+func TestHostLookup_PlatformHosts_AnswerThroughTheHostContract(t *testing.T) {
 	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
 	require.NoError(t, err)
 
-	host, ok := hostLookup(providers)(domain.Namespace("github.com/u/r"))
-	require.True(t, ok)
-
-	_, ok = host.(hosts.Forge)
-	assert.True(t, ok)
-}
-
-func TestHostLookup_GitLabHost_DoesNotSatisfyForge(t *testing.T) {
-	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
-	require.NoError(t, err)
-
-	host, ok := hostLookup(providers)(domain.Namespace("gitlab.com/u/r"))
-	require.True(t, ok)
-
-	_, ok = host.(hosts.Forge)
-	assert.False(t, ok)
-}
-
-func TestManifoldOptions_WiresFletcherOnlyWhenEnabled(t *testing.T) {
 	testCases := []struct {
-		name       string
-		cfg        config.ManifoldFletcher
-		wantOpts   int
-		wantReason string
+		name     string
+		ns       domain.Namespace
+		wantBlob string
+		wantPage string
 	}{
-		{name: "disabled", cfg: config.ManifoldFletcher{Enabled: false, MinStars: 50, ProbeLimit: 10}, wantOpts: 0, wantReason: fletcher.ReasonDisabled},
-		{name: "enabled", cfg: config.ManifoldFletcher{Enabled: true, MinStars: 50, ProbeLimit: 10}, wantOpts: 1, wantReason: fletcher.ReasonHostUnsupported},
+		{
+			name:     "github",
+			ns:       "github.com/u/r",
+			wantBlob: "https://github.com/u/r/blob/v1/README.md",
+			wantPage: "https://github.com/u/r",
+		},
+		{
+			name:     "gitlab",
+			ns:       "gitlab.com/u/r",
+			wantBlob: "https://gitlab.com/u/r/-/blob/v1/README.md",
+			wantPage: "https://gitlab.com/u/r",
+		},
+		{
+			name:     "bitbucket",
+			ns:       "bitbucket.org/u/r",
+			wantBlob: "https://bitbucket.org/u/r/src/v1/README.md",
+			wantPage: "",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			opts := manifoldOptions(tc.cfg, hostLookup(nil))
-			m := manifold.NewWithResolvers(nil, nil, nil, opts...)
+			host, ok := hostLookup(providers)(tc.ns)
+			require.True(t, ok)
 
-			_, _, err := m.ProbeArrow(context.Background(), domain.Namespace("example.org/acme/tool@v1.0.0"), fletcher.Hint{})
-
-			assert.Len(t, opts, tc.wantOpts)
-			var nf fletcher.NotFletchableError
-			require.ErrorAs(t, err, &nf)
-			assert.Equal(t, tc.wantReason, nf.Reason)
+			blob, err := host.BlobFileURL(tc.ns, "v1", "README.md")
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantBlob, blob)
+			assert.Equal(t, tc.wantPage, host.RepoPageURL(tc.ns))
 		})
 	}
 }

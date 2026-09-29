@@ -7,6 +7,19 @@ type ExposeResultDTO struct {
 	Refused []ExposeRefusalDTO `json:"refused" yaml:"refused"`
 }
 
+type ExposedEntryDTO struct {
+	Kind     string `json:"kind" yaml:"kind"`
+	Name     string `json:"name" yaml:"name"`
+	Target   string `json:"target" yaml:"target"`
+	Location string `json:"location" yaml:"location"`
+}
+
+type ExposeRefusalDTO struct {
+	Kind   string `json:"kind" yaml:"kind"`
+	Name   string `json:"name" yaml:"name"`
+	Reason string `json:"reason" yaml:"reason"`
+}
+
 func ExposeResultDTOFrom(
 	r *domainRuntime.ExposeResult,
 ) *ExposeResultDTO {

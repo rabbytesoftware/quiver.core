@@ -168,13 +168,21 @@ func TestHandler_Execute_ShellFormInToLeftVerbatim(t *testing.T) {
 }
 
 func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte("x"))
+	}))
+	t.Cleanup(srv.Close)
+	workDir := t.TempDir()
 	h := newTestHandler()
-	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/x", "/tmp/out.txt", "", "bad-timeout", true)
+	s := domainstep.NewFetchStep("fetch", srv.URL+"/x", "out.txt", "", "bad-timeout", true)
 
-	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid timeout")
+	assert.Zero(t, hits, "a step with an unusable timeout must not start the download")
+	assert.NoFileExists(t, filepath.Join(workDir, "out.txt"))
 }
 
 func TestHandler_Execute_DownloadError(t *testing.T) {

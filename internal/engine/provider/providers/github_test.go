@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,8 +50,8 @@ func TestGitHub_Search_MalformedJSON(t *testing.T) {
 	stub := &stubDoer{response: okBody(`{"items": [`)}
 
 	_, err := newGitHub(stub).Search(context.Background(), SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
+	var syntaxErr *json.SyntaxError
+	assert.ErrorAs(t, err, &syntaxErr)
 }
 
 func TestGitHub_Search_SkipsRepositoriesWithAnUnusableFullName(t *testing.T) {

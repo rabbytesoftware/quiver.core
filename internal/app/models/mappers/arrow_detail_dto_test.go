@@ -122,7 +122,7 @@ func TestArrowDetailDTOFrom_InferredArrow_OriginInferredCarriesGenerator(t *test
 			Namespace: "github.com/org/repo@v1.0.0",
 			ArrowMeta: domain.ArrowMeta{
 				Generator: &domain.ArrowGenerator{
-					Name:       "fletcher",
+					Name:       "generator/1",
 					Confidence: "low",
 					Warnings:   []string{"name_mismatch"},
 				},
@@ -135,7 +135,7 @@ func TestArrowDetailDTOFrom_InferredArrow_OriginInferredCarriesGenerator(t *test
 	require.NotNil(t, result)
 	assert.Equal(t, domain.ArrowOriginInferred, result.Origin)
 	require.NotNil(t, result.Generator)
-	assert.Equal(t, "fletcher", result.Generator.Name)
+	assert.Equal(t, "generator/1", result.Generator.Name)
 	assert.Equal(t, "low", result.Generator.Confidence)
 	assert.Equal(t, []string{"name_mismatch"}, result.Generator.Warnings)
 }

@@ -367,9 +367,6 @@ func (u *runtimeUsecase) updateByReinstall(
 	if exists {
 		return fmt.Errorf("execute: update %s: %s is already catalogued: %w", ns, newNs, apperrors.ErrAlreadyExists)
 	}
-	if err := u.refuseInferredSuccessor(ctx, ns, newNs, current); err != nil {
-		return err
-	}
 
 	if _, err := u.arrow.UpgradeVersion(
 		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
@@ -378,26 +375,6 @@ func (u *runtimeUsecase) updateByReinstall(
 		return fmt.Errorf("execute: update %s: upgrade to %s: %w", ns, newNs, err)
 	}
 	return nil
-}
-
-func (u *runtimeUsecase) refuseInferredSuccessor(
-	ctx context.Context,
-	ns domain.Namespace,
-	newNs domain.Namespace,
-	current *domain.Arrow,
-) error {
-	if current.Origin() == domain.ArrowOriginInferred {
-		return nil
-	}
-	next, err := u.arrow.ResolveManifest(ctx, newNs)
-	if err != nil {
-		return fmt.Errorf("execute: update %s: resolve %s: %w", ns, newNs, err)
-	}
-	if next == nil || next.Origin() != domain.ArrowOriginInferred {
-		return nil
-	}
-	reason := fmt.Sprintf("declared and the new release %s has no ARROW.md; add it explicitly", newNs)
-	return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update", reason))
 }
 
 func (u *runtimeUsecase) trackedRef(
@@ -658,27 +635,9 @@ func (u *runtimeUsecase) onArrowUpgraded(ctx context.Context, arrow domain.Arrow
 
 	if len(diff.Added) > 0 || len(diff.Removed) > 0 {
 		_ = u.runtime.MarkOutdated(ctx, newNs, edgesToNs(diff.Added), edgesToNs(diff.Removed))
-		return
+	} else {
+		_ = u.runtime.BeginInstall(ctx, newNs, nil)
 	}
-	if err := u.resetInferredWorkDir(ctx, current, arrow); err != nil {
-		slog.ErrorContext(ctx, "onArrowUpgraded: reset inferred workdir", "ns", newNs, "err", err)
-		return
-	}
-	_ = u.runtime.BeginInstall(ctx, newNs, nil)
-}
-
-func (u *runtimeUsecase) resetInferredWorkDir(
-	ctx context.Context,
-	current *domain.Arrow,
-	arrow domain.Arrow,
-) error {
-	if current.Origin() != domain.ArrowOriginInferred {
-		return nil
-	}
-	if arrow.Origin() != domain.ArrowOriginInferred {
-		return nil
-	}
-	return u.arrow.ResetWorkDir(ctx, arrow.Namespace)
 }
 
 func (u *runtimeUsecase) rebaseLastReturn(

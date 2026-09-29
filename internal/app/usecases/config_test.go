@@ -105,12 +105,12 @@ func TestConfigUsecase_Get_RestartRequiredNeverIncludesHost(t *testing.T) {
 
 func TestConfigUsecase_Get_PropagatesLoadError(t *testing.T) {
 	store := newStubConfigRepo()
-	store.loadErr = errors.New("disk on fire")
+	boom := errors.New("disk on fire")
+	store.loadErr = boom
 
 	_, err := NewConfigUsecase(store).Get(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk on fire")
+	require.ErrorIs(t, err, boom)
 }
 
 func TestConfigUsecase_Patch_AppliesSingleSetting(t *testing.T) {
@@ -235,22 +235,22 @@ func TestConfigUsecase_Patch_CrossFieldRejectsTheTouchedSetting(t *testing.T) {
 
 func TestConfigUsecase_Patch_PropagatesSaveError(t *testing.T) {
 	store := newStubConfigRepo()
-	store.saveErr = errors.New("read-only filesystem")
+	boom := errors.New("read-only filesystem")
+	store.saveErr = boom
 
 	_, err := patchWith(t, store, `{"vault":{"ttl":"48h"}}`)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read-only filesystem")
+	require.ErrorIs(t, err, boom)
 }
 
 func TestConfigUsecase_Patch_PropagatesLoadError(t *testing.T) {
 	store := newStubConfigRepo()
-	store.loadErr = errors.New("disk on fire")
+	boom := errors.New("disk on fire")
+	store.loadErr = boom
 
 	_, err := patchWith(t, store, `{"vault":{"ttl":"48h"}}`)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disk on fire")
+	require.ErrorIs(t, err, boom)
 }
 
 func TestConfigUsecase_Patch_IgnoresUntouchedInvalidSetting(t *testing.T) {
@@ -355,8 +355,8 @@ func TestConfigUsecase_Patch_ConcurrentPatchesDoNotLoseSettings(t *testing.T) {
 		`{"vault":{"ttl":"48h"}}`,
 		`{"logger":{"level":"debug"}}`,
 		`{"manifold":{"fetch_timeout":"45s"}}`,
-		`{"manifold":{"fletcher":{"enabled":true}}}`,
 		`{"search":{"fetch_concurrency":4}}`,
+		`{"search":{"unmarked":{"min_stars":7}}}`,
 	}
 
 	var wg sync.WaitGroup
@@ -377,8 +377,8 @@ func TestConfigUsecase_Patch_ConcurrentPatchesDoNotLoseSettings(t *testing.T) {
 	assert.Equal(t, "48h", final.Vault.TTL)
 	assert.Equal(t, "debug", final.Logger.Level)
 	assert.Equal(t, "45s", final.Manifold.FetchTimeout)
-	assert.True(t, final.Manifold.Fletcher.Enabled)
 	assert.Equal(t, 4, final.Search.FetchConcurrency)
+	assert.Equal(t, 7, final.Search.Unmarked.MinStars)
 }
 
 func TestConfigUsecase_Get_ReportsCorrectedSettings(t *testing.T) {

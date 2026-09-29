@@ -34,9 +34,6 @@ type Vault struct {
 	WorkDirErr        error
 	WorkDirNamespaces []domain.Namespace
 
-	DeleteWorkDirErr        error
-	DeleteWorkDirNamespaces []domain.Namespace
-
 	GetCollectionEntry  *vault.CollectionVaultEntry
 	GetCollectionPath   string
 	GetCollectionErr    error
@@ -118,10 +115,9 @@ func (m *Vault) WorkDir(
 
 func (m *Vault) DeleteWorkDir(
 	_ context.Context,
-	ns domain.Namespace,
+	_ domain.Namespace,
 ) error {
-	m.DeleteWorkDirNamespaces = append(m.DeleteWorkDirNamespaces, ns)
-	return m.DeleteWorkDirErr
+	return nil
 }
 
 func (m *Vault) GetCollection(

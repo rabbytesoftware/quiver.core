@@ -61,7 +61,7 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 
 	resolvesAfterDiscovery, _ := counter.counts()
 	s.Require().Equal(1, resolvesAfterDiscovery, "discovery proves each candidate exactly once")
-	s.Require().Equal(1, prov.searches())
+	s.Require().Equal(2, prov.searches(), "one search per pass")
 
 	// 5. Adding the discovered arrow serves from the warm vault cache.
 	s.Require().Equal(http.StatusCreated, tc.Add(discoveredNS("search-lumen")))
@@ -69,7 +69,7 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	resolvesAfterAdd, parsesAfterAdd := counter.counts()
 	s.Equal(resolvesAfterDiscovery, resolvesAfterAdd,
 		"add must not resolve again — discovery already cached the manifest")
-	s.Equal(1, prov.searches(), "add must not ask any provider anything")
+	s.Equal(2, prov.searches(), "add must not ask any provider anything")
 	s.Positive(parsesAfterAdd, "the add path read the cached bytes rather than fetching them")
 
 	// 6. The arrow is now a local, installed result.
@@ -91,7 +91,7 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	// Nothing above reached a host a second time.
 	finalResolves, _ := counter.counts()
 	s.Equal(1, finalResolves)
-	s.Equal(1, prov.searches())
+	s.Equal(2, prov.searches())
 }
 
 // TestLifecycle_Rediscovery_ReusesTheWarmIndex proves the claim that discovery
@@ -105,7 +105,7 @@ func (s *SearchSuite) TestLifecycle_Rediscovery_KeepsOneResultPerNamespace() {
 	s.runDiscovery(tc, "widget", 1)
 	s.runDiscovery(tc, "widget", 1)
 
-	s.Equal(2, prov.searches(), "one metered search per pass, no more")
+	s.Equal(4, prov.searches(), "one metered search per pass (tagged and unmarked), no more")
 
 	results, status := tc.Search("widget", kit.SearchParams{})
 	s.Equal(http.StatusOK, status)

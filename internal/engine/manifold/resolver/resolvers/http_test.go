@@ -42,6 +42,28 @@ func (s stubHost) RawFileURL(
 	).Replace(s.rawURL), nil
 }
 
+func (s stubHost) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s stubHost) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s stubHost) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (s stubHost) DefaultBranches() []string {
 	return s.branches
 }

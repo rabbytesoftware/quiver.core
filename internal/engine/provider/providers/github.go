@@ -19,9 +19,6 @@ type githubProvider struct {
 	host
 	searchURL         string
 	expandedAssetsURL string
-	repoPageURL       string
-	orgURL            string
-	avatarURL         string
 }
 
 // NewGitHub builds the provider answering for a GitHub host.
@@ -32,9 +29,6 @@ func NewGitHub(
 		host:              newHost(cfg, githubReleaseMarker),
 		searchURL:         cfg.SearchURL,
 		expandedAssetsURL: cfg.ExpandedAssetsURL,
-		repoPageURL:       cfg.RepoPageURL,
-		orgURL:            cfg.OrgURL,
-		avatarURL:         cfg.AvatarURL,
 	}
 }
 
@@ -142,35 +136,11 @@ func unmarkedGithubQuery(
 	return strings.Join(parts, " ")
 }
 
-func (p *githubProvider) RawFile(
-	ctx context.Context,
-	ns domain.Namespace,
-	ref string,
-	filePath string,
-) ([]byte, error) {
-	rawURL, err := p.RawFileURL(ns, ref, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("provider %s: raw file: %w", p.name, err)
-	}
-
-	resp, err := p.transport.fetch(ctx, rawURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("provider %s: raw file: %w", p.name, err)
-	}
-	if resp.Status == http.StatusNotFound {
-		return nil, fmt.Errorf("provider %s: raw file: %w", p.name, ErrRawNotFound)
-	}
-	if resp.Status < http.StatusOK || resp.Status >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("provider %s: raw file: http %d", p.name, resp.Status)
-	}
-	return resp.Body, nil
-}
-
 func (p *githubProvider) ReleaseAssets(
 	ctx context.Context,
 	ns domain.Namespace,
 	tag string,
-) ([]Asset, error) {
+) ([]domain.ReleaseAsset, error) {
 	rawURL, err := p.expandedAssetsURLFor(ns, tag)
 	if err != nil {
 		return nil, err
@@ -181,7 +151,7 @@ func (p *githubProvider) ReleaseAssets(
 		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
 	}
 	if resp.Status == http.StatusNotFound {
-		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, ErrReleaseNotFound)
+		return []domain.ReleaseAsset{}, nil
 	}
 	if resp.Status < http.StatusOK || resp.Status >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("provider %s: release assets: http %d", p.name, resp.Status)
@@ -212,86 +182,4 @@ func (p *githubProvider) expandedAssetsURLFor(
 		"{repo}", url.PathEscape(repo),
 		"{tag}", url.PathEscape(tag),
 	).Replace(p.expandedAssetsURL), nil
-}
-
-func (p *githubProvider) RepoPage(
-	ctx context.Context,
-	ns domain.Namespace,
-) (RepoPage, error) {
-	user, repo, err := repositoryOf(ns)
-	if err != nil {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: %w", p.name, err)
-	}
-	if p.repoPageURL == "" {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: %w", p.name, ErrNoRawURL)
-	}
-
-	pageURL := strings.NewReplacer(
-		"{user}", url.PathEscape(user),
-		"{repo}", url.PathEscape(repo),
-	).Replace(p.repoPageURL)
-	resp, err := p.transport.fetch(ctx, pageURL, nil)
-	if err != nil {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: %w", p.name, err)
-	}
-	if resp.Status < http.StatusOK || resp.Status >= http.StatusMultipleChoices {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: http %d", p.name, resp.Status)
-	}
-
-	page, err := parseRepoPage(resp.Body, user+"/"+repo)
-	if err != nil {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: %w", p.name, err)
-	}
-
-	page.OwnerIsOrg, err = p.ownerIsOrg(ctx, user)
-	if err != nil {
-		return RepoPage{}, fmt.Errorf("provider %s: repo page: %w", p.name, err)
-	}
-	page.OwnerAvatar = p.ownerAvatar(ctx, user)
-
-	return page, nil
-}
-
-func (p *githubProvider) ownerIsOrg(
-	ctx context.Context,
-	user string,
-) (bool, error) {
-	if p.orgURL == "" {
-		return false, nil
-	}
-	orgURL := strings.ReplaceAll(p.orgURL, "{user}", url.PathEscape(user))
-
-	resp, err := p.transport.redirect(ctx, orgURL)
-	if err != nil {
-		return false, fmt.Errorf("owner kind: %w", err)
-	}
-	if resp.Status == http.StatusNotFound {
-		return false, nil
-	}
-	if resp.Status >= http.StatusMultipleChoices && resp.Status < http.StatusBadRequest {
-		return true, nil
-	}
-	if resp.Status == http.StatusOK {
-		return true, nil
-	}
-	return false, fmt.Errorf("owner kind: %s answered http %d", orgURL, resp.Status)
-}
-
-func (p *githubProvider) ownerAvatar(
-	ctx context.Context,
-	user string,
-) string {
-	if p.avatarURL == "" {
-		return ""
-	}
-	avatarURL := strings.ReplaceAll(p.avatarURL, "{user}", url.PathEscape(user))
-
-	resp, err := p.transport.redirect(ctx, avatarURL)
-	if err != nil {
-		return avatarURL
-	}
-	if location := resp.Headers.Get("Location"); location != "" {
-		return location
-	}
-	return avatarURL
 }

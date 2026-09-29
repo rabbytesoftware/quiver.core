@@ -217,7 +217,7 @@ For the REST endpoint catalog see [http-api.md](http-api.md). For WebSocket fram
 | Identity | `Namespace`, `Method` |
 | Aggregates | `Arrow` (with `ArrowMeta`, `ArrowState`, transitions), `Collection`, `CollectionArrow`, `CollectionArrowEntry` |
 | Manifest fragments | `Variable`, `VariableType`, `Requirement`, `Target`, `TargetLifecycle` |
-| Runtime sub-tree | `domain/runtime` — `ArrowRuntime`, `Execution`, `ExecutionOutcome`, `StepProgress` and the typed `step/` hierarchy (`Step`, `RunStep`, `FetchStep`, `SignalStep`, `DependenciesStep`) |
+| Runtime sub-tree | `domain/runtime` — `ArrowRuntime`, `Execution`, `ExecutionOutcome`, `StepProgress` and the typed `step/` hierarchy (`Step`, `RunStep`, `FetchStep`, `ExtractStep`, `PortableStep`, `SignalStep`, `DependenciesStep`) |
 | Networking | `domain/netbridge` — `Protocol`, `PortDef` |
 | Misc | `OS`, `Credit`, `DependencyEdge` |
 

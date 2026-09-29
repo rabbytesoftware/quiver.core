@@ -115,17 +115,6 @@ type Manifold interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (branch, hash string, err error)
-
-	ProbeArrow(
-		ctx context.Context,
-		ns domain.Namespace,
-		hint fletcher.Hint,
-	) (*domain.Arrow, []byte, error)
-
-	ResolveDeclaredArrow(
-		ctx context.Context,
-		namespace domain.Namespace,
-	) (*domain.Arrow, []byte, string, error)
 }
 
 // ErrNoLatestStable reports that a repository publishes no stable release, so
@@ -239,6 +228,7 @@ type manifold struct {
 	constraint resolvers.ConstraintResolver
 	hosts      HostLookup
 	clock      func() time.Time
+	timeout    time.Duration
 	fl         fletcher.Fletcher
 
 	// cacheTTL bounds how long a cached remote lookup — ListChannels or
@@ -315,6 +305,7 @@ func newManifold(
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 		hosts:      lookup,
 		clock:      clock,
+		timeout:    fetchTimeout,
 		cacheTTL:   cacheTTL,
 	}, opts)
 }
@@ -372,25 +363,9 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
-	if m.shouldFletch(namespace, err) {
-		raw, filename, err = m.fletchArrow(ctx, namespace)
+	if err != nil && m.fl != nil {
+		raw, filename, err = m.fl.Recover(ctx, namespace, err)
 	}
-	return m.parseResolved(raw, filename, err)
-}
-
-func (m *manifold) ResolveDeclaredArrow(
-	ctx context.Context,
-	namespace domain.Namespace,
-) (*domain.Arrow, []byte, string, error) {
-	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
-	return m.parseResolved(raw, filename, err)
-}
-
-func (m *manifold) parseResolved(
-	raw []byte,
-	filename string,
-	err error,
-) (*domain.Arrow, []byte, string, error) {
 	if err != nil {
 		return nil, nil, "", err
 	}

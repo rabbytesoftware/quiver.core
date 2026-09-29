@@ -5,21 +5,19 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-var (
-	digestPattern = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
-	sizePattern   = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)\s*(Bytes|KB|MB|GB|TB)$`)
-)
+var digestPattern = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
 
 func parseExpandedAssets(
 	body []byte,
 	pageURL string,
-) ([]Asset, error) {
+) ([]domain.ReleaseAsset, error) {
 	doc, err := html.Parse(bytes.NewReader(body))
 	if err != nil {
 		return nil, ErrUnexpectedPage
@@ -35,7 +33,7 @@ func parseExpandedAssets(
 		return nil, ErrUnexpectedPage
 	}
 
-	assets := make([]Asset, 0)
+	assets := make([]domain.ReleaseAsset, 0)
 	for _, item := range findListItems(list) {
 		asset, ok := assetFromItem(item, base)
 		if ok {
@@ -75,10 +73,10 @@ func findListItems(
 func assetFromItem(
 	item *html.Node,
 	base *url.URL,
-) (Asset, bool) {
+) (domain.ReleaseAsset, bool) {
 	href, text := firstAssetLink(item)
 	if href == "" || strings.Contains(href, "/archive/") {
-		return Asset{}, false
+		return domain.ReleaseAsset{}, false
 	}
 
 	name := path.Base(href)
@@ -87,20 +85,15 @@ func assetFromItem(
 	}
 
 	digest := ""
-	size := int64(0)
 	for _, line := range itemTextLines(item) {
 		if match := digestPattern.FindString(line); match != "" {
 			digest = match
 		}
-		if match := sizePattern.FindStringSubmatch(line); match != nil {
-			size = parseSize(match[1], match[2])
-		}
 	}
 
-	return Asset{
+	return domain.ReleaseAsset{
 		Name:   name,
 		URL:    resolveHref(base, href),
-		Size:   size,
 		Digest: digest,
 	}, true
 }
@@ -189,33 +182,4 @@ func writeTextContent(
 	for child := n.FirstChild; child != nil; child = child.NextSibling {
 		writeTextContent(child, buf)
 	}
-}
-
-func parseSize(
-	number string,
-	unit string,
-) int64 {
-	value, err := strconv.ParseFloat(number, 64)
-	if err != nil {
-		return 0
-	}
-	return int64(value * float64(sizeMultiplier(unit)))
-}
-
-func sizeMultiplier(
-	unit string,
-) int64 {
-	switch unit {
-	case "Bytes":
-		return 1
-	case "KB":
-		return 1 << 10
-	case "MB":
-		return 1 << 20
-	case "GB":
-		return 1 << 30
-	case "TB":
-		return 1 << 40
-	}
-	return 0
 }

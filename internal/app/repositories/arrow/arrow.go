@@ -20,7 +20,6 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -50,10 +49,6 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	ResolveManifestRaw(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, []byte, error)
 	RefreshManifest(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -125,10 +120,6 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
-	ResetWorkDir(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 	// SetChannel changes which release channel ns tracks. ref, when
 	// non-empty, pins ns to that exact ref within channel rather than the
 	// channel's own latest; empty clears any previously pinned ref.
@@ -614,24 +605,6 @@ func (s *arrowService) ResolveManifest(
 	return s.store.ResolveManifest(ctx, ns)
 }
 
-func (s *arrowService) ResolveManifestRaw(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, []byte, error) {
-	arrow, err := s.store.ResolveManifest(ctx, ns)
-	if err != nil {
-		return nil, nil, err
-	}
-	if s.vault == nil {
-		return arrow, nil, nil
-	}
-	file, err := s.vault.GetArrow(ctx, arrow.Namespace)
-	if err != nil && !errors.Is(err, vault.ErrStale) {
-		return nil, nil, fmt.Errorf("resolve manifest raw %s: read cached manifest: %w", ns, err)
-	}
-	return arrow, file.Content, nil
-}
-
 // RefreshManifest purges the cached manifest, then resolves it — forcing a
 // re-fetch from source rather than returning a still-fresh cached copy.
 func (s *arrowService) RefreshManifest(
@@ -685,7 +658,6 @@ var appSentinels = []error{
 	apperrors.ErrMissingVariable,
 	apperrors.ErrReservedVariable,
 	apperrors.ErrInvalidConfig,
-	apperrors.ErrNotFletchable,
 }
 
 // mapResolveErr classifies a manifest-resolution failure.
@@ -739,11 +711,6 @@ func (s *arrowService) Add(
 	}
 	arrow.UserInstalled = true
 	arrow.InstalledConstraint = constraint
-	if arrow.Origin() == domain.ArrowOriginInferred &&
-		arrow.Generator.Confidence == string(fletcher.ConfidenceLow) &&
-		!opts.Confirm {
-		return fmt.Errorf("add %s: %w", ns, apperrors.ErrConfirmationRequired)
-	}
 	if err := s.markIfPreinstalled(ctx, resolvedNs, arrow); err != nil {
 		return err
 	}
@@ -928,19 +895,6 @@ func (s *arrowService) WorkDir(
 	ns domain.Namespace,
 ) (string, error) {
 	return s.vault.WorkDir(ctx, ns)
-}
-
-func (s *arrowService) ResetWorkDir(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if err := s.vault.DeleteWorkDir(ctx, ns); err != nil {
-		return fmt.Errorf("reset work dir %s: %w", ns, err)
-	}
-	if _, err := s.vault.WorkDir(ctx, ns); err != nil {
-		return fmt.Errorf("reset work dir %s: %w", ns, err)
-	}
-	return nil
 }
 
 // SetChannel stays on Send for the same reason MarkInstalled does: it needs

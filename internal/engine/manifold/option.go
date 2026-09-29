@@ -7,9 +7,12 @@ import (
 type Option func(*manifold)
 
 func WithFletcher(
-	fl fletcher.Fletcher,
+	enabled bool,
 ) Option {
 	return func(m *manifold) {
-		m.fl = fl
+		m.fl = nil
+		if enabled {
+			m.fl = fletcher.New(m.hosts, fletcherReleases{m: m}, m.timeout)
+		}
 	}
 }

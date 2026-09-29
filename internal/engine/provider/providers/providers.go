@@ -46,9 +46,25 @@ type Provider interface {
 		file string,
 	) (string, error)
 
+	BlobFileURL(
+		ns domain.Namespace,
+		ref string,
+		file string,
+	) (string, error)
+
+	RepoPageURL(
+		ns domain.Namespace,
+	) string
+
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
+
+	ReleaseAssets(
+		ctx context.Context,
+		ns domain.Namespace,
+		tag string,
+	) ([]domain.ReleaseAsset, error)
 }
 
 // DoFunc issues one HTTP request. It exists so tests can supply canned
@@ -73,8 +89,9 @@ type Config struct {
 	SearchURL         string
 	ExpandedAssetsURL string
 	RepoPageURL       string
-	OrgURL            string
-	AvatarURL         string
+	BlobURL           string
+	ReleaseAPIURL     string
+	PackagesAPIURL    string
 	Timeout           time.Duration
 	Do                DoFunc
 	Now               func() time.Time

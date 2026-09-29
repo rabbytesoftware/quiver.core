@@ -591,8 +591,6 @@ definitions:
     properties:
       channel:
         type: string
-      confirm:
-        type: boolean
     type: object
   github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions:
     properties:
@@ -675,12 +673,6 @@ definitions:
     properties:
       enabled:
         type: boolean
-      min_stars:
-        minimum: 0
-        type: integer
-      probe_limit:
-        minimum: 1
-        type: integer
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge:
     properties:
@@ -705,6 +697,17 @@ definitions:
         type: integer
       provider_timeout:
         type: string
+      unmarked:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.SearchUnmarked'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.SearchUnmarked:
+    properties:
+      min_stars:
+        minimum: 0
+        type: integer
+      probe_limit:
+        minimum: 1
+        type: integer
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Vault:
     properties:
@@ -1180,19 +1183,14 @@ paths:
       - arrows
     post:
       description: Registers an arrow by its namespace. The manifest must already
-        exist in the registry. A low-confidence inferred arrow requires confirmation,
-        either "confirm":true in the body or ?confirm=true.
+        exist in the registry.
       parameters:
       - description: Arrow namespace (e.g. github.com/user/repo@v1.0.0)
         in: path
         name: ns
         required: true
         type: string
-      - description: Confirms adding a low-confidence inferred arrow
-        in: query
-        name: confirm
-        type: boolean
-      - description: Optional install preferences (e.g. channel, confirm)
+      - description: Optional install preferences (e.g. channel)
         in: body
         name: body
         schema:
@@ -1211,8 +1209,7 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "409":
-          description: Arrow already registered, or confirmation required for a low-confidence
-            inferred arrow
+          description: Arrow already registered
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
@@ -1448,52 +1445,6 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Validate arrow manifest
-      tags:
-      - arrows
-  /arrow/{ns}/preview:
-    get:
-      description: Resolves an arrow's manifest without registering it, the same way
-        GetDetail resolves an uncatalogued namespace live. ?format=raw returns the
-        manifest bytes instead of the parsed detail.
-      parameters:
-      - description: Arrow namespace
-        in: path
-        name: ns
-        required: true
-        type: string
-      - description: raw returns the manifest bytes as text/markdown
-        in: query
-        name: format
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowDetailDTO'
-              type: object
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
-        "502":
-          description: Bad Gateway
-          schema:
-            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
-      summary: Preview arrow
       tags:
       - arrows
   /arrow/{ns}/readme:

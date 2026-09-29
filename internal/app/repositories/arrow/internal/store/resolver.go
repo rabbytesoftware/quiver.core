@@ -10,7 +10,6 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -126,7 +125,7 @@ func cacheConfirmedAbsent(
 	v vault.Vault,
 	fetchErr error,
 ) {
-	if !errors.Is(fetchErr, manifoldresolver.ErrNotFound) || errors.Is(fetchErr, fletcher.ErrNotFletchable) {
+	if !errors.Is(fetchErr, manifoldresolver.ErrNotFound) {
 		return
 	}
 	if err := v.PutArrowNotFound(ctx, ns); err != nil {
@@ -191,8 +190,6 @@ func parseManifest(
 // 500. The original error stays wrapped underneath for logging.
 func wrapManifoldErr(op string, err error) error {
 	switch {
-	case errors.Is(err, fletcher.ErrNotFletchable):
-		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrNotFletchable, err)
 	case errors.Is(err, manifoldresolver.ErrNotFound):
 		return fmt.Errorf("resolver: %s: %w: %w", op, apperrors.ErrNotFound, err)
 	case errors.Is(err, manifoldresolver.ErrFetchFailed):

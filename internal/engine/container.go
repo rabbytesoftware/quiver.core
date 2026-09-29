@@ -16,8 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/shelf"
@@ -154,8 +152,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
 	}
 
-	manifoldCfg := config.GetManifold()
-	fetchTimeout, err := time.ParseDuration(manifoldCfg.FetchTimeout)
+	fetchTimeout, err := time.ParseDuration(config.GetManifold().FetchTimeout)
 	if err != nil {
 		fetchTimeout = 30 * time.Second
 	}
@@ -201,11 +198,9 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: vault: %w", err)
 	}
 
-	lookup := hostLookup(providers)
-
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout, lookup, manifoldCacheTTL, manifoldOptions(manifoldCfg.Fletcher, lookup)...),
+		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL, manifold.WithFletcher(config.GetManifold().Fletcher.Enabled)),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
@@ -226,16 +221,6 @@ func shelfOptions(
 	return []shelf.Option{shelf.WithSandboxHome(cfg.homeDir)}
 }
 
-func manifoldOptions(
-	cfg config.ManifoldFletcher,
-	lookup manifold.HostLookup,
-) []manifold.Option {
-	if !cfg.Enabled {
-		return nil
-	}
-	return []manifold.Option{manifold.WithFletcher(fletcher.New(lookup, picker.New()))}
-}
-
 // hostLookup adapts the provider set into the lookup manifold asks its host
 // questions through. It is the only place the two engines meet: manifold
 // declares what it needs, the provider engine implements the equivalent, and
@@ -253,7 +238,7 @@ func hostLookup(
 		if !ok {
 			return nil, false
 		}
-		return adaptHost(p), true
+		return p, true
 	}
 }
 

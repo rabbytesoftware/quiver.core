@@ -94,7 +94,7 @@ func TestArrowDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
 		ArrowMeta: domain.ArrowMeta{
 			Name: "Test",
 			Generator: &domain.ArrowGenerator{
-				Name:       "fletcher",
+				Name:       "generator/1",
 				Confidence: "high",
 			},
 		},
@@ -102,7 +102,7 @@ func TestArrowDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
 	d := dto.ArrowDTOFrom(a)
 	assert.Equal(t, "inferred", d.Origin)
 	require.NotNil(t, d.Inference)
-	assert.Equal(t, "fletcher", d.Inference.Generator)
+	assert.Equal(t, "generator/1", d.Inference.Generator)
 	assert.Equal(t, "high", d.Inference.Confidence)
 }
 

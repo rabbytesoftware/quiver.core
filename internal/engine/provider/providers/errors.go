@@ -16,8 +16,6 @@ var ErrSearchUnsupported = errors.New("provider: host exposes no search")
 // there can only be reached by cloning.
 var ErrNoRawURL = errors.New("provider: host serves no raw files")
 
-var ErrRawNotFound = errors.New("provider: raw file not found")
+var ErrNoBlobURL = errors.New("provider: host renders no files")
 
 var ErrUnexpectedPage = errors.New("provider: page did not match the expected shape")
-
-var ErrReleaseNotFound = errors.New("provider: release not found")

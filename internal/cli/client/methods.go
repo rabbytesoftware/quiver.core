@@ -97,16 +97,8 @@ func (c *Client) GetArrowManifest(
 }
 
 // AddArrow registers an arrow in the catalog.
-func (c *Client) AddArrow(
-	ctx context.Context,
-	ns string,
-	confirm bool,
-) error {
-	path := "/v0/arrow/" + encodeNS(ns)
-	if confirm {
-		path += "?confirm=true"
-	}
-	return c.do(ctx, http.MethodPost, path, nil, nil)
+func (c *Client) AddArrow(ctx context.Context, ns string) error {
+	return c.do(ctx, http.MethodPost, "/v0/arrow/"+encodeNS(ns), nil, nil)
 }
 
 // RemoveArrow deletes an arrow from the catalog.

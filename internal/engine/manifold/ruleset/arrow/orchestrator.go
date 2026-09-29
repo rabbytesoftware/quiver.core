@@ -34,6 +34,7 @@ func AllCompiled() []CompiledRule {
 		MethodStatesRule{},
 		NoDependenciesStepRule{},
 		ExposeEntriesRule{},
+		PortableNameRule{},
 	}
 }
 

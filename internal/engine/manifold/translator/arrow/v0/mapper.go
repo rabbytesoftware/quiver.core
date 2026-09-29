@@ -333,6 +333,7 @@ func toStep(s stepV0) (step.Step, error) {
 		st.From = toStepOverrideable(s.From)
 		st.To = toStepOverrideable(s.To)
 		st.Timeout = toStepOverrideable(s.Timeout)
+		st.Name = s.Name
 		return st, nil
 
 	case "signal":

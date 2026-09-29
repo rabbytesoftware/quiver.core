@@ -17,7 +17,7 @@ func changedConfig() ConfigData {
 		Logger:    Logger{Enabled: false, Level: "debug"},
 		Manifold: Manifold{
 			FetchTimeout: "1s",
-			Fletcher:     ManifoldFletcher{Enabled: true, MinStars: 1, ProbeLimit: 1},
+			Fletcher:     ManifoldFletcher{Enabled: true},
 		},
 		Vault: Vault{SweepInterval: "1s", TTL: "1s", IndexTTL: "1s"},
 		Arrows: Arrows{
@@ -26,8 +26,13 @@ func changedConfig() ConfigData {
 			SelfUpdateChannel: "rc",
 			ExtractMaxBytes:   1,
 		},
-		Search: Search{PerProviderLimit: 1, FetchConcurrency: 1, ProviderTimeout: "1s"},
-		Auth:   Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
+		Search: Search{
+			PerProviderLimit: 1,
+			FetchConcurrency: 1,
+			ProviderTimeout:  "1s",
+			Unmarked:         SearchUnmarked{MinStars: 1, ProbeLimit: 1},
+		},
+		Auth: Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
 	}
 }
 
@@ -41,8 +46,6 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"logger.level",
 		"manifold.fetch_timeout",
 		"manifold.fletcher.enabled",
-		"manifold.fletcher.min_stars",
-		"manifold.fletcher.probe_limit",
 		"vault.sweep_interval",
 		"vault.ttl",
 		"vault.index_ttl",
@@ -54,6 +57,8 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"search.per_provider_limit",
 		"search.fetch_concurrency",
 		"search.provider_timeout",
+		"search.unmarked.min_stars",
+		"search.unmarked.probe_limit",
 		"auth.pairing_code_ttl",
 		"auth.redeem_rate_limit",
 		"auth.redeem_rate_window",
@@ -130,9 +135,9 @@ func TestSetField_DecodesEveryType(t *testing.T) {
 			want: func(c ConfigData) bool { return c.Manifold.Fletcher.Enabled },
 		},
 		{
-			key:  "manifold.fletcher.min_stars",
+			key:  "search.unmarked.min_stars",
 			raw:  "0",
-			want: func(c ConfigData) bool { return c.Manifold.Fletcher.MinStars == 0 },
+			want: func(c ConfigData) bool { return c.Search.Unmarked.MinStars == 0 },
 		},
 		{
 			key:  "arrows.extract_max_bytes",
@@ -165,7 +170,7 @@ func TestSetField_UnknownKeyReturnsError(t *testing.T) {
 	err := SetField(&data, Defaults(), "netbrige.enabled", json.RawMessage("true"))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown setting")
+	assert.Equal(t, Defaults(), data)
 }
 
 func TestSetField_WrongTypeReturnsError(t *testing.T) {
@@ -174,7 +179,7 @@ func TestSetField_WrongTypeReturnsError(t *testing.T) {
 	err := SetField(&data, Defaults(), "netbridge.ephemeral_port_start", json.RawMessage(`"abc"`))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be a")
+	assert.Equal(t, Defaults(), data)
 }
 
 func TestValidate_ReportsOffendingKey(t *testing.T) {
@@ -188,8 +193,6 @@ func TestValidate_ReportsOffendingKey(t *testing.T) {
 		{"host", func(c *ConfigData) { c.API.Host = "http://nope" }, "api.host"},
 		{"level", func(c *ConfigData) { c.Logger.Level = "waarn" }, "logger.level"},
 		{"fetch timeout", func(c *ConfigData) { c.Manifold.FetchTimeout = "banana" }, "manifold.fetch_timeout"},
-		{"fletcher min stars", func(c *ConfigData) { c.Manifold.Fletcher.MinStars = -1 }, "manifold.fletcher.min_stars"},
-		{"fletcher probe limit", func(c *ConfigData) { c.Manifold.Fletcher.ProbeLimit = 0 }, "manifold.fletcher.probe_limit"},
 		{"sweep interval", func(c *ConfigData) { c.Vault.SweepInterval = "0s" }, "vault.sweep_interval"},
 		{"ttl", func(c *ConfigData) { c.Vault.TTL = "-1h" }, "vault.ttl"},
 		{"index ttl", func(c *ConfigData) { c.Vault.IndexTTL = "" }, "vault.index_ttl"},
@@ -199,6 +202,8 @@ func TestValidate_ReportsOffendingKey(t *testing.T) {
 		{"per provider limit", func(c *ConfigData) { c.Search.PerProviderLimit = 0 }, "search.per_provider_limit"},
 		{"fetch concurrency", func(c *ConfigData) { c.Search.FetchConcurrency = 0 }, "search.fetch_concurrency"},
 		{"provider timeout", func(c *ConfigData) { c.Search.ProviderTimeout = "soon" }, "search.provider_timeout"},
+		{"unmarked min stars", func(c *ConfigData) { c.Search.Unmarked.MinStars = -1 }, "search.unmarked.min_stars"},
+		{"unmarked probe limit", func(c *ConfigData) { c.Search.Unmarked.ProbeLimit = 0 }, "search.unmarked.probe_limit"},
 		{"pairing code ttl", func(c *ConfigData) { c.Auth.PairingCodeTTL = "soon" }, "auth.pairing_code_ttl"},
 		{"redeem rate limit", func(c *ConfigData) { c.Auth.RedeemRateLimit = 0 }, "auth.redeem_rate_limit"},
 		{"redeem rate window", func(c *ConfigData) { c.Auth.RedeemRateWindow = "soon" }, "auth.redeem_rate_window"},

@@ -14,7 +14,9 @@ const gitlabReleaseMarker = "/-/releases/"
 
 type gitlabProvider struct {
 	host
-	searchURL string
+	searchURL      string
+	releaseAPIURL  string
+	packagesAPIURL string
 }
 
 // NewGitLab builds the provider answering for a GitLab host.
@@ -22,8 +24,10 @@ func NewGitLab(
 	cfg Config,
 ) Provider {
 	return &gitlabProvider{
-		host:      newHost(cfg, gitlabReleaseMarker),
-		searchURL: cfg.SearchURL,
+		host:           newHost(cfg, gitlabReleaseMarker),
+		searchURL:      cfg.SearchURL,
+		releaseAPIURL:  cfg.ReleaseAPIURL,
+		packagesAPIURL: cfg.PackagesAPIURL,
 	}
 }
 

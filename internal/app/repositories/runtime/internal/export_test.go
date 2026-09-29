@@ -6,6 +6,7 @@ import (
 
 	"github.com/char2cs/asynx"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -44,14 +45,14 @@ func DrainExecutionWithExposer(
 	executionID string,
 	method string,
 	workdir string,
-	exposer Exposer,
+	ex exposer.Exposer,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	hooks := CatalogHooks{
 		MarkInstalled:   func(context.Context, domain.Namespace, time.Time) error { return nil },
 		MarkUninstalled: func(context.Context, domain.Namespace) error { return nil },
 		MarkLastUsed:    func(context.Context, domain.Namespace, time.Time) error { return nil },
-		Exposer:         exposer,
+		Exposer:         ex,
 	}
 
 	drainExecution(ctx, exec, ns, executionID, method, workdir, hooks, axRuntime)

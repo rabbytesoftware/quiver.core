@@ -36,10 +36,6 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	ResolveManifestRawFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, []byte, error)
 	RefreshManifestFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -96,10 +92,6 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
-	ResetWorkDirFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 	SetChannelFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -236,16 +228,6 @@ func (m *MockArrow) ResolveManifest(
 		return m.ResolveManifestFn(ctx, ns)
 	}
 	return nil, nil
-}
-
-func (m *MockArrow) ResolveManifestRaw(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, []byte, error) {
-	if m.ResolveManifestRawFn != nil {
-		return m.ResolveManifestRawFn(ctx, ns)
-	}
-	return nil, nil, nil
 }
 
 func (m *MockArrow) RefreshManifest(
@@ -390,16 +372,6 @@ func (m *MockArrow) WorkDir(
 		return m.WorkDirFn(ctx, ns)
 	}
 	return "", nil
-}
-
-func (m *MockArrow) ResetWorkDir(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	if m.ResetWorkDirFn != nil {
-		return m.ResetWorkDirFn(ctx, ns)
-	}
-	return nil
 }
 
 func (m *MockArrow) SetChannel(

@@ -25,8 +25,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -229,11 +227,11 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
-	opts := manifoldOptions(cfg)
+	withFletcher := manifold.WithFletcher(cfg.fletcher != nil)
 	if cfg.clock != nil {
-		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock, opts...)
+		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, cfg.fletcher, cfg.clock, withFletcher)
 	} else {
-		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil, opts...)
+		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, cfg.fletcher, withFletcher)
 	}
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)
@@ -242,15 +240,6 @@ func stubEngines(
 	// engine.New builds providers from the real platform metadata. Keeping only
 	// what the test asked for is what stops a discovery pass reaching github.com.
 	engines.Providers = cfg.providers
-}
-
-func manifoldOptions(
-	cfg envConfig,
-) []manifold.Option {
-	if cfg.fletcher == nil {
-		return nil
-	}
-	return []manifold.Option{manifold.WithFletcher(fletcher.New(cfg.fletcher, picker.New()))}
 }
 
 // BuildEnv wires a full test server using the given homeDir for path isolation.

@@ -441,6 +441,8 @@ All concrete steps embed `BasicStep` (private fields written by
 |-------------------------|-----------------|----------|----------------------------------------------------------------------|
 | `StepTypeRun`           | `run`           | yes      | Executes a shell command.                                            |
 | `StepTypeFetch`         | `fetch`         | yes      | Downloads a URL to a path with optional checksum.                    |
+| `StepTypeExtract`       | `extract`       | yes      | Unpacks an archive into a directory.                                 |
+| `StepTypePortable`      | `portable`      | yes      | Materializes an app package (AppImage, dmg, archive, binary).        |
 | `StepTypeSignal`        | `signal`        | yes      | Sends a cross-platform process signal.                               |
 | `StepTypeDependencies`  | `dependencies`  | no       | Synthetic step injected by the app layer at index 0 of `_install`.   |
 
@@ -460,6 +462,23 @@ All concrete steps embed `BasicStep` (private fields written by
 | `To`       | `Overrideable[string]` | Destination path.                                      |
 | `Checksum` | `Overrideable[string]` | Bare SHA-256 hex digest, no algorithm prefix.          |
 | `Timeout`  | `Overrideable[string]` | Duration string.                                       |
+
+### `ExtractStep`
+
+| Field     | Type                   | Notes                                                  |
+|-----------|------------------------|--------------------------------------------------------|
+| `From`    | `Overrideable[string]` | Archive path.                                          |
+| `To`      | `Overrideable[string]` | Destination directory.                                 |
+| `Timeout` | `Overrideable[string]` | Duration string.                                       |
+
+### `PortableStep`
+
+| Field     | Type                   | Notes                                                                          |
+|-----------|------------------------|--------------------------------------------------------------------------------|
+| `From`    | `Overrideable[string]` | Package path (AppImage, dmg, archive or bare executable).                      |
+| `To`      | `Overrideable[string]` | Destination directory.                                                         |
+| `Timeout` | `Overrideable[string]` | Duration string.                                                               |
+| `Name`    | `string`               | Optional file name for a bare executable or single-file archive payload. Not overrideable; omitted from JSON when empty. |
 
 ### `SignalStep`
 

@@ -2,6 +2,12 @@ package domain
 
 const PortableRecordFile = ".quiver-apps.json"
 
+type PortableApp struct {
+	Name  string `json:"name"           yaml:"name"`
+	Entry string `json:"entry"          yaml:"entry"`
+	Icon  string `json:"icon,omitempty" yaml:"icon,omitempty"`
+}
+
 type PortableRecord struct {
 	Apps []PortableApp `json:"apps" yaml:"apps"`
 }

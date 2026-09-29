@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -15,11 +16,6 @@ import (
 
 func TestGitLab_Host_ReturnsConfiguredHost(t *testing.T) {
 	assert.Equal(t, "gitlab.com", newGitLab(&stubDoer{response: okBody(gitlabPayload)}).Host())
-}
-
-func TestGitLab_DoesNotImplementForge(t *testing.T) {
-	_, ok := newGitLab(&stubDoer{response: okBody(gitlabPayload)}).(Forge)
-	assert.False(t, ok)
 }
 
 func TestGitLab_Search_ParsesCandidates(t *testing.T) {
@@ -64,8 +60,8 @@ func TestGitLab_Search_MalformedJSON(t *testing.T) {
 	stub := &stubDoer{response: okBody(`[{`)}
 
 	_, err := newGitLab(stub).Search(context.Background(), SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
+	var syntaxErr *json.SyntaxError
+	assert.ErrorAs(t, err, &syntaxErr)
 }
 
 func TestGitLab_Search_EmptyResults(t *testing.T) {

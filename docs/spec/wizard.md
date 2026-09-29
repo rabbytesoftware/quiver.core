@@ -17,6 +17,9 @@ The package layout under `internal/engine/wizard/`:
 | `internal/step/download/` | `FetchStep` handler — HTTP download via `internal/core/fns` |
 | `internal/step/signal/` | `SignalStep` handler — sends OS signals to a PID |
 | `internal/step/dependencies/` | `DependenciesStep` handler — calls an injected `Executor` |
+| `internal/step/extract/` | `ExtractStep` handler — unpacks an archive into a directory |
+| `internal/step/portable/` | `PortableStep` handler — materializes an AppImage, `.dmg`, archive or bare executable as a Quiver-owned app; its `internal/{install,record,workdir}` place the files, write `${WORKDIR}/.quiver-apps.json` and anchor paths to the workdir |
+| `internal/unpack/` | Archive, AppImage and DMG extraction behind a safety `Guard` (path-escape, symlink, size and entry-count limits); shared by `extract` and `portable`. Its `internal/{archive,appimage,dmg,guard,models}` hold the formats and the guard, `unpacktest/` the fixture builders |
 | `internal/runtime/` | Process spawn/signal sub-engine (see `runtime.md`) |
 | `internal/mocks/` | Test doubles |
 
@@ -72,9 +75,9 @@ The `Wizard` interface exposes three methods.
 
 ### Constructor
 
-`New(depExec stepdeps.Executor) (Wizard, error)`
+`New(depExec stepdeps.Executor, extractMaxBytes int64) (Wizard, error)`
 
-A single argument: the dependency-step executor function. Passing `nil` makes every `DependenciesStep` a no-op (used in tests and in lifecycles where dependency resolution is delegated outside the wizard). The constructor builds the runtime sub-engine via `runtime.New()` (which fails with `ErrUnsupportedOS` outside `darwin`/`linux`/`windows`), then registers the four built-in handlers in the dispatch table.
+The first argument is the dependency-step executor function. Passing `nil` makes every `DependenciesStep` a no-op (used in tests and in lifecycles where dependency resolution is delegated outside the wizard). The second is the uncompressed-size cap the `extract` and `portable` handlers enforce (the engine container passes `arrows.extract_max_bytes`). The constructor builds the runtime sub-engine via `runtime.New()` (which fails with `ErrUnsupportedOS` outside `darwin`/`linux`/`windows`), then registers the six built-in handlers in the dispatch table.
 
 ### RunRequest
 
@@ -131,7 +134,7 @@ The Wizard does not call asynx, never knows about step indexing offsets, and nev
 
 ## Step Types
 
-The dispatch table is fixed at construction time. Four step types map to four handlers; an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
+The dispatch table is fixed at construction time. Six step types map to six handlers; an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
 
 | Step type | Handler | Description |
 |-----------|---------|-------------|
@@ -139,6 +142,8 @@ The dispatch table is fixed at construction time. Four step types map to four ha
 | `fetch` | `internal/step/download` | Downloads URL → `WorkDir`-relative or absolute destination via `internal/core/fns`; expands `${VAR}` references using `req.Vars` |
 | `signal` | `internal/step/signal` | Sends a `SignalKind` (graceful/kill/interrupt) directly to `req.PID`; returns `ErrNoProcess` if `PID <= 0` |
 | `dependencies` | `internal/step/dependencies` | Calls the `Executor` injected at `New`; if `nil`, a no-op |
+| `extract` | `internal/step/extract` | Unpacks a tar (plain or `.gz`/`.xz`/`.bz2`/`.zst`), zip or single compressed file into a `WorkDir`-anchored directory through `internal/unpack`; refuses an AppImage or `.dmg` with `ErrPortableFormat`, pointing at `portable` |
+| `portable` | `internal/step/portable` | Installs an AppImage, `.dmg`, archive or bare executable as a Quiver-owned app (staging directory, ownership marker, swap with rollback), records the apps it produced in `${WORKDIR}/.quiver-apps.json`, then removes the source when it lies inside the workdir |
 
 ### Step Request
 
@@ -155,7 +160,7 @@ Every handler receives a `step.Request` derived from the `RunRequest` plus per-e
 
 ### Per-step timeouts
 
-`RunStep`, `FetchStep`, and `SignalStep` each carry an `Overrideable[string]` `Timeout` field. When non-empty, the handler resolves it for the current OS, parses it as a Go `time.Duration`, and derives a `context.WithTimeout` from the parent context. The fetch handler additionally disables the underlying HTTP client's default timeout (`config.WithTimeout(0)`) so the wrapping context deadline becomes the sole authority — preventing the 30s default from firing before a longer step timeout takes effect.
+`RunStep`, `FetchStep`, `SignalStep`, `ExtractStep`, and `PortableStep` each carry an `Overrideable[string]` `Timeout` field. When non-empty, the handler resolves it for the current OS, parses it as a Go `time.Duration`, and derives a `context.WithTimeout` from the parent context. The fetch handler additionally disables the underlying HTTP client's default timeout (`config.WithTimeout(0)`) so the wrapping context deadline becomes the sole authority — preventing the 30s default from firing before a longer step timeout takes effect.
 
 ### Step type / handler dispatch
 
@@ -171,11 +176,15 @@ flowchart LR
   F -->|fetch| FET[fns.Download]
   F -->|signal| SIG[runtime.SignalPID]
   F -->|dependencies| DEP[Executor func]
+  F -->|extract| EXT[unpack archive via Guard]
+  F -->|portable| POR[install + record apps]
   F -->|unknown| UNK[ErrUnknownStepType]
   RUN --> G{err?}
   FET --> G
   SIG --> G
   DEP --> G
+  EXT --> G
+  POR --> G
   UNK --> G
   G -->|nil| H[emit step.completed] --> B
   G -->|err & ctx cancelled| Z
@@ -213,7 +222,7 @@ sequenceDiagram
   App->>Wiz: New(depExec)
   Wiz->>RT: runtime.New()
   RT-->>Wiz: Runtime
-  Wiz->>Wiz: register dispatch[Run/Fetch/Signal/Deps]
+  Wiz->>Wiz: register dispatch[Run/Fetch/Signal/Deps/Extract/Portable]
   Wiz-->>App: Wizard
 
   App->>Wiz: Start(ctx, req)

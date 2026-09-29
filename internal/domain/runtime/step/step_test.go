@@ -515,6 +515,7 @@ func TestExtractStep_JSONRoundTrip(t *testing.T) {
 
 func TestPortableStep_JSONRoundTrip(t *testing.T) {
 	original := NewPortableStep("install app", "./bruno.AppImage", "./out", "2m", true)
+	original.Name = "bruno"
 
 	data, err := json.Marshal(original)
 	require.NoError(t, err)
@@ -525,7 +526,17 @@ func TestPortableStep_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "./bruno.AppImage", got.From.Default)
 	assert.Equal(t, "./out", got.To.Default)
 	assert.Equal(t, "2m", got.Timeout.Default)
+	assert.Equal(t, "bruno", got.Name)
 	assert.True(t, got.ExitOnFailure())
+}
+
+func TestPortableStep_Resolve_KeepsName(t *testing.T) {
+	s := NewPortableStep("install app", "./tool.download", "./tool", "", true)
+	s.Name = "tool.exe"
+
+	got := s.Resolve("windows/amd64").(PortableStep)
+
+	assert.Equal(t, "tool.exe", got.Name)
 }
 
 func TestFetchStep_JSONRoundTrip_WithChecksum(t *testing.T) {

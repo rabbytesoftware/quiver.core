@@ -62,7 +62,7 @@ func TestSearchResultDTOFromDiscovery_InferredArrow_CarriesOriginAndConfidence(t
 			ArrowMeta: domain.ArrowMeta{
 				Name: "repo",
 				Generator: &domain.ArrowGenerator{
-					Name:       "fletcher",
+					Name:       "generator/1",
 					Confidence: "high",
 				},
 			},

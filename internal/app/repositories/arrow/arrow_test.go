@@ -487,97 +487,6 @@ func TestResolveManifest_DelegatesToCQRS(t *testing.T) {
 	assert.Equal(t, expected, got)
 }
 
-func TestResolveManifestRaw_ReturnsCachedBytes(t *testing.T) {
-	ns := testNs()
-	expected := testArrow()
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return expected, nil
-		},
-	}
-	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw manifest bytes")}}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), v, nil)
-
-	arrow, raw, err := cat.ResolveManifestRaw(context.Background(), ns)
-
-	require.NoError(t, err)
-	assert.Equal(t, expected, arrow)
-	assert.Equal(t, []byte("raw manifest bytes"), raw)
-}
-
-func TestResolveManifestRaw_NoVault_ReturnsNilBytes(t *testing.T) {
-	ns := testNs()
-	expected := testArrow()
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return expected, nil
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-
-	arrow, raw, err := cat.ResolveManifestRaw(context.Background(), ns)
-
-	require.NoError(t, err)
-	assert.Equal(t, expected, arrow)
-	assert.Nil(t, raw)
-}
-
-func TestResolveManifestRaw_VaultReadError(t *testing.T) {
-	readErr := errors.New("disk unreadable")
-	testCases := []struct {
-		name      string
-		file      vault.ManifestFile
-		vaultErr  error
-		wantErrIs error
-		wantRaw   []byte
-	}{
-		{name: "read failure surfaces", vaultErr: readErr, wantErrIs: readErr},
-		{name: "missing cache entry surfaces", vaultErr: vault.ErrNotCached, wantErrIs: vault.ErrNotCached},
-		{name: "stale entry still serves its bytes", file: vault.ManifestFile{Content: []byte("stale bytes")}, vaultErr: vault.ErrStale, wantRaw: []byte("stale bytes")},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			expected := testArrow()
-			r := &arrowStoreMocks.MockCQRS{
-				ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-					return expected, nil
-				},
-			}
-			v := &mocks.Vault{GetArrowFile: tc.file, GetArrowErr: tc.vaultErr}
-			cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), v, nil)
-
-			arrow, raw, err := cat.ResolveManifestRaw(context.Background(), testNs())
-
-			if tc.wantErrIs != nil {
-				require.ErrorIs(t, err, tc.wantErrIs)
-				assert.Contains(t, err.Error(), "read cached manifest")
-				assert.Nil(t, arrow)
-				assert.Nil(t, raw)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, expected, arrow)
-			assert.Equal(t, tc.wantRaw, raw)
-		})
-	}
-}
-
-func TestResolveManifestRaw_ResolveError_PropagatesError(t *testing.T) {
-	wantErr := errors.New("resolve failed")
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return nil, wantErr
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), &mocks.Vault{}, nil)
-
-	arrow, raw, err := cat.ResolveManifestRaw(context.Background(), testNs())
-
-	require.ErrorIs(t, err, wantErr)
-	assert.Nil(t, arrow)
-	assert.Nil(t, raw)
-}
-
 func TestResolveForInstall_DelegatesToCQRS(t *testing.T) {
 	expected := testArrow()
 	r := &arrowStoreMocks.MockCQRS{
@@ -706,38 +615,6 @@ func TestWorkDir_PropagatesVaultError(t *testing.T) {
 	_, err := cat.WorkDir(context.Background(), ns)
 
 	assert.Error(t, err)
-}
-
-func TestResetWorkDir(t *testing.T) {
-	testCases := []struct {
-		name        string
-		deleteErr   error
-		workDirErr  error
-		wantErr     error
-		wantCreated bool
-	}{
-		{name: "deletes then recreates", wantCreated: true},
-		{name: "delete failure stops", deleteErr: errors.New("busy"), wantErr: errors.New("busy")},
-		{name: "recreate failure surfaces", workDirErr: errors.New("full"), wantErr: errors.New("full"), wantCreated: true},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ns := testNs()
-			v := &mocks.Vault{DeleteWorkDirErr: tc.deleteErr, WorkDirErr: tc.workDirErr}
-			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, nil)
-
-			err := cat.ResetWorkDir(context.Background(), ns)
-
-			assert.Equal(t, []domain.Namespace{ns}, v.DeleteWorkDirNamespaces)
-			assert.Equal(t, tc.wantCreated, len(v.WorkDirNamespaces) == 1)
-			if tc.wantErr == nil {
-				require.NoError(t, err)
-				return
-			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErr.Error())
-		})
-	}
 }
 
 func TestSetChannel_SendsCommand(t *testing.T) {
@@ -1555,7 +1432,6 @@ func TestSeed_BareNamespace_IsRejected(t *testing.T) {
 	err := cat.Seed(context.Background(), bareNs, []byte("data"))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
-	assert.Contains(t, err.Error(), string(bareNs))
 	assert.Equal(t, 0, v.PutArrowCalls, "nothing is written for a namespace with no ref")
 
 	exists, err := axArrow.Exists(context.Background(), bareNs.String())
@@ -3229,8 +3105,10 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
-	assert.Contains(t, err.Error(), "insufficient_coverage",
-		"the rule that rejected the manifest must survive the mapping")
+	var rules aerrors.RuleErrors
+	require.ErrorAs(t, err, &rules, "the rule that rejected the manifest must survive the mapping")
+	require.Len(t, rules, 1)
+	assert.Equal(t, "insufficient_coverage", rules[0].Rule)
 }
 
 func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
@@ -3287,112 +3165,4 @@ func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
-func TestAdd_NotFletchableIsPreserved(t *testing.T) {
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(
-			_ context.Context, ns domain.Namespace,
-			_ string,
-		) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", fmt.Errorf("reader resolve for install: %w: no_usable_asset", apperrors.ErrNotFletchable)
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrNotFletchable)
-	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
-func inferredArrow(ns domain.Namespace, confidence string) *domain.Arrow {
-	return &domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{
-			Name: "Inferred Arrow",
-			Generator: &domain.ArrowGenerator{
-				Name:       "fletcher",
-				Confidence: confidence,
-			},
-		},
-	}
-}
-
-func TestArrowService_Add_InferredLowConfidence_WithoutConfirm_RequiresConfirmation(t *testing.T) {
-	ctx := context.Background()
-	ns := testNs()
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
-
-	cat := arrowRepo.NewTestable(resolvesTo(ns, inferredArrow(ns, "low")), axArrow, nil, nil)
-
-	err := cat.Add(ctx, ns, models.AddOptions{})
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrConfirmationRequired)
-
-	exists, existsErr := axArrow.Exists(ctx, ns.String())
-	require.NoError(t, existsErr)
-	assert.False(t, exists, "a rejected low-confidence add must add nothing")
-}
-
-func TestArrowService_Add_InferredLowConfidence_WithConfirm_Adds(t *testing.T) {
-	ctx := context.Background()
-	ns := testNs()
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
-
-	cat := arrowRepo.NewTestable(resolvesTo(ns, inferredArrow(ns, "low")), axArrow, nil, nil)
-
-	err := cat.Add(ctx, ns, models.AddOptions{Confirm: true})
-
-	require.NoError(t, err)
-	exists, existsErr := axArrow.Exists(ctx, ns.String())
-	require.NoError(t, existsErr)
-	assert.True(t, exists)
-}
-
-func TestArrowService_Add_InferredHighOrMediumConfidence_NoConfirmationNeeded(t *testing.T) {
-	testCases := []struct {
-		name       string
-		confidence string
-	}{
-		{"high confidence", "high"},
-		{"medium confidence", "medium"},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			ns := testNs()
-			axArrow := newTestAsynxArrow(t)
-			t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
-
-			cat := arrowRepo.NewTestable(resolvesTo(ns, inferredArrow(ns, tc.confidence)), axArrow, nil, nil)
-
-			err := cat.Add(ctx, ns, models.AddOptions{})
-
-			require.NoError(t, err)
-			exists, existsErr := axArrow.Exists(ctx, ns.String())
-			require.NoError(t, existsErr)
-			assert.True(t, exists)
-		})
-	}
-}
-
-func TestArrowService_Add_DeclaredArrow_NeverRequiresConfirmation(t *testing.T) {
-	ctx := context.Background()
-	ns := testNs()
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
-
-	cat := arrowRepo.NewTestable(resolvesTo(ns, testArrow()), axArrow, nil, nil)
-
-	err := cat.Add(ctx, ns, models.AddOptions{})
-
-	require.NoError(t, err)
-	exists, existsErr := axArrow.Exists(ctx, ns.String())
-	require.NoError(t, existsErr)
-	assert.True(t, exists)
 }

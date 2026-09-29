@@ -3,7 +3,6 @@ package usecases
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -2804,9 +2803,6 @@ func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T)
 				if !errors.Is(err, apperrors.ErrReservedVariable) {
 					t.Fatalf("expected ErrReservedVariable, got %v", err)
 				}
-				if !strings.Contains(err.Error(), name) {
-					t.Fatalf("error %q does not name the offending variable %q", err, name)
-				}
 				if reached {
 					t.Fatal("request reached the runtime repository instead of being rejected")
 				}
@@ -2815,9 +2811,7 @@ func TestRuntimeUsecase_ReservedVariable_RejectedOnEveryEntryPoint(t *testing.T)
 	}
 }
 
-// The rejection must be deterministic: a request setting several built-ins
-// always names the same one, so the client sees a stable error.
-func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing.T) {
+func TestRuntimeUsecase_SeveralReservedVariables_RejectsDeterministically(t *testing.T) {
 	uc := newUC(&ucmocks.MockArrow{}, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
 
 	vars := map[string]string{}
@@ -2825,11 +2819,11 @@ func TestRuntimeUsecase_SeveralReservedVariables_NamesTheFirstInOrder(t *testing
 		vars[name] = "hijacked"
 	}
 
+	_, first := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
+	require.ErrorIs(t, first, apperrors.ErrReservedVariable)
 	for range 20 {
 		_, err := uc.Install(context.Background(), "github.com/user/repo@v1", vars)
-		if !strings.Contains(err.Error(), domain.ReservedVariableNames()[0]) {
-			t.Fatalf("expected %q to be named, got %v", domain.ReservedVariableNames()[0], err)
-		}
+		assert.Equal(t, first, err)
 	}
 }
 
@@ -3300,28 +3294,26 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 	existsErr := errors.New("catalog closed")
 	noSteps := func(a *domain.Arrow) {}
 	channels := map[string]string{"stable": "v2.0.0", "beta": "v3.0.0-beta.1"}
-	inferred := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low"}
-	peekErr := errors.New("release unreachable")
 
 	testCases := []struct {
-		name           string
-		ns             domain.Namespace
-		state          domain.ArrowState
-		steps          domainStep.StepList
-		shape          func(a *domain.Arrow)
-		noArrow        bool
-		getErr         error
-		vars           map[string]string
-		resolveErr     error
-		exists         bool
-		existsErr      error
-		nextGenerator  *domain.ArrowGenerator
-		peekErr        error
-		upgradeErr     error
-		wantUpgradeTo  domain.Namespace
-		wantBeginUpd   bool
-		wantErrIs      error
-		wantErrContain string
+		name                string
+		ns                  domain.Namespace
+		state               domain.ArrowState
+		steps               domainStep.StepList
+		shape               func(a *domain.Arrow)
+		noArrow             bool
+		getErr              error
+		vars                map[string]string
+		resolveErr          error
+		exists              bool
+		existsErr           error
+		upgradeErr          error
+		wantUpgradeTo       domain.Namespace
+		wantBeginUpd        bool
+		wantErrIs           error
+		wantOp              string
+		wantState           string
+		wantExistsCheckedNs domain.Namespace
 	}{
 		{
 			name:          "ready without update steps reinstalls at the tracked ref",
@@ -3346,12 +3338,13 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			wantUpgradeTo: "github.com/u/r@v3.0.0-beta.1",
 		},
 		{
-			name:           "pinned arrow never moves",
-			ns:             "github.com/u/r@v1.0.0",
-			state:          domain.ArrowStateReady,
-			shape:          func(a *domain.Arrow) { a.PinnedRef = "v1.0.0" },
-			wantErrIs:      apperrors.ErrStateViolation,
-			wantErrContain: "up to date",
+			name:      "pinned arrow never moves",
+			ns:        "github.com/u/r@v1.0.0",
+			state:     domain.ArrowStateReady,
+			shape:     func(a *domain.Arrow) { a.PinnedRef = "v1.0.0" },
+			wantErrIs: apperrors.ErrStateViolation,
+			wantOp:    "update",
+			wantState: "up to date",
 		},
 		{
 			name:          "outdated without update steps syncs then reinstalls",
@@ -3369,12 +3362,13 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			wantBeginUpd: true,
 		},
 		{
-			name:           "already at the tracked ref is a state violation",
-			ns:             "github.com/u/r@v2.0.0",
-			state:          domain.ArrowStateReady,
-			shape:          noSteps,
-			wantErrIs:      apperrors.ErrStateViolation,
-			wantErrContain: "up to date",
+			name:      "already at the tracked ref is a state violation",
+			ns:        "github.com/u/r@v2.0.0",
+			state:     domain.ArrowStateReady,
+			shape:     noSteps,
+			wantErrIs: apperrors.ErrStateViolation,
+			wantOp:    "update",
+			wantState: "up to date",
 		},
 		{
 			name:      "no tracked ref is a state violation",
@@ -3382,15 +3376,18 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			state:     domain.ArrowStateReady,
 			shape:     func(a *domain.Arrow) { a.Channel = "gone" },
 			wantErrIs: apperrors.ErrStateViolation,
+			wantOp:    "update",
+			wantState: "up to date",
 		},
 		{
-			name:           "variables are refused on a reinstall",
-			ns:             "github.com/u/r@v1.0.0",
-			state:          domain.ArrowStateReady,
-			shape:          noSteps,
-			vars:           map[string]string{"PORT": "1"},
-			wantErrIs:      apperrors.ErrStateViolation,
-			wantErrContain: "variables",
+			name:      "variables are refused on a reinstall",
+			ns:        "github.com/u/r@v1.0.0",
+			state:     domain.ArrowStateReady,
+			shape:     noSteps,
+			vars:      map[string]string{"PORT": "1"},
+			wantErrIs: apperrors.ErrStateViolation,
+			wantOp:    "update with variables",
+			wantState: "updated by reinstall",
 		},
 		{
 			name:       "resolve failure surfaces",
@@ -3401,13 +3398,13 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			wantErrIs:  resolveErr,
 		},
 		{
-			name:           "already catalogued target ref is never upgraded onto",
-			ns:             "github.com/u/r@v1.0.0",
-			state:          domain.ArrowStateReady,
-			shape:          noSteps,
-			exists:         true,
-			wantErrIs:      apperrors.ErrAlreadyExists,
-			wantErrContain: "github.com/u/r@v2.0.0",
+			name:                "already catalogued target ref is never upgraded onto",
+			ns:                  "github.com/u/r@v1.0.0",
+			state:               domain.ArrowStateReady,
+			shape:               noSteps,
+			exists:              true,
+			wantErrIs:           apperrors.ErrAlreadyExists,
+			wantExistsCheckedNs: "github.com/u/r@v2.0.0",
 		},
 		{
 			name:      "catalog lookup failure surfaces",
@@ -3416,32 +3413,6 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			shape:     noSteps,
 			existsErr: existsErr,
 			wantErrIs: existsErr,
-		},
-		{
-			name:           "declared arrow never updates onto a release without an ARROW.md",
-			ns:             "github.com/u/r@v1.0.0",
-			state:          domain.ArrowStateReady,
-			shape:          noSteps,
-			nextGenerator:  inferred,
-			wantErrIs:      apperrors.ErrStateViolation,
-			wantErrContain: "github.com/u/r@v2.0.0 has no ARROW.md; add it explicitly",
-		},
-		{
-			name:          "inferred arrow updates onto another inferred release",
-			ns:            "github.com/u/r@v1.0.0",
-			state:         domain.ArrowStateReady,
-			shape:         func(a *domain.Arrow) { a.Generator = inferred },
-			nextGenerator: inferred,
-			peekErr:       peekErr,
-			wantUpgradeTo: "github.com/u/r@v2.0.0",
-		},
-		{
-			name:      "new release lookup failure surfaces",
-			ns:        "github.com/u/r@v1.0.0",
-			state:     domain.ArrowStateReady,
-			shape:     noSteps,
-			peekErr:   peekErr,
-			wantErrIs: peekErr,
 		},
 		{
 			name:          "upgrade failure surfaces",
@@ -3487,6 +3458,7 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var upgradedTo domain.Namespace
 			var gotRuntimeExists, gotAlreadyReady, gotUserInstalled bool
+			var existsCheckedNs domain.Namespace
 			beginUpdate := false
 
 			a := &ucmocks.MockArrow{
@@ -3504,14 +3476,9 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 					}
 					return trackedLike(channels)(ctx, arrow)
 				},
-				ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) {
+				ExistsFn: func(_ context.Context, ns domain.Namespace) (bool, error) {
+					existsCheckedNs = ns
 					return tc.exists, tc.existsErr
-				},
-				ResolveManifestFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-					if tc.peekErr != nil {
-						return nil, tc.peekErr
-					}
-					return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Generator: tc.nextGenerator}}, nil
 				},
 				UpgradeVersionFn: func(
 					_ context.Context, _, newNs domain.Namespace, _, _ string,
@@ -3541,8 +3508,12 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			assert.Equal(t, tc.wantBeginUpd, beginUpdate)
 			assert.Equal(t, tc.wantUpgradeTo, upgradedTo)
 			if tc.wantErrIs != nil {
-				require.ErrorIs(t, err, tc.wantErrIs)
-				assert.Contains(t, err.Error(), tc.wantErrContain)
+				assertUpdateErrorCase(t, updateErrorCase{
+					wantErrIs:           tc.wantErrIs,
+					wantOp:              tc.wantOp,
+					wantState:           tc.wantState,
+					wantExistsCheckedNs: tc.wantExistsCheckedNs,
+				}, err, existsCheckedNs)
 				return
 			}
 			require.NoError(t, err)
@@ -3553,6 +3524,46 @@ func TestRuntimeExecute_Update_EmptyUpdateLifecycle(t *testing.T) {
 			assert.False(t, gotAlreadyReady)
 			assert.True(t, gotUserInstalled)
 		})
+	}
+}
+
+type updateErrorCase struct {
+	wantErrIs           error
+	wantOp              string
+	wantState           string
+	wantExistsCheckedNs domain.Namespace
+}
+
+func assertStateViolation(
+	t *testing.T,
+	tc updateErrorCase,
+	sve *apperrors.StateViolationError,
+) {
+	t.Helper()
+	if tc.wantOp != "" {
+		assert.Equal(t, tc.wantOp, sve.Op)
+	}
+	if tc.wantState != "" {
+		assert.Equal(t, tc.wantState, sve.State)
+	}
+}
+
+func assertUpdateErrorCase(
+	t *testing.T,
+	tc updateErrorCase,
+	err error,
+	existsCheckedNs domain.Namespace,
+) {
+	t.Helper()
+	require.ErrorIs(t, err, tc.wantErrIs)
+
+	if tc.wantOp != "" || tc.wantState != "" {
+		var sve *apperrors.StateViolationError
+		require.ErrorAs(t, err, &sve)
+		assertStateViolation(t, tc, sve)
+	}
+	if tc.wantExistsCheckedNs != "" {
+		assert.Equal(t, tc.wantExistsCheckedNs, existsCheckedNs)
 	}
 }
 
@@ -3587,66 +3598,4 @@ func TestRuntimeExecute_Update_NotReady_FallsThroughToBeginExecution(t *testing.
 
 	require.NoError(t, uc.Execute(context.Background(), "github.com/u/r@v1.0.0", domain.MethodUpdate, nil))
 	assert.Equal(t, domain.MethodUpdate, gotMethod)
-}
-
-func TestRuntimeOnArrowUpgraded_ResetsOnlyInferredWorkDir(t *testing.T) {
-	inferred := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"}
-	resetErr := errors.New("disk busy")
-
-	testCases := []struct {
-		name         string
-		oldGenerator *domain.ArrowGenerator
-		generator    *domain.ArrowGenerator
-		resetErr     error
-		wantReset    bool
-		wantBegin    bool
-	}{
-		{name: "inferred arrow reinstalls into an emptied workdir", oldGenerator: inferred, generator: inferred, wantReset: true, wantBegin: true},
-		{name: "declared arrow keeps its workdir", wantBegin: true},
-		{name: "declared arrow becoming inferred keeps its workdir", generator: inferred, wantBegin: true},
-		{name: "inferred arrow becoming declared keeps its workdir", oldGenerator: inferred, wantBegin: true},
-		{name: "reset failure never installs over stale files", oldGenerator: inferred, generator: inferred, resetErr: resetErr, wantReset: true},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var steps []string
-			a := &ucmocks.MockArrow{
-				GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-					return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Generator: tc.oldGenerator}}, nil
-				},
-				ResetWorkDirFn: func(_ context.Context, ns domain.Namespace) error {
-					require.Equal(t, domain.Namespace("test/new@v2"), ns)
-					steps = append(steps, "reset")
-					return tc.resetErr
-				},
-			}
-			rt := &ucmocks.MockRuntime{
-				GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-					return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
-				},
-				BeginInstallFn: func(_ context.Context, _ domain.Namespace, _ map[string]string) error {
-					steps = append(steps, "install")
-					return nil
-				},
-			}
-			g := &ucmocks.MockGraph{
-				DiffDepsFn: func(_, _ *domain.Arrow) graph.DepDiff { return graph.DepDiff{} },
-			}
-
-			newUC(a, rt, g).onArrowUpgraded(context.Background(), domain.Arrow{
-				Namespace:      "test/new@v2",
-				UpgradedFromNs: "test/old@v1",
-				ArrowMeta:      domain.ArrowMeta{Generator: tc.generator},
-			})
-
-			want := []string{}
-			if tc.wantReset {
-				want = append(want, "reset")
-			}
-			if tc.wantBegin {
-				want = append(want, "install")
-			}
-			assert.Equal(t, want, append([]string{}, steps...))
-		})
-	}
 }

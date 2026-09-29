@@ -61,13 +61,12 @@ func TestPathUsecase_Status_ReturnsShelfStatus(t *testing.T) {
 }
 
 func TestPathUsecase_Status_WrapsError(t *testing.T) {
-	uc := usecases.NewPathUsecase(&stubShelf{statusErr: errors.New("boom")})
+	errBoom := errors.New("boom")
+	uc := usecases.NewPathUsecase(&stubShelf{statusErr: errBoom})
 
 	_, err := uc.Status(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "path status")
-	assert.Contains(t, err.Error(), "boom")
+	require.ErrorIs(t, err, errBoom)
 }
 
 func TestPathUsecase_Setup_ReturnsShelfStatus(t *testing.T) {
@@ -81,11 +80,10 @@ func TestPathUsecase_Setup_ReturnsShelfStatus(t *testing.T) {
 }
 
 func TestPathUsecase_Setup_WrapsError(t *testing.T) {
-	uc := usecases.NewPathUsecase(&stubShelf{setupErr: errors.New("boom")})
+	errBoom := errors.New("boom")
+	uc := usecases.NewPathUsecase(&stubShelf{setupErr: errBoom})
 
 	_, err := uc.Setup(context.Background())
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "path setup")
-	assert.Contains(t, err.Error(), "boom")
+	require.ErrorIs(t, err, errBoom)
 }

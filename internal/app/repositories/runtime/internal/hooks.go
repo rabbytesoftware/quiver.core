@@ -10,6 +10,7 @@ import (
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -32,7 +33,7 @@ type CatalogHooks struct {
 	// ReconcileVersionBadge re-derives the runtime state the badge is read
 	// from out of the catalog fact it projects. See reconcileVersionBadge.
 	ReconcileVersionBadge func(ctx context.Context, ns domain.Namespace) error
-	Exposer               Exposer
+	Exposer               exposer.Exposer
 }
 
 // drainExecution translates one wizard execution's events into commands on the
@@ -213,19 +214,19 @@ func onEnd(
 
 func shelve(
 	ctx context.Context,
-	exposer Exposer,
+	ex exposer.Exposer,
 	ns domain.Namespace,
 	method string,
 	workdir string,
 ) *domainRuntime.ExposeResult {
-	if exposer == nil {
+	if ex == nil {
 		return nil
 	}
 	switch method {
 	case domain.MethodInstall, domain.MethodUpdate:
-		return exposer.Apply(ctx, ns, workdir)
+		return ex.Apply(ctx, ns, workdir)
 	case domain.MethodUninstall:
-		exposer.Remove(ctx, ns)
+		ex.Remove(ctx, ns)
 	}
 	return nil
 }

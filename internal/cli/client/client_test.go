@@ -172,20 +172,10 @@ func TestAddArrow_Posts(t *testing.T) {
 	srv, rec := fakeDaemon(t, http.StatusCreated, `{"success":true,"namespace":"github.com/user/a"}`)
 	c := newClient(t, srv)
 
-	err := c.AddArrow(context.Background(), "github.com/user/a", false)
+	err := c.AddArrow(context.Background(), "github.com/user/a")
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodPost, rec.method)
 	assert.Equal(t, "/v0/arrow/github.com%2Fuser%2Fa", rec.path)
-	assert.Empty(t, rec.query)
-}
-
-func TestAddArrow_ConfirmAppendsQuery(t *testing.T) {
-	srv, rec := fakeDaemon(t, http.StatusCreated, `{"success":true,"namespace":"github.com/user/a"}`)
-	c := newClient(t, srv)
-
-	err := c.AddArrow(context.Background(), "github.com/user/a", true)
-	require.NoError(t, err)
-	assert.Equal(t, "confirm=true", rec.query)
 }
 
 func TestRemoveArrow_Deletes(t *testing.T) {
@@ -404,8 +394,10 @@ func TestEnvelope_SuccessFalseWithOKStatusErrors(t *testing.T) {
 	c := newClient(t, srv)
 
 	_, err := c.ListArrows(context.Background(), nil)
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "drifted"))
+	var apiErr *client.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusOK, apiErr.Status)
+	assert.Equal(t, "drifted", apiErr.Message)
 }
 
 // ─── coverage: remaining branches ───────────────────────────────────────────
@@ -440,7 +432,7 @@ func TestHealth_UnhealthyStatusErrors(t *testing.T) {
 
 	err := c.Health(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "degraded")
+	assert.Equal(t, 1, client.ExitCode(err))
 }
 
 func TestHealth_ErrorStatusRaw(t *testing.T) {
@@ -593,6 +585,7 @@ func TestDo_401WithHandler_RetriesOnceWithNewToken(t *testing.T) {
 }
 
 func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
+	errPairing := errors.New("pairing failed")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
@@ -601,7 +594,7 @@ func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
 
 	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
 		func(_ context.Context, _ *client.Client) (string, error) {
-			return "", errors.New("pairing failed")
+			return "", errPairing
 		},
 	))
 	require.NoError(t, err)
@@ -609,7 +602,7 @@ func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
 	require.Error(t, err)
 	var connErr *client.ConnError
 	require.ErrorAs(t, err, &connErr)
-	assert.ErrorContains(t, connErr, "pairing failed")
+	assert.ErrorIs(t, connErr, errPairing)
 	assert.Equal(t, client.ExitConnection, client.ExitCode(err))
 }
 

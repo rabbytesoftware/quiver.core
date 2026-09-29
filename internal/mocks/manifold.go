@@ -5,43 +5,34 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 )
 
 type Manifold struct {
-	ResolveArrowResult           *domain.Arrow
-	ResolveArrowRaw              []byte
-	ResolveArrowFilename         string
-	ResolveArrowErr              error
-	ResolveArrowAtResult         *domain.Arrow
-	ResolveArrowAtRaw            []byte
-	ResolveArrowAtFilename       string
-	ResolveArrowAtErr            error
-	ResolveCollectionResult      *domain.Collection
-	ResolveCollectionErr         error
-	ParseCollectionResult        *domain.Collection
-	ParseCollectionErr           error
-	ParseArrowResult             *domain.Arrow
-	ParseArrowErr                error
-	ResolveConstraintResult      string
-	ResolveConstraintErr         error
-	ResolveLatestStableRef       string
-	ResolveLatestStableErr       error
-	DefaultBranchRef             string
-	DefaultBranchHash            string
-	DefaultBranchErr             error
-	ResolveLatestInChannelRef    string
-	ResolveLatestInChannelErr    error
-	ListChannelsResult           []manifold.ChannelInfo
-	ListChannelsErr              error
-	ProbeArrowResult             *domain.Arrow
-	ProbeArrowRaw                []byte
-	ProbeArrowErr                error
-	ProbeArrowHints              []fletcher.Hint
-	ResolveDeclaredArrowResult   *domain.Arrow
-	ResolveDeclaredArrowRaw      []byte
-	ResolveDeclaredArrowFilename string
-	ResolveDeclaredArrowErr      error
+	ResolveArrowResult        *domain.Arrow
+	ResolveArrowRaw           []byte
+	ResolveArrowFilename      string
+	ResolveArrowErr           error
+	ResolveArrowAtResult      *domain.Arrow
+	ResolveArrowAtRaw         []byte
+	ResolveArrowAtFilename    string
+	ResolveArrowAtErr         error
+	ResolveCollectionResult   *domain.Collection
+	ResolveCollectionErr      error
+	ParseCollectionResult     *domain.Collection
+	ParseCollectionErr        error
+	ParseArrowResult          *domain.Arrow
+	ParseArrowErr             error
+	ResolveConstraintResult   string
+	ResolveConstraintErr      error
+	ResolveLatestStableRef    string
+	ResolveLatestStableErr    error
+	DefaultBranchRef          string
+	DefaultBranchHash         string
+	DefaultBranchErr          error
+	ResolveLatestInChannelRef string
+	ResolveLatestInChannelErr error
+	ListChannelsResult        []manifold.ChannelInfo
+	ListChannelsErr           error
 
 	// ResolveArrowCalls counts every ResolveArrow invocation, so a test can
 	// assert a cache hit skipped the manifold entirely rather than only
@@ -61,13 +52,6 @@ type Manifold struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		path string,
-	) (*domain.Arrow, []byte, string, error)
-
-	ResolveDeclaredArrowCalls int
-
-	ResolveDeclaredArrowFunc func(
-		ctx context.Context,
-		ns domain.Namespace,
 	) (*domain.Arrow, []byte, string, error)
 
 	// ResolveLatestInChannelFn, when set, answers per channel so a test can
@@ -159,24 +143,4 @@ func (m *Manifold) ListChannels(
 	_ domain.Namespace,
 ) ([]manifold.ChannelInfo, error) {
 	return m.ListChannelsResult, m.ListChannelsErr
-}
-
-func (m *Manifold) ProbeArrow(
-	_ context.Context,
-	_ domain.Namespace,
-	hint fletcher.Hint,
-) (*domain.Arrow, []byte, error) {
-	m.ProbeArrowHints = append(m.ProbeArrowHints, hint)
-	return m.ProbeArrowResult, m.ProbeArrowRaw, m.ProbeArrowErr
-}
-
-func (m *Manifold) ResolveDeclaredArrow(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, []byte, string, error) {
-	m.ResolveDeclaredArrowCalls++
-	if m.ResolveDeclaredArrowFunc != nil {
-		return m.ResolveDeclaredArrowFunc(ctx, ns)
-	}
-	return m.ResolveDeclaredArrowResult, m.ResolveDeclaredArrowRaw, m.ResolveDeclaredArrowFilename, m.ResolveDeclaredArrowErr
 }

@@ -297,8 +297,11 @@ func TestSelectTarget_AmbiguousStepFieldOSArch_ReturnsError(t *testing.T) {
 	if !errors.As(err, &ambig) {
 		t.Fatalf("expected *AmbiguousTargetError for tied step-field OSArch keys, got %v", err)
 	}
-	if !containsAll(err.Error(), "install", "command") {
-		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	if ambig.OS != string(domain.OSLinuxAMD64) {
+		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
+	}
+	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
+		t.Errorf("tie keys = (%q, %q), want linux/* and */amd64", ambig.Key1, ambig.Key2)
 	}
 }
 
@@ -333,8 +336,11 @@ func TestSelectTarget_AmbiguousMethodStepOSArch_ReturnsError(t *testing.T) {
 	if !errors.As(err, &ambig) {
 		t.Fatalf("expected *AmbiguousTargetError for a tied method step field, got %v", err)
 	}
-	if !containsAll(err.Error(), "backup") {
-		t.Errorf("error %q must name the method that is ambiguous", err.Error())
+	if ambig.OS != string(domain.OSLinuxAMD64) {
+		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
+	}
+	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
+		t.Errorf("tie keys = (%q, %q), want linux/* and */amd64", ambig.Key1, ambig.Key2)
 	}
 }
 
@@ -453,6 +459,15 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+func tieKeysMatch(
+	gotKey1 string,
+	gotKey2 string,
+	wantA string,
+	wantB string,
+) bool {
+	return (gotKey1 == wantA && gotKey2 == wantB) || (gotKey1 == wantB && gotKey2 == wantA)
 }
 
 func TestSelectTarget_MergeExports_ParentAndChild(t *testing.T) {
@@ -858,8 +873,11 @@ func TestSelectTarget_AmbiguousPortableStepFieldOSArch_ReturnsError(t *testing.T
 	if !errors.As(err, &ambig) {
 		t.Fatalf("expected *AmbiguousTargetError for tied PortableStep OSArch keys, got %v", err)
 	}
-	if !containsAll(err.Error(), "install", "to") {
-		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	if ambig.OS != string(domain.OSLinuxAMD64) {
+		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
+	}
+	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
+		t.Errorf("tied keys = %q, %q, want linux/* and */amd64 in either order", ambig.Key1, ambig.Key2)
 	}
 }
 
@@ -888,8 +906,11 @@ func TestSelectTarget_AmbiguousExtractStepFieldOSArch_ReturnsError(t *testing.T)
 	if !errors.As(err, &ambig) {
 		t.Fatalf("expected *AmbiguousTargetError for tied ExtractStep OSArch keys, got %v", err)
 	}
-	if !containsAll(err.Error(), "install", "to") {
-		t.Errorf("error %q must name the step and the field that is ambiguous", err.Error())
+	if ambig.OS != string(domain.OSLinuxAMD64) {
+		t.Errorf("OS = %q, want %q", ambig.OS, domain.OSLinuxAMD64)
+	}
+	if !tieKeysMatch(ambig.Key1, ambig.Key2, "linux/*", "*/amd64") {
+		t.Errorf("tied keys = %q, %q, want linux/* and */amd64 in either order", ambig.Key1, ambig.Key2)
 	}
 }
 

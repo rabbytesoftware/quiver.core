@@ -198,64 +198,35 @@ func TestGetPlatforms_GitHubRawURL(t *testing.T) {
 	assert.Equal(t, []string{"main", "master"}, github.DefaultBranches)
 }
 
-func TestGetPlatforms_GitHubForgeURLs(t *testing.T) {
-	github := GetPlatforms()["github.com"]
-	assert.Equal(t, "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}", github.ExpandedAssetsURL)
-	assert.Equal(t, "https://github.com/{user}/{repo}", github.RepoPageURL)
-	assert.Equal(t, "https://github.com/orgs/{user}", github.OrgURL)
-	assert.Equal(t, "https://github.com/{user}.png", github.AvatarURL)
-}
-
-func TestGetPlatforms_NonGitHubHostsHaveNoForgeURLs(t *testing.T) {
+func TestPlatforms_PageURLs(t *testing.T) {
 	testCases := []struct {
-		name string
-		host string
+		name               string
+		host               string
+		wantExpandedAssets string
+		wantPageURL        string
 	}{
-		{name: "gitlab", host: "gitlab.com"},
+		{
+			name:               "github",
+			host:               "github.com",
+			wantExpandedAssets: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
+			wantPageURL:        "https://github.com/{user}/{repo}",
+		},
+		{
+			name:        "gitlab",
+			host:        "gitlab.com",
+			wantPageURL: "https://gitlab.com/{user}/{repo}",
+		},
 		{name: "bitbucket", host: "bitbucket.org"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			platform := GetPlatforms()[tc.host]
-			assert.Empty(t, platform.ExpandedAssetsURL)
-			assert.Empty(t, platform.RepoPageURL)
-			assert.Empty(t, platform.OrgURL)
-			assert.Empty(t, platform.AvatarURL)
+			for _, platform := range []Platform{GetPlatforms()[tc.host], defaultMetadata().Platforms[tc.host]} {
+				assert.Equal(t, tc.wantExpandedAssets, platform.ExpandedAssetsURL)
+				assert.Equal(t, tc.wantPageURL, platform.RepoPageURL)
+			}
 		})
 	}
-}
-
-func TestDefaultMetadata_GitHubForgeURLs(t *testing.T) {
-	github := defaultMetadata().Platforms["github.com"]
-	assert.Equal(t, "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}", github.ExpandedAssetsURL)
-	assert.Equal(t, "https://github.com/{user}/{repo}", github.RepoPageURL)
-	assert.Equal(t, "https://github.com/orgs/{user}", github.OrgURL)
-	assert.Equal(t, "https://github.com/{user}.png", github.AvatarURL)
-}
-
-func TestDefaultMetadata_NonGitHubHostsHaveNoForgeURLs(t *testing.T) {
-	platforms := defaultMetadata().Platforms
-	for _, host := range []string{"gitlab.com", "bitbucket.org"} {
-		assert.Empty(t, platforms[host].ExpandedAssetsURL, "host %q", host)
-		assert.Empty(t, platforms[host].RepoPageURL, "host %q", host)
-		assert.Empty(t, platforms[host].OrgURL, "host %q", host)
-		assert.Empty(t, platforms[host].AvatarURL, "host %q", host)
-	}
-}
-
-func TestMetadataYAML_ForgeURLsAgreeWithDefault(t *testing.T) {
-	var parsed Metadata
-	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
-
-	github := defaultMetadata().Platforms["github.com"]
-	assert.Equal(t, github.ExpandedAssetsURL, parsed.Platforms["github.com"].ExpandedAssetsURL)
-	assert.Equal(t, github.RepoPageURL, parsed.Platforms["github.com"].RepoPageURL)
-	assert.Equal(t, github.OrgURL, parsed.Platforms["github.com"].OrgURL)
-	assert.Equal(t, github.AvatarURL, parsed.Platforms["github.com"].AvatarURL)
-
-	assert.Empty(t, parsed.Platforms["gitlab.com"].ExpandedAssetsURL)
-	assert.Empty(t, parsed.Platforms["bitbucket.org"].ExpandedAssetsURL)
 }
 
 func TestDefaultMetadata_DefaultBranchesInOrder(t *testing.T) {
@@ -533,4 +504,42 @@ func TestDefaultMetadata_NamespacesPopulated(t *testing.T) {
 	d := defaultMetadata()
 	assert.NotEmpty(t, d.Namespaces.Core)
 	assert.NotEmpty(t, d.Namespaces.Desktop)
+}
+
+func TestMetadataYAML_PlatformsAgreeWithDefault(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+
+	assert.Equal(t, defaultMetadata().Platforms, parsed.Platforms)
+}
+
+func TestDefaultMetadata_BlobURLTemplates(t *testing.T) {
+	testCases := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "github", host: "github.com", want: "https://github.com/{user}/{repo}/blob/{branch}/{file}"},
+		{name: "gitlab", host: "gitlab.com", want: "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}"},
+		{name: "bitbucket", host: "bitbucket.org", want: "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, defaultMetadata().Platforms[tc.host].BlobURL)
+		})
+	}
+}
+
+func TestDefaultMetadata_OnlyGitLabDeclaresAPIURLs(t *testing.T) {
+	platforms := defaultMetadata().Platforms
+
+	gitlab := platforms["gitlab.com"]
+	assert.Equal(t, "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}", gitlab.ReleaseAPIURL)
+	assert.Equal(t, "https://gitlab.com/api/v4/projects/{project}/packages", gitlab.PackagesAPIURL)
+
+	for _, host := range []string{"github.com", "bitbucket.org"} {
+		assert.Empty(t, platforms[host].ReleaseAPIURL, "host %q", host)
+		assert.Empty(t, platforms[host].PackagesAPIURL, "host %q", host)
+	}
 }

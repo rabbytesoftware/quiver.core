@@ -25,15 +25,14 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // Add registers an arrow from an existing manifest in the Quiver registry.
 //
 // @Summary      Register arrow
-// @Description  Registers an arrow by its namespace. The manifest must already exist in the registry. A low-confidence inferred arrow requires confirmation, either "confirm":true in the body or ?confirm=true.
+// @Description  Registers an arrow by its namespace. The manifest must already exist in the registry.
 // @Tags         arrows
-// @Param        ns       path   string             true   "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
-// @Param        confirm  query  bool               false  "Confirms adding a low-confidence inferred arrow"
-// @Param        body     body   models.AddOptions  false  "Optional install preferences (e.g. channel, confirm)"
+// @Param        ns    path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
+// @Param        body  body  models.AddOptions  false  "Optional install preferences (e.g. channel)"
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
-// @Failure      409  {object}  libs.ErrResponse       "Arrow already registered, or confirmation required for a low-confidence inferred arrow"
+// @Failure      409  {object}  libs.ErrResponse       "Arrow already registered"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
@@ -41,9 +40,6 @@ func (h *Handlers) Add(c *gin.Context) {
 	opts := models.AddOptions{}
 	if c.Request.Body != nil {
 		_ = c.ShouldBindJSON(&opts)
-	}
-	if c.Query("confirm") == "true" {
-		opts.Confirm = true
 	}
 	if err := h.svc.Add(c.Request.Context(), ns, opts); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
@@ -153,36 +149,6 @@ func (h *Handlers) GetDetail(c *gin.Context) {
 	if err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
-		return
-	}
-	libs.WriteQueryOK(c, apidto.ArrowDetailDTOFrom(detail))
-}
-
-// @Summary      Preview arrow
-// @Description  Resolves an arrow's manifest without registering it, the same way GetDetail resolves an uncatalogued namespace live. ?format=raw returns the manifest bytes instead of the parsed detail.
-// @Tags         arrows
-// @Produce      json
-// @Param        ns      path   string  true   "Arrow namespace"
-// @Param        format  query  string  false  "raw returns the manifest bytes as text/markdown"
-// @Success      200  {object}  libs.QueryResponse{data=apidto.ArrowDetailDTO}
-// @Failure      404  {object}  libs.ErrResponse
-// @Failure      422  {object}  libs.ErrResponse
-// @Failure      502  {object}  libs.ErrResponse
-// @Failure      500  {object}  libs.ErrResponse
-// @Router       /arrow/{ns}/preview [get]
-func (h *Handlers) Preview(
-	c *gin.Context,
-) {
-	ns := domain.Namespace(c.Param("ns"))
-	detail, raw, err := h.svc.Preview(c.Request.Context(), ns)
-	if err != nil {
-		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns), err)
-		return
-	}
-	if c.Query("format") == "raw" {
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Data(http.StatusOK, "text/markdown; charset=utf-8", raw)
 		return
 	}
 	libs.WriteQueryOK(c, apidto.ArrowDetailDTOFrom(detail))

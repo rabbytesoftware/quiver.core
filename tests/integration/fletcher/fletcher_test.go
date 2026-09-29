@@ -3,7 +3,6 @@
 package fletcher_test
 
 import (
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
@@ -37,34 +37,37 @@ func TestFletcherIntegration(t *testing.T) {
 }
 
 func (s *FletcherSuite) TestFletcher_InferredArrowLifecycle() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
 	v1 := kit.NSFor(toolFixture, "v1.0.0")
 	v2 := kit.NSFor(toolFixture, "v1.1.0")
 
 	s.Require().Equal(http.StatusCreated, tc.Add(v1))
+	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
+	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
+
 	detail, status := tc.GetDetail(v1)
 	s.Require().Equal(http.StatusOK, status)
-	s.Equal(string(domain.ArrowOriginInferred), detail.Origin)
+	s.Require().Equal(string(domain.ArrowOriginInferred), detail.Origin)
 	s.Require().NotNil(detail.Inference)
-	s.Equal("high", detail.Inference.Confidence)
+	s.Require().Equal("high", detail.Inference.Confidence)
 	arrows, listStatus := tc.List()
 	s.Require().Equal(http.StatusOK, listStatus)
 	s.Require().Len(arrows, 1)
-	s.Equal(string(domain.ArrowOriginInferred), arrows[0].Origin)
-	s.Equal("high", arrows[0].Confidence)
+	s.Require().Equal(string(domain.ArrowOriginInferred), arrows[0].Origin)
+	s.Require().Equal("high", arrows[0].Confidence)
 
-	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
-	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
-	oldWorkdir := s.exposedWorkdir(env, "tool", "tool v1.0.0")
+	kit.WaitForDetail(s.T(), tc, v1, "recommended_ref v1.1.0", waitTimeout,
+		func(d dto.ArrowDetailDTO, _ int) bool { return d.RecommendedRef == "v1.1.0" })
+	oldWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.0.0"))
 
 	s.Require().Equal(http.StatusOK, tc.Update(v1, map[string]any{"UpgradeRef": true}))
 	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	newWorkdir := s.exposedWorkdir(env, "tool", "tool v1.1.0")
-	s.Equal("tool@v1.0.0", filepath.Base(oldWorkdir))
-	s.Equal("tool@v1.1.0", filepath.Base(newWorkdir))
-	s.NoDirExists(oldWorkdir)
+	newWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.1.0"))
+	s.Require().Equal("tool@v1.0.0", filepath.Base(oldWorkdir))
+	s.Require().Equal("tool@v1.1.0", filepath.Base(newWorkdir))
+	s.Require().NoDirExists(oldWorkdir)
 
 	s.Require().Equal(http.StatusAccepted, tc.Uninstall(v2, nil))
 	env.WaitForState(s.T(), v2, domain.ArrowStateAbsent, waitTimeout)
@@ -73,8 +76,8 @@ func (s *FletcherSuite) TestFletcher_InferredArrowLifecycle() {
 }
 
 func (s *FletcherSuite) TestFletcher_RuntimeUpdateReinstallsTheNewRef() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
 	v1 := kit.NSFor(toolFixture, "v1.0.0")
 	v2 := kit.NSFor(toolFixture, "v1.1.0")
@@ -82,19 +85,19 @@ func (s *FletcherSuite) TestFletcher_RuntimeUpdateReinstallsTheNewRef() {
 	s.Require().Equal(http.StatusCreated, tc.Add(v1))
 	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
 	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
-	s.exposedWorkdir(env, "tool", "tool v1.0.0")
+	s.exposedDir(env, "tool", "tool v1.0.0")
 
 	s.Require().Equal(http.StatusAccepted, tc.Execute(v1, "update", nil))
 	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	newWorkdir := s.exposedWorkdir(env, "tool", "tool v1.1.0")
+	newWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.1.0"))
 	s.Equal("tool@v1.1.0", filepath.Base(newWorkdir))
 
 	s.Equal(http.StatusUnprocessableEntity, tc.Execute(v2, "update", nil))
 }
 
 func (s *FletcherSuite) TestFletcher_RuntimeUpdateReplacesAVersionedArchiveDirectory() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
 	v1 := kit.NSFor(nestedFixture, "v1.0.0")
 	v2 := kit.NSFor(nestedFixture, "v1.1.0")
@@ -102,51 +105,49 @@ func (s *FletcherSuite) TestFletcher_RuntimeUpdateReplacesAVersionedArchiveDirec
 	s.Require().Equal(http.StatusCreated, tc.Add(v1))
 	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
 	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
-	s.exposedWorkdir(env, "vtool", "vtool v1.0.0")
+	s.exposedDir(env, "vtool", "vtool v1.0.0")
 
 	s.Require().Equal(http.StatusAccepted, tc.Execute(v1, "update", nil))
 	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	exposedDir := s.exposedWorkdir(env, "vtool", "vtool v1.1.0")
-	workdir := filepath.Dir(exposedDir)
-	s.Equal("vtool@v1.1.0", filepath.Base(workdir))
-	entries, err := os.ReadDir(workdir)
+	owned := filepath.Dir(s.exposedDir(env, "vtool", "vtool v1.1.0"))
+	s.Equal("vtool@v1.1.0", filepath.Base(filepath.Dir(owned)))
+	entries, err := os.ReadDir(owned)
 	s.Require().NoError(err)
 	for _, entry := range entries {
 		s.NotContains(entry.Name(), "v1.0.0")
 	}
 }
 
-func (s *FletcherSuite) TestFletcher_LowConfidenceNeedsConfirmation() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
-	client := env.Client(s.T())
+func (s *FletcherSuite) TestFletcher_LowConfidenceIsAMissingManifest() {
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
+	tc := env.TypedClient(s.T())
 	ns := kit.NSFor(widgetFixture, "v1.0.0")
 
-	unconfirmed := client.Add(ns)
-	defer unconfirmed.Body.Close()
-	s.Equal(http.StatusConflict, unconfirmed.StatusCode)
-	s.Contains(readBody(s.T(), unconfirmed), "confirmation required")
-
-	confirmed := client.AddConfirmed(ns)
-	defer confirmed.Body.Close()
-	s.Equal(http.StatusCreated, confirmed.StatusCode)
-
-	detail, detailStatus := env.TypedClient(s.T()).GetDetail(ns)
-	s.Require().Equal(http.StatusOK, detailStatus)
-	s.Require().NotNil(detail.Inference)
-	s.Equal("low", detail.Inference.Confidence)
+	s.Equal(http.StatusNotFound, tc.Add(ns))
+	s.Require().Positive(host.Calls())
+	callsAfterAdd := host.Calls()
+	_, detailStatus := tc.GetDetail(ns)
+	s.Equal(http.StatusNotFound, detailStatus)
+	s.Equal(callsAfterAdd, host.Calls())
+	arrows, listStatus := tc.List()
+	s.Require().Equal(http.StatusOK, listStatus)
+	s.Empty(arrows)
 }
 
 func (s *FletcherSuite) TestFletcher_DisabledLeavesManifestlessRepoNotFound() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
+	ns := kit.NSFor(toolFixture, "v1.0.0")
 
-	s.Equal(http.StatusNotFound, tc.Add(kit.NSFor(toolFixture, "v1.0.0")))
+	s.Equal(http.StatusNotFound, tc.Add(ns))
+	_, detailStatus := tc.GetDetail(ns)
+	s.Equal(http.StatusNotFound, detailStatus)
 }
 
-func (s *FletcherSuite) TestFletcher_DeclaredArrowNeverAsksTheForge() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
+func (s *FletcherSuite) TestFletcher_DeclaredArrowNeverAsksTheHost() {
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
 	ns := kit.NSFor(declaredFixture, "v1")
 
@@ -155,28 +156,27 @@ func (s *FletcherSuite) TestFletcher_DeclaredArrowNeverAsksTheForge() {
 	s.Require().Equal(http.StatusOK, status)
 	s.Equal(string(domain.ArrowOriginDeclared), detail.Origin)
 	s.Nil(detail.Inference)
-	s.Zero(forge.Calls())
+	s.Zero(host.Calls())
 }
 
-func (s *FletcherSuite) TestFletcher_PreviewRawCataloguesNothing() {
-	forge := s.newForge()
-	env := s.NewEnv(kit.WithFletcher(forge.Lookup))
-	ns := kit.NSFor(toolFixture, "v1.0.0")
+func (s *FletcherSuite) TestFletcher_DetailOfAnUncataloguedRepoCataloguesNothing() {
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
+	tc := env.TypedClient(s.T())
 
-	resp := env.Client(s.T()).Preview(ns, "raw")
-	defer resp.Body.Close()
-	s.Require().Equal(http.StatusOK, resp.StatusCode)
-	body := readBody(s.T(), resp)
-	s.Contains(body, "```arrow")
-	s.Contains(body, "generator")
+	detail, status := tc.GetDetail(kit.NSFor(toolFixture, "v1.0.0"))
+	s.Require().Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowOriginInferred), detail.Origin)
+	s.Require().NotNil(detail.Inference)
+	s.Equal("high", detail.Inference.Confidence)
 
-	arrows, listStatus := env.TypedClient(s.T()).List()
+	arrows, listStatus := tc.List()
 	s.Require().Equal(http.StatusOK, listStatus)
 	s.Empty(arrows)
 }
 
-func (s *FletcherSuite) newForge() kit.FakeForge {
-	return kit.NewFakeForge(s.T(), map[string]kit.ForgeRepo{
+func (s *FletcherSuite) newHost() kit.FakeHost {
+	return kit.NewFakeHost(s.T(), map[string]kit.HostRepo{
 		"quiver.test/" + toolFixture: {
 			Description: "A tool for integration tests",
 			Readme:      "# tool\n\nA tool for integration tests.\n",
@@ -199,6 +199,13 @@ func (s *FletcherSuite) newForge() kit.FakeForge {
 			Asset:       "gadget-cli_{os}_{arch}.tar.gz",
 			Tags:        []string{"v1.0.0"},
 		},
+		"quiver.test/" + declaredFixture: {
+			Description: "A repo that ships its own ARROW.md",
+			Readme:      "# tool-a\n",
+			Binary:      "tool-a",
+			Asset:       "tool-a_{tag}_{os}_{arch}.tar.gz",
+			Tags:        []string{"v1"},
+		},
 	})
 }
 
@@ -211,7 +218,7 @@ func (s *FletcherSuite) binLink(
 	return filepath.Join(bin, name)
 }
 
-func (s *FletcherSuite) exposedWorkdir(
+func (s *FletcherSuite) exposedDir(
 	env *kit.Env,
 	name string,
 	want string,
@@ -231,16 +238,4 @@ func (s *FletcherSuite) exposedWorkdir(
 		s.Equal(want+"\n", string(out))
 	})
 	return filepath.Dir(target)
-}
-
-func readBody(
-	t *testing.T,
-	resp *http.Response,
-) string {
-	t.Helper()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read response body: %v", err)
-	}
-	return string(body)
 }

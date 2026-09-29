@@ -2,6 +2,7 @@ package extract_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	stepextract "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/extract"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/unpack/unpacktest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/unpacktest"
 )
 
 func runExtract(
@@ -76,7 +77,7 @@ func TestHandler_Execute_Failures(t *testing.T) {
 		setup   func(t *testing.T, dir string) (string, string)
 		timeout string
 		wantErr error
-		wantMsg string
+		check   func(t *testing.T, to string)
 	}{
 		{
 			name: "invalid timeout",
@@ -84,7 +85,9 @@ func TestHandler_Execute_Failures(t *testing.T) {
 				return unpacktest.WriteArchive(t, dir, "a.tar", unpacktest.HelloTar(t)), filepath.Join(dir, "out")
 			},
 			timeout: "soon",
-			wantMsg: "invalid timeout",
+			check: func(t *testing.T, to string) {
+				assert.NoDirExists(t, to)
+			},
 		},
 		{
 			name: "expired timeout",
@@ -108,7 +111,9 @@ func TestHandler_Execute_Failures(t *testing.T) {
 				require.NoError(t, os.Mkdir(src, 0o755))
 				return src, filepath.Join(dir, "out")
 			},
-			wantMsg: "unpack",
+			check: func(t *testing.T, to string) {
+				assert.NoDirExists(t, to)
+			},
 		},
 		{
 			name: "destination is a file",
@@ -117,7 +122,9 @@ func TestHandler_Execute_Failures(t *testing.T) {
 				to := unpacktest.WriteArchive(t, dir, "blocker", []byte("x"))
 				return from, to
 			},
-			wantMsg: "unpack: create",
+			check: func(t *testing.T, to string) {
+				assert.Equal(t, "x", unpacktest.ReadString(t, to))
+			},
 		},
 	}
 
@@ -132,7 +139,9 @@ func TestHandler_Execute_Failures(t *testing.T) {
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, err, tc.wantErr)
 			}
-			assert.Contains(t, err.Error(), tc.wantMsg)
+			if tc.check != nil {
+				tc.check(t, to)
+			}
 		})
 	}
 }
@@ -152,7 +161,7 @@ func TestHandler_Execute_UnopenableDestination(t *testing.T) {
 	err := runExtract(t, unpacktest.TestMaxBytes, from, to, "")
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unpack: open destination")
+	require.ErrorIs(t, err, fs.ErrPermission)
 }
 
 func TestHandler_Execute_DmgTrailerReturnsPortableFormat(t *testing.T) {

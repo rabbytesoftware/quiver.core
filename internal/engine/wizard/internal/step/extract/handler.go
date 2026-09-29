@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/unpack"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 )
 
 var ErrPortableFormat = errors.New("portable app format, use type: portable")
@@ -32,16 +30,16 @@ func (h *handler) Execute(
 ) error {
 	osArch := req.OSArch.String()
 
-	stepCtx, cancel, err := withTimeout(ctx, s.Timeout.Resolve(osArch))
+	stepCtx, cancel, err := wizstep.WithTimeout(ctx, s.Timeout.Resolve(osArch))
 	if err != nil {
-		return err
+		return fmt.Errorf("extract: %w", err)
 	}
 	defer cancel()
 
-	from := resolvePath(req, s.From.Resolve(osArch))
-	to := resolvePath(req, s.To.Resolve(osArch))
+	from := req.ResolvePath(s.From.Resolve(osArch))
+	to := req.ResolvePath(s.To.Resolve(osArch))
 
-	src, err := os.Open(from) //nolint:gosec
+	src, err := os.Open(from) // #nosec G304 -- path is the step's own from: field, resolved against the workdir like every other file step
 	if err != nil {
 		return fmt.Errorf("extract: open %s: %w", from, err)
 	}
@@ -68,35 +66,4 @@ func (h *handler) Execute(
 	defer g.Close()
 
 	return errors.Join(archive.Extract(stepCtx, src, info.Size(), g), g.Verify())
-}
-
-func withTimeout(
-	ctx context.Context,
-	raw string,
-) (context.Context, context.CancelFunc, error) {
-	if raw == "" {
-		stepCtx, cancel := context.WithCancel(ctx)
-		return stepCtx, cancel, nil
-	}
-
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		return nil, nil, fmt.Errorf("extract: invalid timeout %q: %w", raw, err)
-	}
-
-	stepCtx, cancel := context.WithTimeout(ctx, d)
-
-	return stepCtx, cancel, nil
-}
-
-func resolvePath(
-	req wizstep.Request,
-	raw string,
-) string {
-	path := req.Expand(raw)
-	if filepath.IsAbs(path) {
-		return path
-	}
-
-	return filepath.Join(req.WorkDir, path)
 }

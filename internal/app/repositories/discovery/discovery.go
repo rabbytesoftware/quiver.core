@@ -5,7 +5,6 @@ package discovery
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,8 +12,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
-	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -49,7 +46,12 @@ type Config struct {
 	Topics           []string
 	PerProviderLimit int
 	FetchConcurrency int
-	Fletcher         FletcherConfig
+	Unmarked         UnmarkedConfig
+}
+
+type UnmarkedConfig struct {
+	MinStars   int
+	ProbeLimit int
 }
 
 type discovery struct {
@@ -60,7 +62,7 @@ type discovery struct {
 	topics      []string
 	limit       int
 	concurrency int
-	fletcher    FletcherConfig
+	unmarked    UnmarkedConfig
 }
 
 // New builds the pipeline. known may be nil, in which case nothing is ever
@@ -92,7 +94,7 @@ func New(
 		topics:      cfg.Topics,
 		limit:       cfg.PerProviderLimit,
 		concurrency: concurrency,
-		fletcher:    cfg.Fletcher,
+		unmarked:    cfg.Unmarked,
 	}, nil
 }
 
@@ -126,16 +128,15 @@ func (d *discovery) Discover(
 
 	candidates, outcomes := d.search(ctx, query)
 	unique := dedupe(candidates)
-	counted := d.verify(ctx, unique, d.verifyOne, emit)
+
+	counted := d.verify(ctx, unique, emit)
 	found := len(unique)
 
-	if d.fletcher.Enabled {
-		probed, probedOutcomes, probedTally := d.discoverUnmarked(ctx, query, unique, emit)
-		found += len(probed)
-		outcomes = append(outcomes, probedOutcomes...)
-		counted.verified += probedTally.verified
-		counted.skipped += probedTally.skipped
-	}
+	unmarked, unmarkedOutcomes, unmarkedTally := d.discoverUnmarked(ctx, query, unique, emit)
+	found += len(unmarked)
+	outcomes = append(outcomes, unmarkedOutcomes...)
+	counted.verified += unmarkedTally.verified
+	counted.skipped += unmarkedTally.skipped
 
 	return Outcome{
 		Found:     found,
@@ -152,9 +153,9 @@ func (d *discovery) discoverUnmarked(
 	emit func(Result),
 ) ([]provider.Candidate, []ProviderOutcome, tally) {
 	candidates, outcomes := d.searchUnmarked(ctx, query)
-	capped := capUnmarked(candidates, tagged, d.fletcher.ProbeLimit)
+	capped := capUnmarked(candidates, tagged, d.unmarked.ProbeLimit)
 
-	return capped, outcomes, d.verify(ctx, capped, d.verifyUnmarked, emit)
+	return capped, outcomes, d.verify(ctx, capped, emit)
 }
 
 func capUnmarked(
@@ -208,8 +209,8 @@ func (d *discovery) searchUnmarked(
 	return d.runSearch(ctx, provider.SearchRequest{
 		Text:     query,
 		Unmarked: true,
-		MinStars: d.fletcher.MinStars,
-		Limit:    d.fletcher.ProbeLimit * 2,
+		MinStars: d.unmarked.MinStars,
+		Limit:    d.unmarked.ProbeLimit * 2,
 	}, PassUnmarked)
 }
 
@@ -291,7 +292,6 @@ func (c *counters) read() tally {
 func (d *discovery) verify(
 	ctx context.Context,
 	candidates []provider.Candidate,
-	verifyFn func(context.Context, provider.Candidate, *stream) bool,
 	emit func(Result),
 ) tally {
 	slots := make(chan struct{}, d.concurrency)
@@ -309,7 +309,7 @@ func (d *discovery) verify(
 		go func() {
 			defer wg.Done()
 			defer func() { <-slots }()
-			counted.add(verifyFn(ctx, candidate, stream))
+			counted.add(d.verifyOne(ctx, candidate, stream))
 		}()
 	}
 
@@ -344,48 +344,19 @@ func (d *discovery) verifyOne(
 	candidate provider.Candidate,
 	stream *stream,
 ) bool {
-	resolvedNs := candidate.Namespace.BareNamespace().WithRef(candidate.DefaultBranch)
+	bare := candidate.Namespace.BareNamespace()
+	resolvedNs := bare.WithRef(candidate.DefaultBranch)
 
-	arrow, raw, filename, err := d.manifold.ResolveDeclaredArrow(ctx, resolvedNs)
+	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, resolvedNs)
 	if err != nil {
 		return false
 	}
-	return d.proveDeclared(ctx, candidate, arrow, raw, filename, stream)
-}
-
-func (d *discovery) verifyUnmarked(
-	ctx context.Context,
-	candidate provider.Candidate,
-	stream *stream,
-) bool {
-	resolvedNs := candidate.Namespace.BareNamespace().WithRef(candidate.DefaultBranch)
-
-	arrow, raw, filename, err := d.manifold.ResolveDeclaredArrow(ctx, resolvedNs)
-	if err == nil {
-		return d.proveDeclared(ctx, candidate, arrow, raw, filename, stream)
-	}
-	if !errors.Is(err, manifoldresolver.ErrManifestNotFound) {
-		return false
-	}
-
-	return d.probeArrow(ctx, candidate, stream)
-}
-
-func (d *discovery) proveDeclared(
-	ctx context.Context,
-	candidate provider.Candidate,
-	arrow *domain.Arrow,
-	raw []byte,
-	filename string,
-	stream *stream,
-) bool {
-	bare := candidate.Namespace.BareNamespace()
 
 	// The branch the manifest was fetched from is the only revision a discovered
 	// arrow has: discovery runs on the metered path and never spends a request
 	// asking a host for its latest release. The namespace carries it, and nothing
 	// stores a second copy.
-	arrow.Namespace = bare.WithRef(candidate.DefaultBranch)
+	arrow.Namespace = resolvedNs
 
 	// Both stores are asked before index runs. Indexing writes this very arrow
 	// to the vault, so reading the vault afterwards would have every candidate
@@ -404,35 +375,6 @@ func (d *discovery) proveDeclared(
 		Source:    candidate.Source,
 		InCatalog: inCatalog,
 		InVault:   inVault,
-	})
-	return true
-}
-
-func (d *discovery) probeArrow(
-	ctx context.Context,
-	candidate provider.Candidate,
-	stream *stream,
-) bool {
-	bare := candidate.Namespace.BareNamespace()
-
-	arrow, _, err := d.manifold.ProbeArrow(ctx, bare, fletcher.Hint{
-		Name:        candidate.Name,
-		Description: candidate.Description,
-	})
-	if err != nil {
-		return false
-	}
-	if arrow.Namespace == "" {
-		arrow.Namespace = bare
-	}
-
-	stream.send(Result{
-		Arrow:     *arrow,
-		Namespace: bare,
-		Stars:     candidate.Stars,
-		Source:    candidate.Source,
-		InCatalog: d.inCatalog(ctx, bare),
-		InVault:   d.inVault(ctx, bare),
 	})
 	return true
 }

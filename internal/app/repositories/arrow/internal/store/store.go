@@ -498,19 +498,34 @@ func (r *storeService) resolveRefless(
 		channel = manifold.StableChannel
 	}
 	ref, err := r.manifold.ResolveLatestInChannel(ctx, ns, channel)
-	if err == nil && ref != "" {
-		resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
-		if resolveErr != nil {
-			return resolvedNs, arrow, constraint, resolveErr
-		}
+	if err != nil || ref == "" {
+		return r.resolveOtherThan(ctx, ns, channel)
+	}
+
+	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
+	if resolveErr == nil {
 		arrow.Channel = channel
 		return resolvedNs, arrow, constraint, nil
 	}
-
-	if resolvedNs, arrow, constraint, ok := r.resolveBestOtherChannel(ctx, ns, channel); ok {
-		return resolvedNs, arrow, constraint, nil
+	if !errors.Is(resolveErr, apperrors.ErrNotFound) {
+		return resolvedNs, arrow, constraint, resolveErr
 	}
 
+	fallbackNs, fallbackArrow, fallbackConstraint, fallbackErr := r.resolveOtherThan(ctx, ns, channel)
+	if fallbackErr != nil {
+		return resolvedNs, nil, "", resolveErr
+	}
+	return fallbackNs, fallbackArrow, fallbackConstraint, nil
+}
+
+func (r *storeService) resolveOtherThan(
+	ctx context.Context,
+	ns domain.Namespace,
+	triedChannel string,
+) (domain.Namespace, *domain.Arrow, string, error) {
+	if resolvedNs, arrow, constraint, ok := r.resolveBestOtherChannel(ctx, ns, triedChannel); ok {
+		return resolvedNs, arrow, constraint, nil
+	}
 	return r.resolveDefaultBranch(ctx, ns)
 }
 

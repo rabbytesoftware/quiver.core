@@ -110,7 +110,7 @@ func TestArrowListDTOsFrom_OriginAndConfidence(t *testing.T) {
 		wantConfidence string
 	}{
 		{name: "declared", generator: nil, wantOrigin: domain.ArrowOriginDeclared},
-		{name: "inferred", generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "medium"}, wantOrigin: domain.ArrowOriginInferred, wantConfidence: "medium"},
+		{name: "inferred", generator: &domain.ArrowGenerator{Name: "generator/1", Confidence: "medium"}, wantOrigin: domain.ArrowOriginInferred, wantConfidence: "medium"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

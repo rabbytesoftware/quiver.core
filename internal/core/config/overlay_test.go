@@ -143,7 +143,7 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 		Logger:    Logger{Enabled: false, Level: "debug"},
 		Manifold: Manifold{
 			FetchTimeout: "45s",
-			Fletcher:     ManifoldFletcher{Enabled: true, MinStars: 5, ProbeLimit: 3},
+			Fletcher:     ManifoldFletcher{Enabled: true},
 		},
 		Vault: Vault{SweepInterval: "10m", TTL: "48h", IndexTTL: "360h"},
 		Arrows: Arrows{
@@ -151,8 +151,13 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 			VersionCheckTTL: "2h",
 			ExtractMaxBytes: 1073741824,
 		},
-		Search: Search{PerProviderLimit: 10, FetchConcurrency: 4, ProviderTimeout: "20s"},
-		Auth:   Auth{PairingCodeTTL: "5m", RedeemRateLimit: 5, RedeemRateWindow: "1m"},
+		Search: Search{
+			PerProviderLimit: 10,
+			FetchConcurrency: 4,
+			ProviderTimeout:  "20s",
+			Unmarked:         SearchUnmarked{MinStars: 5, ProbeLimit: 3},
+		},
+		Auth: Auth{PairingCodeTTL: "5m", RedeemRateLimit: 5, RedeemRateWindow: "1m"},
 	}
 
 	require.NoError(t, SaveAt(path, want))
@@ -171,7 +176,9 @@ func TestSaveAt_UnwritablePath_ReturnsError(t *testing.T) {
 	err := SaveAt(filepath.Join(blocker, "config.yaml"), Defaults())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "config:")
+	content, readErr := os.ReadFile(blocker)
+	require.NoError(t, readErr)
+	assert.Equal(t, "not a directory", string(content))
 }
 
 // Configured resolves the real config path, which is not redirectable on every

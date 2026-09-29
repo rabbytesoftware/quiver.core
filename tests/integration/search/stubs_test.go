@@ -133,6 +133,28 @@ func (p *stubProvider) RawFileURL(
 	return "", errNotAskedOfProvider
 }
 
+func (p *stubProvider) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (p *stubProvider) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (p *stubProvider) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (p *stubProvider) DefaultBranches() []string { return nil }
 
 var errNotAskedOfProvider = errors.New("stub provider: discovery never asks this")
@@ -144,14 +166,16 @@ func (p *stubProvider) searches() int {
 	return len(p.calls)
 }
 
-// topicsAsked returns the discovery markers the last request carried.
+// topicsAsked returns the discovery markers the last tagged request carried.
 func (p *stubProvider) topicsAsked() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.calls) == 0 {
-		return nil
+	for i := len(p.calls) - 1; i >= 0; i-- {
+		if !p.calls[i].Unmarked {
+			return p.calls[i].Topics
+		}
 	}
-	return p.calls[len(p.calls)-1].Topics
+	return nil
 }
 
 // candidateFor builds the candidate a host would return for a fixture repo.
@@ -251,16 +275,6 @@ func (m *countingManifold) ResolveArrow(
 	m.resolves++
 	m.mu.Unlock()
 	return m.Manifold.ResolveArrow(ctx, ns)
-}
-
-func (m *countingManifold) ResolveDeclaredArrow(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, []byte, string, error) {
-	m.mu.Lock()
-	m.resolves++
-	m.mu.Unlock()
-	return m.Manifold.ResolveDeclaredArrow(ctx, ns)
 }
 
 func (m *countingManifold) ParseArrow(

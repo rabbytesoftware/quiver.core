@@ -15,6 +15,7 @@ import (
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/exposer"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -155,7 +156,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
-	exposer               *shelfExposer
+	exposer               exposer.Exposer
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -183,7 +184,7 @@ func New(
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
-		exposer:               newShelfExposer(sh, v, getArrow, listArrows, os),
+		exposer:               exposer.New(sh, v, exposer.GetArrowFn(getArrow), exposer.ListArrowsFn(listArrows), os),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
@@ -714,8 +715,8 @@ func (s *runtimeRepository) MarkOutdated(
 // New, so none of MarkPreinstalled's construction-order constraint applies
 // here.
 func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-	exposed := s.exposer.applyVersioned(ctx, ns)
-	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: withExposed(lastReturn, exposed)})
+	exposed := s.exposer.ApplyVersioned(ctx, ns)
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: exposer.WithExposed(lastReturn, exposed)})
 	if err == nil {
 		return nil
 	}

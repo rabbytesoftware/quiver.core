@@ -131,7 +131,7 @@ func TestSearch_CatalogOnlyResult(t *testing.T) {
 
 func TestSearch_CatalogInferredArrow_CarriesOriginAndConfidence(t *testing.T) {
 	hit := catalogHit("github.com/user/pkg", "pkg", "v1.0.0")
-	hit.Metadata.Generator = &domain.ArrowGenerator{Name: "fletcher", Confidence: "medium"}
+	hit.Metadata.Generator = &domain.ArrowGenerator{Name: "generator/1", Confidence: "medium"}
 	uc := newSearch([]models.CatalogHit{hit}, nil, nil, nil, nil, nil)
 
 	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "pkg"})
@@ -163,7 +163,7 @@ func TestSearch_VaultOnlyResultIsMarkedSeenAndNotInstalled(t *testing.T) {
 
 func TestSearch_VaultInferredArrow_CarriesOriginAndConfidence(t *testing.T) {
 	row := vaultRow("github.com/user/seen", "v2.0.0", "seen arrow", 12)
-	row.Meta.Arrow.Generator = &domain.ArrowGenerator{Name: "fletcher", Confidence: "low"}
+	row.Meta.Arrow.Generator = &domain.ArrowGenerator{Name: "generator/1", Confidence: "low"}
 	uc := newSearch(nil, nil, []vault.IndexRow{row}, nil, nil, nil)
 
 	got, err := uc.Search(context.Background(), models.SearchQuery{Text: "seen"})
@@ -253,19 +253,19 @@ func TestSearch_NoMatchesReturnsEmptySliceNotError(t *testing.T) {
 }
 
 func TestSearch_CatalogErrorPropagates(t *testing.T) {
-	uc := newSearch(nil, errors.New("catalog down"), nil, nil, nil, nil)
+	boom := errors.New("catalog down")
+	uc := newSearch(nil, boom, nil, nil, nil, nil)
 
 	_, err := uc.Search(context.Background(), models.SearchQuery{Text: "pkg"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "catalog down")
+	require.ErrorIs(t, err, boom)
 }
 
 func TestSearch_VaultErrorPropagates(t *testing.T) {
-	uc := newSearch(nil, nil, nil, errors.New("vault down"), nil, nil)
+	boom := errors.New("vault down")
+	uc := newSearch(nil, nil, nil, boom, nil, nil)
 
 	_, err := uc.Search(context.Background(), models.SearchQuery{Text: "pkg"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vault down")
+	require.ErrorIs(t, err, boom)
 }
 
 func TestSearch_CollectionListErrorDoesNotFailTheSearch(t *testing.T) {

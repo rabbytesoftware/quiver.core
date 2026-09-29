@@ -88,8 +88,9 @@ type Platform struct {
 	SearchURL         string   `yaml:"search_url"`
 	ExpandedAssetsURL string   `yaml:"expanded_assets_url"`
 	RepoPageURL       string   `yaml:"repo_page_url"`
-	OrgURL            string   `yaml:"org_url"`
-	AvatarURL         string   `yaml:"avatar_url"`
+	BlobURL           string   `yaml:"blob_url"`
+	ReleaseAPIURL     string   `yaml:"release_api_url"`
+	PackagesAPIURL    string   `yaml:"packages_api_url"`
 }
 
 type Platforms map[string]Platform
@@ -313,8 +314,7 @@ func defaultMetadata() *Metadata {
 				SearchURL:         "https://api.github.com/search/repositories?q={query}",
 				ExpandedAssetsURL: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
 				RepoPageURL:       "https://github.com/{user}/{repo}",
-				OrgURL:            "https://github.com/orgs/{user}",
-				AvatarURL:         "https://github.com/{user}.png",
+				BlobURL:           "https://github.com/{user}/{repo}/blob/{branch}/{file}",
 			},
 			"gitlab.com": {
 				Kind:             KindGitLab,
@@ -322,11 +322,16 @@ func defaultMetadata() *Metadata {
 				DefaultBranches:  []string{"main", "master"},
 				LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
 				SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
+				BlobURL:          "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}",
+				RepoPageURL:      "https://gitlab.com/{user}/{repo}",
+				ReleaseAPIURL:    "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}",
+				PackagesAPIURL:   "https://gitlab.com/api/v4/projects/{project}/packages",
 			},
 			"bitbucket.org": {
 				Kind:            KindBitbucket,
 				RawURL:          "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}",
 				DefaultBranches: []string{"main", "master"},
+				BlobURL:         "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}",
 			},
 		},
 		Discovery: Discovery{

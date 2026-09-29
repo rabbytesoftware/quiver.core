@@ -234,6 +234,12 @@ Landing on step 3 is a legitimate outcome, not a failure — it is the accurate 
 that the repository has published no stable release. A manifest there that points at
 release assets will `404`, which is the honest result rather than a silently wrong one.
 
+A latest stable tag whose own manifest cannot be resolved (`not found`, e.g. a release
+that ships no assets and no manifest) does not end the walk: the store then tries the
+repository's other channels and finally the default branch, and only if all of those fail
+does it return the original stable `not found`. Any other failure (transport, rate limit,
+invalid manifest) is returned immediately with no fallback.
+
 Because `ls-remote` enumerates every ref on the remote, step 2 runs on the add path
 only. Search and discovery never reach it; they resolve against default branches.
 

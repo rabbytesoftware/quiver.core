@@ -17,8 +17,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
-	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
@@ -73,29 +71,44 @@ func (s *stubProvider) RawFileURL(
 	return "", errNotDiscovery
 }
 
+func (s *stubProvider) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s *stubProvider) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s *stubProvider) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (s *stubProvider) DefaultBranches() []string { return nil }
 
 var errNotDiscovery = errors.New("stub provider: discovery never asks this")
 
 // ─── stub manifold ───────────────────────────────────────────────────────────
 
+// stubManifold answers ResolveArrow from a table keyed by the exact namespace
+// it was asked for, and records every namespace so tests can assert on the
+// requests made rather than only on what came back.
 type stubManifold struct {
 	mu        sync.Mutex
 	requested []domain.Namespace
-	probed    []domain.Namespace
-	probeHint []fletcher.Hint
 	resolve   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error)
-	probe     func(ctx context.Context, ns domain.Namespace, hint fletcher.Hint) (*domain.Arrow, []byte, error)
 }
 
 func (s *stubManifold) ResolveArrow(
-	_ context.Context,
-	_ domain.Namespace,
-) (*domain.Arrow, []byte, string, error) {
-	return nil, nil, "", errors.New("not used")
-}
-
-func (s *stubManifold) ResolveDeclaredArrow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
@@ -176,33 +189,6 @@ func (s *stubManifold) ListChannels(
 	return nil, errors.New("not used")
 }
 
-func (s *stubManifold) ProbeArrow(
-	ctx context.Context,
-	ns domain.Namespace,
-	hint fletcher.Hint,
-) (*domain.Arrow, []byte, error) {
-	s.mu.Lock()
-	s.probed = append(s.probed, ns)
-	s.probeHint = append(s.probeHint, hint)
-	s.mu.Unlock()
-	if s.probe != nil {
-		return s.probe(ctx, ns, hint)
-	}
-	return nil, nil, errors.New("not used")
-}
-
-func (s *stubManifold) probes() []domain.Namespace {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]domain.Namespace(nil), s.probed...)
-}
-
-func (s *stubManifold) hints() []fletcher.Hint {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]fletcher.Hint(nil), s.probeHint...)
-}
-
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func newVault(t *testing.T) vault.Vault {
@@ -259,6 +245,7 @@ func newDiscovery(
 		Topics:           []string{"quiver-arrow"},
 		PerProviderLimit: 25,
 		FetchConcurrency: 8,
+		Unmarked:         discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: 10},
 	}
 	if mutate != nil {
 		mutate(&cfg)
@@ -267,6 +254,16 @@ func newDiscovery(
 	d, err := discovery.New(providers, m, v, known, cfg)
 	require.NoError(t, err)
 	return d
+}
+
+func taggedProviders(outcome discovery.Outcome) []discovery.ProviderOutcome {
+	var tagged []discovery.ProviderOutcome
+	for _, po := range outcome.Providers {
+		if po.Pass == discovery.PassTagged {
+			tagged = append(tagged, po)
+		}
+	}
+	return tagged
 }
 
 type collector struct {
@@ -289,15 +286,15 @@ func (c *collector) all() []discovery.Result {
 // ─── construction ────────────────────────────────────────────────────────────
 
 func TestNew_NilManifold_ReturnsError(t *testing.T) {
-	_, err := discovery.New(nil, nil, newVault(t), neverKnown, discovery.Config{})
+	d, err := discovery.New(nil, nil, newVault(t), neverKnown, discovery.Config{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "manifold")
+	assert.Nil(t, d)
 }
 
 func TestNew_NilVault_ReturnsError(t *testing.T) {
-	_, err := discovery.New(nil, &stubManifold{}, nil, neverKnown, discovery.Config{})
+	d, err := discovery.New(nil, &stubManifold{}, nil, neverKnown, discovery.Config{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vault")
+	assert.Nil(t, d)
 }
 
 // ─── happy path ──────────────────────────────────────────────────────────────
@@ -317,9 +314,10 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	assert.Equal(t, 1, outcome.Found)
 	assert.Equal(t, 1, outcome.Verified)
 	assert.Zero(t, outcome.Skipped)
-	require.Len(t, outcome.Providers, 1)
-	assert.True(t, outcome.Providers[0].OK)
-	assert.Equal(t, 1, outcome.Providers[0].Returned)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1)
+	assert.True(t, tagged[0].OK)
+	assert.Equal(t, 1, tagged[0].Returned)
 
 	results := got.all()
 	require.Len(t, results, 1)
@@ -544,9 +542,10 @@ func TestDiscover_OneProviderRateLimitedOtherSucceeds(t *testing.T) {
 	assert.Len(t, got.all(), 1, "a rate-limited host must not stop the others")
 	assert.Equal(t, 1, outcome.Verified)
 
-	require.Len(t, outcome.Providers, 2)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 2)
 	byHost := map[string]discovery.ProviderOutcome{}
-	for _, po := range outcome.Providers {
+	for _, po := range tagged {
 		byHost[po.Host] = po
 	}
 
@@ -574,9 +573,10 @@ func TestDiscover_ProviderThatCannotSearchIsSkipped(t *testing.T) {
 		Discover(context.Background(), "browser", got.emit)
 	require.NoError(t, err)
 
-	require.Len(t, outcome.Providers, 1, "only the hosts that were asked are reported")
-	assert.Equal(t, "github.com", outcome.Providers[0].Host)
-	assert.True(t, outcome.Providers[0].OK)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1, "only the hosts that were asked are reported")
+	assert.Equal(t, "github.com", tagged[0].Host)
+	assert.True(t, tagged[0].OK)
 	assert.Len(t, got.all(), 1)
 }
 
@@ -601,9 +601,10 @@ func TestDiscover_UnauthorizedProviderIsReportedAsSuch(t *testing.T) {
 		Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
-	require.Len(t, outcome.Providers, 1)
-	assert.Equal(t, discovery.ReasonUnauthorized, outcome.Providers[0].Reason)
-	assert.Zero(t, outcome.Providers[0].RetryAfter)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1)
+	assert.Equal(t, discovery.ReasonUnauthorized, tagged[0].Reason)
+	assert.Zero(t, tagged[0].RetryAfter)
 }
 
 func TestDiscover_AllProvidersFailReturnsOutcomeNotError(t *testing.T) {
@@ -619,12 +620,13 @@ func TestDiscover_AllProvidersFailReturnsOutcomeNotError(t *testing.T) {
 	assert.Zero(t, outcome.Found)
 	assert.Zero(t, outcome.Verified)
 	assert.Empty(t, got.all())
-	require.Len(t, outcome.Providers, 2)
-	for _, po := range outcome.Providers {
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 2)
+	for _, po := range tagged {
 		assert.False(t, po.OK)
 	}
-	assert.Equal(t, discovery.ReasonRateLimited, outcome.Providers[0].Reason)
-	assert.Equal(t, discovery.ReasonError, outcome.Providers[1].Reason)
+	assert.Equal(t, discovery.ReasonRateLimited, tagged[0].Reason)
+	assert.Equal(t, discovery.ReasonError, tagged[1].Reason)
 }
 
 func TestDiscover_NoProviders_ReturnsEmptyOutcome(t *testing.T) {
@@ -648,20 +650,30 @@ func TestDiscover_EmptyText_ReturnsError(t *testing.T) {
 // ─── query shape ─────────────────────────────────────────────────────────────
 
 func TestDiscover_SendsTopicsAndLimitToEveryProvider(t *testing.T) {
-	queries := make(chan provider.SearchRequest, 1)
+	queries := make(chan provider.SearchRequest, 2)
 	p := &stubProvider{host: "github.com", queries: queries}
 	m := &stubManifold{resolve: resolvesTo("Chromium")}
 
 	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, func(c *discovery.Config) {
 		c.Topics = []string{"quiver-arrow", "quiver-beta"}
 		c.PerProviderLimit = 3
+		c.Unmarked = discovery.UnmarkedConfig{MinStars: 7, ProbeLimit: 4}
 	}).Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
-	req := <-queries
-	assert.Equal(t, "browser", req.Text)
-	assert.Equal(t, []string{"quiver-arrow", "quiver-beta"}, req.Topics)
-	assert.Equal(t, 3, req.Limit)
+	require.Len(t, queries, 2)
+	tagged := <-queries
+	assert.Equal(t, "browser", tagged.Text)
+	assert.False(t, tagged.Unmarked)
+	assert.Equal(t, []string{"quiver-arrow", "quiver-beta"}, tagged.Topics)
+	assert.Equal(t, 3, tagged.Limit)
+
+	unmarked := <-queries
+	assert.Equal(t, "browser", unmarked.Text)
+	assert.True(t, unmarked.Unmarked)
+	assert.Empty(t, unmarked.Topics)
+	assert.Equal(t, 7, unmarked.MinStars)
+	assert.Equal(t, 8, unmarked.Limit)
 }
 
 // The branch comes off the search response, so the manifest fetch must address
@@ -957,15 +969,15 @@ func TestDiscover_CancelledBeforeStart_ReturnsWithoutFetching(t *testing.T) {
 	assert.Empty(t, m.requests())
 }
 
-func withFletcher(
-	cfg discovery.FletcherConfig,
+func withUnmarkedConfig(
+	cfg discovery.UnmarkedConfig,
 ) func(*discovery.Config) {
 	return func(c *discovery.Config) {
-		c.Fletcher = cfg
+		c.Unmarked = cfg
 	}
 }
 
-func TestDiscover_FletcherDisabled_NoUnmarkedSearchIssued(t *testing.T) {
+func TestDiscover_Unmarked_RunsWithoutAnyFlag(t *testing.T) {
 	queries := make(chan provider.SearchRequest, 2)
 	p := &stubProvider{host: "github.com", queries: queries, candidates: []provider.Candidate{
 		candidate("github.com/acme/chromium", "main"),
@@ -976,11 +988,12 @@ func TestDiscover_FletcherDisabled_NoUnmarkedSearchIssued(t *testing.T) {
 		Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
-	require.Len(t, queries, 1, "fletcher disabled must issue only the tagged search")
+	require.Len(t, queries, 2, "the unmarked pass always follows the tagged one")
 	assert.False(t, (<-queries).Unmarked)
+	assert.True(t, (<-queries).Unmarked)
 }
 
-func TestDiscover_FletcherEnabled_SecondSearchIsUnmarkedWithMinStarsAndNoTopics(t *testing.T) {
+func TestDiscover_Unmarked_SecondSearchIsUnmarkedWithMinStarsAndNoTopics(t *testing.T) {
 	queries := make(chan provider.SearchRequest, 2)
 	p := &stubProvider{host: "github.com", queries: queries, candidates: []provider.Candidate{
 		candidate("github.com/acme/chromium", "main"),
@@ -988,7 +1001,7 @@ func TestDiscover_FletcherEnabled_SecondSearchIsUnmarkedWithMinStarsAndNoTopics(
 	m := &stubManifold{resolve: resolvesTo("Chromium")}
 
 	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 75, ProbeLimit: 5}),
+		withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 75, ProbeLimit: 5}),
 	).Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
@@ -1003,7 +1016,7 @@ func TestDiscover_FletcherEnabled_SecondSearchIsUnmarkedWithMinStarsAndNoTopics(
 	assert.Equal(t, 10, unmarked.Limit, "limit is 2x ProbeLimit, to leave room for dedupe")
 }
 
-func TestDiscover_FletcherEnabled_TaggedDuplicateIsNotResolvedTwice(t *testing.T) {
+func TestDiscover_Unmarked_TaggedDuplicateIsNotResolvedTwice(t *testing.T) {
 	shared := candidate("github.com/acme/chromium", "main")
 	p := &stubProvider{
 		host:               "github.com",
@@ -1014,7 +1027,7 @@ func TestDiscover_FletcherEnabled_TaggedDuplicateIsNotResolvedTwice(t *testing.T
 
 	var got collector
 	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
+		withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: 5}),
 	).Discover(context.Background(), "browser", got.emit)
 	require.NoError(t, err)
 
@@ -1024,7 +1037,35 @@ func TestDiscover_FletcherEnabled_TaggedDuplicateIsNotResolvedTwice(t *testing.T
 	assert.Len(t, m.requests(), 1, "a candidate the tagged pass already proved is never re-resolved")
 }
 
-func TestDiscover_FletcherEnabled_UnmarkedResultsAreCappedAtProbeLimit(t *testing.T) {
+func unmarkedManifold(
+	arrow *domain.Arrow,
+) *stubManifold {
+	return &stubManifold{
+		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			copied := *arrow
+			return &copied, []byte("schema: arrow@v0\n"), "ARROW.md", nil
+		},
+	}
+}
+
+func inferredArrow() *domain.Arrow {
+	return &domain.Arrow{
+		ArrowMeta: domain.ArrowMeta{
+			Name:      "Inferred",
+			Tags:      []string{"editor"},
+			Generator: &domain.ArrowGenerator{Name: "generator/1", Confidence: "high"},
+		},
+		Targets: map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}},
+	}
+}
+
+func withUnmarked(
+	probeLimit int,
+) func(*discovery.Config) {
+	return withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: probeLimit})
+}
+
+func TestDiscover_Unmarked_UnmarkedResultsAreCappedAtProbeLimit(t *testing.T) {
 	cands := make([]provider.Candidate, 0, 5)
 	for i := range 5 {
 		cands = append(cands, candidate(fmt.Sprintf("github.com/acme/probe%d", i), "main"))
@@ -1036,9 +1077,8 @@ func TestDiscover_FletcherEnabled_UnmarkedResultsAreCappedAtProbeLimit(t *testin
 	}
 	m := &stubManifold{resolve: resolvesTo("Chromium")}
 
-	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 2}),
-	).Discover(context.Background(), "browser", func(discovery.Result) {})
+	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, withUnmarked(2)).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, outcome.Found, "1 tagged + 2 capped from the untagged pass")
@@ -1046,214 +1086,171 @@ func TestDiscover_FletcherEnabled_UnmarkedResultsAreCappedAtProbeLimit(t *testin
 	assert.Len(t, m.requests(), 3)
 }
 
-func TestDiscover_FletcherEnabled_TaggedCandidateWithoutManifestIsSkippedNeverIndexed(t *testing.T) {
-	v := newVault(t)
-	p := &stubProvider{host: "github.com", candidates: []provider.Candidate{
-		candidate("github.com/acme/undeclared-tagged", "main"),
-	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", fmt.Errorf("fetch: %w", manifoldresolver.ErrManifestNotFound)
-		},
-	}
-
-	var got collector
-	outcome, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "undeclared", got.emit)
-	require.NoError(t, err)
-
-	assert.Zero(t, outcome.Verified)
-	assert.Equal(t, 1, outcome.Skipped)
-	assert.Empty(t, got.all())
-	assert.Empty(t, m.probes(), "the tagged pass never falls through to a probe")
-
-	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "undeclared", Limit: 10})
-	require.NoError(t, err)
-	assert.Empty(t, rows, "a tagged candidate with no manifest must never be fletched or indexed")
-}
-
-func TestDiscover_FletcherEnabled_DeclaredCandidateWithoutTopicUsesResolveArrowResult(t *testing.T) {
+func TestDiscover_Unmarked_UnmarkedCandidateIsCachedBeforeStreaming(t *testing.T) {
 	v := newVault(t)
 	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
-		candidate("github.com/acme/undeclared", "main"),
+		candidate("github.com/acme/inferred", "main"),
 	}}
-	m := &stubManifold{resolve: resolvesTo("Undeclared")}
+	m := unmarkedManifold(inferredArrow())
 
-	var got collector
-	outcome, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "undeclared", got.emit)
+	var cachedWhenStreamed []error
+	emit := func(r discovery.Result) {
+		_, err := v.GetArrow(context.Background(), r.Arrow.Namespace)
+		cachedWhenStreamed = append(cachedWhenStreamed, err)
+	}
+	outcome, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, withUnmarked(5)).
+		Discover(context.Background(), "inferred", emit)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, outcome.Verified)
-	results := got.all()
-	require.Len(t, results, 1)
-	assert.Equal(t, "Undeclared", results[0].Arrow.Name)
-	assert.Empty(t, m.probes(), "a declared manifest is used as-is, never probed")
-
-	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "Undeclared", Limit: 10})
-	require.NoError(t, err)
-	require.Len(t, rows, 1, "a declared arrow found without a topic is still indexed")
-}
-
-func TestDiscover_FletcherEnabled_NoManifestCandidateUsesProbeArrowResultAndIsNotIndexed(t *testing.T) {
-	v := newVault(t)
-	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
-		candidate("github.com/acme/inferred", "main"),
-	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", fmt.Errorf("fetch: %w", manifoldresolver.ErrManifestNotFound)
-		},
-		probe: func(context.Context, domain.Namespace, fletcher.Hint) (*domain.Arrow, []byte, error) {
-			return &domain.Arrow{
-				ArrowMeta: domain.ArrowMeta{
-					Name:      "Inferred",
-					Generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low"},
-				},
-			}, []byte("schema: arrow@v0\n"), nil
-		},
-	}
-
-	var got collector
-	_, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "inferred", got.emit)
-	require.NoError(t, err)
-
-	results := got.all()
-	require.Len(t, results, 1)
-	assert.Equal(t, "Inferred", results[0].Arrow.Name)
-	assert.Equal(t, "fletcher/1", results[0].Arrow.Generator.Name)
-
-	require.Len(t, m.probes(), 1)
-	assert.Equal(t, domain.Namespace("github.com/acme/inferred"), m.probes()[0])
-	require.Len(t, m.hints(), 1)
-	assert.Equal(t, "chromium", m.hints()[0].Name)
-	assert.Equal(t, "a browser", m.hints()[0].Description)
+	require.Equal(t, []error{nil}, cachedWhenStreamed, "a result streams only once its manifest is cached")
+	assert.Equal(t, []domain.Namespace{"github.com/acme/inferred@main"}, m.requests())
 
 	rows, err := v.SearchArrows(context.Background(), vault.IndexQuery{Text: "Inferred", Limit: 10})
 	require.NoError(t, err)
-	assert.Empty(t, rows, "a probed arrow must never be written to the vault")
+	require.Len(t, rows, 1)
+	assert.Equal(t, domain.Namespace("github.com/acme/inferred"), rows[0].Namespace)
+	assert.Equal(t, "main", rows[0].Ref)
+	assert.Equal(t, "main", rows[0].Meta.Branch)
+	assert.Equal(t, 42, rows[0].Meta.Stars)
+	assert.Equal(t, "github.com", rows[0].Meta.Source)
+	assert.Equal(t, []domain.OS{domain.OSLinuxAMD64}, rows[0].Meta.OS)
+	assert.Equal(t, []string{"editor"}, rows[0].Meta.Arrow.Tags)
+	assert.Equal(t, "high", rows[0].Meta.Arrow.Generator.Confidence)
 }
 
-func TestDiscover_FletcherEnabled_ProbedResultKeepsTheProbedTagAsNamespaceRef(t *testing.T) {
+func TestDiscover_Unmarked_UnmarkedResultCarriesTheCandidateBranch(t *testing.T) {
 	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
 		candidate("github.com/acme/inferred", "main"),
 	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", fmt.Errorf("fetch: %w", manifoldresolver.ErrManifestNotFound)
-		},
-		probe: func(_ context.Context, ns domain.Namespace, _ fletcher.Hint) (*domain.Arrow, []byte, error) {
-			return &domain.Arrow{
-				Namespace: ns.WithRef("v2.0.0"),
-				ArrowMeta: domain.ArrowMeta{
-					Name:      "Inferred",
-					Generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low"},
-				},
-			}, []byte("schema: arrow@v0\n"), nil
-		},
-	}
+	m := unmarkedManifold(inferredArrow())
 
 	var got collector
-	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "inferred", got.emit)
+	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, withUnmarked(5)).
+		Discover(context.Background(), "inferred", got.emit)
 	require.NoError(t, err)
 
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.Equal(t, domain.Namespace("github.com/acme/inferred@v2.0.0"), results[0].Arrow.Namespace)
-	assert.Equal(t, "v2.0.0", results[0].Arrow.Namespace.Ref())
+	assert.Equal(t, domain.Namespace("github.com/acme/inferred"), results[0].Namespace)
+	assert.Equal(t, domain.Namespace("github.com/acme/inferred@main"), results[0].Arrow.Namespace)
+	assert.Equal(t, 42, results[0].Stars)
+	assert.Equal(t, "github.com", results[0].Source)
+	assert.False(t, results[0].InVault, "nothing held the arrow before the pass cached it")
 
 	rendered := apidto.SearchResultDTOFromDiscovery(results[0])
-	assert.Contains(t, rendered.Versions, "v2.0.0")
+	assert.Contains(t, rendered.Versions, "main")
 }
 
-func TestDiscover_FletcherEnabled_ProbedResultWithEmptyNamespaceFallsBackToBare(t *testing.T) {
+func TestDiscover_Unmarked_UnmarkedCandidateAlreadyInTheVaultIsFlaggedKnown(t *testing.T) {
+	testCases := []struct {
+		name      string
+		cachedRef domain.Namespace
+		wantKnown bool
+	}{
+		{name: "same ref", cachedRef: "github.com/acme/inferred@main", wantKnown: true},
+		{name: "other ref", cachedRef: "github.com/acme/inferred@v1.0.0", wantKnown: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := newVault(t)
+			require.NoError(t, v.PutArrow(context.Background(), tc.cachedRef, vault.ManifestFile{
+				Content: []byte("cached"), Filename: "ARROW.md",
+			}))
+			p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
+				candidate("github.com/acme/inferred", "main"),
+			}}
+			m := unmarkedManifold(inferredArrow())
+
+			var got collector
+			_, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, withUnmarked(5)).
+				Discover(context.Background(), "inferred", got.emit)
+			require.NoError(t, err)
+
+			results := got.all()
+			require.Len(t, results, 1)
+			assert.Equal(t, tc.wantKnown, results[0].InVault)
+			assert.False(t, results[0].InCatalog)
+			assert.Equal(t, []domain.Namespace{"github.com/acme/inferred@main"}, m.requests())
+		})
+	}
+}
+
+func TestDiscover_Unmarked_UnmarkedKnownCandidateIsFlagged(t *testing.T) {
 	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
 		candidate("github.com/acme/inferred", "main"),
 	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", fmt.Errorf("fetch: %w", manifoldresolver.ErrManifestNotFound)
-		},
-		probe: func(context.Context, domain.Namespace, fletcher.Hint) (*domain.Arrow, []byte, error) {
-			return &domain.Arrow{
-				ArrowMeta: domain.ArrowMeta{Name: "Inferred"},
-			}, []byte("schema: arrow@v0\n"), nil
-		},
+	m := unmarkedManifold(inferredArrow())
+	var asked []domain.Namespace
+	known := func(_ context.Context, ns domain.Namespace) (bool, error) {
+		asked = append(asked, ns)
+		return true, nil
 	}
 
 	var got collector
-	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "inferred", got.emit)
+	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), known, withUnmarked(5)).
+		Discover(context.Background(), "inferred", got.emit)
 	require.NoError(t, err)
 
 	results := got.all()
 	require.Len(t, results, 1)
-	assert.Equal(t, domain.Namespace("github.com/acme/inferred"), results[0].Arrow.Namespace)
+	assert.True(t, results[0].InCatalog)
+	assert.Equal(t, []domain.Namespace{"github.com/acme/inferred"}, asked)
 }
 
-func TestDiscover_FletcherEnabled_ProbeNotFletchableIsSkipped(t *testing.T) {
-	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
-		candidate("github.com/acme/unfletchable", "main"),
-	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", fmt.Errorf("fetch: %w", manifoldresolver.ErrManifestNotFound)
+func TestDiscover_Unmarked_UnmarkedFailuresAreSkippedNotEmitted(t *testing.T) {
+	testCases := []struct {
+		name    string
+		vault   func(t *testing.T) vault.Vault
+		resolve func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error)
+	}{
+		{
+			name:  "cache write fails",
+			vault: func(*testing.T) vault.Vault { return &failingVault{} },
+			resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
+				return inferredArrow(), []byte("schema: arrow@v0\n"), "ARROW.md", nil
+			},
 		},
-		probe: func(context.Context, domain.Namespace, fletcher.Hint) (*domain.Arrow, []byte, error) {
-			return nil, nil, fletcher.NotFletchableError{Reason: fletcher.ReasonNoReleaseAssets}
-		},
-	}
-
-	var got collector
-	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "unfletchable", got.emit)
-	require.NoError(t, err)
-
-	assert.Zero(t, outcome.Verified)
-	assert.Equal(t, 1, outcome.Skipped)
-	assert.Empty(t, got.all())
-}
-
-func TestDiscover_FletcherEnabled_TransientResolveErrorSkipsWithoutProbing(t *testing.T) {
-	p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
-		candidate("github.com/acme/transient", "main"),
-	}}
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			return nil, nil, "", errors.New("network unreachable")
+		{
+			name:  "manifold refuses the candidate",
+			vault: newVault,
+			resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
+				return nil, nil, "", errors.New("no usable asset")
+			},
 		},
 	}
 
-	var got collector
-	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "transient", got.emit)
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := tc.vault(t)
+			p := &stubProvider{host: "github.com", unmarkedCandidates: []provider.Candidate{
+				candidate("github.com/acme/unresolvable", "main"),
+			}}
+			m := &stubManifold{resolve: tc.resolve}
 
-	assert.Zero(t, outcome.Verified)
-	assert.Equal(t, 1, outcome.Skipped)
-	assert.Empty(t, got.all())
-	assert.Empty(t, m.probes(), "a transient failure must never fall through to probe")
+			var got collector
+			outcome, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, withUnmarked(5)).
+				Discover(context.Background(), "unresolvable", got.emit)
+			require.NoError(t, err)
+
+			assert.Zero(t, outcome.Verified)
+			assert.Equal(t, 1, outcome.Skipped)
+			assert.Empty(t, got.all())
+			assert.NotEmpty(t, m.requests())
+		})
+	}
 }
 
-func TestDiscover_FletcherEnabled_ProviderUnsupportedForUnmarkedIsNotAFailure(t *testing.T) {
+func TestDiscover_Unmarked_ProviderUnsupportedForUnmarkedIsNotAFailure(t *testing.T) {
 	tagged := &stubProvider{host: "github.com", candidates: []provider.Candidate{
 		candidate("github.com/acme/chromium", "main"),
 	}}
 	gitlabLike := &stubProvider{host: "gitlab.com", unmarkedErr: provider.ErrSearchUnsupported}
 	m := &stubManifold{resolve: resolvesTo("Chromium")}
 
-	outcome, err := newDiscovery(t, []provider.Provider{tagged, gitlabLike}, m, newVault(t), neverKnown,
-		withFletcher(discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: 5}),
-	).Discover(context.Background(), "browser", func(discovery.Result) {})
+	outcome, err := newDiscovery(t, []provider.Provider{tagged, gitlabLike}, m, newVault(t), neverKnown, withUnmarked(5)).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
 	var unmarkedOutcome *discovery.ProviderOutcome
@@ -1267,7 +1264,7 @@ func TestDiscover_FletcherEnabled_ProviderUnsupportedForUnmarkedIsNotAFailure(t 
 	assert.Equal(t, discovery.ReasonUnsupported, unmarkedOutcome.Reason)
 }
 
-func TestDiscover_FletcherEnabled_UnmarkedPassRespectsTheSharedConcurrencyBound(t *testing.T) {
+func TestDiscover_Unmarked_UnmarkedPassRespectsTheSharedConcurrencyBound(t *testing.T) {
 	const bound = 2
 	const candidates = 6
 
@@ -1299,7 +1296,7 @@ func TestDiscover_FletcherEnabled_UnmarkedPassRespectsTheSharedConcurrencyBound(
 
 	d := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, func(c *discovery.Config) {
 		c.FetchConcurrency = bound
-		c.Fletcher = discovery.FletcherConfig{Enabled: true, MinStars: 10, ProbeLimit: candidates}
+		c.Unmarked = discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: candidates}
 	})
 
 	done := make(chan discovery.Outcome, 1)

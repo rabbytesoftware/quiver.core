@@ -340,6 +340,16 @@ func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
 // slowWizard refuses to stop until its own context runs out — the state an arrow
 // whose process will not die leaves shutdown in. Under a context shared by every
 // sub-phase it consumes the entire budget.
+func shutdownFailures(
+	t *testing.T,
+	err error,
+) []error {
+	t.Helper()
+	joined, ok := err.(interface{ Unwrap() []error })
+	require.True(t, ok, "shutdown joins one error per failed phase")
+	return joined.Unwrap()
+}
+
 func slowWizard() *mocks.Wizard {
 	return &mocks.Wizard{ShutdownFn: func(ctx context.Context) error {
 		<-ctx.Done()
@@ -391,12 +401,9 @@ func TestShutdown_SlowWizard_StillDrainsAggregate(t *testing.T) {
 
 	err = lc.Shutdown(ctx)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runtime shutdown: wizard")
-	assert.NotContains(t, err.Error(), "runtime shutdown: drain",
-		"the wizard overrunning must not cost the drain gate its share")
-	assert.NotContains(t, err.Error(), "runtime shutdown: aggregate",
-		"the wizard overrunning must not cost the aggregate its share")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Len(t, shutdownFailures(t, err), 1,
+		"only the wizard may overrun: the drain gate and the aggregate keep their own shares")
 
 	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
 		"the aggregate must be drained even though the wizard never stopped")
@@ -431,9 +438,8 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
 			return stalled
 		},
-		ShutdownFn: func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
+		ShutdownFn: func(context.Context) error {
+			return nil
 		},
 	}
 
@@ -453,8 +459,8 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 
 	require.Error(t, err, "shutdown must return rather than wait on a drain that cannot finish")
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.Contains(t, err.Error(), "runtime shutdown: drain",
-		"the drain that cannot finish must be the phase that reports the expiry")
+	assert.Len(t, shutdownFailures(t, err), 1,
+		"with the wizard and the aggregate stopping cleanly, the stuck drain is the one phase that reports the expiry")
 }
 
 // TestShutdown_SurvivingExecution_DoesNotWaitForDrain mirrors

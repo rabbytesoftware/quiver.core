@@ -36,9 +36,7 @@ type Logger struct {
 }
 
 type ManifoldFletcher struct {
-	Enabled    bool `yaml:"enabled"     json:"enabled"`
-	MinStars   int  `yaml:"min_stars"   json:"min_stars"   validate:"min=0"`
-	ProbeLimit int  `yaml:"probe_limit" json:"probe_limit" validate:"min=1"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 type Manifold struct {
@@ -56,9 +54,15 @@ type Vault struct {
 // discovery is anonymous, so it knows nothing about credentials and asks the
 // user for none.
 type Search struct {
-	PerProviderLimit int    `yaml:"per_provider_limit" json:"per_provider_limit" validate:"min=1"`
-	FetchConcurrency int    `yaml:"fetch_concurrency"  json:"fetch_concurrency"  validate:"min=1"`
-	ProviderTimeout  string `yaml:"provider_timeout"   json:"provider_timeout"   validate:"duration"`
+	PerProviderLimit int            `yaml:"per_provider_limit" json:"per_provider_limit" validate:"min=1"`
+	FetchConcurrency int            `yaml:"fetch_concurrency"  json:"fetch_concurrency"  validate:"min=1"`
+	ProviderTimeout  string         `yaml:"provider_timeout"   json:"provider_timeout"   validate:"duration"`
+	Unmarked         SearchUnmarked `yaml:"unmarked"           json:"unmarked"`
+}
+
+type SearchUnmarked struct {
+	MinStars   int `yaml:"min_stars"   json:"min_stars"   validate:"min=0"`
+	ProbeLimit int `yaml:"probe_limit" json:"probe_limit" validate:"min=1"`
 }
 
 type ArrowAutoRetry struct {

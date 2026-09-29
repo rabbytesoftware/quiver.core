@@ -30,7 +30,6 @@ func TestStatusAndMessage(t *testing.T) {
 		{apperrors.ErrMissingVariable, http.StatusUnprocessableEntity, "required variable not provided"},
 		{apperrors.ErrInvalidManifest, http.StatusUnprocessableEntity, "invalid manifest"},
 		{apperrors.ErrChannelNotFound, http.StatusBadRequest, "channel not found"},
-		{apperrors.ErrConfirmationRequired, http.StatusConflict, "confirmation required"},
 		{deptree.ErrCyclicDependency, http.StatusConflict, "cyclic dependency"},
 		{errors.New("unexpected"), http.StatusInternalServerError, "internal error"},
 	}
@@ -93,13 +92,4 @@ func TestStatusAndMessage_InvalidConfig_NamesTheField(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
 	assert.Contains(t, message, "logger.level")
-}
-
-func TestStatusAndMessage_NotFletchable_SurfacesReason(t *testing.T) {
-	err := fmt.Errorf("add: %w: %s", apperrors.ErrNotFletchable, "no_usable_asset")
-
-	status, msg := apierr.StatusAndMessage(err)
-
-	assert.Equal(t, http.StatusNotFound, status)
-	assert.Equal(t, "add: not fletchable: no_usable_asset", msg)
 }

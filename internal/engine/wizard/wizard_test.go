@@ -485,7 +485,6 @@ func TestProbe_EmptyCommand_DoesNotDetect(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrVacuousProbe)
-	assert.Contains(t, err.Error(), "probe step 0")
 }
 
 // TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect: the guard inspects every
@@ -493,15 +492,16 @@ func TestProbe_EmptyCommand_DoesNotDetect(t *testing.T) {
 // through an empty one.
 func TestProbe_EmptyCommandAfterGoodStep_DoesNotDetect(t *testing.T) {
 	w := newTestWizard(t)
+	marker := filepath.Join(t.TempDir(), "ran")
 
 	err := w.Probe(context.Background(), newTestReq(
-		domainstep.NewRunStep("first", "true", false, "5s", true),
+		domainstep.NewRunStep("first", "touch "+marker, false, "5s", true),
 		domainstep.NewRunStep("second", "", false, "5s", true),
 	))
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrVacuousProbe)
-	assert.Contains(t, err.Error(), "probe step 1")
+	assert.NoFileExists(t, marker, "the empty step is rejected before any step runs")
 }
 
 func TestProbe_AllStepsSucceed_Detects(t *testing.T) {
@@ -528,7 +528,6 @@ func TestProbe_FailingStep_DoesNotDetect(t *testing.T) {
 	err := w.Probe(context.Background(), req)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "probe step 0")
 	_, statErr := os.Stat(marker)
 	assert.True(t, os.IsNotExist(statErr), "no step may run after the answer is known")
 }

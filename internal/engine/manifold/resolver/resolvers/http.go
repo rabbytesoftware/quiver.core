@@ -34,6 +34,10 @@ func (h *httpFetcher) CanResolve(
 	return ok
 }
 
+// Fetch is a mechanical wrap around fetchBranches, unchanged internally: an
+// HTTP fetch is cheap (no clone), so there is no per-clone cost to save by
+// restructuring it the way the git fetcher's Fetch is. It simply tries each
+// candidate filename in turn, returning as soon as one succeeds.
 func (h *httpFetcher) Fetch(
 	ctx context.Context,
 	namespace domain.Namespace,

@@ -20,7 +20,6 @@ func Register(
 	rg.DELETE("/arrow/:ns", h.Remove)
 	rg.GET("/arrow", dispatch(h.List, arrowWS))
 	rg.GET("/arrow/:ns", dispatch(h.GetDetail, arrowWS))
-	rg.GET("/arrow/:ns/preview", h.Preview)
 	rg.GET("/arrow/:ns/manifest", h.GetManifest)
 	rg.GET("/arrow/:ns/readme", h.GetReadme)
 	rg.GET("/arrow/:ns/dependents", h.GetDependents)

@@ -119,14 +119,14 @@ func TestArrowDetailDTOFrom_InferredArrow_CarriesInference(t *testing.T) {
 		Namespace: domain.Namespace("github.com/user/repo"),
 		Origin:    domain.ArrowOriginInferred,
 		Generator: &domain.ArrowGenerator{
-			Name:       "fletcher",
+			Name:       "generator/1",
 			Confidence: "medium",
 			Warnings:   []string{"emulated"},
 		},
 	}
 	d := dto.ArrowDetailDTOFrom(a)
 	require.NotNil(t, d.Inference)
-	assert.Equal(t, "fletcher", d.Inference.Generator)
+	assert.Equal(t, "generator/1", d.Inference.Generator)
 	assert.Equal(t, "medium", d.Inference.Confidence)
 	assert.Equal(t, []string{"emulated"}, d.Inference.Warnings)
 }

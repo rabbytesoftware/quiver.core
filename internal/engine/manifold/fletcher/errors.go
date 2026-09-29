@@ -1,24 +1,18 @@
 package fletcher
 
-import "errors"
+import "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/models"
 
-const (
-	ReasonHostUnsupported = "host_unsupported"
-	ReasonNoReleaseAssets = "no_release_assets"
-	ReasonNoUsableAsset   = "no_usable_asset"
-	ReasonDisabled        = "disabled"
+type (
+	NotFletchableError = models.NotFletchableError
+	Reason             = models.Reason
 )
 
-var ErrNotFletchable = errors.New("fletcher: not fletchable")
+const (
+	ReasonHostUnsupported = models.ReasonHostUnsupported
+	ReasonNoReleaseAssets = models.ReasonNoReleaseAssets
+	ReasonNoUsableAsset   = models.ReasonNoUsableAsset
+	ReasonNoDigest        = models.ReasonNoDigest
+	ReasonLowConfidence   = models.ReasonLowConfidence
+)
 
-type NotFletchableError struct {
-	Reason string
-}
-
-func (e NotFletchableError) Error() string {
-	return ErrNotFletchable.Error() + ": " + e.Reason
-}
-
-func (e NotFletchableError) Unwrap() error {
-	return ErrNotFletchable
-}
+var ErrNotFletchable = models.ErrNotFletchable

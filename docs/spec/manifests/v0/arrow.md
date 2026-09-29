@@ -307,7 +307,7 @@ manifest re-parsed from the vault cache keeps its origin and confidence.
 | Field | Required | Meaning |
 |-------|----------|---------|
 | `name` | yes | Heuristics identifier that produced the manifest (`fletcher/1`). |
-| `confidence` | yes | `high`, `medium` or `low` (schema enum). |
+| `confidence` | yes | `high`, `medium` or `low` (schema enum). Fletcher refuses a `low` build instead of emitting it. |
 | `warnings` | no | Why confidence is not `high`: `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch`. |
 
 An Arrow's **origin** is derived from it: `inferred` when `generator.name` is non-empty,
@@ -558,7 +558,7 @@ step-execution time; a resolved step carries the single chosen value and no key 
 | Where | Resolver | Glob keys (`linux/*`, `*/arm64`, `*`) |
 |-------|----------|----------------------------------------|
 | `exports:` values | `selector.go::resolveOverrideable` | **Resolved** |
-| Step fields (`run`, `fetch`, `extract`, `signal`) | `selector.go::resolveStepList` → `resolveOverrideable` | **Resolved** |
+| Step fields (`run`, `fetch`, `extract`, `portable`, `signal`) | `selector.go::resolveStepList` → `resolveOverrideable` | **Resolved** |
 
 `resolveOverrideable` selects the best-matching key for the target OS using the same
 specificity ranking as target selection (§4.4): exact key (rank 3) beats a glob containing
@@ -729,9 +729,10 @@ Per-OS meaning:
 
 **`path: auto`.** Resolved against the installed workdir when the entries are applied:
 
-- `cli` — every executable file in the workdir is scanned. One executable → it. Several →
-  those whose file name equals the repository name or the entry's `name`; failing that, every
-  top-level executable. Each is registered under the executable's own base name (`.exe`
+- `cli` — every executable file in the workdir is scanned, down to four levels deep (hidden
+  directories skipped). One executable → it. Several → those whose file name equals the
+  repository name or the entry's `name`; failing that, every executable at the shallowest depth
+  found. Each is registered under the executable's own base name (`.exe`
   stripped on Windows), not the entry's `name`: a `ripgrep` entry resolving to `rg` exposes
   `~/.quiver/bin/rg`. Ownership, collision and prune checks all use that name.
 - `desktop` — candidates are taken from the first of these sources that yields any:
@@ -851,8 +852,10 @@ arrow tracks (the recommended ref when a version check already found one, else t
 constraint, a pinned ref, or the latest ref of its channel), moves the catalog row onto it and
 runs that ref's `install:`. The old ref's workdir moves to the new ref first, so a declared
 arrow's `install:` runs on top of whatever the old ref left in `${INSTALL_PATH}` (user data
-survives; stale files do too). A synthesized arrow (§3.2) holds nothing but its release asset,
-so its workdir is emptied before the reinstall. An arrow already at that ref is refused with
+survives, except inside a `portable` step's owned `to`, which the reinstall replaces, §8.5;
+stale files survive too). A synthesized arrow (§3.2) installs through `portable` into a
+directory it owns (§8.5), which the reinstall replaces, so nothing of the old release lingers.
+An arrow already at that ref is refused with
 `cannot update: arrow is up to date`, unless it is `outdated` (its dependency set changed), in
 which case the update only syncs its dependencies. A reinstall takes no variables (refused with
 `cannot update with variables`), and a target ref that is already catalogued is refused as
@@ -881,7 +884,7 @@ manifest input.
 | `run` | Execute a shell command | `command` | `elevated`, `title`, `timeout`, `exit_on_failure` | `command`, `elevated`, `timeout` |
 | `fetch` | Download a remote file | `url`, `to` | `checksum`, `title`, `timeout`, `exit_on_failure` | `url`, `to`, `checksum`, `timeout` |
 | `extract` | Extract an archive to a directory | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
-| `portable` | Materialize an app package as a runnable, Quiver-owned app | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
+| `portable` | Materialize an app package as a runnable, Quiver-owned app | `from`, `to` | `name`, `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `signal` | Send a cross-platform shutdown signal | `signal` | `title`, `timeout`, `exit_on_failure` | `signal`, `timeout` |
 
 All steps also accept these common fields:
@@ -968,7 +971,13 @@ one as a runnable app is `portable`'s job.
 ```
 
 `portable` materializes an app package as a runnable, Quiver-owned app inside the workdir.
-`from`, `to`, path anchoring and timeout semantics are identical to `extract`. The same
+`from`, `to`, path anchoring and timeout semantics are identical to `extract`. The optional
+`name` is the file name a bare executable, or the payload of a single-file compressed archive
+(`.gz`, `.xz`, `.bz2`, `.zst` holding one file, not a tar), is installed under (see 3 and 4
+below); every other format ignores it. It must match `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, so
+it is always a single path element, must not end in a dot, and must not be a Windows
+device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, in any case, with or
+without an extension) (`portable_name` rule, `invalid_name`); it is not overrideable. The same
 `arrows.extract_max_bytes` and 1,000,000-entry caps apply to everything `portable` writes.
 
 Format is detected from content, in this order:
@@ -984,12 +993,30 @@ Format is detected from content, in this order:
    replaced only when it holds a `.quiver-run` launcher; any other directory there is left
    untouched and the step fails.
 2. **DMG** (`koly` trailer) — `darwin/*` targets only; fails elsewhere.
-3. **Archive** — anything `extract` accepts, unpacked into `to` with `extract`'s rules.
-4. **Bare executable** (ELF, Mach-O, or PE) — copied to `<to>/<base name of from>` with mode
-   `0755`.
+3. **Archive** — anything `extract` accepts, unpacked into `to` with `extract`'s rules; a
+   single-file compressed payload is written as `<to>/<name>` when the step sets `name`.
+4. **Bare executable** (ELF, Mach-O, or PE) — copied to `<to>/<name>` when the step sets
+   `name`, else to `<to>/<base name of from>`, with mode `0755`.
 5. Anything else fails with `unknown format`.
 
 On success, `from` is removed when it lies inside the workdir and is not the output itself.
+
+**Owned destinations.** When `from` and `to` both lie inside the workdir (`to` strictly inside
+it, never the workdir itself, and `from` not inside `to`) and `to` does not exist yet,
+`portable` owns `to`, the application's own directory. It installs into a hidden staging
+directory next to it, `<parent of to>/.<base of to>.quiver-tmp`, then writes a
+`.quiver-portable` marker holding `from`'s workdir-relative path (whatever the package placed at
+that name is removed first, never followed). Only then is `to` swapped: the previous `to` is
+renamed to `<parent of to>/.<base of to>.quiver-old`, the staging directory is renamed to `to`,
+and the old copy is deleted. If the second rename fails, the old copy is renamed back. Leftover
+staging and old copies from an interrupted run are removed at the start of the next one. A later
+run with the same `from` finds its marker and replaces `to` this way, whatever the format, so
+nothing of the previous release survives, and a failed install leaves the previous `to` in
+place. Any other `to` is never removed: the step installs into it as described above, merging
+with what is there. That covers the workdir itself, a `to` outside the workdir, a directory the
+user or another step created, and one owned by a different `from`. Anything written into an
+owned `to` by something else, including data the application keeps next to itself, is lost on
+the next run.
 
 For an AppImage, `portable` reads the AppDir's root `.desktop` file for a display name
 (`Name=`), a launch command (`Exec=`, desktop-entry-quoted, vendor arguments preserved), and an
@@ -1270,6 +1297,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
 | `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
+| `portable_name` | `portable_name.go` | A `portable` step's optional `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, does not end in a dot, and is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, any case, with or without an extension) (`invalid_name`) |
 
 ### Aggregate post-checks
 

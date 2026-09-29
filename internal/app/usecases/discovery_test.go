@@ -115,19 +115,28 @@ func TestDiscovery_Start_ReturnsRunningJobImmediately(t *testing.T) {
 }
 
 func TestDiscovery_Start_BlankQueryReturnsError(t *testing.T) {
-	uc := NewDiscoveryUsecase(&stubPipeline{})
+	called := false
+	uc := NewDiscoveryUsecase(&stubPipeline{fn: func(
+		_ context.Context,
+		_ string,
+		_ func(discovery.Result),
+	) (discovery.Outcome, error) {
+		called = true
+		return discovery.Outcome{}, nil
+	}})
 
-	_, err := uc.Start(context.Background(), "   ")
+	job, err := uc.Start(context.Background(), "   ")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "query text is empty")
+	assert.Equal(t, Job{}, job)
+	assert.False(t, called)
 }
 
 func TestDiscovery_Start_NilPipelineReturnsError(t *testing.T) {
 	uc := NewDiscoveryUsecase(nil)
 
-	_, err := uc.Start(context.Background(), "chrom")
+	job, err := uc.Start(context.Background(), "chrom")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not configured")
+	assert.Equal(t, Job{}, job)
 }
 
 func TestDiscovery_TwoStartsGetDistinctIDs(t *testing.T) {

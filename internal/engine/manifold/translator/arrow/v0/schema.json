@@ -184,7 +184,8 @@
         "checksum":        {},
         "signal":          {},
         "elevated":        {},
-        "timeout":         {}
+        "timeout":         {},
+        "name":            { "type": "string" }
       }
     },
     "Variable": {

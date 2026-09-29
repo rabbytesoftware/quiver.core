@@ -152,5 +152,6 @@ type stepV0 struct {
 	Elevated      overrideableV0[bool]   `yaml:"elevated"`
 	Checksum      overrideableV0[string] `yaml:"checksum"`
 	Timeout       overrideableV0[string] `yaml:"timeout"`
+	Name          string                 `yaml:"name"`
 	ExitOnFailure *bool                  `yaml:"exit_on_failure"`
 }

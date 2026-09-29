@@ -405,7 +405,6 @@ targets:
 	}
 }
 
-// TestMap_PreRefactorShapeReturnsError: old flat-shape manifest returns error containing "pre-refactor".
 func TestMap_PreRefactorShapeReturnsError(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"
@@ -416,12 +415,12 @@ lifecycle:
     - type: run
       command: "echo old"
 `)
-	_, _, err := v0.New().Parse(yamlData)
+	arrow, targets, err := v0.New().Parse(yamlData)
 	if err == nil {
 		t.Fatal("expected error for pre-refactor manifest shape")
 	}
-	if !strings.Contains(err.Error(), "pre-refactor") {
-		t.Errorf("error = %q, want it to contain \"pre-refactor\"", err.Error())
+	if arrow != nil || targets != nil {
+		t.Errorf("a rejected manifest must produce nothing, got arrow %v and targets %v", arrow, targets)
 	}
 }
 
@@ -486,8 +485,9 @@ targets:
 	if err == nil {
 		t.Fatal("expected error for dependencies step type in manifest")
 	}
-	if !strings.Contains(err.Error(), "synthetic") {
-		t.Errorf("error = %q, want it to contain \"synthetic\"", err.Error())
+	control := []byte(strings.Replace(string(yamlData), "type: dependencies", "type: run\n          command: echo ok", 1))
+	if _, _, err := v0.New().Parse(control); err != nil {
+		t.Fatalf("the same manifest with a run step must parse, got %v", err)
 	}
 }
 
@@ -795,6 +795,44 @@ targets:
 	}
 	if portableStep.ExitOnFailure() != false {
 		t.Errorf("ExitOnFailure() = %v, want false", portableStep.ExitOnFailure())
+	}
+}
+
+func TestMap_PortableStep_Name(t *testing.T) {
+	testCases := []struct {
+		name string
+		line string
+		want string
+	}{
+		{name: "absent", want: ""},
+		{name: "present", line: "\n          name: tool.exe", want: "tool.exe"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: portable-name-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: portable
+          from: ./.tool.download
+          to: ./tool` + tc.line + `
+`)
+			_, precompiled, err := v0.New().Parse(yamlData)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			portableStep, ok := precompiled["*"].Lifecycle.Install[0].(step.PortableStep)
+			if !ok {
+				t.Fatal("expected PortableStep")
+			}
+			if portableStep.Name != tc.want {
+				t.Errorf("Name = %q, want %q", portableStep.Name, tc.want)
+			}
+		})
 	}
 }
 

@@ -262,7 +262,7 @@ func TestRecoverTransients_AsynxGetNotFound_SkipsItem(t *testing.T) {
 
 	// Should not have changed anything
 	_, err := axRuntime.Get(context.Background(), ns.String())
-	assert.True(t, isNotFoundErr(err))
+	assert.ErrorIs(t, err, asynxModels.ErrNotFound)
 }
 
 // ─── Task 1.3 regression guard: self-namespace lands in Running, not Detached ──
@@ -329,11 +329,6 @@ func TestRecoverTransients_NonSelfNamespace_LivePID_StillDetaches(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateDetached, got.State)
 	assert.Nil(t, got.Execution)
-}
-
-func isNotFoundErr(err error) bool {
-	return err != nil && (err == asynxModels.ErrNotFound ||
-		err.Error() == "asynx: aggregate not found")
 }
 
 // ─── sendRecoverInterrupted / recoverRunning direct tests ────────────────────

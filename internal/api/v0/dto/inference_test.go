@@ -16,13 +16,13 @@ func TestInferenceDTOFrom_Nil(t *testing.T) {
 
 func TestInferenceDTOFrom_MapsAllFields(t *testing.T) {
 	got := dto.InferenceDTOFrom(&domain.ArrowGenerator{
-		Name:       "fletcher",
+		Name:       "generator/1",
 		Confidence: "low",
 		Warnings:   []string{"name_mismatch", "emulated"},
 	})
 
 	require.NotNil(t, got)
-	assert.Equal(t, "fletcher", got.Generator)
+	assert.Equal(t, "generator/1", got.Generator)
 	assert.Equal(t, "low", got.Confidence)
 	assert.Equal(t, []string{"name_mismatch", "emulated"}, got.Warnings)
 }
