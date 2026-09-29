@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -92,6 +91,21 @@ func runUnpack(
 ) error {
 	t.Helper()
 
+	_, err := unpackNamed(t, maxBytes, from, to, timeout, "")
+
+	return err
+}
+
+func unpackNamed(
+	t *testing.T,
+	maxBytes int64,
+	from string,
+	to string,
+	timeout time.Duration,
+	name string,
+) (models.Result, error) {
+	t.Helper()
+
 	ctx := context.Background()
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -106,18 +120,15 @@ func runUnpack(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	kind, err := archive.Detect(src, info.Size())
+	format, ok, err := archive.New(maxBytes, guard.NameRules{})(src, info.Size())
 	if err != nil {
-		return err
+		return models.Result{}, err
+	}
+	if !ok {
+		return models.Result{}, models.ErrUnknownFormat
 	}
 
-	g, err := guard.Open(context.Background(), to, maxBytes)
-	if err != nil {
-		return err
-	}
-	defer g.Close()
-
-	return errors.Join(kind.Extract(ctx, src, info.Size(), g, ""), g.Verify())
+	return format.Unpack(ctx, models.Target{Dir: to, Name: name})
 }
 
 func TestDetectArchive_DetectsEverySuffix(t *testing.T) {

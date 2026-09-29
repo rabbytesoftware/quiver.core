@@ -2,7 +2,6 @@ package dmg_test
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,10 +41,6 @@ func runExtractDmg(
 ) error {
 	t.Helper()
 
-	g, err := guard.Open(context.Background(), to, mocks.TestMaxBytes)
-	require.NoError(t, err)
-	defer g.Close()
-
 	ctx := context.Background()
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -53,7 +48,19 @@ func runExtractDmg(
 		defer cancel()
 	}
 
-	return errors.Join(dmg.Extract(ctx, image, g), g.Verify())
+	src, err := os.Open(image)
+	require.NoError(t, err)
+	defer src.Close()
+	info, err := src.Stat()
+	require.NoError(t, err)
+
+	format, ok, err := dmg.New(mocks.TestMaxBytes, guard.NameRules{FoldCase: true})(src, info.Size())
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	_, err = format.Unpack(ctx, models.Target{Dir: to})
+
+	return err
 }
 
 func TestExtractDmg_CopiesBundle(t *testing.T) {
@@ -106,7 +113,7 @@ func TestExtractDmg_RejectsEscapingSymlink(t *testing.T) {
 
 func TestExtractDmg_AttachFailure(t *testing.T) {
 	dir := t.TempDir()
-	image := mocks.WriteFile(t, filepath.Join(dir, "broken.dmg"), []byte("not a disk image"))
+	image := mocks.WriteFile(t, filepath.Join(dir, "broken.dmg"), append([]byte("not a disk image"), mocks.DmgTrailer()...))
 	to := filepath.Join(dir, "out")
 
 	err := runExtractDmg(t, image, to, 0)

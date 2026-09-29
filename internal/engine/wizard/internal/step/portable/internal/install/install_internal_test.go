@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstaller_RemoveSource_Decisions(t *testing.T) {
+func TestRemoveSource_Decisions(t *testing.T) {
 	testCases := []struct {
 		name       string
 		inWorkDir  bool
@@ -37,7 +37,7 @@ func TestInstaller_RemoveSource_Decisions(t *testing.T) {
 				output = from
 			}
 
-			require.NoError(t, New(0).RemoveSource(workDir, from, output))
+			require.NoError(t, removeSource(workDir, from, output))
 
 			_, err := os.Stat(from)
 			assert.Equal(t, tc.wantExists, err == nil)
@@ -45,21 +45,21 @@ func TestInstaller_RemoveSource_Decisions(t *testing.T) {
 	}
 }
 
-func TestInstaller_RemoveSource_OutsideSymlinkToInsideFileKept(t *testing.T) {
+func TestRemoveSource_OutsideSymlinkToInsideFileKept(t *testing.T) {
 	workDir := t.TempDir()
 	target := filepath.Join(workDir, "tool")
 	require.NoError(t, os.WriteFile(target, []byte("x"), 0o600))
 	link := filepath.Join(t.TempDir(), "tool")
 	require.NoError(t, os.Symlink(target, link))
 
-	require.NoError(t, New(0).RemoveSource(workDir, link, ""))
+	require.NoError(t, removeSource(workDir, link, ""))
 
 	_, err := os.Lstat(link)
 	require.NoError(t, err)
 	assert.FileExists(t, target)
 }
 
-func TestInstaller_RemoveSource_FailureIsReturned(t *testing.T) {
+func TestRemoveSource_FailureIsReturned(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("directory permissions do not block removal here")
 	}
@@ -72,7 +72,7 @@ func TestInstaller_RemoveSource_FailureIsReturned(t *testing.T) {
 	require.NoError(t, os.Chmod(locked, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	err := New(0).RemoveSource(workDir, from, "")
+	err := removeSource(workDir, from, "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, fs.ErrPermission)

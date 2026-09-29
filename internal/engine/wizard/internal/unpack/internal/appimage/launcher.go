@@ -3,7 +3,6 @@ package appimage
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -16,27 +15,22 @@ const (
 		"exec \"$APPDIR/AppRun\""
 )
 
-func WriteLauncher(
+func writeLauncher(
 	appDir string,
 	args []string,
-) (string, error) {
-	abs, err := filepath.Abs(appDir)
+) error {
+	root, err := os.OpenRoot(appDir)
 	if err != nil {
-		return "", fmt.Errorf("unpack: launcher: %w", err)
-	}
-
-	root, err := os.OpenRoot(abs)
-	if err != nil {
-		return "", fmt.Errorf("unpack: launcher: %w", err)
+		return fmt.Errorf("unpack: launcher: %w", err)
 	}
 	defer root.Close() //nolint:errcheck
 
 	_ = root.Remove(LauncherName)
 	if err := writeExecutable(root, LauncherName, []byte(launcherScript(args))); err != nil {
-		return "", fmt.Errorf("unpack: launcher: %w", err)
+		return fmt.Errorf("unpack: launcher: %w", err)
 	}
 
-	return filepath.Join(abs, LauncherName), nil
+	return nil
 }
 
 func writeExecutable(

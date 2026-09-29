@@ -1,4 +1,4 @@
-package install
+package record
 
 import (
 	"context"
@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/dest"
 )
 
-func (i *installer) Record(
+func Save(
 	ctx context.Context,
 	nsKey string,
 	workDir string,
@@ -43,12 +44,12 @@ func relativeApps(
 ) ([]domain.PortableApp, string) {
 	relative := make([]domain.PortableApp, 0, len(apps))
 	for _, app := range apps {
-		entry, ok := workdirRel(workDir, app.Entry)
+		entry, ok := dest.WorkdirRel(workDir, app.Entry)
 		if !ok {
 			return nil, app.Entry
 		}
 
-		icon, ok := workdirRel(workDir, app.Icon)
+		icon, ok := dest.WorkdirRel(workDir, app.Icon)
 		if app.Icon != "" && !ok {
 			return nil, app.Icon
 		}

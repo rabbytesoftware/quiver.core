@@ -32,30 +32,30 @@ func TestReadAppImageMeta_FullMetadata(t *testing.T) {
 		icon:            "png",
 	}, map[string]string{".DirIcon": icon})
 
-	meta, err := ReadMeta(dir)
+	got, err := readMeta(dir)
 
 	require.NoError(t, err)
-	assert.Equal(t, Meta{Name: "Bruno", Args: []string{"--no-sandbox"}, Icon: icon}, meta)
+	assert.Equal(t, meta{name: "Bruno", args: []string{"--no-sandbox"}, icon: icon}, got)
 }
 
 func TestReadAppImageMeta_NoDesktopFile(t *testing.T) {
 	dir := writeAppDir(t, map[string]string{"AppRun": "run", "bruno.png": "png"}, nil)
 
-	meta, err := ReadMeta(dir)
+	got, err := readMeta(dir)
 
 	require.NoError(t, err)
-	assert.Empty(t, meta.Name)
-	assert.Empty(t, meta.Args)
-	assert.Empty(t, meta.Icon)
+	assert.Empty(t, got.name)
+	assert.Empty(t, got.args)
+	assert.Empty(t, got.icon)
 }
 
 func TestReadAppImageMeta_NoDesktopFileFallsBackToDirIcon(t *testing.T) {
 	dir := writeAppDir(t, map[string]string{"AppRun": "run", ".DirIcon": "png"}, nil)
 
-	meta, err := ReadMeta(dir)
+	got, err := readMeta(dir)
 
 	require.NoError(t, err)
-	assert.Equal(t, Meta{Icon: ".DirIcon"}, meta)
+	assert.Equal(t, meta{icon: ".DirIcon"}, got)
 }
 
 func TestReadAppImageMeta_OversizedDesktopFileIsIgnored(t *testing.T) {
@@ -74,12 +74,12 @@ func TestReadAppImageMeta_OversizedDesktopFileIsIgnored(t *testing.T) {
 			body := head + strings.Repeat("#", tc.padding-len(head))
 			dir := writeAppDir(t, map[string]string{"a.desktop": body, ".DirIcon": "png"}, nil)
 
-			meta, err := ReadMeta(dir)
+			got, err := readMeta(dir)
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantName, meta.Name)
-			assert.Empty(t, meta.Args)
-			assert.Equal(t, ".DirIcon", meta.Icon)
+			assert.Equal(t, tc.wantName, got.name)
+			assert.Empty(t, got.args)
+			assert.Equal(t, ".DirIcon", got.icon)
 		})
 	}
 }
@@ -110,14 +110,14 @@ func TestReadAppImageMeta_VendorArgs(t *testing.T) {
 			}, tc.links)
 			require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), "app"), []byte("x"), 0o644))
 
-			meta, err := ReadMeta(dir)
+			got, err := readMeta(dir)
 
 			require.NoError(t, err)
 			if tc.want == nil {
-				assert.Empty(t, meta.Args)
+				assert.Empty(t, got.args)
 				return
 			}
-			assert.Equal(t, tc.want, meta.Args)
+			assert.Equal(t, tc.want, got.args)
 		})
 	}
 }
@@ -131,14 +131,14 @@ func TestReadAppImageMeta_FirstDesktopFileByName(t *testing.T) {
 		"usr/share/x.desktop": "[Desktop Entry]\nName=Nested\n",
 	}, map[string]string{"00.desktop": "missing.desktop"})
 
-	meta, err := ReadMeta(dir)
+	got, err := readMeta(dir)
 
 	require.NoError(t, err)
-	assert.Equal(t, "First", meta.Name)
+	assert.Equal(t, "First", got.name)
 }
 
 func TestReadAppImageMeta_MissingAppDir(t *testing.T) {
-	_, err := ReadMeta(filepath.Join(t.TempDir(), "missing"))
+	_, err := readMeta(filepath.Join(t.TempDir(), "missing"))
 
 	require.Error(t, err)
 }
@@ -150,7 +150,7 @@ func TestReadAppImageMeta_UnreadableDesktopFile(t *testing.T) {
 	dir := writeAppDir(t, map[string]string{"a.desktop": "[Desktop Entry]\nName=A\n"}, nil)
 	require.NoError(t, os.Chmod(filepath.Join(dir, "a.desktop"), 0o000))
 
-	_, err := ReadMeta(dir)
+	_, err := readMeta(dir)
 
 	require.Error(t, err)
 }

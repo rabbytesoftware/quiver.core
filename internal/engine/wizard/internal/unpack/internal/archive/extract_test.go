@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/archive"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
@@ -298,19 +296,10 @@ func TestArchive_Extract_NamesTheSingleFile(t *testing.T) {
 			dir := t.TempDir()
 			from := mocks.WriteFile(t, filepath.Join(dir, tc.file), tc.build(t))
 			to := filepath.Join(dir, "bin")
-			src, err := os.Open(from)
-			require.NoError(t, err)
-			defer src.Close()
-			info, err := src.Stat()
-			require.NoError(t, err)
-			kind, err := archive.Detect(src, info.Size())
-			require.NoError(t, err)
-			g, err := guard.Open(context.Background(), to, mocks.TestMaxBytes)
-			require.NoError(t, err)
-			defer g.Close()
 
-			require.NoError(t, kind.Extract(context.Background(), src, info.Size(), g, tc.as))
+			_, err := unpackNamed(t, mocks.TestMaxBytes, from, to, 0, tc.as)
 
+			require.NoError(t, err)
 			assert.Equal(t, "bin", mocks.ReadString(t, filepath.Join(to, tc.wantFile)))
 		})
 	}

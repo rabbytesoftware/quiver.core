@@ -15,30 +15,30 @@ const (
 	desktopSuffix = ".desktop"
 )
 
-type Meta struct {
-	Name string
-	Args []string
-	Icon string
+type meta struct {
+	name string
+	args []string
+	icon string
 }
 
-func ReadMeta(
+func readMeta(
 	appDir string,
-) (Meta, error) {
+) (meta, error) {
 	root, err := os.OpenRoot(appDir)
 	if err != nil {
-		return Meta{}, fmt.Errorf("unpack: appimage metadata: %w", err)
+		return meta{}, fmt.Errorf("unpack: appimage metadata: %w", err)
 	}
 	defer root.Close() //nolint:errcheck
 
 	entry, err := readDesktopEntry(root)
 	if err != nil {
-		return Meta{}, err
+		return meta{}, err
 	}
 
-	return Meta{
-		Name: entry.name,
-		Args: vendorArgs(root, entry.exec),
-		Icon: resolveIcon(root, entry.icon),
+	return meta{
+		name: entry.name,
+		args: vendorArgs(root, entry.exec),
+		icon: resolveIcon(root, entry.icon),
 	}, nil
 }
 

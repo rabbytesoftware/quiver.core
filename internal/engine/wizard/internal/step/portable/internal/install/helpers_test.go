@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
@@ -57,19 +57,13 @@ func runPortableWith(
 	}
 	defer cancel()
 
-	from = req.ResolvePath(from)
-	to = req.ResolvePath(to)
-	installer := install.New(maxBytes)
-
-	apps, output, err := installer.Place(ctx, req.OSArch, req.WorkDir, from, to, name)
-	if err != nil {
-		return err
-	}
-	if err := installer.Record(ctx, req.NSKey, req.WorkDir, apps); err != nil {
-		return err
-	}
-
-	return installer.RemoveSource(req.WorkDir, from, output)
+	return install.New(unpack.New(maxBytes)).Install(ctx, install.Request{
+		NSKey:   req.NSKey,
+		WorkDir: req.WorkDir,
+		From:    req.ResolvePath(from),
+		To:      req.ResolvePath(to),
+		Name:    name,
+	})
 }
 
 func readRecord(

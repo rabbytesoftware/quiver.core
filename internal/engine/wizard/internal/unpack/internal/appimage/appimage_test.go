@@ -1,4 +1,4 @@
-package appimage_test
+package appimage
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/appimage"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
@@ -37,7 +36,7 @@ func extractAppImage(
 	require.NoError(t, err)
 	defer g.Close()
 
-	if err := appimage.Extract(ctx, src, info.Size(), g); err != nil {
+	if err := extract(ctx, src, info.Size(), g); err != nil {
 		return err
 	}
 
@@ -61,7 +60,7 @@ func TestAppDirName_StripsAppImageSuffix(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, appimage.DirName(tc.from))
+			assert.Equal(t, tc.want, dirName(tc.from))
 		})
 	}
 }
@@ -249,7 +248,7 @@ func TestIsAppImage_Detection(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := appimage.Is(bytes.NewReader(tc.head))
+			got := is(bytes.NewReader(tc.head))
 
 			assert.Equal(t, tc.want, got)
 		})

@@ -2,6 +2,7 @@ package appimage
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -29,7 +30,83 @@ const (
 	appImageMagicLen = 11
 )
 
-func DirName(
+type appImage struct {
+	src      *os.File
+	size     int64
+	maxBytes int64
+	rules    guard.NameRules
+}
+
+func New(
+	maxBytes int64,
+	rules guard.NameRules,
+) models.Detect {
+	return func(src *os.File, size int64) (models.Format, bool, error) {
+		if !is(src) {
+			return nil, false, nil
+		}
+
+		return &appImage{src: src, size: size, maxBytes: maxBytes, rules: rules}, true, nil
+	}
+}
+
+func (a *appImage) Kind() models.Kind {
+	return models.KindAppImage
+}
+
+func (a *appImage) Unit() models.Unit {
+	return models.Unit{Dir: dirName(a.src.Name()), Proof: LauncherName}
+}
+
+func (a *appImage) Unpack(
+	ctx context.Context,
+	target models.Target,
+) (models.Result, error) {
+	if err := a.extractTo(ctx, target.Dir); err != nil {
+		return models.Result{}, err
+	}
+
+	meta, err := readMeta(target.Dir)
+	if err != nil {
+		return models.Result{}, err
+	}
+
+	if err := writeLauncher(target.Dir, meta.args); err != nil {
+		return models.Result{}, err
+	}
+
+	return models.Result{Apps: []models.App{{
+		Name:  cmp.Or(meta.name, a.Unit().Dir),
+		Entry: filepath.Join(target.Dir, LauncherName),
+		Icon:  iconPath(target.Dir, meta.icon),
+	}}}, nil
+}
+
+func (a *appImage) extractTo(
+	ctx context.Context,
+	dir string,
+) error {
+	g, err := guard.Open(ctx, dir, a.maxBytes, guard.SkipEscapingLinks(), guard.WithNameRules(a.rules))
+	if err != nil {
+		return err
+	}
+	defer g.Close()
+
+	return errors.Join(extract(ctx, a.src, a.size, g), g.Verify())
+}
+
+func iconPath(
+	appDir string,
+	icon string,
+) string {
+	if icon == "" {
+		return ""
+	}
+
+	return filepath.Join(appDir, filepath.FromSlash(icon))
+}
+
+func dirName(
 	from string,
 ) string {
 	base := filepath.Base(from)
@@ -47,7 +124,7 @@ func isPathComponent(
 	return name != "." && name != ".."
 }
 
-func Extract(
+func extract(
 	ctx context.Context,
 	src *os.File,
 	size int64,
@@ -214,7 +291,7 @@ func squashfsFile(
 	return g.File(ctx, name, perm, f)
 }
 
-func Is(
+func is(
 	src io.ReaderAt,
 ) bool {
 	head := make([]byte, appImageMagicLen)

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +14,7 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	stepextract "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/extract"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
@@ -135,8 +137,8 @@ func TestHandler_Execute_Failures(t *testing.T) {
 }
 
 func TestHandler_Execute_UnopenableDestination(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root ignores directory permissions")
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("directory permissions do not block writes here")
 	}
 
 	dir := t.TempDir()
@@ -152,23 +154,29 @@ func TestHandler_Execute_UnopenableDestination(t *testing.T) {
 	require.ErrorIs(t, err, fs.ErrPermission)
 }
 
-func TestHandler_Execute_DmgTrailerReturnsPortableFormat(t *testing.T) {
-	dir := t.TempDir()
-	data := make([]byte, 1024)
-	copy(data[512:], "koly")
-	from := mocks.WriteFile(t, filepath.Join(dir, "image.bin"), data)
+func TestHandler_Execute_NonArchiveFormats(t *testing.T) {
+	testCases := []struct {
+		name    string
+		file    string
+		data    []byte
+		wantErr error
+	}{
+		{name: "dmg trailer", file: "image.bin", data: mocks.DmgTrailer(), wantErr: stepextract.ErrPortableFormat},
+		{name: "appimage magic", file: "app.bin", data: append([]byte("\x7fELF\x02\x01\x01\x00"), []byte("AI\x02")...), wantErr: stepextract.ErrPortableFormat},
+		{name: "msi", file: "setup.msi", data: append([]byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"), make([]byte, 504)...), wantErr: stepextract.ErrPortableFormat},
+		{name: "raw executable", file: "tool", data: []byte(mocks.ElfExecutable), wantErr: stepextract.ErrPortableFormat},
+		{name: "unknown", file: "notes.txt", data: []byte("not an archive"), wantErr: unpack.ErrUnknownFormat},
+	}
 
-	err := runExtract(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), "")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			from := mocks.WriteFile(t, filepath.Join(dir, tc.file), tc.data)
 
-	require.ErrorIs(t, err, stepextract.ErrPortableFormat)
-}
+			err := runExtract(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), "")
 
-func TestHandler_Execute_AppImageMagicReturnsPortableFormat(t *testing.T) {
-	dir := t.TempDir()
-	data := append([]byte("\x7fELF\x02\x01\x01\x00"), []byte("AI\x02")...)
-	from := mocks.WriteFile(t, filepath.Join(dir, "app.bin"), data)
-
-	err := runExtract(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), "")
-
-	require.ErrorIs(t, err, stepextract.ErrPortableFormat)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.NoDirExists(t, filepath.Join(dir, "out"))
+		})
+	}
 }

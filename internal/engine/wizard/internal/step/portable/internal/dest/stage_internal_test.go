@@ -1,4 +1,4 @@
-package install
+package dest
 
 import (
 	"io/fs"
@@ -13,7 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 )
 
-func TestAppDirPaths_RejectsNamesOutsideDestination(t *testing.T) {
+func TestUnitPaths_RejectsNamesOutsideDestination(t *testing.T) {
 	testCases := []struct {
 		name    string
 		appName string
@@ -28,26 +28,26 @@ func TestAppDirPaths_RejectsNamesOutsideDestination(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			to := filepath.Join(t.TempDir(), "to")
 
-			appDir, staging, err := appDirPaths(to, tc.appName)
+			final, staging, err := unitPaths(to, tc.appName)
 
 			require.Error(t, err)
-			assert.Empty(t, appDir)
+			assert.Empty(t, final)
 			assert.Empty(t, staging)
 		})
 	}
 }
 
-func TestSwapAppDir_MissingStagingFails(t *testing.T) {
+func TestReplaceUnit_MissingStagingFails(t *testing.T) {
 	to := t.TempDir()
 
-	err := swapAppDir(filepath.Join(to, ".app.quiver-tmp"), filepath.Join(to, "app"))
+	err := replaceUnit(filepath.Join(to, ".app.quiver-tmp"), filepath.Join(to, "app"), unpack.LauncherName)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, os.ErrNotExist)
 	assert.NoDirExists(t, filepath.Join(to, "app"))
 }
 
-func TestRemoveOwnedAppDir_PermissionErrors(t *testing.T) {
+func TestRemoveUnit_PermissionErrors(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission bits do not block access here")
 	}
@@ -77,7 +77,7 @@ func TestRemoveOwnedAppDir_PermissionErrors(t *testing.T) {
 			require.NoError(t, os.Chmod(locked, 0o400))
 			t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-			err := removeOwnedAppDir(appDir)
+			err := removeUnit(appDir, unpack.LauncherName)
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, fs.ErrPermission)

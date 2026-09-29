@@ -2,6 +2,7 @@ package archive
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
 )
 
@@ -20,107 +22,170 @@ const (
 	layoutSingle layout = "single"
 )
 
-const headSize = 512
+const (
+	headSize     = 512
+	bundleSuffix = ".app"
+)
 
-type Archive struct {
-	layout layout
-	codec  codec
+type archive struct {
+	src      *os.File
+	size     int64
+	layout   layout
+	codec    codec
+	maxBytes int64
+	rules    guard.NameRules
 }
 
-func Detect(
-	src *os.File,
-	size int64,
-) (Archive, error) {
-	if kind, ok := kindFromSuffix(src.Name()); ok {
-		return kind, nil
+func New(
+	maxBytes int64,
+	rules guard.NameRules,
+) models.Detect {
+	return func(src *os.File, size int64) (models.Format, bool, error) {
+		a, err := detect(src, size)
+		if errors.Is(err, models.ErrUnknownFormat) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+
+		a.maxBytes, a.rules = maxBytes, rules
+		return a, true, nil
+	}
+}
+
+func (a *archive) Kind() models.Kind {
+	return models.KindArchive
+}
+
+func (a *archive) Unit() models.Unit {
+	return models.Unit{}
+}
+
+func (a *archive) Unpack(
+	ctx context.Context,
+	target models.Target,
+) (models.Result, error) {
+	g, err := guard.Open(ctx, target.Dir, a.maxBytes, guard.WithNameRules(a.rules))
+	if err != nil {
+		return models.Result{}, err
+	}
+	defer g.Close()
+
+	if err := errors.Join(a.extract(ctx, g, target.Name), g.Verify()); err != nil {
+		return models.Result{}, err
 	}
 
-	return kindFromMagic(src, size)
+	return models.Result{Apps: g.Apps(target.Dir, bundleSuffix, true)}, nil
 }
 
-func kindFromSuffix(
+func detect(
+	src *os.File,
+	size int64,
+) (*archive, error) {
+	if a, ok := fromSuffix(src.Name()); ok {
+		return a.bind(src, size), nil
+	}
+
+	a, err := fromMagic(src, size)
+	if err != nil {
+		return nil, err
+	}
+
+	return a.bind(src, size), nil
+}
+
+func (a archive) bind(
+	src *os.File,
+	size int64,
+) *archive {
+	a.src, a.size = src, size
+	return &a
+}
+
+func fromSuffix(
 	path string,
-) (Archive, bool) {
+) (archive, bool) {
 	lower := strings.ToLower(filepath.Base(path))
 	for _, entry := range suffixTable() {
 		if strings.HasSuffix(lower, entry.suffix) {
-			return entry.kind, true
+			return entry.archive, true
 		}
 	}
 
-	return Archive{}, false
+	return archive{}, false
 }
 
 func suffixTable() []struct {
-	suffix string
-	kind   Archive
+	suffix  string
+	archive archive
 } {
 	return []struct {
-		suffix string
-		kind   Archive
+		suffix  string
+		archive archive
 	}{
-		{".tar.gz", Archive{layoutTar, codecGzip}},
-		{".tgz", Archive{layoutTar, codecGzip}},
-		{".tar.xz", Archive{layoutTar, codecXz}},
-		{".txz", Archive{layoutTar, codecXz}},
-		{".tar.bz2", Archive{layoutTar, codecBzip2}},
-		{".tbz", Archive{layoutTar, codecBzip2}},
-		{".tbz2", Archive{layoutTar, codecBzip2}},
-		{".tar.zst", Archive{layoutTar, codecZstd}},
-		{".tar", Archive{layoutTar, codecNone}},
-		{".zip", Archive{layoutZip, codecNone}},
-		{".gz", Archive{layoutSingle, codecGzip}},
-		{".xz", Archive{layoutSingle, codecXz}},
-		{".bz2", Archive{layoutSingle, codecBzip2}},
-		{".zst", Archive{layoutSingle, codecZstd}},
+		{".tar.gz", archive{layout: layoutTar, codec: codecGzip}},
+		{".tgz", archive{layout: layoutTar, codec: codecGzip}},
+		{".tar.xz", archive{layout: layoutTar, codec: codecXz}},
+		{".txz", archive{layout: layoutTar, codec: codecXz}},
+		{".tar.bz2", archive{layout: layoutTar, codec: codecBzip2}},
+		{".tbz", archive{layout: layoutTar, codec: codecBzip2}},
+		{".tbz2", archive{layout: layoutTar, codec: codecBzip2}},
+		{".tar.zst", archive{layout: layoutTar, codec: codecZstd}},
+		{".tar", archive{layout: layoutTar, codec: codecNone}},
+		{".zip", archive{layout: layoutZip, codec: codecNone}},
+		{".gz", archive{layout: layoutSingle, codec: codecGzip}},
+		{".xz", archive{layout: layoutSingle, codec: codecXz}},
+		{".bz2", archive{layout: layoutSingle, codec: codecBzip2}},
+		{".zst", archive{layout: layoutSingle, codec: codecZstd}},
 	}
 }
 
-func kindFromMagic(
+func fromMagic(
 	src *os.File,
 	size int64,
-) (Archive, error) {
+) (archive, error) {
 	head, err := readHead(io.NewSectionReader(src, 0, size))
 	if err != nil {
-		return Archive{}, fmt.Errorf("unpack: read %s: %w", src.Name(), err)
+		return archive{}, fmt.Errorf("unpack: read %s: %w", src.Name(), err)
 	}
 
 	if bytes.HasPrefix(head, []byte("PK\x03\x04")) || bytes.HasPrefix(head, []byte("PK\x05\x06")) {
-		return Archive{layoutZip, codecNone}, nil
+		return archive{layout: layoutZip, codec: codecNone}, nil
 	}
 
 	if c := codecFromMagic(head); c != codecNone {
-		return kindInsideCodec(src, size, c)
+		return insideCodec(src, size, c)
 	}
 
 	if isTarHeader(head) {
-		return Archive{layoutTar, codecNone}, nil
+		return archive{layout: layoutTar, codec: codecNone}, nil
 	}
 
-	return Archive{}, fmt.Errorf("unpack: %s: %w", src.Name(), models.ErrUnknownFormat)
+	return archive{}, fmt.Errorf("unpack: %s: %w", src.Name(), models.ErrUnknownFormat)
 }
 
-func kindInsideCodec(
+func insideCodec(
 	src *os.File,
 	size int64,
 	c codec,
-) (Archive, error) {
+) (archive, error) {
 	rc, err := c.open(io.NewSectionReader(src, 0, size))
 	if err != nil {
-		return Archive{}, fmt.Errorf("unpack: %s: %w", src.Name(), err)
+		return archive{}, fmt.Errorf("unpack: %s: %w", src.Name(), err)
 	}
 	defer rc.Close() //nolint:errcheck
 
 	head, err := readHead(rc)
 	if err != nil {
-		return Archive{}, fmt.Errorf("unpack: %s: %s: %w", src.Name(), c, err)
+		return archive{}, fmt.Errorf("unpack: %s: %s: %w", src.Name(), c, err)
 	}
 
 	if isTarHeader(head) {
-		return Archive{layoutTar, c}, nil
+		return archive{layout: layoutTar, codec: c}, nil
 	}
 
-	return Archive{layoutSingle, c}, nil
+	return archive{layout: layoutSingle, codec: c}, nil
 }
 
 func readHead(

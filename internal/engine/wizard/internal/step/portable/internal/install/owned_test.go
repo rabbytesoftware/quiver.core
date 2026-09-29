@@ -373,3 +373,59 @@ func TestInstall_AsideThatCannotBeRestoredFailsTheStep(t *testing.T) {
 	assert.Equal(t, "v1", mocks.ReadString(t, filepath.Join(aside, "tool-v1", "tool")))
 	assert.NoDirExists(t, filepath.Join(parent, "tool"))
 }
+
+func TestInstall_Failures(t *testing.T) {
+	testCases := []struct {
+		name    string
+		setup   func(t *testing.T, workDir string) string
+		wantErr error
+		check   func(t *testing.T, workDir string)
+	}{
+		{
+			name:    "missing input",
+			setup:   func(t *testing.T, workDir string) string { return "absent" },
+			wantErr: os.ErrNotExist,
+		},
+		{
+			name: "unknown format",
+			setup: func(t *testing.T, workDir string) string {
+				mocks.WriteFile(t, filepath.Join(workDir, "notes.txt"), []byte("not a package"))
+				return "notes.txt"
+			},
+			wantErr: unpack.ErrUnknownFormat,
+			check: func(t *testing.T, workDir string) {
+				assert.FileExists(t, filepath.Join(workDir, "notes.txt"))
+				assert.NoDirExists(t, filepath.Join(workDir, "out"))
+			},
+		},
+		{
+			name: "record cannot be written",
+			setup: func(t *testing.T, workDir string) string {
+				require.NoError(t, os.MkdirAll(filepath.Join(workDir, domain.PortableRecordFile, "x"), 0o755))
+				mocks.WriteFile(t, filepath.Join(workDir, "Foo.zip"), mocks.ZipFiles(t, map[string]string{"Foo.app/Contents/MacOS/foo": "bin"}))
+				return "Foo.zip"
+			},
+			check: func(t *testing.T, workDir string) {
+				assert.DirExists(t, filepath.Join(workDir, "out", "Foo.app"))
+				assert.FileExists(t, filepath.Join(workDir, "Foo.zip"))
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			workDir := t.TempDir()
+			from := tc.setup(t, workDir)
+
+			err := runPortable(t, linuxRequest(workDir), from, "out", "")
+
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			}
+			if tc.check != nil {
+				tc.check(t, workDir)
+			}
+		})
+	}
+}

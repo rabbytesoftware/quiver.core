@@ -1,90 +1,95 @@
 package unpack
 
 import (
-	"context"
-	"io"
+	"fmt"
 	"os"
+	stdruntime "runtime"
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/appimage"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/archive"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/binary"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/dmg"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/msi"
 )
-
-const LauncherName = appimage.LauncherName
 
 type (
-	Guard        = guard.Guard
-	GuardOption  = guard.Option
-	Archive      = archive.Archive
-	AppImageMeta = appimage.Meta
+	Format = models.Format
+	Kind   = models.Kind
+	Target = models.Target
+	Unit   = models.Unit
+	Result = models.Result
+	App    = models.App
 )
 
-func OpenGuard(
-	ctx context.Context,
-	dest string,
+const (
+	KindAppImage = models.KindAppImage
+	KindDmg      = models.KindDmg
+	KindMsi      = models.KindMsi
+	KindArchive  = models.KindArchive
+	KindBinary   = models.KindBinary
+
+	LauncherName = appimage.LauncherName
+)
+
+type Unpacker interface {
+	Detect(
+		src *os.File,
+		size int64,
+	) (Format, error)
+}
+
+type unpacker struct {
+	formats []models.Detect
+}
+
+func New(
 	maxBytes int64,
-	opts ...GuardOption,
-) (*Guard, error) {
-	return guard.Open(ctx, dest, maxBytes, opts...)
+) Unpacker {
+	return newForOS(maxBytes, stdruntime.GOOS)
 }
 
-func SkipEscapingLinks() GuardOption {
-	return guard.SkipEscapingLinks()
+// newForOS orders the formats most specific first: an AppImage is also an
+// ELF executable, and a dmg or msi can pass for nothing else.
+func newForOS(
+	maxBytes int64,
+	goos string,
+) Unpacker {
+	rules := nameRules(goos)
+
+	return &unpacker{formats: []models.Detect{
+		appimage.New(maxBytes, rules),
+		dmg.New(maxBytes, rules),
+		msi.New(maxBytes, rules),
+		archive.New(maxBytes, rules),
+		binary.New(maxBytes),
+	}}
 }
 
-func DetectArchive(
+func (u *unpacker) Detect(
 	src *os.File,
 	size int64,
-) (Archive, error) {
-	return archive.Detect(src, size)
+) (Format, error) {
+	for _, detect := range u.formats {
+		format, ok, err := detect(src, size)
+		if err != nil || ok {
+			return format, err
+		}
+	}
+
+	return nil, fmt.Errorf("unpack: %s: %w", src.Name(), ErrUnknownFormat)
 }
 
-func IsAppImage(
-	src io.ReaderAt,
-) bool {
-	return appimage.Is(src)
-}
-
-func IsDmg(
-	src io.ReaderAt,
-	size int64,
-) bool {
-	return dmg.Is(src, size)
-}
-
-func ExtractAppImage(
-	ctx context.Context,
-	src *os.File,
-	size int64,
-	g *Guard,
-) error {
-	return appimage.Extract(ctx, src, size, g)
-}
-
-func ExtractDmg(
-	ctx context.Context,
-	image string,
-	g *Guard,
-) error {
-	return dmg.Extract(ctx, image, g)
-}
-
-func AppDirName(
-	from string,
-) string {
-	return appimage.DirName(from)
-}
-
-func ReadAppImageMeta(
-	appDir string,
-) (AppImageMeta, error) {
-	return appimage.ReadMeta(appDir)
-}
-
-func WriteLauncher(
-	appDir string,
-	args []string,
-) (string, error) {
-	return appimage.WriteLauncher(appDir, args)
+func nameRules(
+	goos string,
+) guard.NameRules {
+	switch goos {
+	case "windows":
+		return guard.NameRules{WindowsNames: true, FoldCase: true}
+	case "darwin":
+		return guard.NameRules{FoldCase: true}
+	default:
+		return guard.NameRules{}
+	}
 }

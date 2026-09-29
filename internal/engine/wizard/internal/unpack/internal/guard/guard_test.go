@@ -43,18 +43,13 @@ func runUnpack(
 	info, err := src.Stat()
 	require.NoError(t, err)
 
-	kind, err := archive.Detect(src, info.Size())
-	if err != nil {
-		return err
-	}
+	format, ok, err := archive.New(maxBytes, guard.NameRules{})(src, info.Size())
+	require.NoError(t, err)
+	require.True(t, ok)
 
-	g, err := guard.Open(context.Background(), to, maxBytes)
-	if err != nil {
-		return err
-	}
-	defer g.Close()
+	_, err = format.Unpack(ctx, models.Target{Dir: to})
 
-	return errors.Join(kind.Extract(ctx, src, info.Size(), g, ""), g.Verify())
+	return err
 }
 
 func TestArchive_Extract_SizeCeiling(t *testing.T) {
@@ -218,32 +213,20 @@ func TestArchive_Extract_RefusesToWriteThroughEscapingSymlink(t *testing.T) {
 }
 
 func TestGuard_TopLevel_ReturnsSortedUniqueNames(t *testing.T) {
-	dir := t.TempDir()
-	from := mocks.WriteFile(t, filepath.Join(dir, "a.tar"), mocks.TarBytes(t,
-		mocks.TarEntry{Name: "b/x", Body: "x", Mode: 0o644, Flag: tar.TypeReg},
-		mocks.TarEntry{Name: "a/y", Body: "y", Mode: 0o644, Flag: tar.TypeReg},
-		mocks.TarEntry{Name: "a/z", Body: "z", Mode: 0o644, Flag: tar.TypeReg},
-		mocks.TarEntry{Name: "top.txt", Body: "t", Mode: 0o644, Flag: tar.TypeReg},
-	))
-	to := filepath.Join(dir, "out")
+	to := filepath.Join(t.TempDir(), "out")
 
-	src, err := os.Open(from)
-	require.NoError(t, err)
-	defer src.Close()
-	info, err := src.Stat()
-	require.NoError(t, err)
-	kind, err := archive.Detect(src, info.Size())
-	require.NoError(t, err)
+	g, err := applyEntries(t, to, []mocks.TarEntry{
+		{Name: "b/x", Body: "x", Mode: 0o644, Flag: tar.TypeReg},
+		{Name: "a/y", Body: "y", Mode: 0o644, Flag: tar.TypeReg},
+		{Name: "a/z", Body: "z", Mode: 0o644, Flag: tar.TypeReg},
+		{Name: "top.txt", Body: "t", Mode: 0o644, Flag: tar.TypeReg},
+	})
 
-	g, err := guard.Open(context.Background(), to, mocks.TestMaxBytes)
 	require.NoError(t, err)
-	defer g.Close()
-	require.NoError(t, kind.Extract(context.Background(), src, info.Size(), g, ""))
-
 	assert.Equal(t, []string{"a", "b", "top.txt"}, g.TopLevel())
 }
 
-func extractTarWithGuard(
+func applyEntries(
 	t *testing.T,
 	to string,
 	entries []mocks.TarEntry,
@@ -251,26 +234,39 @@ func extractTarWithGuard(
 ) (*guard.Guard, error) {
 	t.Helper()
 
-	from := mocks.WriteFile(t, filepath.Join(t.TempDir(), "a.tar"), mocks.TarBytes(t, entries...))
-	src, err := os.Open(from)
-	require.NoError(t, err)
-	defer src.Close()
-	info, err := src.Stat()
-	require.NoError(t, err)
-	kind, err := archive.Detect(src, info.Size())
-	require.NoError(t, err)
-
 	g, err := guard.Open(context.Background(), to, mocks.TestMaxBytes, opts...)
 	require.NoError(t, err)
 	t.Cleanup(g.Close)
 
-	return g, kind.Extract(context.Background(), src, info.Size(), g, "")
+	for _, e := range entries {
+		if err := applyEntry(g, e); err != nil {
+			return g, err
+		}
+	}
+
+	return g, nil
+}
+
+func applyEntry(
+	g *guard.Guard,
+	e mocks.TarEntry,
+) error {
+	switch e.Flag {
+	case tar.TypeSymlink:
+		return g.Symlink(e.Name, e.Link)
+	case tar.TypeLink:
+		return g.Hardlink(e.Name, e.Link)
+	case tar.TypeDir:
+		return g.Dir(e.Name, os.FileMode(e.Mode))
+	default:
+		return g.File(context.Background(), e.Name, os.FileMode(e.Mode), strings.NewReader(e.Body))
+	}
 }
 
 func TestSkipEscapingLinks_SymlinkSkipsEscapingTargets(t *testing.T) {
 	to := filepath.Join(t.TempDir(), "out")
 
-	_, err := extractTarWithGuard(t, to, []mocks.TarEntry{
+	_, err := applyEntries(t, to, []mocks.TarEntry{
 		{Name: "abs", Mode: 0o777, Flag: tar.TypeSymlink, Link: "/home/runner/x.png"},
 		{Name: "up", Mode: 0o777, Flag: tar.TypeSymlink, Link: "../../etc"},
 		{Name: "d/self", Mode: 0o777, Flag: tar.TypeSymlink, Link: ".."},
@@ -292,7 +288,7 @@ func TestSkipEscapingLinks_SymlinkSkipsEscapingTargets(t *testing.T) {
 func TestSkipEscapingLinks_SymlinkStillRejectsEmptyTarget(t *testing.T) {
 	to := filepath.Join(t.TempDir(), "out")
 
-	_, err := extractTarWithGuard(t, to, []mocks.TarEntry{
+	_, err := applyEntries(t, to, []mocks.TarEntry{
 		{Name: "empty", Mode: 0o777, Flag: tar.TypeSymlink, Link: ""},
 	}, guard.SkipEscapingLinks())
 

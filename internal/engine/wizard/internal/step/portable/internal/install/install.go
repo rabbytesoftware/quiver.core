@@ -2,136 +2,92 @@ package install
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/dest"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/record"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 )
 
-const (
-	stagingSuffix   = ".quiver-tmp"
-	ownerMarker     = ".quiver-portable"
-	ownerMarkerPerm = 0o644
-)
+var ErrInvalidName = errors.New("portable: name must be a single file name")
+
+type Request struct {
+	NSKey   string
+	WorkDir string
+	From    string
+	To      string
+	Name    string
+}
 
 type Installer interface {
-	Place(
+	Install(
 		ctx context.Context,
-		osArch domain.OS,
-		workDir string,
-		from string,
-		to string,
-		name string,
-	) ([]domain.PortableApp, string, error)
-	Record(
-		ctx context.Context,
-		nsKey string,
-		workDir string,
-		apps []domain.PortableApp,
-	) error
-	RemoveSource(
-		workDir string,
-		from string,
-		output string,
+		req Request,
 	) error
 }
 
 type installer struct {
-	maxBytes int64
+	unpacker unpack.Unpacker
 }
 
 func New(
-	maxBytes int64,
+	unpacker unpack.Unpacker,
 ) Installer {
-	return &installer{maxBytes: maxBytes}
+	return &installer{unpacker: unpacker}
 }
 
-func (i *installer) Place(
+func (i *installer) Install(
 	ctx context.Context,
-	osArch domain.OS,
-	workDir string,
-	from string,
-	to string,
-	name string,
-) ([]domain.PortableApp, string, error) {
-	if err := validName(name); err != nil {
-		return nil, "", err
-	}
-
-	source, owned, err := claim(workDir, from, to)
-	if err != nil {
-		return nil, "", err
-	}
-	if !owned {
-		return i.install(ctx, osArch, from, to, name, false)
-	}
-
-	return i.installOwned(ctx, osArch, from, to, name, source)
-}
-
-func (i *installer) RemoveSource(
-	workDir string,
-	from string,
-	output string,
+	req Request,
 ) error {
-	if from == output {
-		return nil
+	if err := validName(req.Name); err != nil {
+		return err
 	}
 
-	if _, inside := workdirRel(workDir, from); !inside {
-		return nil
+	target, err := dest.Claim(req.WorkDir, req.From, req.To)
+	if err != nil {
+		return err
 	}
 
-	if err := os.Remove(from); err != nil {
-		return fmt.Errorf("portable: remove source %s: %w", from, err)
+	result, err := i.place(ctx, target, req)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	if err := record.Save(ctx, req.NSKey, req.WorkDir, result.Apps); err != nil {
+		return err
+	}
+
+	return removeSource(req.WorkDir, req.From, result.Output)
 }
 
-func (i *installer) install(
+func (i *installer) place(
 	ctx context.Context,
-	osArch domain.OS,
-	from string,
-	to string,
-	name string,
-	staged bool,
-) ([]domain.PortableApp, string, error) {
-	src, err := os.Open(from) // #nosec G304 -- path is the step's own from: field, resolved against the workdir
+	target dest.Destination,
+	req Request,
+) (unpack.Result, error) {
+	src, err := os.Open(req.From) // #nosec G304 -- path is the step's own from: field, resolved against the workdir
 	if err != nil {
-		return nil, "", fmt.Errorf("portable: open %s: %w", from, err)
+		return unpack.Result{}, fmt.Errorf("portable: open %s: %w", req.From, err)
 	}
 	defer src.Close() //nolint:errcheck
 
 	info, err := src.Stat()
 	if err != nil {
-		return nil, "", fmt.Errorf("portable: stat %s: %w", from, err)
+		return unpack.Result{}, fmt.Errorf("portable: stat %s: %w", req.From, err)
 	}
 
-	kind, archive, err := detectFormat(src, info.Size())
+	format, err := i.unpacker.Detect(src, info.Size())
 	if err != nil {
-		return nil, "", err
+		return unpack.Result{}, err
 	}
 
-	var apps []domain.PortableApp
-	switch kind {
-	case formatAppImage:
-		apps, err = i.installAppImage(ctx, src, info.Size(), from, to, staged)
-		return apps, "", err
-	case formatDmg:
-		apps, err = i.installDmg(ctx, from, to)
-		return apps, "", err
-	case formatArchive:
-		apps, err = i.installArchive(ctx, osArch, src, info.Size(), archive, to, name)
-		return apps, "", err
-	case formatExecutable:
-		output, err := i.installExecutable(ctx, src, info, from, to, name)
-		return nil, output, err
-	case formatUnknown:
-	}
-
-	return nil, "", fmt.Errorf("%w: %s", ErrUnknownFormat, from)
+	return target.Stage(format.Unit(), func(dir string) (unpack.Result, error) {
+		return format.Unpack(ctx, unpack.Target{Dir: dir, Name: req.Name})
+	})
 }
 
 func validName(
@@ -144,31 +100,22 @@ func validName(
 	return fmt.Errorf("%w: %q", ErrInvalidName, name)
 }
 
-func workdirRel(
+func removeSource(
 	workDir string,
-	path string,
-) (string, bool) {
-	rel, err := filepath.Rel(resolved(workDir), resolvedParent(path))
-	if err != nil || rel == "." || !filepath.IsLocal(rel) {
-		return "", false
+	from string,
+	output string,
+) error {
+	if from == output {
+		return nil
 	}
 
-	return filepath.ToSlash(rel), true
-}
-
-func resolvedParent(
-	path string,
-) string {
-	return filepath.Join(resolved(filepath.Dir(path)), filepath.Base(path))
-}
-
-func resolved(
-	path string,
-) string {
-	target, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return filepath.Clean(path)
+	if _, inside := dest.WorkdirRel(workDir, from); !inside {
+		return nil
 	}
 
-	return target
+	if err := os.Remove(from); err != nil {
+		return fmt.Errorf("portable: remove source %s: %w", from, err)
+	}
+
+	return nil
 }

@@ -14,7 +14,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/dest"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
@@ -200,7 +200,7 @@ func TestInstall_AppImageUnownedAppDirUntouched(t *testing.T) {
 
 	err := runPortable(t, wizstep.Request{WorkDir: workDir}, "bruno.AppImage", ".", "")
 
-	require.ErrorIs(t, err, install.ErrUnownedAppDir)
+	require.ErrorIs(t, err, dest.ErrUnowned)
 	assert.Equal(t, "mine", mocks.ReadString(t, keep))
 	assert.NoFileExists(t, filepath.Join(workDir, "bruno", unpack.LauncherName))
 	assert.NoDirExists(t, filepath.Join(workDir, ".bruno.quiver-tmp"))

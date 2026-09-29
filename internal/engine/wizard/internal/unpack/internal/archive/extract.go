@@ -15,22 +15,23 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/guard"
 )
 
-func (a Archive) Extract(
+const (
+	maxLinkTarget  = 4096
+	singleFilePerm = 0o755
+)
+
+func (a *archive) extract(
 	ctx context.Context,
-	src *os.File,
-	size int64,
 	g *guard.Guard,
 	singleFile string,
 ) error {
-	switch a.layout {
-	case layoutZip:
-		return extractZip(ctx, src, size, g)
-	case layoutTar, layoutSingle:
+	if a.layout == layoutZip {
+		return extractZip(ctx, a.src, a.size, g)
 	}
 
-	rc, err := a.codec.open(io.NewSectionReader(src, 0, size))
+	rc, err := a.codec.open(io.NewSectionReader(a.src, 0, a.size))
 	if err != nil {
-		return fmt.Errorf("unpack: %s: %w", src.Name(), err)
+		return fmt.Errorf("unpack: %s: %w", a.src.Name(), err)
 	}
 	defer rc.Close() //nolint:errcheck
 
@@ -38,7 +39,7 @@ func (a Archive) Extract(
 		return extractTar(ctx, rc, g)
 	}
 
-	return extractSingle(ctx, rc, cmp.Or(singleFile, singleName(src.Name())), g)
+	return g.File(ctx, cmp.Or(singleFile, singleName(a.src.Name())), singleFilePerm, rc)
 }
 
 type tarReader struct {
@@ -54,22 +55,29 @@ func extractTar(
 	t := &tarReader{tr: tar.NewReader(r), g: g}
 
 	for {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("unpack: %w", err)
-		}
-
-		hdr, err := t.tr.Next()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("unpack: tar: %w", err)
-		}
-
-		if err := t.entry(ctx, hdr); err != nil {
+		done, err := t.next(ctx)
+		if done || err != nil {
 			return err
 		}
 	}
+}
+
+func (t *tarReader) next(
+	ctx context.Context,
+) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return true, fmt.Errorf("unpack: %w", err)
+	}
+
+	hdr, err := t.tr.Next()
+	if errors.Is(err, io.EOF) {
+		return true, nil
+	}
+	if err != nil {
+		return true, fmt.Errorf("unpack: tar: %w", err)
+	}
+
+	return false, t.entry(ctx, hdr)
 }
 
 func (t *tarReader) entry(
@@ -96,8 +104,6 @@ func (t *tarReader) entry(
 	return nil
 }
 
-const maxLinkTarget = 4096
-
 func extractZip(
 	ctx context.Context,
 	src io.ReaderAt,
@@ -110,10 +116,6 @@ func extractZip(
 	}
 
 	for _, f := range zr.File {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("unpack: %w", err)
-		}
-
 		if err := zipEntry(ctx, f, g); err != nil {
 			return err
 		}
@@ -127,6 +129,10 @@ func zipEntry(
 	f *zip.File,
 	g *guard.Guard,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("unpack: %w", err)
+	}
+
 	mode := f.Mode()
 	if mode.IsDir() {
 		return g.Dir(f.Name, mode.Perm())
@@ -156,17 +162,6 @@ func zipSymlink(
 	}
 
 	return g.Symlink(name, string(target))
-}
-
-const singleFilePerm = 0o755
-
-func extractSingle(
-	ctx context.Context,
-	r io.Reader,
-	name string,
-	g *guard.Guard,
-) error {
-	return g.File(ctx, name, singleFilePerm, r)
 }
 
 func singleName(

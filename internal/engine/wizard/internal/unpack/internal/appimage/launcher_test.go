@@ -1,4 +1,4 @@
-package appimage_test
+package appimage
 
 import (
 	"os"
@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/appimage"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/mocks"
 )
 
@@ -43,11 +42,9 @@ func TestWriteLauncher_Content(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 
-			path, err := appimage.WriteLauncher(dir, tc.args)
+			path := filepath.Join(dir, LauncherName)
 
-			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(dir, appimage.LauncherName), path)
-			assert.True(t, filepath.IsAbs(path))
+			require.NoError(t, writeLauncher(dir, tc.args))
 			assert.Equal(t, tc.want, mocks.ReadString(t, path))
 			if runtime.GOOS == "windows" {
 				return
@@ -62,12 +59,11 @@ func TestWriteLauncher_Content(t *testing.T) {
 func TestWriteLauncher_ReplacesExistingLauncher(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "AppRun"), []byte("vendor"), 0o755))
-	require.NoError(t, os.Symlink("AppRun", filepath.Join(dir, appimage.LauncherName)))
+	require.NoError(t, os.Symlink("AppRun", filepath.Join(dir, LauncherName)))
 
-	path, err := appimage.WriteLauncher(dir, nil)
+	require.NoError(t, writeLauncher(dir, nil))
 
-	require.NoError(t, err)
-	info, err := os.Lstat(path)
+	info, err := os.Lstat(filepath.Join(dir, LauncherName))
 	require.NoError(t, err)
 	assert.True(t, info.Mode().IsRegular())
 	assert.Equal(t, "vendor", mocks.ReadString(t, filepath.Join(dir, "AppRun")))
@@ -86,7 +82,7 @@ func TestWriteLauncher_Errors(t *testing.T) {
 			name: "launcher path is a non-empty directory",
 			setup: func(t *testing.T) string {
 				dir := t.TempDir()
-				require.NoError(t, os.MkdirAll(filepath.Join(dir, appimage.LauncherName, "x"), 0o755))
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, LauncherName, "x"), 0o755))
 				return dir
 			},
 		},
@@ -94,9 +90,7 @@ func TestWriteLauncher_Errors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := appimage.WriteLauncher(tc.setup(t), nil)
-
-			require.Error(t, err)
+			require.Error(t, writeLauncher(tc.setup(t), nil))
 		})
 	}
 }
@@ -110,8 +104,7 @@ func TestWriteLauncher_RelativeToItself(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	appRun := "#!/bin/sh\nprintf '%s\\n' \"$APPDIR\" \"$@\" > \"$QUIVER_TEST_OUT\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "AppRun"), []byte(appRun), 0o755))
-	_, err := appimage.WriteLauncher(appDir, []string{"--no-sandbox", "it's"})
-	require.NoError(t, err)
+	require.NoError(t, writeLauncher(appDir, []string{"--no-sandbox", "it's"}))
 
 	moved := filepath.Join(base, "renamed", "App.AppDir")
 	require.NoError(t, os.MkdirAll(filepath.Dir(moved), 0o755))
@@ -119,7 +112,7 @@ func TestWriteLauncher_RelativeToItself(t *testing.T) {
 	binDir := filepath.Join(base, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
 	link := filepath.Join(binDir, "app")
-	require.NoError(t, os.Symlink(filepath.Join(moved, appimage.LauncherName), link))
+	require.NoError(t, os.Symlink(filepath.Join(moved, LauncherName), link))
 	out := filepath.Join(base, "out.txt")
 
 	cmd := exec.Command(link, "caller arg")

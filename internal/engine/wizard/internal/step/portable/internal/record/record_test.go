@@ -1,7 +1,8 @@
-package install_test
+package record_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/record"
 )
 
 func recordApp(
@@ -35,46 +36,61 @@ func relativeApp(
 	return domain.PortableApp{Name: name, Entry: name + "/.quiver-run", Icon: name + "/icon.png"}
 }
 
-func record(
+func save(
 	t *testing.T,
 	workDir string,
 	apps ...domain.PortableApp,
 ) error {
 	t.Helper()
 
-	return install.New(1).Record(context.Background(), "ns", workDir, apps)
+	return record.Save(context.Background(), "ns", workDir, apps)
 }
 
-func TestInstaller_Record_RerunReplacesEntryAndKeepsOthers(t *testing.T) {
+func TestSave_RerunReplacesEntryAndKeepsOthers(t *testing.T) {
 	workDir := t.TempDir()
 	for _, name := range []string{"bruno", "bruno", "zed"} {
-		require.NoError(t, record(t, workDir, recordApp(t, workDir, name)))
+		require.NoError(t, save(t, workDir, recordApp(t, workDir, name)))
 	}
 
 	assert.Equal(t, domain.PortableRecord{Apps: []domain.PortableApp{relativeApp("bruno"), relativeApp("zed")}}, readRecord(t, workDir))
 }
 
-func TestInstaller_Record_MalformedRecordIsReplaced(t *testing.T) {
+func TestSave_MalformedRecordIsReplaced(t *testing.T) {
 	workDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, domain.PortableRecordFile), []byte("{not json"), 0o600))
 
-	require.NoError(t, record(t, workDir, recordApp(t, workDir, "bruno")))
+	require.NoError(t, save(t, workDir, recordApp(t, workDir, "bruno")))
 
 	assert.Equal(t, domain.PortableRecord{Apps: []domain.PortableApp{relativeApp("bruno")}}, readRecord(t, workDir))
 }
 
-func TestInstaller_Record_UnreadableRecordFails(t *testing.T) {
+func TestSave_UnreadableRecordFails(t *testing.T) {
 	workDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(workDir, domain.PortableRecordFile, "x"), 0o755))
 
-	assert.Error(t, record(t, workDir, recordApp(t, workDir, "bruno")))
+	assert.Error(t, save(t, workDir, recordApp(t, workDir, "bruno")))
 }
 
-func TestInstaller_Record_NothingToRecordWritesNothing(t *testing.T) {
+func TestSave_NothingToRecordWritesNothing(t *testing.T) {
 	workDir := t.TempDir()
 
-	require.NoError(t, record(t, workDir))
-	require.NoError(t, record(t, workDir, recordApp(t, t.TempDir(), "bruno")))
+	require.NoError(t, save(t, workDir))
+	require.NoError(t, save(t, workDir, recordApp(t, t.TempDir(), "bruno")))
 
 	assert.NoFileExists(t, filepath.Join(workDir, domain.PortableRecordFile))
+}
+
+func readRecord(
+	t *testing.T,
+	workDir string,
+) domain.PortableRecord {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(workDir, domain.PortableRecordFile))
+	require.NoError(t, err)
+
+	var got domain.PortableRecord
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	return got
 }

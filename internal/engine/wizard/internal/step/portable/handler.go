@@ -7,6 +7,7 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable/internal/install"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack"
 )
 
 type handler struct {
@@ -16,7 +17,7 @@ type handler struct {
 func NewHandler(
 	maxBytes int64,
 ) wizstep.Handler[domainstep.PortableStep] {
-	return &handler{installer: install.New(maxBytes)}
+	return &handler{installer: install.New(unpack.New(maxBytes))}
 }
 
 func (h *handler) Execute(
@@ -32,17 +33,11 @@ func (h *handler) Execute(
 	}
 	defer cancel()
 
-	from := req.ResolvePath(s.From.Resolve(osArch))
-	to := req.ResolvePath(s.To.Resolve(osArch))
-
-	apps, output, err := h.installer.Place(stepCtx, req.OSArch, req.WorkDir, from, to, s.Name)
-	if err != nil {
-		return err
-	}
-
-	if err := h.installer.Record(stepCtx, req.NSKey, req.WorkDir, apps); err != nil {
-		return err
-	}
-
-	return h.installer.RemoveSource(req.WorkDir, from, output)
+	return h.installer.Install(stepCtx, install.Request{
+		NSKey:   req.NSKey,
+		WorkDir: req.WorkDir,
+		From:    req.ResolvePath(s.From.Resolve(osArch)),
+		To:      req.ResolvePath(s.To.Resolve(osArch)),
+		Name:    s.Name,
+	})
 }

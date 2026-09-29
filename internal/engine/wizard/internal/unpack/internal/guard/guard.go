@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/fns"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/unpack/internal/models"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/workfs"
 )
 
 const (
@@ -33,6 +31,8 @@ type Guard struct {
 	links        []string
 	tops         map[string]struct{}
 	skipEscaping bool
+	rules        NameRules
+	seen         map[string]string
 }
 
 type Option func(*Guard)
@@ -41,16 +41,6 @@ func SkipEscapingLinks() Option {
 	return func(g *Guard) {
 		g.skipEscaping = true
 	}
-}
-
-func (g *Guard) tolerateEscape(
-	err error,
-) error {
-	if g.skipEscaping && errors.Is(err, models.ErrEscape) {
-		return nil
-	}
-
-	return err
 }
 
 func Open(
@@ -79,6 +69,7 @@ func Open(
 		maxBytes:   maxBytes,
 		maxEntries: maxEntries,
 		tops:       make(map[string]struct{}),
+		seen:       make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(g)
@@ -117,13 +108,10 @@ func (g *Guard) Dir(
 	perm os.FileMode,
 ) error {
 	cleaned, err := cleanName(name)
-	if err != nil {
+	if err != nil || cleaned == "." {
 		return err
 	}
-	if cleaned == "." {
-		return nil
-	}
-	if err := g.admit(); err != nil {
+	if err := g.admit(cleaned); err != nil {
 		return err
 	}
 
@@ -141,11 +129,8 @@ func (g *Guard) File(
 	perm os.FileMode,
 	r io.Reader,
 ) error {
-	cleaned, err := entryName(name)
+	cleaned, err := g.entry(name)
 	if err != nil {
-		return err
-	}
-	if err := g.admit(); err != nil {
 		return err
 	}
 
@@ -169,113 +154,6 @@ func (g *Guard) File(
 	g.recordTop(cleaned)
 
 	return nil
-}
-
-func (g *Guard) Symlink(
-	name string,
-	target string,
-) error {
-	cleaned, err := entryName(name)
-	if err != nil {
-		return err
-	}
-	if err := g.admit(); err != nil {
-		return err
-	}
-
-	if err := checkLinkTarget(cleaned, target); err != nil {
-		return g.tolerateEscape(err)
-	}
-
-	physical, err := g.physical(cleaned, target)
-	if err != nil {
-		return g.tolerateEscape(err)
-	}
-
-	if err := g.place(cleaned); err != nil {
-		return err
-	}
-
-	if err := g.root.Symlink(target, cleaned); err != nil {
-		return fmt.Errorf("unpack: symlink %s: %w", cleaned, err)
-	}
-	g.links = append(g.links, physical)
-	g.recordTop(cleaned)
-
-	return nil
-}
-
-func (g *Guard) Hardlink(
-	name string,
-	target string,
-) error {
-	cleaned, err := entryName(name)
-	if err != nil {
-		return err
-	}
-	if err := g.admit(); err != nil {
-		return err
-	}
-
-	source, err := cleanName(target)
-	if err != nil {
-		return err
-	}
-	if source == "." {
-		return fmt.Errorf("unpack: %s: invalid link target %q", cleaned, target)
-	}
-
-	if err := g.rejectSymlink(source); err != nil {
-		return err
-	}
-
-	if err := g.place(cleaned); err != nil {
-		return err
-	}
-
-	if err := g.root.Link(source, cleaned); err != nil {
-		return fmt.Errorf("unpack: link %s: %w", cleaned, err)
-	}
-	g.recordTop(cleaned)
-
-	return nil
-}
-
-func (g *Guard) admit() error {
-	g.entries++
-	if g.entries > g.maxEntries {
-		return fmt.Errorf("limit %d entries: %w", g.maxEntries, models.ErrTooMany)
-	}
-	return nil
-}
-
-func (g *Guard) recordTop(
-	cleaned string,
-) {
-	top := cleaned
-	if idx := strings.IndexRune(cleaned, filepath.Separator); idx >= 0 {
-		top = cleaned[:idx]
-	}
-	g.tops[top] = struct{}{}
-}
-
-func (g *Guard) verifyLink(
-	link string,
-) error {
-	target, err := os.Readlink(link)
-	if err != nil {
-		return nil
-	}
-
-	_, _, err = newLinkResolver(g).resolve(filepath.Dir(link), target)
-	if err == nil {
-		return nil
-	}
-
-	rel, _ := filepath.Rel(g.dest, link)
-	_ = g.root.Remove(rel)
-
-	return g.tolerateEscape(fmt.Errorf("unpack: %s -> %s: %w", rel, target, err))
 }
 
 func (g *Guard) Copy(
@@ -302,6 +180,38 @@ func (g *Guard) Copy(
 	}
 }
 
+func (g *Guard) entry(
+	name string,
+) (string, error) {
+	cleaned, err := entryName(name)
+	if err != nil {
+		return "", err
+	}
+
+	return cleaned, g.admit(cleaned)
+}
+
+func (g *Guard) admit(
+	cleaned string,
+) error {
+	if err := g.admitName(cleaned); err != nil {
+		return err
+	}
+
+	g.entries++
+	if g.entries > g.maxEntries {
+		return fmt.Errorf("limit %d entries: %w", g.maxEntries, models.ErrTooMany)
+	}
+	return nil
+}
+
+func (g *Guard) recordTop(
+	cleaned string,
+) {
+	top, _, _ := strings.Cut(cleaned, string(filepath.Separator))
+	g.tops[top] = struct{}{}
+}
+
 func (g *Guard) place(
 	cleaned string,
 ) error {
@@ -317,108 +227,4 @@ func (g *Guard) place(
 	}
 
 	return nil
-}
-
-func (g *Guard) physical(
-	cleaned string,
-	target string,
-) (string, error) {
-	parent, err := resolveExisting(filepath.Join(g.dest, filepath.Dir(cleaned)))
-	if err != nil {
-		return "", fmt.Errorf("unpack: resolve %s: %w", cleaned, err)
-	}
-
-	physical := filepath.Join(parent, filepath.Base(cleaned))
-	if !workfs.Inside(g.dest, physical) || !workfs.Inside(g.dest, filepath.Join(parent, filepath.FromSlash(target))) {
-		return "", fmt.Errorf("unpack: %s -> %s: %w", cleaned, target, models.ErrEscape)
-	}
-
-	return physical, nil
-}
-
-func resolveExisting(
-	path string,
-) (string, error) {
-	missing := ""
-	for {
-		resolved, err := filepath.EvalSymlinks(path)
-		if err == nil {
-			return filepath.Join(resolved, missing), nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-
-		missing = filepath.Join(filepath.Base(path), missing)
-		path = filepath.Dir(path)
-	}
-}
-
-func (g *Guard) rejectSymlink(
-	source string,
-) error {
-	info, err := g.root.Lstat(source)
-	if err != nil {
-		return fmt.Errorf("unpack: link %s: %w", source, err)
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("unpack: %s: hardlink to symlink is not allowed", source)
-	}
-
-	return nil
-}
-
-func checkLinkTarget(
-	cleaned string,
-	target string,
-) error {
-	if target == "" {
-		return fmt.Errorf("unpack: %s: invalid link target %q", cleaned, target)
-	}
-
-	if IsAbsolute(target) || !workfs.RelInside(filepath.Join(filepath.Dir(cleaned), filepath.FromSlash(target))) {
-		return fmt.Errorf("unpack: %s -> %s: %w", cleaned, target, models.ErrEscape)
-	}
-
-	return nil
-}
-
-func entryName(
-	name string,
-) (string, error) {
-	cleaned, err := cleanName(name)
-	if err != nil {
-		return "", err
-	}
-
-	if cleaned == "." {
-		return "", fmt.Errorf("unpack: %q: invalid entry name", name)
-	}
-
-	return cleaned, nil
-}
-
-func cleanName(
-	name string,
-) (string, error) {
-	if IsAbsolute(name) {
-		return "", fmt.Errorf("unpack: %q: absolute path: %w", name, models.ErrEscape)
-	}
-
-	cleaned := filepath.Clean(filepath.FromSlash(name))
-	if !workfs.RelInside(cleaned) {
-		return "", fmt.Errorf("unpack: %q: %w", name, models.ErrEscape)
-	}
-
-	return cleaned, nil
-}
-
-func IsAbsolute(
-	path string,
-) bool {
-	return strings.HasPrefix(path, "/") ||
-		strings.HasPrefix(path, `\`) ||
-		filepath.IsAbs(path) ||
-		filepath.VolumeName(path) != ""
 }

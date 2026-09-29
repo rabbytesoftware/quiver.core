@@ -14,13 +14,13 @@ import (
 var ErrPortableFormat = errors.New("portable app format, use type: portable")
 
 type handler struct {
-	maxBytes int64
+	unpacker unpack.Unpacker
 }
 
 func NewHandler(
 	maxBytes int64,
 ) wizstep.Handler[domainstep.ExtractStep] {
-	return &handler{maxBytes: maxBytes}
+	return &handler{unpacker: unpack.New(maxBytes)}
 }
 
 func (h *handler) Execute(
@@ -50,20 +50,15 @@ func (h *handler) Execute(
 		return fmt.Errorf("extract: stat %s: %w", from, err)
 	}
 
-	if unpack.IsAppImage(src) || unpack.IsDmg(src, info.Size()) {
+	format, err := h.unpacker.Detect(src, info.Size())
+	if err != nil {
+		return err
+	}
+	if format.Kind() != unpack.KindArchive {
 		return fmt.Errorf("extract: %s: %w", from, ErrPortableFormat)
 	}
 
-	archive, err := unpack.DetectArchive(src, info.Size())
-	if err != nil {
-		return err
-	}
+	_, err = format.Unpack(stepCtx, unpack.Target{Dir: to})
 
-	g, err := unpack.OpenGuard(ctx, to, h.maxBytes)
-	if err != nil {
-		return err
-	}
-	defer g.Close()
-
-	return errors.Join(archive.Extract(stepCtx, src, info.Size(), g, ""), g.Verify())
+	return err
 }
