@@ -55,12 +55,19 @@ func Drift(
 	return target, true, nil
 }
 
+// channelTarget resolves a channel to its latest member. A repository's
+// default branch is listed as a channel only while it has no tags, so a row
+// that settled on that fallback keeps following its branch after the first
+// release: a later tag push never changes what an identity means.
 func channelTarget(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
 	channel, ok := findChannel(selector, snap)
 	if !ok {
+		if commit, isBranch := snap.Branches[selector]; isBranch {
+			return domain.Available{Ref: selector, Commit: commit}, nil
+		}
 		return domain.Available{}, fmt.Errorf("target channel %q: %w", selector, ErrUnknownSelector)
 	}
 	commit, ok := snap.Commit(channel.Latest)

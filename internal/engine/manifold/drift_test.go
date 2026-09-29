@@ -114,6 +114,15 @@ func TestDrift(t *testing.T) {
 			snap: domain.RefSnapshot{},
 		},
 		{
+			name: "default-branch channel after a first release: moved branch is outdated", kind: domain.SelectorChannel, selector: "main",
+			resolved: domain.Resolved{Ref: "main", Commit: "old"}, snap: releaseSnapshot(),
+			wantTarget: domain.Available{Ref: "main", Commit: "cm"}, wantOutdated: true,
+		},
+		{
+			name: "default-branch channel after a first release: unmoved branch is current", kind: domain.SelectorChannel, selector: "main",
+			resolved: domain.Resolved{Ref: "main", Commit: "cm"}, snap: releaseSnapshot(),
+		},
+		{
 			name: "channel absent from snapshot", kind: domain.SelectorChannel, selector: "beta",
 			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
 		},
@@ -167,6 +176,7 @@ func TestTarget(t *testing.T) {
 		{name: "escaped tag reaches the shadowed tag", kind: domain.SelectorPin, selector: "refs/tags/stable", snap: stableCollision, want: domain.Available{Ref: "stable", Commit: "c-stable-tag"}},
 		{name: "escaped branch", kind: domain.SelectorPin, selector: "refs/heads/main", snap: releaseSnapshot(), want: domain.Available{Ref: "main", Commit: "cm"}},
 		{name: "default branch fallback channel", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Branches: map[string]string{"main": "cm"}, Head: "main"}, want: domain.Available{Ref: "main", Commit: "cm"}},
+		{name: "default branch channel keeps its branch once tags exist", kind: domain.SelectorChannel, selector: "main", snap: releaseSnapshot(), want: domain.Available{Ref: "main", Commit: "cm"}},
 		{name: "channel whose latest has no commit", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Head: "main"}, wantErr: ErrUnknownSelector},
 	}
 
