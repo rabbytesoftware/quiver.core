@@ -230,13 +230,19 @@ jobs:
           const threshold = 90;
           const passed = parseFloat(total) >= threshold;
           const icon = passed ? '✅' : '❌';
-          
+
+          // GitHub rejects comments over 65,536 characters; keep the tail, which ends with the total line.
+          const limit = 60000;
+          const detail = coverage.length > limit
+            ? `… ${coverage.length - limit} characters omitted, full report in the coverage-reports artifact …\n` + coverage.slice(-limit)
+            : coverage;
+
           const body = `## 📊 Test Coverage Report\n\n` +
                        `${icon} **Total Coverage:** ${total}%\n` +
                        `**Threshold:** ${threshold}%\n` +
                        `**Status:** ${passed ? 'PASSED' : 'FAILED'}\n\n` +
                        `<details><summary>📋 View Detailed Report</summary>\n\n` +
-                       `\`\`\`\n${coverage}\n\`\`\`\n</details>`;
+                       `\`\`\`\n${detail}\n\`\`\`\n</details>`;
           
           github.rest.issues.createComment({
             issue_number: context.issue.number,
