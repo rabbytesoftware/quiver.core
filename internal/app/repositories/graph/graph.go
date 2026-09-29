@@ -131,13 +131,13 @@ func (g *graphService) Resolve(
 		var children []domain.Namespace
 		for _, edge := range target.Tools {
 			resolved := dependencyIdentity(edge)
-			typeIndex[resolved.BareNamespace()] = domain.ToolDep
+			typeIndex[resolved] = domain.ToolDep
 			children = append(children, resolved)
 		}
 
 		for _, edge := range target.Services {
 			resolved := dependencyIdentity(edge)
-			typeIndex[resolved.BareNamespace()] = domain.ServiceDep
+			typeIndex[resolved] = domain.ServiceDep
 			children = append(children, resolved)
 		}
 
@@ -149,13 +149,12 @@ func (g *graphService) Resolve(
 		return nil, err
 	}
 
-	rootBare := ns.BareNamespace()
 	var plan Plan
 	for _, dep := range ordered {
-		if dep.BareNamespace() == rootBare {
+		if dep == ns {
 			continue
 		}
-		depType, ok := typeIndex[dep.BareNamespace()]
+		depType, ok := typeIndex[dep]
 		if !ok {
 			depType = domain.ToolDep
 		}

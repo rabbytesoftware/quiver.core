@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
@@ -574,24 +576,38 @@ func TestRuntimeOnUpdateEnded_ClearBadgeFails_IsOnlyLogged(t *testing.T) {
 	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge failed"}, log.all())
 }
 
-// quiver.core's relaunched binary adopts its own new state; its row is not
-// advanced from here.
-func TestRuntimeOnUpdateEnded_SelfNamespace_Skipped(t *testing.T) {
+// quiver.core's relaunched binary adopts its own new state, so its update
+// remembers no target and its end advances nothing from here.
+func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
 	a, rt, log := commitFixture(true, nil)
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(selfRow, rollingTarget())
+	f.arrow.TargetUnmovedFn = a.TargetUnmovedFn
+	f.arrow.AdvanceFn = a.AdvanceFn
+	f.runtime.ClearVersionBadgeFn = rt.ClearVersionBadgeFn
+	uc := f.usecase()
 
+	require.NoError(t, uc.Execute(context.Background(), selfRow, domain.MethodUpdate, nil))
 	uc.onUpdateEnded(context.Background(), updateEnded(selfRow, domainRuntime.ExecutionOutcomeSuccess))
 
+	assert.Contains(t, f.log.all(), "begin update")
+	_, remembered := uc.targets.take(selfRow)
+	assert.False(t, remembered)
 	assert.Empty(t, log.all())
 }
 
 // The commit leaves the runtime aggregate's ordered delivery before it
-// clears that aggregate's badge, which would otherwise wait for itself.
+// clears that aggregate's badge, which would otherwise wait for itself: the
+// handler must return before the commit does anything.
 func TestRuntimeOnUpdateEnded_CommitsOffTheDeliveringGoroutine(t *testing.T) {
 	a, rt, _ := commitFixture(true, nil)
+	handlerReturned := make(chan struct{})
+	a.TargetUnmovedFn = func(context.Context, domain.Namespace, domain.Available) (bool, error) {
+		<-handlerReturned
+		return true, nil
+	}
 	cleared := make(chan struct{})
 	rt.ClearVersionBadgeFn = func(context.Context, domain.Namespace) error {
 		close(cleared)
@@ -600,11 +616,204 @@ func TestRuntimeOnUpdateEnded_CommitsOffTheDeliveringGoroutine(t *testing.T) {
 	uc := newRuntimeUsecase(a, rt, &ucmocks.MockGraph{})
 	uc.targets.put(rollingRow, rollingTarget())
 
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+	returned := make(chan struct{})
+	go func() {
+		uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler waited for the commit")
+	}
+	close(handlerReturned)
 
 	select {
 	case <-cleared:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the detached commit never cleared the badge")
+	}
+}
+
+// A commit whose remote hangs gives up instead of holding its goroutine
+// forever.
+func TestRuntimeOnUpdateEnded_CommitHasADeadline(t *testing.T) {
+	a, rt, log := commitFixture(true, nil)
+	a.TargetUnmovedFn = func(ctx context.Context, _ domain.Namespace, _ domain.Available) (bool, error) {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+	uc.commitTimeout = 20 * time.Millisecond
+	uc.targets.put(rollingRow, rollingTarget())
+
+	done := make(chan struct{})
+	go func() {
+		uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the commit never gave up on a hung remote")
+	}
+	assert.Empty(t, log.all(), "nothing is stamped when the re-check times out")
+}
+
+// ─── concurrent brackets on one identity ─────────────────────────────────────
+
+// A second update of the same identity waits for the first bracket to close;
+// by then the first update is running, so the second is rejected instead of
+// staging its own target under the first one's live update.
+func TestRuntimeExecute_Update_SecondBracketWaitsForTheFirst(t *testing.T) {
+	first := domain.Available{Ref: "nightly-latest", Commit: "c2"}
+	second := domain.Available{Ref: "nightly-latest", Commit: "c3"}
+	f := newBracketFixture(domain.ArrowStateReady, nil)
+	var checks, inFlight, maxInFlight, refreshes, begins atomic.Int32
+	enter := func() {
+		n := inFlight.Add(1)
+		for {
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				return
+			}
+		}
+	}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	f.arrow.CheckAvailableFn = func(context.Context, domain.Namespace) (*domain.Available, error) {
+		if checks.Add(1) == 1 {
+			return &first, nil
+		}
+		return &second, nil
+	}
+	f.arrow.RefreshToTargetFn = func(_ context.Context, ns domain.Namespace, _ domain.Available) (*domain.Arrow, error) {
+		enter()
+		defer inFlight.Add(-1)
+		if refreshes.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return &domain.Arrow{Namespace: ns}, nil
+	}
+	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+		enter()
+		defer inFlight.Add(-1)
+		begins.Add(1)
+		if f.currentState() == domain.ArrowStateUpdating {
+			return apperrors.ErrStateViolation
+		}
+		f.setState(domain.ArrowStateUpdating)
+		return nil
+	}
+	f.runtime.BeginExecutionFn = func(context.Context, domain.Namespace, string, map[string]string) error {
+		return apperrors.ErrStateViolation
+	}
+	uc := f.usecase()
+
+	var firstErr, secondErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		firstErr = uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
+	}()
+	<-entered
+	secondStarted := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		close(secondStarted)
+		secondErr = uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
+	}()
+	<-secondStarted
+	close(release)
+	wg.Wait()
+
+	require.NoError(t, firstErr)
+	require.ErrorIs(t, secondErr, apperrors.ErrStateViolation)
+	assert.Equal(t, int32(1), refreshes.Load(), "the second bracket never stages a manifest")
+	assert.Equal(t, int32(1), begins.Load())
+	assert.Equal(t, int32(1), maxInFlight.Load())
+	remembered, ok := uc.targets.take(rollingRow)
+	require.True(t, ok)
+	assert.Equal(t, first, remembered)
+}
+
+// An update whose end is not handled yet may still have a remembered target
+// when another bracket opens; a bracket that then fails to begin must leave
+// that target exactly as it found it.
+func TestRuntimeExecute_Update_FailedBracketRestoresTheRememberedTarget(t *testing.T) {
+	earlier := domain.Available{Ref: "nightly-latest", Commit: "c1"}
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+		return errors.New("boom")
+	}
+	uc := f.usecase()
+	uc.targets.put(rollingRow, earlier)
+
+	require.Error(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+
+	remembered, ok := uc.targets.take(rollingRow)
+	require.True(t, ok)
+	assert.Equal(t, earlier, remembered)
+}
+
+func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {
+	first := domain.Available{Ref: "r", Commit: "c1"}
+	second := domain.Available{Ref: "r", Commit: "c2"}
+
+	testCases := []struct {
+		name   string
+		act    func(targets *updateTargets)
+		want   domain.Available
+		wantOK bool
+	}{
+		{
+			name: "undo restores what the put replaced",
+			act: func(targets *updateTargets) {
+				targets.put(rollingRow, first)
+				targets.put(rollingRow, second)()
+			},
+			want:   first,
+			wantOK: true,
+		},
+		{
+			name: "undo on an empty slot leaves it empty",
+			act: func(targets *updateTargets) {
+				targets.put(rollingRow, first)()
+			},
+		},
+		{
+			name: "undo after a newer put leaves the newer entry",
+			act: func(targets *updateTargets) {
+				undo := targets.put(rollingRow, first)
+				targets.put(rollingRow, second)
+				undo()
+			},
+			want:   second,
+			wantOK: true,
+		},
+		{
+			name: "undo after the entry was taken changes nothing",
+			act: func(targets *updateTargets) {
+				undo := targets.put(rollingRow, first)
+				targets.take(rollingRow)
+				undo()
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			targets := newUpdateTargets()
+
+			tc.act(targets)
+
+			got, ok := targets.take(rollingRow)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }

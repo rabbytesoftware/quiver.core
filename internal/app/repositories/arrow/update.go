@@ -141,7 +141,7 @@ func (s *arrowService) AddDependency(
 		Resolved:     arrow.Resolved,
 	})
 	if err != nil && !errors.Is(err, asynxModels.ErrValidation) {
-		return "", fmt.Errorf("add dependency %s: %w", identity, err)
+		return "", mapSendErr("add dependency", identity, err)
 	}
 	return identity, nil
 }

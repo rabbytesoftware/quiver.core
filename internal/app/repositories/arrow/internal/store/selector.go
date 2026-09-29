@@ -137,7 +137,7 @@ func (r *storeService) CheckDrift(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) (*domain.Available, bool) {
-	snap, err := r.manifold.Snapshot(ctx, arrow.Namespace)
+	snap, err := r.manifold.FreshSnapshot(ctx, arrow.Namespace)
 	if err != nil {
 		return nil, false
 	}

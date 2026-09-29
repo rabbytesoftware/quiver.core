@@ -42,6 +42,12 @@ type Manifold struct {
 	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
 	// from the same SnapshotFn/SnapshotResult as Snapshot.
 	FreshSnapshotCalls int
+	// FreshSnapshotFn, when set, answers FreshSnapshot alone, so a test can
+	// give the live remote a different view than the cached Snapshot.
+	FreshSnapshotFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
 
 	ResolveArrowAtCommitResult   *domain.Arrow
 	ResolveArrowAtCommitRaw      []byte
@@ -208,6 +214,9 @@ func (m *Manifold) FreshSnapshot(
 	ns domain.Namespace,
 ) (domain.RefSnapshot, error) {
 	m.FreshSnapshotCalls++
+	if m.FreshSnapshotFn != nil {
+		return m.FreshSnapshotFn(ctx, ns)
+	}
 	if m.SnapshotFn != nil {
 		return m.SnapshotFn(ctx, ns)
 	}

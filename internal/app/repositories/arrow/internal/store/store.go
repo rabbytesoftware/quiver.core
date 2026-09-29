@@ -62,7 +62,8 @@ type Store interface {
 	// CheckDrift reports what arrow's selector points at when that differs
 	// from what arrow has installed, nil when it is current. ok is false
 	// whenever the remote could not answer, and the caller must then record
-	// nothing.
+	// nothing. It reads the remote live, bypassing the snapshot cache: its
+	// callers are already rate-limited to one check per version-check TTL.
 	CheckDrift(
 		ctx context.Context,
 		arrow domain.Arrow,

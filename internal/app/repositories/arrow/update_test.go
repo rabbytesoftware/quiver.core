@@ -479,6 +479,17 @@ func TestAddDependency_Failures(t *testing.T) {
 			wantErr: boom,
 		},
 		{
+			name:    "add fails in the pipeline",
+			resolve: resolveOK,
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(context.Context, string) (bool, error) { return false, nil },
+				SendWaitFn: func(context.Context, asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrPipelineFailed
+				},
+			},
+			wantErr: apperrors.ErrStateViolation,
+		},
+		{
 			name:    "add fails",
 			resolve: resolveOK,
 			ax: &arrowMocks.AsynxArrow{

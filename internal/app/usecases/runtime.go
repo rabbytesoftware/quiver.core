@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
@@ -15,6 +16,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
+
+// updateCommitTimeout bounds closing an update bracket: one live ref listing
+// and one manifest fetch, each already bounded by the manifold's own fetch
+// timeout.
+const updateCommitTimeout = 2 * time.Minute
 
 type RuntimeUsecase interface {
 	Install(
@@ -61,6 +67,9 @@ type runtimeUsecase struct {
 	graph   graph.Graph
 	targets *updateTargets
 	detach  func(fn func())
+	// commitTimeout bounds a detached update commit, which has no caller
+	// whose context would end it.
+	commitTimeout time.Duration
 }
 
 func NewRuntimeUsecase(
@@ -77,11 +86,12 @@ func newRuntimeUsecase(
 	graph graph.Graph,
 ) *runtimeUsecase {
 	return &runtimeUsecase{
-		arrow:   arrow,
-		runtime: runtime,
-		graph:   graph,
-		targets: newUpdateTargets(),
-		detach:  func(fn func()) { go fn() },
+		arrow:         arrow,
+		runtime:       runtime,
+		graph:         graph,
+		targets:       newUpdateTargets(),
+		detach:        func(fn func()) { go fn() },
+		commitTimeout: updateCommitTimeout,
 	}
 }
 
@@ -302,12 +312,16 @@ func (u *runtimeUsecase) Execute(
 // executeUpdate opens the update bracket: it re-resolves what is ahead of
 // the row, stops it if it runs, stages the target's manifest so the target's
 // own update steps run, installs any dependency the target gained, and
-// begins the update. onUpdateEnded closes the bracket.
+// begins the update. onUpdateEnded closes the bracket. Brackets of one row
+// are serialized up to BeginUpdate, so a second one finds the first running
+// instead of staging its own target under it.
 func (u *runtimeUsecase) executeUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
 	userVars map[string]string,
 ) error {
+	defer u.targets.open(ns)()
+
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("execute: get state: %w", err)
@@ -341,12 +355,24 @@ func (u *runtimeUsecase) executeUpdate(
 		return fmt.Errorf("update: %w", err)
 	}
 
-	u.targets.put(ns, *available)
+	undo := u.remember(ns, *available)
 	if err := u.runtime.BeginUpdate(ctx, ns, userVars); err != nil {
-		u.targets.take(ns)
+		undo()
 		return err
 	}
 	return nil
+}
+
+// remember records the target an update begins toward, except for
+// quiver.core's own row, whose end commits nothing from here.
+func (u *runtimeUsecase) remember(
+	ns domain.Namespace,
+	target domain.Available,
+) func() {
+	if isSelfNamespace(ns) {
+		return func() {}
+	}
+	return u.targets.put(ns, target)
 }
 
 // syncTargetDeps lands the dependencies the target manifest gained or lost
@@ -585,8 +611,11 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 		return
 	}
 
-	commitCtx := context.WithoutCancel(ctx)
-	u.detach(func() { u.commitUpdate(commitCtx, rt.Ref, target) })
+	u.detach(func() {
+		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), u.commitTimeout)
+		defer cancel()
+		u.commitUpdate(commitCtx, rt.Ref, target)
+	})
 }
 
 // commitUpdate stamps target as installed only if it is still what its ref

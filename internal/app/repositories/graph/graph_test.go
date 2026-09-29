@@ -208,6 +208,41 @@ func TestResolve_DependencyIdentityIsTheDeclaredSelector(t *testing.T) {
 	}
 }
 
+// Two identities of one package are two dependencies: each keeps its own
+// type, and another version of the root itself is a dependency like any other.
+func TestResolve_TypesAndRootAreKeyedByIdentity(t *testing.T) {
+	root := domain.Namespace("github.com/user/pkg@v2")
+	svc := domain.Namespace("github.com/user/dep@v1.*")
+	tool := domain.Namespace("github.com/user/dep@v2.*")
+	olderRoot := domain.Namespace("github.com/user/pkg@v1.*")
+
+	g := newGraph(t, newTestStore(t), func(_ context.Context, n domain.Namespace) (*domain.Arrow, error) {
+		if n != root {
+			return &domain.Arrow{Namespace: n}, nil
+		}
+		return &domain.Arrow{
+			Namespace: n,
+			Targets: map[domain.OS]domain.Target{testOS: {
+				Services: []domain.DependencyEdge{declared(svc.String())},
+				Tools:    []domain.DependencyEdge{declared(tool.String()), declared(olderRoot.String())},
+			}},
+		}, nil
+	})
+
+	plan, err := g.Resolve(context.Background(), root)
+
+	require.NoError(t, err)
+	types := make(map[domain.Namespace]domain.DepType, len(plan))
+	for _, entry := range plan {
+		types[entry.Namespace] = entry.Type
+	}
+	assert.Equal(t, map[domain.Namespace]domain.DepType{
+		svc:       domain.ServiceDep,
+		tool:      domain.ToolDep,
+		olderRoot: domain.ToolDep,
+	}, types)
+}
+
 // Two constraint selectors of one package are two rows: each dependent
 // resolves to its own, the edges name each selector, and forgetting one
 // leaves the other depended on.

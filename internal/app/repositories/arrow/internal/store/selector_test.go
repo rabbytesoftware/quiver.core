@@ -577,3 +577,29 @@ func TestResolveManifest_SelectorIdentityFallsBackToItsTarget(t *testing.T) {
 		})
 	}
 }
+
+// A passive check already runs at most once per version-check TTL, so it
+// reads the remote live: the shared snapshot cache is refilled by listings
+// and installs at arbitrary times and could hide a moved tag for another TTL.
+func TestCheckDrift_ReadsTheRemoteLive(t *testing.T) {
+	cached := domain.RefSnapshot{Tags: map[string]string{"nightly": "cold"}}
+	live := domain.RefSnapshot{Tags: map[string]string{"nightly": "cnew"}}
+	m := &mocks.Manifold{
+		SnapshotResult: cached,
+		FreshSnapshotFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+			return live, nil
+		},
+	}
+	r := newTestReaderWithVaultManifold(t, nil, m)
+	row := domain.Arrow{
+		Namespace:    selectorBare.WithRef("nightly"),
+		SelectorKind: domain.SelectorChannel,
+		Resolved:     domain.Resolved{Ref: "nightly", Commit: "cold"},
+	}
+
+	available, ok := r.CheckDrift(context.Background(), row)
+
+	require.True(t, ok)
+	assert.Equal(t, &domain.Available{Ref: "nightly", Commit: "cnew"}, available)
+	assert.Zero(t, m.SnapshotCalls)
+}
