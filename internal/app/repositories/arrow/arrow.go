@@ -532,44 +532,53 @@ func (s *arrowService) maybeCheckVersion(
 // runVersionCheck re-resolves arrow against the remote and lands the outcome on
 // both aggregates it concerns. A check that cannot produce a trustworthy answer
 // (ok is false) writes nothing at all — a failed resolution is no more a
-// trustworthy "no drift" than it is a drift.
+// trustworthy "current" than it is a drift.
 //
-// The runtime state is reconciled first, and unconditionally. First, because
-// the intermediate window then reads as a badge a few milliseconds early rather
-// than as the missing badge this whole path exists to fix, and because the
-// state is what gates whether the arrow can be run at all. Unconditionally,
-// because the catalog record below is only written when the answer changed —
-// and every arrow already carrying Outdated from before the runtime was wired
-// in at all takes that early return on every later check. A reconcile placed
-// after it would never run for exactly the installs that need repairing. Doing
-// it on every check instead costs one aggregate read per check and makes any
-// divergence, however it arose, heal itself at the next one.
+// The runtime state is reconciled unconditionally: the catalog record is only
+// written when the answer changed, so a runtime badge that diverged from an
+// unchanged answer would otherwise never heal.
 func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) {
-	outdated, recommendedRef, ok := s.store.CheckVersionDrift(ctx, arrow)
+	available, ok := s.store.CheckDrift(ctx, arrow)
 	if !ok {
 		return
 	}
 
-	s.syncVersionOutdated(ctx, arrow.Namespace, outdated)
+	s.recordAvailable(ctx, arrow.Namespace, available)
+	s.syncVersionOutdated(ctx, arrow.Namespace, available != nil)
+}
 
-	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
+func (s *arrowService) recordAvailable(
+	ctx context.Context,
+	ns domain.Namespace,
+	available *domain.Available,
+) {
+	current, err := s.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		return
 	}
-	if current.Outdated == outdated && current.RecommendedRef == recommendedRef {
+	if sameAvailable(current.Available, available) {
 		return
 	}
 
-	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordVersionCheck{
-		Namespace:      arrow.Namespace,
-		Outdated:       outdated,
-		RecommendedRef: recommendedRef,
+	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: available,
 	}); sendErr != nil {
-		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", sendErr)
+		slog.WarnContext(ctx, "arrow version check: record", "ns", ns, "err", sendErr)
 	}
+}
+
+func sameAvailable(
+	a *domain.Available,
+	b *domain.Available,
+) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // CheckVersionNow launches a version-drift check for ns immediately,
@@ -725,16 +734,19 @@ func (s *arrowService) Add(
 	ns domain.Namespace,
 	opts models.AddOptions,
 ) error {
-	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, opts.Channel)
+	if ns.Ref() == "" && opts.Channel != "" {
+		ns = ns.WithRef(opts.Channel)
+	}
+
+	identity, arrow, err := s.store.ResolveInstall(ctx, ns)
 	if err != nil {
 		return fmt.Errorf("add: %w", mapResolveErr(err))
 	}
 	arrow.UserInstalled = true
-	arrow.InstalledConstraint = constraint
-	if err := s.markIfPreinstalled(ctx, resolvedNs, arrow); err != nil {
+	if err := s.markIfPreinstalled(ctx, identity, arrow); err != nil {
 		return err
 	}
-	return s.addArrowCommand(ctx, resolvedNs, arrow, constraint)
+	return s.addArrowCommand(ctx, identity, arrow, "")
 }
 
 func (s *arrowService) AddDep(
@@ -780,6 +792,8 @@ func (s *arrowService) addArrowCommand(
 		RefIsBranch:         arrow.RefIsBranch,
 		RefCommitSHA:        arrow.RefCommitSHA,
 		Channel:             arrow.Channel,
+		SelectorKind:        arrow.SelectorKind,
+		Resolved:            arrow.Resolved,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {

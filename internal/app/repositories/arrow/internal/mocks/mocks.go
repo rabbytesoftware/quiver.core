@@ -24,6 +24,8 @@ type MockCQRS struct {
 	CheckVersionDriftFn func(ctx context.Context, arrow domain.Arrow) (outdated bool, recommendedRef string, ok bool)
 	ResolveTrackedRefFn func(ctx context.Context, arrow domain.Arrow) (string, error)
 	PointerCommitFn     func(ctx context.Context, ns domain.Namespace) string
+	ResolveInstallFn    func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error)
+	CheckDriftFn        func(ctx context.Context, arrow domain.Arrow) (*domain.Available, bool)
 }
 
 func (m *MockCQRS) List(
@@ -166,4 +168,24 @@ func (m *MockCQRS) PointerCommit(
 		return m.PointerCommitFn(ctx, ns)
 	}
 	return ""
+}
+
+func (m *MockCQRS) ResolveInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, *domain.Arrow, error) {
+	if m.ResolveInstallFn != nil {
+		return m.ResolveInstallFn(ctx, ns)
+	}
+	return ns, &domain.Arrow{Namespace: ns}, nil
+}
+
+func (m *MockCQRS) CheckDrift(
+	ctx context.Context,
+	arrow domain.Arrow,
+) (*domain.Available, bool) {
+	if m.CheckDriftFn != nil {
+		return m.CheckDriftFn(ctx, arrow)
+	}
+	return nil, false
 }

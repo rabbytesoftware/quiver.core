@@ -1,8 +1,9 @@
 package models
 
 // AddOptions carries optional install-time preferences for adding an arrow.
-// Mirrors UpdateOptions: a zero value means "no preference," which today
-// means the default (stable) channel.
+// Channel names the selector a refless namespace follows; a zero value
+// follows the repository's default channel, and a namespace that already
+// carries a selector ignores it.
 type AddOptions struct {
 	Channel string
 }

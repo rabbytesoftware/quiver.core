@@ -191,9 +191,9 @@ func TestGetDetail_DoesNotNeedCheck_NeverCallsDrift(t *testing.T) {
 		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return false, nil
 		},
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
 			driftCalled.Store(true)
-			return true, "v2.0.0", true
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
@@ -215,9 +215,9 @@ func TestGetDetail_NeedsVersionCheckErrors_StillReturnsView(t *testing.T) {
 		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return false, errors.New("db down")
 		},
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
 			driftCalled.Store(true)
-			return true, "v2.0.0", true
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
@@ -249,8 +249,8 @@ func TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands(t *testing.T) {
 		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) {
 			return true, nil
 		},
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -260,7 +260,7 @@ func TestGetDetail_NeedsCheck_LaunchesBackgroundCheckThatLands(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		got, getErr := axArrow.Get(context.Background(), ns.String())
-		return getErr == nil && got.Outdated && got.RecommendedRef == "v2.0.0"
+		return getErr == nil && got.Available != nil && got.Available.Ref == "v2.0.0"
 	}, 2*time.Second, 10*time.Millisecond, "background version check never landed on the aggregate")
 }
 
@@ -284,8 +284,8 @@ func TestCheckVersionNow_LaunchesBackgroundCheckThatLands(t *testing.T) {
 			needsCalled.Store(true)
 			return false, nil
 		},
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -294,38 +294,32 @@ func TestCheckVersionNow_LaunchesBackgroundCheckThatLands(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		got, getErr := axArrow.Get(context.Background(), ns.String())
-		return getErr == nil && got.Outdated && got.RecommendedRef == "v2.0.0"
+		return getErr == nil && got.Available != nil && got.Available.Ref == "v2.0.0"
 	}, 2*time.Second, 10*time.Millisecond, "background version check never landed on the aggregate")
 	assert.False(t, needsCalled.Load(), "CheckVersionNow must bypass the TTL claim entirely, not just satisfy it")
 }
 
-// TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel proves the seed
-// source, not ordering under concurrency: it uses SendWait for its own setup
-// (so there is no race to exercise here), and simply confirms
-// CheckVersionNow reads arrow.Channel off axArrow rather than off the read
-// model. That distinction matters because switchChannel calls SetChannel (a
-// plain Send, which returns once durable but before its own projection
-// subscriber has necessarily run) immediately followed by CheckVersionNow —
-// reading the read model there could still see the channel from before the
-// switch. Seeding from axArrow instead means the freshly set Channel is
-// always what CheckVersionDrift sees.
+// TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel confirms
+// CheckVersionNow reads the row off axArrow rather than off the read model,
+// which may still lag a write that has just become durable.
 func TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
 	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
 	require.NoError(t, err)
-	_, err = axArrow.SendWait(context.Background(), arrowcmds.SetChannel{Namespace: ns, Channel: "beta"})
+	advanced := domain.Resolved{Ref: "v1.1.0", Commit: "c11", Fingerprint: "c11"}
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.AdvanceArrow{Namespace: ns, Resolved: advanced})
 	require.NoError(t, err)
 
-	var gotChannel atomic.Value
+	var gotResolved atomic.Value
 	r := &arrowStoreMocks.MockCQRS{
 		GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) {
 			t.Fatal("CheckVersionNow must seed from axArrow, not the read model")
 			return nil, nil
 		},
-		CheckVersionDriftFn: func(_ context.Context, arrow domain.Arrow) (bool, string, bool) {
-			gotChannel.Store(arrow.Channel)
-			return false, "", true
+		CheckDriftFn: func(_ context.Context, arrow domain.Arrow) (*domain.Available, bool) {
+			gotResolved.Store(arrow.Resolved)
+			return nil, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -333,10 +327,10 @@ func TestCheckVersionNow_SeedsFromLiveAggregate_NotTheReadModel(t *testing.T) {
 	cat.CheckVersionNow(context.Background(), ns)
 
 	require.Eventually(t, func() bool {
-		v, ok := gotChannel.Load().(string)
-		return ok && v != ""
-	}, 2*time.Second, 10*time.Millisecond, "CheckVersionDrift was never reached")
-	assert.Equal(t, "beta", gotChannel.Load())
+		_, ok := gotResolved.Load().(domain.Resolved)
+		return ok
+	}, 2*time.Second, 10*time.Millisecond, "CheckDrift was never reached")
+	assert.Equal(t, advanced, gotResolved.Load())
 }
 
 // TestCheckVersionNow_AggregateGone_NoOp must not panic axArrow.Get's error
@@ -345,13 +339,13 @@ func TestCheckVersionNow_AggregateGone_NoOp(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
 			// t.Errorf, not t.Fatal: this callback would run inside
 			// CheckVersionNow's own detached goroutine if it ever fired, and
 			// t.Fatal from a non-test goroutine panics the test binary
 			// oddly instead of failing the test cleanly.
-			t.Errorf("CheckVersionDrift must not run when the aggregate does not exist")
-			return false, "", false
+			t.Errorf("CheckDrift must not run when the aggregate does not exist")
+			return nil, false
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -363,7 +357,7 @@ func TestCheckVersionNow_AggregateGone_NoOp(t *testing.T) {
 
 // ─── runVersionCheck ─────────────────────────────────────────────────────────
 
-func TestRunVersionCheck_DiffFound_SendsRecordVersionCheck(t *testing.T) {
+func TestRunVersionCheck_DriftFound_RecordsAvailable(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
 	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
@@ -372,8 +366,8 @@ func TestRunVersionCheck_DiffFound_SendsRecordVersionCheck(t *testing.T) {
 	require.NoError(t, err)
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -382,55 +376,163 @@ func TestRunVersionCheck_DiffFound_SendsRecordVersionCheck(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Outdated)
-	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+	assert.Equal(t, &domain.Available{Ref: "v2.0.0", Commit: "c2"}, got.Available)
 }
 
-// A check that reconfirms the aggregate's existing answer must send nothing —
-// verified by subscribing to the topic itself, not by inference from state.
-func TestRunVersionCheck_NoDiff_SendsNoCommand(t *testing.T) {
+func TestRunVersionCheck_BackToCurrent_ClearsAvailable(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
 	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
 	require.NoError(t, err)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: &domain.Available{Ref: "v2.0.0", Commit: "c2"},
+	})
+	require.NoError(t, err)
 	arrow, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 
-	var fired atomic.Int32
-	_, err = axArrow.Subscribe(asynx.Topic("arrow.version_checked.*"), func(
-		context.Context,
-		asynxModels.Event[domain.Arrow],
-	) {
-		fired.Add(1)
-	})
-	require.NoError(t, err)
-
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return false, "", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return nil, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
 
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
-	axArrow.WaitPublish()
 
-	assert.Equal(t, int32(0), fired.Load())
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Nil(t, got.Available)
+}
+
+// A check that reconfirms the aggregate's existing answer must send nothing —
+// verified by subscribing to the topic itself, not by inference from state.
+func TestRunVersionCheck_SameAnswer_SendsNoCommand(t *testing.T) {
+	testCases := []struct {
+		name      string
+		existing  *domain.Available
+		available *domain.Available
+	}{
+		{name: "still current"},
+		{
+			name:      "still behind the same target",
+			existing:  &domain.Available{Ref: "v2.0.0", Commit: "c2"},
+			available: &domain.Available{Ref: "v2.0.0", Commit: "c2"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			ns := testNs()
+			_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+			require.NoError(t, err)
+			if tc.existing != nil {
+				_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: tc.existing})
+				require.NoError(t, err)
+			}
+			arrow, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+
+			var fired atomic.Int32
+			_, err = axArrow.Subscribe(asynx.Topic("arrow.available_checked.*"), func(
+				context.Context,
+				asynxModels.Event[domain.Arrow],
+			) {
+				fired.Add(1)
+			})
+			require.NoError(t, err)
+
+			r := &arrowStoreMocks.MockCQRS{
+				CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+					return tc.available, true
+				},
+			}
+			cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+			arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+			axArrow.WaitPublish()
+
+			assert.Equal(t, int32(0), fired.Load())
+		})
+	}
+}
+
+// A new target replaces the recorded one even though both say "behind".
+func TestRunVersionCheck_TargetMovedAgain_RecordsTheNewTarget(t *testing.T) {
+	axArrow := newTestAsynxArrow(t)
+	ns := testNs()
+	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
+	require.NoError(t, err)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: &domain.Available{Ref: "nightly", Commit: "c1"},
+	})
+	require.NoError(t, err)
+	arrow, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+
+	r := &arrowStoreMocks.MockCQRS{
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "nightly", Commit: "c2"}, true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, &domain.Available{Ref: "nightly", Commit: "c2"}, got.Available)
+}
+
+// A record that cannot be written must not cost the runtime its badge.
+func TestRunVersionCheck_RecordFails_StillSyncsRuntime(t *testing.T) {
+	ns := testNs()
+	axArrow := &arrowMocks.AsynxArrow{
+		GetFn: func(context.Context, string) (domain.Arrow, error) {
+			return domain.Arrow{Namespace: ns}, nil
+		},
+		SendWaitFn: func(context.Context, asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			return asynxModels.Event[domain.Arrow]{}, errors.New("event store down")
+		},
+	}
+	r := &arrowStoreMocks.MockCQRS{
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
+		},
+	}
+	var synced []bool
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil,
+		arrowRepo.WithVersionOutdatedSync(func(_ context.Context, _ domain.Namespace, outdated bool) error {
+			synced = append(synced, outdated)
+			return nil
+		}))
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), domain.Arrow{Namespace: ns})
+
+	assert.Equal(t, []bool{true}, synced)
 }
 
 // ok=false must abort before ever touching the aggregate — a resolution
-// failure is never a trustworthy "not outdated" either.
+// failure is never a trustworthy "current" either.
 func TestRunVersionCheck_ResolutionFailed_AbortsSilently(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
 	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
 	require.NoError(t, err)
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: &domain.Available{Ref: "v2.0.0", Commit: "c2"},
+	})
+	require.NoError(t, err)
 	arrow, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return false, "", false
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return nil, false
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -439,8 +541,7 @@ func TestRunVersionCheck_ResolutionFailed_AbortsSilently(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.False(t, got.Outdated)
-	assert.Empty(t, got.RecommendedRef)
+	assert.Equal(t, &domain.Available{Ref: "v2.0.0", Commit: "c2"}, got.Available)
 }
 
 // A namespace the aggregate never existed for (e.g. removed between the claim
@@ -450,8 +551,8 @@ func TestRunVersionCheck_AggregateGone_AbortsSilently(t *testing.T) {
 	ns := testNs()
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return &domain.Available{Ref: "v2.0.0", Commit: "c2"}, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -601,8 +702,8 @@ func TestSetChannel_SendsCommand(t *testing.T) {
 	expected := testArrow()
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, expected, "", nil
+		ResolveInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, expected, nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -626,8 +727,8 @@ func TestSetChannel_WithRef_SendsPinnedRef(t *testing.T) {
 	expected := testArrow()
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, expected, "", nil
+		ResolveInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, expected, nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -665,9 +766,9 @@ func TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel(
 
 	var seenArrow atomic.Value
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(_ context.Context, arrow domain.Arrow) (bool, string, bool) {
+		CheckDriftFn: func(_ context.Context, arrow domain.Arrow) (*domain.Available, bool) {
 			seenArrow.Store(arrow)
-			return false, "", true
+			return nil, true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -686,7 +787,7 @@ func TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel(
 	require.Eventually(t, func() bool {
 		_, ok := seenArrow.Load().(domain.Arrow)
 		return ok
-	}, 2*time.Second, 10*time.Millisecond, "CheckVersionDrift was never reached")
+	}, 2*time.Second, 10*time.Millisecond, "CheckDrift was never reached")
 	seen := seenArrow.Load().(domain.Arrow)
 	assert.Empty(t, seen.InstalledConstraint, "the drift check must not see the pre-switch constraint")
 	assert.Equal(t, "beta", seen.Channel, "the drift check must resolve against the newly picked channel")
@@ -884,8 +985,8 @@ func TestAdd_NewArrow(t *testing.T) {
 	expected.UserInstalled = true
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, expected, "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, expected, nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -897,57 +998,85 @@ func TestAdd_NewArrow(t *testing.T) {
 	assert.True(t, exists)
 }
 
-// Regression: Add builds the AddArrow command from explicit fields, not by
-// passing the resolved *domain.Arrow through, so a field the command struct
-// doesn't list is silently dropped no matter what ResolveForInstall computed
-// — this caught RefIsBranch/RefCommitSHA never reaching the persisted
-// aggregate despite store.go stamping them correctly.
-func TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough(t *testing.T) {
+// Add keys the row by the identity ResolveInstall settled on, not the
+// namespace as requested, and carries the selector state through the explicit
+// AddArrow fields into both the aggregate and the read model.
+func TestAdd_StampsIdentityAndSelectorState(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	resolved := testArrow()
-	resolved.RefIsBranch = true
-	resolved.RefCommitSHA = "abc123"
+	requested := testNs().BareNamespace()
+	identity := requested.WithRef("stable")
+	resolved := &domain.Arrow{
+		Namespace:    identity,
+		ArrowMeta:    domain.ArrowMeta{Name: "Test Arrow"},
+		SelectorKind: domain.SelectorChannel,
+		Resolved:     domain.Resolved{Ref: "v1.2.0", Commit: "c12", Fingerprint: "c12"},
+	}
 
+	projected := make(chan domain.Arrow, 1)
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(context.Context, domain.Namespace, string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, resolved, "", nil
+		ResolveInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return identity, resolved, nil
+		},
+		ProjectFn: func(_ context.Context, arrow domain.Arrow) error {
+			projected <- arrow
+			return nil
 		},
 	}
-	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	cat := newProjectingTestable(t, r, axArrow)
+	require.NoError(t, cat.Add(context.Background(), requested, models.AddOptions{}))
 
-	got, err := axArrow.Get(context.Background(), ns.String())
+	got, err := axArrow.Get(context.Background(), identity.String())
 	require.NoError(t, err)
-	assert.True(t, got.RefIsBranch)
-	assert.Equal(t, "abc123", got.RefCommitSHA)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, resolved.Resolved, got.Resolved)
+	assert.Empty(t, got.InstalledConstraint)
+	assert.True(t, got.UserInstalled)
+
+	exists, err := axArrow.Exists(context.Background(), requested.String())
+	require.NoError(t, err)
+	assert.False(t, exists, "nothing may be keyed by the requested refless namespace")
+
+	select {
+	case arrow := <-projected:
+		assert.Equal(t, identity, arrow.Namespace)
+		assert.Equal(t, domain.SelectorChannel, arrow.SelectorKind)
+		assert.Equal(t, resolved.Resolved, arrow.Resolved)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the added row never reached the read model")
+	}
 }
 
-// Regression: Add builds the AddArrow command from explicit fields, the same
-// way TestAdd_CarriesRefIsBranchAndRefCommitSHAThrough guards for
-// RefIsBranch/RefCommitSHA — Channel needs the same explicit forwarding or a
-// resolved channel would silently never reach the persisted aggregate.
-func TestAdd_CarriesChannelThrough(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	resolved := testArrow()
-	resolved.Channel = "rc"
-	var gotChannel string
+// The channel option names the selector of a refless namespace; a namespace
+// that already carries a selector keeps it.
+func TestAdd_ChannelOption_SelectsTheChannelOfARefless(t *testing.T) {
+	bare := testNs().BareNamespace()
 
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error) {
-			gotChannel = channel
-			return ns, resolved, "", nil
-		},
+	testCases := []struct {
+		name    string
+		ns      domain.Namespace
+		channel string
+		want    domain.Namespace
+	}{
+		{name: "refless without a channel", ns: bare, want: bare},
+		{name: "refless with a channel", ns: bare, channel: "beta", want: bare.WithRef("beta")},
+		{name: "selector wins over the channel", ns: bare.WithRef("v1.*"), channel: "beta", want: bare.WithRef("v1.*")},
 	}
-	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{Channel: "rc"}))
 
-	assert.Equal(t, "rc", gotChannel, "Add must forward opts.Channel into ResolveForInstall")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked domain.Namespace
+			r := &arrowStoreMocks.MockCQRS{
+				ResolveInstallFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+					asked = ns
+					return testNs(), testArrow(), nil
+				},
+			}
+			cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "rc", got.Channel)
+			require.NoError(t, cat.Add(context.Background(), tc.ns, models.AddOptions{Channel: tc.channel}))
+			assert.Equal(t, tc.want, asked)
+		})
+	}
 }
 
 func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
@@ -959,8 +1088,8 @@ func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
 	require.NoError(t, err)
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, &domain.Arrow{Namespace: ns, UserInstalled: true}, "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, &domain.Arrow{Namespace: ns, UserInstalled: true}, nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -980,8 +1109,8 @@ func TestAdd_ExistingNotUserInstalled_SetsUserInstalled(t *testing.T) {
 	arrow.UserInstalled = false
 
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, arrow, "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, arrow, nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -1495,10 +1624,10 @@ func TestValidateManifest_RuleErrors(t *testing.T) {
 	assert.Equal(t, "targets", result.Errors[0].Field)
 }
 
-func TestAdd_ResolveForInstallError(t *testing.T) {
+func TestAdd_ResolveInstallError(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, ns domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", errors.New("resolve error")
+		ResolveInstallFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, nil, errors.New("resolve error")
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
@@ -1768,8 +1897,8 @@ func TestAddArrow_GetReturnsNonErrNotFoundError(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -1790,8 +1919,8 @@ func TestAddArrow_SendValidationError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -1811,8 +1940,8 @@ func TestAddArrow_SendPipelineFailedError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -1832,8 +1961,8 @@ func TestAddArrow_SendGenericError(t *testing.T) {
 		},
 	}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -1980,8 +2109,8 @@ func TestOnArrowAdded_CallbackFiresOnAdd(t *testing.T) {
 		GetFn: func(ctx context.Context, id domain.Namespace) (*domain.Arrow, error) {
 			return arrow, nil
 		},
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, arrow, "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, arrow, nil
 		},
 	}, axArrow)
 
@@ -2013,8 +2142,8 @@ func TestOnArrowRemoved_CallbackFiresOnRemove(t *testing.T) {
 
 	axArrow := newTestAsynxArrow(t)
 	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, reqNs domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(ctx context.Context, reqNs domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}, axArrow)
 
@@ -2146,8 +2275,8 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
 	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}, axArrow)
 
@@ -2563,8 +2692,8 @@ func TestProjectForgotten_ReadModelClearedBeforeReactions(t *testing.T) {
 	hub := &recordingHub{}
 	var forgotten atomic.Int32
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
 			forgotten.Add(1)
@@ -2604,8 +2733,8 @@ func TestProjectForgotten_ReadModelFailureKeepsReactionsAndBroadcast(t *testing.
 
 	hub := &recordingHub{}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 		ProjectForgetFn: func(_ context.Context, _ domain.Arrow) error {
 			return errors.New("db closed")
@@ -2660,8 +2789,8 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 
 	v := &workDirVault{Vault: &mocks.Vault{}}
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, testArrow(), "", nil
+		ResolveInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, testArrow(), nil
 		},
 	}
 	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, v, nil, nil)
@@ -2714,8 +2843,8 @@ func preinstalledArrow(ns domain.Namespace) *domain.Arrow {
 
 func resolvesTo(ns domain.Namespace, arrow *domain.Arrow) *arrowStoreMocks.MockCQRS {
 	return &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(_ context.Context, _ domain.Namespace, _ string) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, arrow, "", nil
+		ResolveInstallFn: func(_ context.Context, _ domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
+			return ns, arrow, nil
 		},
 	}
 }
@@ -3176,11 +3305,10 @@ func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.
 // "500 internal error".
 func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(
+		ResolveInstallFn: func(
 			_ context.Context, ns domain.Namespace,
-			_ string,
-		) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", aerrors.RuleErrors{{
+		) (domain.Namespace, *domain.Arrow, error) {
+			return ns, nil, fmt.Errorf("reader resolve install: %w", aerrors.RuleErrors{{
 				Field:   "targets[linux/*].lifecycle.install[0].url",
 				Rule:    "insufficient_coverage",
 				Message: "missing coverage",
@@ -3199,11 +3327,10 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 
 func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(
+		ResolveInstallFn: func(
 			_ context.Context, ns domain.Namespace,
-			_ string,
-		) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", ruleset.ErrNoSupportedPlatform)
+		) (domain.Namespace, *domain.Arrow, error) {
+			return ns, nil, fmt.Errorf("reader resolve install: %w", ruleset.ErrNoSupportedPlatform)
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
@@ -3218,11 +3345,10 @@ func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
 // an internal one.
 func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(
+		ResolveInstallFn: func(
 			_ context.Context, ns domain.Namespace,
-			_ string,
-		) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", errors.New("resolver: fetch from manifold: 503 service unavailable")
+		) (domain.Namespace, *domain.Arrow, error) {
+			return ns, nil, errors.New("resolver: fetch from manifold: 503 service unavailable")
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
@@ -3237,11 +3363,10 @@ func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
 // reclassified on the way past.
 func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(
+		ResolveInstallFn: func(
 			_ context.Context, ns domain.Namespace,
-			_ string,
-		) (domain.Namespace, *domain.Arrow, string, error) {
-			return ns, nil, "", fmt.Errorf("reader resolve for install: %w", apperrors.ErrNotFound)
+		) (domain.Namespace, *domain.Arrow, error) {
+			return ns, nil, fmt.Errorf("reader resolve install: %w", apperrors.ErrNotFound)
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)

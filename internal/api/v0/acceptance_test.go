@@ -37,6 +37,7 @@ const (
 	acceptanceBareNS = "github.com/quiver/chromatic"
 	acceptanceRef    = "v1.4.0"
 	acceptanceBranch = "main"
+	acceptanceCommit = "0123456789abcdef0123456789abcdef01234567"
 )
 
 // acceptanceManifest is the bytes discovery writes to the vault and the add
@@ -159,15 +160,26 @@ func (m *countingManifold) Snapshot(
 	context.Context,
 	domain.Namespace,
 ) (domain.RefSnapshot, error) {
-	return domain.RefSnapshot{}, fmt.Errorf("manifold: snapshot not used")
+	return domain.RefSnapshot{
+		Branches: map[string]string{acceptanceBranch: acceptanceCommit},
+		Head:     acceptanceBranch,
+	}, nil
 }
 
 func (m *countingManifold) ResolveArrowAtCommit(
-	context.Context,
-	domain.Namespace,
-	string,
+	ctx context.Context,
+	ns domain.Namespace,
+	commit string,
 ) (*domain.Arrow, []byte, string, error) {
-	return nil, nil, "", fmt.Errorf("manifold: resolve arrow at commit not used")
+	if commit != acceptanceCommit {
+		return nil, nil, "", fmt.Errorf("manifold: no manifest at %s", commit)
+	}
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	arrow.Namespace = ns
+	return arrow, raw, filename, nil
 }
 
 func (m *countingManifold) counts() (resolves, parses int) {
@@ -408,20 +420,17 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	require.Equal(t, 1, resolvesAfterDiscovery, "discovery proves each candidate exactly once")
 	require.Equal(t, 1, env.provider.searches())
 
-	// 5. Adding the discovered arrow serves from the warm vault cache. This is
-	//    the payoff and the assertion that matters: not that the add succeeded,
-	//    but that it cost nothing.
+	// 5. Adding the discovered arrow fetches its manifest once more, at the
+	//    exact commit the install records, and asks no provider anything.
 	discoveredNS := acceptanceBareNS + "@" + acceptanceBranch
 	status, body = env.postJSON(t, "/v0/arrow/"+url.PathEscape(discoveredNS), "")
 	require.Equal(t, http.StatusCreated, status, "body: %s", body)
 
-	resolvesAfterAdd, parsesAfterAdd := env.manifold.counts()
-	assert.Equal(t, resolvesAfterDiscovery, resolvesAfterAdd,
-		"add must not resolve again — discovery already cached the manifest")
+	resolvesAfterAdd, _ := env.manifold.counts()
+	assert.Equal(t, resolvesAfterDiscovery+1, resolvesAfterAdd,
+		"add fetches the manifest exactly once, at the commit it installs")
 	assert.Equal(t, 1, env.provider.searches(),
 		"add must not ask any provider anything")
-	assert.Positive(t, parsesAfterAdd,
-		"the add path read the cached bytes rather than fetching them")
 
 	// 6. The arrow is now a local result. The add is accepted before the
 	//    catalog projection has run, so until it does the same arrow answers
@@ -446,9 +455,9 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	assert.True(t, local[0].Installed)
 	assert.Equal(t, models.ProvenanceInstalled, local[0].Provenance)
 
-	// Nothing above reached a provider or the network a second time.
+	// Nothing after the add reached a provider or fetched a manifest again.
 	finalResolves, _ := env.manifold.counts()
-	assert.Equal(t, 1, finalResolves)
+	assert.Equal(t, resolvesAfterAdd, finalResolves)
 	assert.Equal(t, 1, env.provider.searches())
 }
 

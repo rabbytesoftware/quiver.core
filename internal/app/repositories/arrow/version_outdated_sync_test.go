@@ -19,7 +19,7 @@ import (
 
 // ─── runVersionCheck → ArrowRuntime.State ────────────────────────────────────
 //
-// The badge the frontend renders reads ArrowRuntime.State, not Arrow.Outdated.
+// The badge the frontend renders reads ArrowRuntime.State, not Arrow.Available.
 // These cover the aggregate the version check never used to touch.
 
 // driftingCatalog builds a catalog whose drift answer is fixed, wired to a real
@@ -28,17 +28,20 @@ func driftingCatalog(
 	t *testing.T,
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
-	outdated bool,
-	recommendedRef string,
+	available *domain.Available,
 ) arrowRepo.Arrow {
 	t.Helper()
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return outdated, recommendedRef, true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return available, true
 		},
 	}
 	return arrowRepo.NewTestable(r, axArrow, nil, nil,
 		arrowRepo.WithVersionOutdatedSync(runtimeRepo.SetVersionOutdated(axRuntime)))
+}
+
+func ahead() *domain.Available {
+	return &domain.Available{Ref: "v2.0.0", Commit: "c2"}
 }
 
 // seedCatalogued adds ns to the arrow aggregate and returns the stored arrow,
@@ -76,7 +79,7 @@ func TestRunVersionCheck_DriftFound_TransitionsRuntimeToOutdated(t *testing.T) {
 	arrow := seedCatalogued(t, axArrow, ns)
 	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(context.Background(), ns))
 
-	cat := driftingCatalog(t, axArrow, axRuntime, true, "v2.0.0")
+	cat := driftingCatalog(t, axArrow, axRuntime, ahead())
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
 
 	assert.Equal(t, domain.ArrowStateOutdated, runtimeState(t, axRuntime, ns),
@@ -84,8 +87,7 @@ func TestRunVersionCheck_DriftFound_TransitionsRuntimeToOutdated(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Outdated, "the catalog record must still be written too")
-	assert.Equal(t, "v2.0.0", got.RecommendedRef)
+	assert.Equal(t, ahead(), got.Available, "the catalog record must still be written too")
 }
 
 // The unaffected case: an arrow with no drift sees no state change at all.
@@ -96,7 +98,7 @@ func TestRunVersionCheck_NoDrift_LeavesRuntimeReady(t *testing.T) {
 	arrow := seedCatalogued(t, axArrow, ns)
 	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(context.Background(), ns))
 
-	cat := driftingCatalog(t, axArrow, axRuntime, false, "")
+	cat := driftingCatalog(t, axArrow, axRuntime, nil)
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
 
 	assert.Equal(t, domain.ArrowStateReady, runtimeState(t, axRuntime, ns))
@@ -113,21 +115,21 @@ func TestRunVersionCheck_DriftResolved_TransitionsRuntimeBackToReady(t *testing.
 	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(context.Background(), ns))
 
 	arrowRepo.RunVersionCheckForTest(
-		driftingCatalog(t, axArrow, axRuntime, true, "v2.0.0"), context.Background(), arrow)
+		driftingCatalog(t, axArrow, axRuntime, ahead()), context.Background(), arrow)
 	require.Equal(t, domain.ArrowStateOutdated, runtimeState(t, axRuntime, ns))
 
 	arrowRepo.RunVersionCheckForTest(
-		driftingCatalog(t, axArrow, axRuntime, false, ""), context.Background(), arrow)
+		driftingCatalog(t, axArrow, axRuntime, nil), context.Background(), arrow)
 
 	assert.Equal(t, domain.ArrowStateReady, runtimeState(t, axRuntime, ns))
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.False(t, got.Outdated, "the catalog record reverses too, as it always did")
+	assert.Nil(t, got.Available, "the catalog record reverses too, as it always did")
 }
 
 // The case that would have made this fix dead on arrival. Every arrow already
-// carrying Outdated=true from before the fix takes runVersionCheck's
+// carrying Available from before the fix takes runVersionCheck's
 // "answer unchanged" early return on every later check, so a runtime write
 // placed after it would never run for exactly the installs that exposed the
 // bug. The reconcile is therefore unconditional.
@@ -140,17 +142,16 @@ func TestRunVersionCheck_AnswerUnchanged_StillReconcilesRuntime(t *testing.T) {
 
 	// Exactly the field state a pre-fix install is sitting in: the catalog
 	// already says outdated, the runtime still says ready.
-	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordVersionCheck{
-		Namespace:      ns,
-		Outdated:       true,
-		RecommendedRef: "v2.0.0",
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: ahead(),
 	})
 	require.NoError(t, err)
 	arrow, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	require.Equal(t, domain.ArrowStateReady, runtimeState(t, axRuntime, ns))
 
-	cat := driftingCatalog(t, axArrow, axRuntime, true, "v2.0.0")
+	cat := driftingCatalog(t, axArrow, axRuntime, ahead())
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
 
 	assert.Equal(t, domain.ArrowStateOutdated, runtimeState(t, axRuntime, ns),
@@ -165,7 +166,7 @@ func TestRunVersionCheck_NeverInstalled_CreatesNoRuntime(t *testing.T) {
 	ns := testNs()
 	arrow := seedCatalogued(t, axArrow, ns)
 
-	cat := driftingCatalog(t, axArrow, axRuntime, true, "v2.0.0")
+	cat := driftingCatalog(t, axArrow, axRuntime, ahead())
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
 
 	exists, err := axRuntime.Exists(context.Background(), ns.String())
@@ -174,7 +175,7 @@ func TestRunVersionCheck_NeverInstalled_CreatesNoRuntime(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Outdated, "the catalog record is still worth writing")
+	assert.Equal(t, ahead(), got.Available, "the catalog record is still worth writing")
 }
 
 // A container built without the sync behaves exactly as it always has.
@@ -184,8 +185,8 @@ func TestRunVersionCheck_SyncNotWired_StillRecordsOnCatalog(t *testing.T) {
 	arrow := seedCatalogued(t, axArrow, ns)
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return ahead(), true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
@@ -194,7 +195,7 @@ func TestRunVersionCheck_SyncNotWired_StillRecordsOnCatalog(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Outdated)
+	assert.Equal(t, ahead(), got.Available)
 }
 
 // A sync that fails must not cost the catalog its record: the reconcile is
@@ -205,8 +206,8 @@ func TestRunVersionCheck_SyncFails_CatalogRecordStillWritten(t *testing.T) {
 	arrow := seedCatalogued(t, axArrow, ns)
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return true, "v2.0.0", true
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return ahead(), true
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil,
@@ -218,7 +219,7 @@ func TestRunVersionCheck_SyncFails_CatalogRecordStillWritten(t *testing.T) {
 
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.True(t, got.Outdated)
+	assert.Equal(t, ahead(), got.Available)
 }
 
 // ok=false aborts before either aggregate is touched — a resolution failure is
@@ -231,12 +232,12 @@ func TestRunVersionCheck_ResolutionFailed_DoesNotTouchRuntime(t *testing.T) {
 	require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(context.Background(), ns))
 
 	arrowRepo.RunVersionCheckForTest(
-		driftingCatalog(t, axArrow, axRuntime, true, "v2.0.0"), context.Background(), arrow)
+		driftingCatalog(t, axArrow, axRuntime, ahead()), context.Background(), arrow)
 	require.Equal(t, domain.ArrowStateOutdated, runtimeState(t, axRuntime, ns))
 
 	r := &arrowStoreMocks.MockCQRS{
-		CheckVersionDriftFn: func(context.Context, domain.Arrow) (bool, string, bool) {
-			return false, "", false
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			return nil, false
 		},
 	}
 	failing := arrowRepo.NewTestable(r, axArrow, nil, nil,

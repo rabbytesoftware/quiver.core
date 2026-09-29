@@ -49,6 +49,22 @@ type Store interface {
 		ns domain.Namespace,
 		channel string,
 	) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error)
+	// ResolveInstall settles the identity a namespace is installed under and
+	// what that identity resolves to right now: a refless namespace follows
+	// its repository's default channel, any other keeps its ref as the
+	// selector. The manifest is the one at the resolved commit.
+	ResolveInstall(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (identity domain.Namespace, arrow *domain.Arrow, err error)
+	// CheckDrift reports what arrow's selector points at when that differs
+	// from what arrow has installed, nil when it is current. ok is false
+	// whenever the remote could not answer, and the caller must then record
+	// nothing.
+	CheckDrift(
+		ctx context.Context,
+		arrow domain.Arrow,
+	) (available *domain.Available, ok bool)
 	ResolveCatalogued(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -119,6 +135,7 @@ type storeService struct {
 	db              storage.Store
 	projector       projections.Projector
 	resolveManifest ResolveFunc
+	vault           vault.Vault
 	manifold        manifold.Manifold
 	platforms       metadata.Platforms
 	clock           func() time.Time
@@ -159,6 +176,7 @@ func newStore(
 		db:              st,
 		projector:       projections.New(st),
 		resolveManifest: newResolver(v, m),
+		vault:           v,
 		manifold:        m,
 		platforms:       metadata.GetPlatforms(),
 		clock:           clock,

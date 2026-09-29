@@ -775,6 +775,44 @@ func testAuthor() *object.Signature {
 	return &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()}
 }
 
+// resolveFixtureRef resolves a tag, a branch, or a commit hash (full or an
+// unambiguous prefix), the way a raw-file host serves a ref or a SHA.
+func resolveFixtureRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
+	if tagRef, err := repo.Storer.Reference(plumbing.NewTagReferenceName(ref)); err == nil {
+		return tagRef.Hash(), nil
+	}
+	branchRef, branchErr := repo.Storer.Reference(plumbing.NewBranchReferenceName(ref))
+	if branchErr == nil {
+		return branchRef.Hash(), nil
+	}
+	if hash, ok := commitByPrefix(repo, ref); ok {
+		return hash, nil
+	}
+	return plumbing.ZeroHash, fmt.Errorf("resolve ref %q: %w", ref, branchErr)
+}
+
+func commitByPrefix(repo *gogit.Repository, prefix string) (plumbing.Hash, bool) {
+	if len(prefix) < 7 {
+		return plumbing.ZeroHash, false
+	}
+	iter, err := repo.CommitObjects()
+	if err != nil {
+		return plumbing.ZeroHash, false
+	}
+	defer iter.Close()
+
+	var found plumbing.Hash
+	matches := 0
+	_ = iter.ForEach(func(c *object.Commit) error {
+		if strings.HasPrefix(c.Hash.String(), strings.ToLower(prefix)) {
+			found = c.Hash
+			matches++
+		}
+		return nil
+	})
+	return found, matches == 1
+}
+
 func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) {
 	repo, err := gogit.Open(storer, memfs.New())
 	if err != nil {
@@ -788,15 +826,9 @@ func readFromRepo(storer *memory.Storage, ref, filename string) ([]byte, error) 
 		}
 		commitHash = head.Hash()
 	} else {
-		tagRef, err := repo.Storer.Reference(plumbing.NewTagReferenceName(ref))
-		if err == nil {
-			commitHash = tagRef.Hash()
-		} else {
-			branchRef, err := repo.Storer.Reference(plumbing.NewBranchReferenceName(ref))
-			if err != nil {
-				return nil, fmt.Errorf("resolve ref %q: %w", ref, err)
-			}
-			commitHash = branchRef.Hash()
+		commitHash, err = resolveFixtureRef(repo, ref)
+		if err != nil {
+			return nil, err
 		}
 	}
 	commit, err := repo.CommitObject(commitHash)
