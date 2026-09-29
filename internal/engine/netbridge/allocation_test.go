@@ -3,6 +3,7 @@ package netbridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 
@@ -20,13 +21,54 @@ const (
 	testEphemeralPortEnd   = 65535
 )
 
+// freePorts returns n distinct ports the OS just confirmed free for both TCP
+// and UDP. A hardcoded preferred port collides with whatever else the host
+// happens to hold, since common test ports sit inside the ephemeral range.
+func freePorts(
+	t *testing.T,
+	n int,
+) []int {
+	t.Helper()
+
+	var held []net.Listener
+	defer func() {
+		for _, ln := range held {
+			_ = ln.Close()
+		}
+	}()
+
+	found := make([]int, 0, n)
+	for len(found) < n {
+		ln, err := net.Listen("tcp", ":0")
+		require.NoError(t, err)
+		held = append(held, ln)
+
+		port := ln.Addr().(*net.TCPAddr).Port
+		pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+		_ = pc.Close()
+		found = append(found, port)
+	}
+	return found
+}
+
+func freePort(
+	t *testing.T,
+) int {
+	t.Helper()
+	return freePorts(t, 1)[0]
+}
+
 func TestFindAvailablePort_PreferredAvailable(
 	t *testing.T,
 ) {
 	rm := mocks.NewStubReadModel()
-	port, err := findAvailablePort(context.Background(), 54321, testEphemeralPortStart, testEphemeralPortEnd, netbridge.ProtocolTCP, rm)
+	preferred := freePort(t)
+	port, err := findAvailablePort(context.Background(), preferred, testEphemeralPortStart, testEphemeralPortEnd, netbridge.ProtocolTCP, rm)
 	require.NoError(t, err)
-	assert.Equal(t, 54321, port)
+	assert.Equal(t, preferred, port)
 }
 
 func TestFindAvailablePort_PreferredZero(

@@ -15,3 +15,7 @@ var ErrSearchUnsupported = errors.New("provider: host exposes no search")
 // ErrNoRawURL reports that a host serves no raw files over HTTP, so a manifest
 // there can only be reached by cloning.
 var ErrNoRawURL = errors.New("provider: host serves no raw files")
+
+var ErrNoBlobURL = errors.New("provider: host renders no files")
+
+var ErrUnexpectedPage = errors.New("provider: page did not match the expected shape")

@@ -317,16 +317,77 @@ func (u *runtimeUsecase) executeUpdate(
 	if err != nil {
 		return fmt.Errorf("execute: get state: %w", err)
 	}
+	if state != domain.ArrowStateReady && state != domain.ArrowStateOutdated {
+		return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	}
 	if state == domain.ArrowStateOutdated {
 		if err := u.syncDeps(ctx, ns); err != nil {
 			return fmt.Errorf("execute: sync deps: %w", err)
 		}
+	}
+
+	current, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("execute: get arrow: %w", err)
+	}
+	if isSelfNamespace(ns) || updatesInPlace(current) {
 		return u.runtime.BeginUpdate(ctx, ns, userVars)
 	}
-	if state == domain.ArrowStateReady {
+	return u.updateByReinstall(ctx, ns, state, current, userVars)
+}
+
+func (u *runtimeUsecase) updateByReinstall(
+	ctx context.Context,
+	ns domain.Namespace,
+	state domain.ArrowState,
+	current *domain.Arrow,
+	userVars map[string]string,
+) error {
+	latestRef := current.RecommendedRef
+	if latestRef == "" {
+		var err error
+		if latestRef, err = u.arrow.ResolveTrackedRef(ctx, *current); err != nil {
+			return fmt.Errorf("execute: update %s: resolve tracked ref: %w", ns, err)
+		}
+	}
+
+	newNs := ns.WithRef(latestRef)
+	upToDate := latestRef == "" || newNs == ns
+	if upToDate && state == domain.ArrowStateOutdated {
 		return u.runtime.BeginUpdate(ctx, ns, userVars)
 	}
-	return u.runtime.BeginExecution(ctx, ns, domain.MethodUpdate, userVars)
+	if upToDate {
+		return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update", "up to date"))
+	}
+	if len(userVars) > 0 {
+		return fmt.Errorf("execute: update %s: %w", ns, apperrors.NewStateViolation("update with variables", "updated by reinstall"))
+	}
+
+	exists, err := u.arrow.Exists(ctx, newNs)
+	if err != nil {
+		return fmt.Errorf("execute: update %s: check %s: %w", ns, newNs, err)
+	}
+	if exists {
+		return fmt.Errorf("execute: update %s: %s is already catalogued: %w", ns, newNs, apperrors.ErrAlreadyExists)
+	}
+
+	if _, err := u.arrow.UpgradeVersion(
+		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
+		current.PinnedRef,
+	); err != nil {
+		return fmt.Errorf("execute: update %s: upgrade to %s: %w", ns, newNs, err)
+	}
+	return nil
+}
+
+func updatesInPlace(
+	arrow *domain.Arrow,
+) bool {
+	if arrow == nil {
+		return true
+	}
+	target, ok := arrow.Targets[domain.CurrentOS()]
+	return !ok || len(target.Lifecycle.Update) > 0
 }
 
 func (u *runtimeUsecase) Stop(

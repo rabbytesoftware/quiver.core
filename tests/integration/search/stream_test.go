@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
@@ -92,7 +93,7 @@ func (s *SearchSuite) TestStream_Payload_CarriesOnlyResults() {
 
 	summary := s.waitForCompleted(tc, job.JobID)
 	s.Equal(2, summary.Skipped, "the skips happened, and none of them reached the stream")
-	limited, ok := providerFor(summary, secondHost)
+	limited, ok := providerFor(summary, secondHost, discovery.PassTagged)
 	s.Require().True(ok)
 	s.False(limited.OK, "the refusal happened, and it did not reach the stream either")
 

@@ -134,6 +134,14 @@ func checkStepListKeys(
 			errs = append(errs, checkStringKeys(v.To.OSArch, stepField("to"))...)
 			errs = append(errs, checkStringKeys(v.Checksum.OSArch, stepField("checksum"))...)
 			errs = append(errs, checkStringKeys(v.Timeout.OSArch, stepField("timeout"))...)
+		case step.ExtractStep:
+			errs = append(errs, checkStringKeys(v.From.OSArch, stepField("from"))...)
+			errs = append(errs, checkStringKeys(v.To.OSArch, stepField("to"))...)
+			errs = append(errs, checkStringKeys(v.Timeout.OSArch, stepField("timeout"))...)
+		case step.PortableStep:
+			errs = append(errs, checkStringKeys(v.From.OSArch, stepField("from"))...)
+			errs = append(errs, checkStringKeys(v.To.OSArch, stepField("to"))...)
+			errs = append(errs, checkStringKeys(v.Timeout.OSArch, stepField("timeout"))...)
 		case step.SignalStep:
 			errs = append(errs, checkSignalKindKeys(v.Signal.OSArch, stepField("signal"))...)
 			errs = append(errs, checkStringKeys(v.Timeout.OSArch, stepField("timeout"))...)

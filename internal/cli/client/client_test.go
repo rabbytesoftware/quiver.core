@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
 )
@@ -400,8 +401,10 @@ func TestEnvelope_SuccessFalseWithOKStatusErrors(t *testing.T) {
 	c := newClient(t, srv)
 
 	_, err := c.ListArrows(context.Background(), nil)
-	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "drifted"))
+	var apiErr *client.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusOK, apiErr.Status)
+	assert.Equal(t, "drifted", apiErr.Message)
 }
 
 // ─── coverage: remaining branches ───────────────────────────────────────────
@@ -436,7 +439,7 @@ func TestHealth_UnhealthyStatusErrors(t *testing.T) {
 
 	err := c.Health(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "degraded")
+	assert.Equal(t, 1, client.ExitCode(err))
 }
 
 func TestHealth_ErrorStatusRaw(t *testing.T) {
@@ -589,6 +592,7 @@ func TestDo_401WithHandler_RetriesOnceWithNewToken(t *testing.T) {
 }
 
 func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
+	errPairing := errors.New("pairing failed")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"success":false,"error":"missing or malformed bearer token"}`))
@@ -597,7 +601,7 @@ func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
 
 	c, err := client.New(srv.URL, client.WithUnauthorizedHandler(
 		func(_ context.Context, _ *client.Client) (string, error) {
-			return "", errors.New("pairing failed")
+			return "", errPairing
 		},
 	))
 	require.NoError(t, err)
@@ -605,7 +609,7 @@ func TestDo_401HandlerFails_ReturnsConnError(t *testing.T) {
 	require.Error(t, err)
 	var connErr *client.ConnError
 	require.ErrorAs(t, err, &connErr)
-	assert.ErrorContains(t, connErr, "pairing failed")
+	assert.ErrorIs(t, connErr, errPairing)
 	assert.Equal(t, client.ExitConnection, client.ExitCode(err))
 }
 
@@ -686,6 +690,45 @@ func TestRevokeDevice_Success_ReturnsNil(t *testing.T) {
 	c, err := client.New(srv.URL)
 	require.NoError(t, err)
 	assert.NoError(t, c.RevokeDevice(context.Background(), "d1"))
+}
+
+func TestSystemPath_StatusGetsAndSetupPosts(t *testing.T) {
+	testCases := []struct {
+		name       string
+		call       func(*client.Client) (apidto.PathStatusDTO, error)
+		wantMethod string
+	}{
+		{
+			name: "status",
+			call: func(c *client.Client) (apidto.PathStatusDTO, error) {
+				return c.PathStatus(context.Background())
+			},
+			wantMethod: http.MethodGet,
+		},
+		{
+			name: "setup",
+			call: func(c *client.Client) (apidto.PathStatusDTO, error) {
+				return c.SetupPath(context.Background())
+			},
+			wantMethod: http.MethodPost,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, rec := fakeDaemon(t, http.StatusOK,
+				`{"success":true,"data":{"bin_dir":"/home/u/.quiver/bin","on_path":true,"configured":true,"files":["/home/u/.zshrc"]}}`)
+
+			status, err := tc.call(newClient(t, srv))
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantMethod, rec.method)
+			assert.Equal(t, "/v0/system/path", rec.path)
+			assert.True(t, status.OnPath)
+			assert.True(t, status.Configured)
+			assert.Equal(t, []string{"/home/u/.zshrc"}, status.Files)
+		})
+	}
 }
 
 // TestClient_ConcurrentRequests_TokenAccessDoesNotRace has no assertions of

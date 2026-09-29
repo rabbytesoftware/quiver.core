@@ -12,9 +12,13 @@ import (
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/models"
 	wizrt "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf"
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 	stepdeps "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/dependencies"
 	stepdownload "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/download"
+	stepexpose "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/expose"
+	stepextract "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/extract"
+	stepportable "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable"
 	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
 )
@@ -36,6 +40,7 @@ type (
 	EventKind  = models.EventKind
 	Execution  = models.Execution
 	RunRequest = models.RunRequest
+	PathStatus = shelf.PathStatus
 )
 
 const (
@@ -91,6 +96,13 @@ type Wizard interface {
 
 	// ProcessAlive reports whether the process with the given PID is still running.
 	ProcessAlive(pid int) bool
+
+	PathStatus(
+		ctx context.Context,
+	) (PathStatus, error)
+	SetupPath(
+		ctx context.Context,
+	) (PathStatus, error)
 }
 
 // DispatchFn is the untyped handler signature used in the dispatch table.
@@ -99,6 +111,8 @@ type DispatchFn = func(context.Context, wizstep.Request, domainstep.Step) error
 type wizard struct {
 	dispatch     map[domainstep.StepType]DispatchFn
 	runtime      wizrt.Runtime
+	shelf        shelf.Shelf
+	exposer      stepexpose.Handler
 	shutdownCtx  context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup // tracks one-shot executions and probes; see IsOneShotMethod
@@ -108,20 +122,44 @@ type wizard struct {
 	shutting     bool
 }
 
+type options struct {
+	shelf []shelf.Option
+}
+
+type Option func(*options)
+
+// WithSandboxHome keeps every entry the wizard exposes, and the PATH it
+// reports, inside home instead of the user's real home directory.
+func WithSandboxHome(
+	home string,
+) Option {
+	return func(o *options) { o.shelf = append(o.shelf, shelf.WithSandboxHome(home)) }
+}
+
 // depExec is the app-layer function that resolves DependenciesSteps;
 // pass nil to treat dependency steps as no-ops.
 func New(
 	depExec stepdeps.Executor,
+	extractMaxBytes int64,
+	opts ...Option,
 ) (Wizard, error) {
 	rt, err := wizrt.New()
 	if err != nil {
 		return nil, err
 	}
 
+	cfg := options{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	sh := shelf.New(cfg.shelf...)
+
 	shutdownCtx, cancel := context.WithCancel(context.Background()) // #nosec G118 -- cancel is stored in w.cancel and called in Shutdown
 
 	w := &wizard{
 		runtime:     rt,
+		shelf:       sh,
+		exposer:     stepexpose.NewHandler(sh),
 		shutdownCtx: shutdownCtx,
 		cancel:      cancel,
 		dispatch:    make(map[domainstep.StepType]DispatchFn),
@@ -132,6 +170,9 @@ func New(
 	adapt(w.dispatch, domainstep.StepTypeFetch, stepdownload.NewHandler())
 	adapt(w.dispatch, domainstep.StepTypeSignal, stepsignal.NewHandler(rt))
 	adapt(w.dispatch, domainstep.StepTypeDependencies, stepdeps.NewHandler(depExec))
+	adapt(w.dispatch, domainstep.StepTypeExtract, stepextract.NewHandler(extractMaxBytes))
+	adapt(w.dispatch, domainstep.StepTypePortable, stepportable.NewHandler(extractMaxBytes))
+	adapt(w.dispatch, domainstep.StepTypeUnexpose, wizstep.Handler[domainstep.UnexposeStep](w.exposer))
 
 	return w, nil
 }
@@ -278,8 +319,32 @@ func IsOneShotMethod(method string) bool {
 	}
 }
 
+// Plan returns the steps a run of method executes for arrow on os: steps, plus
+// the ones the wizard adds to expose the target's entries on install and update
+// and to remove them first on uninstall.
+func Plan(
+	method string,
+	arrow *domain.Arrow,
+	os domain.OS,
+	steps []domainstep.Step,
+) []domainstep.Step {
+	return stepexpose.Plan(method, arrow.Targets[os].Expose, arrow.Media.Icon, steps)
+}
+
 func (w *wizard) ProcessAlive(pid int) bool {
 	return w.runtime.ProcessAlive(pid)
+}
+
+func (w *wizard) PathStatus(
+	ctx context.Context,
+) (PathStatus, error) {
+	return w.shelf.PathStatus(ctx)
+}
+
+func (w *wizard) SetupPath(
+	ctx context.Context,
+) (PathStatus, error) {
+	return w.shelf.SetupPath(ctx)
 }
 
 func (w *wizard) Shutdown(
@@ -309,11 +374,18 @@ func (w *wizard) runSteps(
 	req RunRequest,
 	exec *models.ExecutionImpl,
 ) domainRuntime.ExecutionOutcome {
-	for i, s := range req.Steps {
+	for i := 0; i < len(req.Steps); i++ {
 		if ctx.Err() != nil {
 			return domainRuntime.ExecutionOutcomeCancelled
 		}
 
+		if batch := leadingExposeSteps(req.Steps[i:]); len(batch) > 0 {
+			w.expose(ctx, req, i, batch, exec)
+			i += len(batch) - 1
+			continue
+		}
+
+		s := req.Steps[i]
 		exec.Emit(Event{Kind: EventKindStepStarted, StepIndex: i})
 		err := w.executeStep(ctx, req, s, exec.Emit)
 
@@ -348,7 +420,19 @@ func (w *wizard) executeStep(
 	s domainstep.Step,
 	emit func(models.Event),
 ) error {
-	stepReq := wizstep.Request{
+	fn, ok := w.dispatch[s.Type()]
+	if !ok {
+		return ErrUnknownStepType
+	}
+
+	return fn(ctx, stepRequest(req, emit), s)
+}
+
+func stepRequest(
+	req RunRequest,
+	emit func(models.Event),
+) wizstep.Request {
+	return wizstep.Request{
 		NSKey:   req.Namespace.String(),
 		WorkDir: req.WorkDir,
 		Vars:    req.Variables,
@@ -356,13 +440,38 @@ func (w *wizard) executeStep(
 		PID:     req.PID,
 		Emit:    emit,
 	}
+}
 
-	fn, ok := w.dispatch[s.Type()]
-	if !ok {
-		return ErrUnknownStepType
+func leadingExposeSteps(
+	steps []domainstep.Step,
+) []domainstep.ExposeStep {
+	var batch []domainstep.ExposeStep
+	for _, s := range steps {
+		e, ok := s.(domainstep.ExposeStep)
+		if !ok {
+			break
+		}
+		batch = append(batch, e)
 	}
+	return batch
+}
 
-	return fn(ctx, stepReq, s)
+func (w *wizard) expose(
+	ctx context.Context,
+	req RunRequest,
+	first int,
+	batch []domainstep.ExposeStep,
+	exec *models.ExecutionImpl,
+) {
+	errs := w.exposer.Expose(ctx, stepRequest(req, exec.Emit), batch)
+	for k, err := range errs {
+		exec.Emit(Event{Kind: EventKindStepStarted, StepIndex: first + k})
+		if err != nil {
+			exec.Emit(Event{Kind: EventKindStepFailed, StepIndex: first + k, Err: err})
+			continue
+		}
+		exec.Emit(Event{Kind: EventKindStepCompleted, StepIndex: first + k})
+	}
 }
 
 func adapt[S domainstep.Step](

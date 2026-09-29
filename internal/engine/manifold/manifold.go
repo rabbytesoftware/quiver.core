@@ -11,7 +11,9 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -116,9 +118,8 @@ type Manifold interface {
 	) (branch, hash string, err error)
 }
 
-// ErrNoLatestStable reports that a repository publishes no stable release, so
-// no ref could be resolved for a refless namespace.
-var ErrNoLatestStable = errors.New("manifold: no latest stable release")
+// ErrNoLatestStable reports that a repository publishes no stable release.
+var ErrNoLatestStable = models.ErrNoLatestStable
 
 // ErrInvalidManifest reports that manifest content — fetched or handed in
 // directly — failed to become a valid domain.Arrow: bad YAML, a ruleset
@@ -145,38 +146,10 @@ func ClassifyChannel(
 }
 
 // ChannelInfo describes one channel a namespace's repository publishes.
-type ChannelInfo struct {
-	// Name is the channel's identity: a classified name (§4.1) for an
-	// ordered channel, or the literal ref name for a pointer channel.
-	Name string
-	// Kind is "ordered" or "pointer".
-	Kind string
-	// Latest is the highest-precedence tag for an ordered channel, or the
-	// literal ref (tag or branch name) for a pointer channel.
-	Latest string
-	// Count is the number of tags classified into this channel. Always 0
-	// for a pointer channel, which by definition has exactly one member.
-	Count int
-	// Members lists every tag in this channel, ordered by precedence
-	// (highest first) — Members[0] always equals Latest. Empty for a
-	// pointer channel, which by definition has exactly one member: itself.
-	Members []string
-	// IsDefaultBranchFallback is true only for the synthetic entry
-	// ListChannels appends when a repository has no tags at all: the
-	// default branch offered as something to show in a channel picker.
-	// It is not a real, published channel, so a caller resolving an
-	// install ref (resolveBestOtherChannel) must skip it rather than
-	// "resolve through" it — that would stamp the arrow as tracking a
-	// named channel when it is really just tracking a raw branch, taking
-	// version-drift detection down the tag-aware path instead of the
-	// branch-aware one it actually needs (see resolveDefaultBranch and
-	// CheckVersionDrift).
-	IsDefaultBranchFallback bool
-}
+type ChannelInfo = models.ChannelInfo
 
-// ErrNoTagInChannel reports that a repository has no tag classified into
-// the requested channel.
-var ErrNoTagInChannel = errors.New("manifold: no tag in channel")
+// ErrNoTagInChannel reports that a repository has no tag in the requested channel.
+var ErrNoTagInChannel = models.ErrNoTagInChannel
 
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
@@ -227,6 +200,8 @@ type manifold struct {
 	constraint resolvers.ConstraintResolver
 	hosts      HostLookup
 	clock      func() time.Time
+	timeout    time.Duration
+	fl         fletcher.Fletcher
 
 	// cacheTTL bounds how long a cached remote lookup — ListChannels or
 	// ResolveConstraint (ResolveLatestStable included) — is reused before
@@ -263,8 +238,9 @@ func New(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
 	cacheTTL time.Duration,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now)
+	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now, opts)
 }
 
 // NewWithClock is New with an injectable clock, so a test can advance time
@@ -276,8 +252,9 @@ func NewWithClock(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, clock)
+	return newManifold(fetchTimeout, lookup, cacheTTL, clock, opts)
 }
 
 func newManifold(
@@ -285,13 +262,14 @@ func newManifold(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts []Option,
 ) Manifold {
 	lookup = hosts.Or(lookup)
 	if cacheTTL <= 0 {
 		cacheTTL = defaultManifoldCacheTTL
 	}
 
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        resolver.New(fetchTimeout, lookup),
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
@@ -299,8 +277,9 @@ func newManifold(
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
 		hosts:      lookup,
 		clock:      clock,
+		timeout:    fetchTimeout,
 		cacheTTL:   cacheTTL,
-	}
+	}, opts)
 }
 
 // NewWithResolvers builds a Manifold with an injected resolver, constraint
@@ -313,8 +292,9 @@ func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
+	opts ...Option,
 ) Manifold {
-	return NewWithResolversAndClock(rsv, crs, lookup, time.Now)
+	return NewWithResolversAndClock(rsv, crs, lookup, time.Now, opts...)
 }
 
 // NewWithResolversAndClock is NewWithResolvers with an injectable clock, so
@@ -326,8 +306,9 @@ func NewWithResolversAndClock(
 	crs resolvers.ConstraintResolver,
 	lookup HostLookup,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        rsv,
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
@@ -336,7 +317,17 @@ func NewWithResolversAndClock(
 		clock:      clock,
 		hosts:      hosts.Or(lookup),
 		cacheTTL:   defaultManifoldCacheTTL,
+	}, opts)
+}
+
+func withOptions(
+	m *manifold,
+	opts []Option,
+) Manifold {
+	for _, opt := range opts {
+		opt(m)
 	}
+	return m
 }
 
 func (m *manifold) ResolveArrow(
@@ -344,6 +335,9 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	if err != nil && m.fl != nil {
+		raw, filename, err = m.fl.Recover(ctx, namespace, err)
+	}
 	if err != nil {
 		return nil, nil, "", err
 	}

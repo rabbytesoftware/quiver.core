@@ -54,15 +54,25 @@ func (h *httpFetcher) Fetch(
 		branches = []string{ref}
 	}
 
+	var failure error
 	lastErr := fmt.Errorf("%w: no candidate filenames given", ErrNotFound)
 	for _, filePath := range filePaths {
 		data, err := h.fetchBranches(ctx, host, namespace, filePath, branches, timeout)
 		if err == nil {
 			return data, filePath, nil
 		}
+		if failure == nil && !errors.Is(err, ErrNotFound) {
+			failure = err
+		}
 		lastErr = err
 	}
-	return nil, "", lastErr
+	if failure != nil {
+		return nil, "", failure
+	}
+	if namespace.Ref() == "" || len(filePaths) == 0 {
+		return nil, "", lastErr
+	}
+	return nil, "", fmt.Errorf("%w: %v", ErrAbsentAtRef, lastErr)
 }
 
 // fetchBranches walks the candidate branches in order. Only a 404 is evidence

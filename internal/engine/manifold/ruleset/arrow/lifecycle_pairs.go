@@ -2,8 +2,10 @@ package arrow
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
 )
 
@@ -32,7 +34,9 @@ func checkLifecyclePairs(
 
 	hasInstall := len(target.Lifecycle.Install) > 0
 	hasUninstall := len(target.Lifecycle.Uninstall) > 0
-	if hasInstall != hasUninstall {
+	missingUninstall := hasInstall && !hasUninstall && !isWorkdirOnlyInstall(target.Lifecycle.Install)
+	missingInstall := hasUninstall && !hasInstall
+	if missingUninstall || missingInstall {
 		errs = append(errs, aerrors.RuleError{
 			Field:   fmt.Sprintf("targets[%s].lifecycle.install", key),
 			Rule:    "missing_pair",
@@ -53,4 +57,63 @@ func checkLifecyclePairs(
 	}
 
 	return errs
+}
+
+func isWorkdirOnlyInstall(
+	steps step.StepList,
+) bool {
+	for _, s := range steps {
+		if !isWorkdirAnchoredPlacement(s) {
+			return false
+		}
+	}
+	return true
+}
+
+func isWorkdirAnchoredPlacement(
+	s step.Step,
+) bool {
+	switch v := s.(type) {
+	case step.FetchStep:
+		return isWorkdirAnchoredTo(v.To)
+	case step.ExtractStep:
+		return isWorkdirAnchoredTo(v.To)
+	case step.PortableStep:
+		return isWorkdirAnchoredTo(v.To)
+	default:
+		return false
+	}
+}
+
+func isWorkdirAnchoredTo(
+	to step.Overrideable[string],
+) bool {
+	if !isWorkdirAnchoredValue(to.Default) {
+		return false
+	}
+	for _, v := range to.OSArch {
+		if !isWorkdirAnchoredValue(v) {
+			return false
+		}
+	}
+	return true
+}
+
+func isWorkdirAnchoredValue(
+	v string,
+) bool {
+	if containsPathTraversal(v) {
+		return false
+	}
+	return isAnchoredByPrefix(v, "${INSTALL_PATH}") || isAnchoredByPrefix(v, "${WORKDIR}")
+}
+
+func isAnchoredByPrefix(
+	v string,
+	prefix string,
+) bool {
+	if v == prefix {
+		return true
+	}
+	return strings.HasPrefix(v, prefix+"/")
 }

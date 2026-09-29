@@ -75,6 +75,7 @@ func TestDefaultMetadata_PathsPopulated(t *testing.T) {
 	assert.NotEmpty(t, d.Paths.Config)
 	assert.NotEmpty(t, d.Paths.Logs)
 	assert.NotEmpty(t, d.Paths.Vault)
+	assert.NotEmpty(t, d.Paths.Bin)
 }
 
 func TestGetHomePath_NonEmpty(t *testing.T) {
@@ -155,6 +156,22 @@ func TestGetSelfPath(t *testing.T) {
 		strings.HasSuffix(path, "/self") || strings.HasSuffix(path, `\self`),
 		"expected path to end in /self, got: %s", path,
 	)
+}
+
+func TestGetBinPath(t *testing.T) {
+	assert.True(t, strings.HasPrefix(GetBinPath(), GetHomePath()))
+}
+
+func TestGetBinPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	got := GetBinPathAt(home)
+	assert.Contains(t, got, home)
+}
+
+func TestMetadataYAML_BinPathAgreesWithDefault(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+	assert.Equal(t, defaultMetadata().Paths.Bin, parsed.Paths.Bin)
 }
 
 func TestGetPlatforms_ReturnsKnownDomains(t *testing.T) {
@@ -446,4 +463,11 @@ func TestDefaultMetadata_NamespacesPopulated(t *testing.T) {
 	d := defaultMetadata()
 	assert.NotEmpty(t, d.Namespaces.Core)
 	assert.NotEmpty(t, d.Namespaces.Desktop)
+}
+
+func TestMetadataYAML_PlatformsAgreeWithDefault(t *testing.T) {
+	var parsed Metadata
+	require.NoError(t, yaml.Unmarshal(metadataByte, &parsed))
+
+	assert.Equal(t, defaultMetadata().Platforms, parsed.Platforms)
 }

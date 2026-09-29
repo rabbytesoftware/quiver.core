@@ -14,14 +14,16 @@ import (
 
 // Handlers serves the daemon configuration endpoints.
 type Handlers struct {
-	svc usecases.ConfigUsecase
+	svc     usecases.ConfigUsecase
+	pathSvc usecases.PathUsecase
 }
 
 // New returns Handlers backed by the given configuration usecase.
 func New(
 	svc usecases.ConfigUsecase,
+	pathSvc usecases.PathUsecase,
 ) *Handlers {
-	return &Handlers{svc: svc}
+	return &Handlers{svc: svc, pathSvc: pathSvc}
 }
 
 // Config returns the daemon configuration.
@@ -88,4 +90,44 @@ func (h *Handlers) PatchConfig(c *gin.Context) {
 	}
 
 	libs.WriteQueryOK(c, apidto.ConfigPatchResultDTOFrom(result))
+}
+
+// @Summary      Read PATH status
+// @Description  Reports whether ~/.quiver/bin exists, is on PATH, and, where the platform tracks it, whether it is configured to stay there (shell rc files on unix, the user Path on Windows).
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  libs.QueryResponse{data=apidto.PathStatusDTO}
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /system/path [get]
+func (h *Handlers) PathStatus(
+	c *gin.Context,
+) {
+	st, err := h.pathSvc.Status(c.Request.Context())
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "", err)
+		return
+	}
+
+	libs.WriteQueryOK(c, apidto.PathStatusDTOFrom(st))
+}
+
+// @Summary      Set up PATH
+// @Description  Adds ~/.quiver/bin to PATH on explicit user action: appends a block to shell rc files on unix, sets the user Path on Windows. Idempotent — calling it again once already configured is a no-op.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  libs.QueryResponse{data=apidto.PathStatusDTO}
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /system/path [post]
+func (h *Handlers) SetupPath(
+	c *gin.Context,
+) {
+	st, err := h.pathSvc.Setup(c.Request.Context())
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "", err)
+		return
+	}
+
+	libs.WriteQueryOK(c, apidto.PathStatusDTOFrom(st))
 }

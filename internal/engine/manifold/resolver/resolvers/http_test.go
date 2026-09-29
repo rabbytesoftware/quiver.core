@@ -42,6 +42,28 @@ func (s stubHost) RawFileURL(
 	).Replace(s.rawURL), nil
 }
 
+func (s stubHost) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s stubHost) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s stubHost) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (s stubHost) DefaultBranches() []string {
 	return s.branches
 }
@@ -367,6 +389,9 @@ func TestHTTPFetcher_ExplicitRefMissing_DoesNotFallBackToTheList(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Fetch() error = %v, want ErrNotFound", err)
 	}
+	if !errors.Is(err, ErrAbsentAtRef) {
+		t.Fatalf("Fetch() error = %v, want ErrAbsentAtRef", err)
+	}
 
 	want := []string{"/user/repo/v9.9.9/arrow.yaml"}
 	if !reflect.DeepEqual(*paths, want) {
@@ -421,5 +446,61 @@ func TestHTTPFetcher_EmptyBranchList_ReturnsNotFoundWithoutRequesting(t *testing
 	}
 	if len(*paths) != 0 {
 		t.Errorf("requested paths = %v, want none", *paths)
+	}
+}
+
+func TestHTTPFetcher_Fetch_ClassifiesCandidateStatuses(t *testing.T) {
+	both := func(a, b int) map[string]int {
+		return map[string]int{"ARROW.md": a, "arrow.yaml": b}
+	}
+
+	testCases := []struct {
+		name       string
+		namespace  domain.Namespace
+		statuses   map[string]int
+		wantErr    error
+		notWantErr error
+		wantAbsent bool
+		wantPath   string
+	}{
+		{name: "server error then not found", statuses: both(http.StatusInternalServerError, http.StatusNotFound), wantErr: ErrFetchFailed, notWantErr: ErrNotFound},
+		{name: "rate limited then not found", statuses: both(http.StatusTooManyRequests, http.StatusNotFound), wantErr: ErrFetchFailed, notWantErr: ErrNotFound},
+		{name: "not found then server error", statuses: both(http.StatusNotFound, http.StatusBadGateway), wantErr: ErrFetchFailed},
+		{name: "server error then found", statuses: both(http.StatusInternalServerError, http.StatusOK), wantPath: "arrow.yaml"},
+		{name: "both absent", statuses: both(http.StatusNotFound, http.StatusNotFound), wantErr: ErrNotFound},
+		{name: "pinned both absent", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusNotFound, http.StatusNotFound), wantErr: ErrNotFound, wantAbsent: true},
+		{name: "pinned rate limited then not found", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusTooManyRequests, http.StatusNotFound), wantErr: ErrFetchFailed},
+		{name: "pinned not found then unavailable", namespace: "example.com/user/repo@v1.0.0", statuses: both(http.StatusNotFound, http.StatusServiceUnavailable), wantErr: ErrFetchFailed},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.statuses[r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]])
+			}))
+			defer server.Close()
+			fetcher := NewHTTP(serverHost(server.URL, []string{"main"}))
+			ns := tc.namespace
+			if ns == "" {
+				ns = "example.com/user/repo"
+			}
+
+			_, path, err := fetcher.Fetch(context.Background(), ns, []string{"ARROW.md", "arrow.yaml"}, 5*time.Second)
+
+			if tc.wantErr == nil && err != nil {
+				t.Fatalf("Fetch() error = %v, want nil", err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Fetch() error = %v, want %v", err, tc.wantErr)
+			}
+			if tc.notWantErr != nil && errors.Is(err, tc.notWantErr) {
+				t.Fatalf("Fetch() error = %v, must not be %v", err, tc.notWantErr)
+			}
+			if got := errors.Is(err, ErrAbsentAtRef); got != tc.wantAbsent {
+				t.Errorf("errors.Is(err, ErrAbsentAtRef) = %v, want %v", got, tc.wantAbsent)
+			}
+			if path != tc.wantPath {
+				t.Errorf("path = %q, want %q", path, tc.wantPath)
+			}
+		})
 	}
 }

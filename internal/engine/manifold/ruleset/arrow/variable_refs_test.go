@@ -3,6 +3,10 @@ package arrow
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
@@ -525,5 +529,52 @@ func TestVariableRefsRule_OSArchVariantKnownVar(t *testing.T) {
 	errs := rule.Validate(manifest)
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for known variable in OSArch variant, got: %v", errs)
+	}
+}
+
+func TestVariableRefsRule_Validate_FromToSteps(t *testing.T) {
+	testCases := []struct {
+		name string
+		from step.Overrideable[string]
+		to   step.Overrideable[string]
+	}{
+		{
+			name: "from",
+			from: step.Overrideable[string]{Default: "${UNKNOWN_ARCHIVE}/file"},
+			to:   step.Overrideable[string]{Default: "./"},
+		},
+		{
+			name: "to",
+			from: step.Overrideable[string]{Default: "./file"},
+			to:   step.Overrideable[string]{Default: "${UNKNOWN_DEST}/"},
+		},
+		{
+			name: "from os variant",
+			from: step.Overrideable[string]{
+				Default: "./file",
+				OSArch:  map[string]string{"linux/amd64": "./${UNKNOWN_FROM_VAR}"},
+			},
+			to: step.Overrideable[string]{Default: "./"},
+		},
+	}
+
+	for _, kind := range fromToKinds() {
+		for _, tc := range testCases {
+			t.Run(kind+" "+tc.name, func(t *testing.T) {
+				built := fromToStep(kind, tc.from, tc.to, step.Overrideable[string]{Default: "30s"})
+				m := &domain.Arrow{
+					Targets: map[domain.OS]domain.Target{
+						domain.OSLinuxAMD64: {
+							Lifecycle: domain.TargetLifecycle{Install: step.StepList{built}},
+						},
+					},
+				}
+
+				errs := VariableRefsRule{}.Validate(m)
+
+				require.NotEmpty(t, errs)
+				assert.Equal(t, "unresolved_variable", errs[0].Rule)
+			})
+		}
 	}
 }

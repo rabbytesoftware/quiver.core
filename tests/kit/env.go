@@ -25,6 +25,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -55,6 +56,7 @@ type envConfig struct {
 	manifold          func(manifold.Manifold) manifold.Manifold
 	selfUpdateTrigger *selfupdate.Trigger
 	clock             func() time.Time
+	fletcher          hosts.Lookup
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -81,6 +83,12 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 // uses the real clock.
 func WithClock(clock func() time.Time) EnvOption {
 	return func(c *envConfig) { c.clock = clock }
+}
+
+func WithFletcher(
+	lookup hosts.Lookup,
+) EnvOption {
+	return func(c *envConfig) { c.fletcher = lookup }
 }
 
 // WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
@@ -219,10 +227,11 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
+	withFletcher := manifold.WithFletcher(cfg.fletcher != nil)
 	if cfg.clock != nil {
-		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, nil, cfg.clock)
+		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, cfg.fletcher, cfg.clock, withFletcher)
 	} else {
-		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, nil)
+		engines.Manifold = manifold.NewWithResolvers(rsv, rsv, cfg.fletcher, withFletcher)
 	}
 	if cfg.manifold != nil {
 		engines.Manifold = cfg.manifold(engines.Manifold)

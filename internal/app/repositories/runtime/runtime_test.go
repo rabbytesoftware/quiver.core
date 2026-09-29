@@ -335,6 +335,16 @@ func TestShutdown_WizardError_StillDrainsAggregate(t *testing.T) {
 		"the aggregate must be drained even though the wizard failed to stop")
 }
 
+func shutdownFailures(
+	t *testing.T,
+	err error,
+) []error {
+	t.Helper()
+	joined, ok := err.(interface{ Unwrap() []error })
+	require.True(t, ok, "shutdown joins one error per failed phase")
+	return joined.Unwrap()
+}
+
 // slowWizard refuses to stop until its own context runs out — the state an arrow
 // whose process will not die leaves shutdown in. Under a context shared by every
 // sub-phase it consumes the entire budget.
@@ -389,12 +399,9 @@ func TestShutdown_SlowWizard_StillDrainsAggregate(t *testing.T) {
 
 	err = lc.Shutdown(ctx)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "runtime shutdown: wizard")
-	assert.NotContains(t, err.Error(), "runtime shutdown: drain",
-		"the wizard overrunning must not cost the drain gate its share")
-	assert.NotContains(t, err.Error(), "runtime shutdown: aggregate",
-		"the wizard overrunning must not cost the aggregate its share")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Len(t, shutdownFailures(t, err), 1,
+		"only the wizard may overrun: the drain gate and the aggregate keep their own shares")
 
 	assert.Error(t, lc.BeginInstall(context.Background(), domain.Namespace("github.com/user/other@v1.0.0"), nil),
 		"the aggregate must be drained even though the wizard never stopped")
@@ -429,9 +436,8 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 		StartFn: func(_ context.Context, _ wizardPkg.RunRequest) wizardPkg.Execution {
 			return stalled
 		},
-		ShutdownFn: func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
+		ShutdownFn: func(context.Context) error {
+			return nil
 		},
 	}
 
@@ -451,8 +457,8 @@ func TestShutdown_StuckDrain_ReturnsWhenContextExpires(t *testing.T) {
 
 	require.Error(t, err, "shutdown must return rather than wait on a drain that cannot finish")
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.Contains(t, err.Error(), "runtime shutdown: drain",
-		"the drain that cannot finish must be the phase that reports the expiry")
+	assert.Len(t, shutdownFailures(t, err), 1,
+		"with the wizard and the aggregate stopping cleanly, the stuck drain is the one phase that reports the expiry")
 }
 
 // TestShutdown_SurvivingExecution_DoesNotWaitForDrain mirrors
@@ -997,6 +1003,81 @@ func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
 
 	err = lc.MarkReady(context.Background(), testNs(), nil)
 	_ = err // either error or no-op after shutdown; just don't panic
+}
+
+func plannedArrow(
+	ns domain.Namespace,
+) *domain.Arrow {
+	return &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Media: domain.ArrowMedia{Icon: "icon.png"}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {
+				Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{domainStep.NewRunStep("s", "echo hi", false, "", true)}},
+				Expose:    domain.Expose{CLI: []domain.ExposeEntry{{Name: "tool", Path: "bin/tool"}}},
+			},
+		},
+	}
+}
+
+func newPlanningRuntime(
+	t *testing.T,
+	getArrow runtime.GetArrowFn,
+	w wizardPkg.Wizard,
+) runtime.Runtime {
+	t.Helper()
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	getDepArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		return nil, errors.New("no dependencies")
+	}
+	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	require.NoError(t, err)
+	return lc
+}
+
+func TestBeginInstall_RunsAndRecordsTheStepsTheWizardPlans(t *testing.T) {
+	ns := testNs()
+	arrow := plannedArrow(ns)
+	started := make(chan wizardPkg.RunRequest, 1)
+	lc := newPlanningRuntime(t, func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }, &mocks.Wizard{
+		StartFn: func(_ context.Context, req wizardPkg.RunRequest) wizardPkg.Execution {
+			started <- req
+			return mocks.NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
+		},
+	})
+	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
+	require.NoError(t, err)
+	defer unsub()
+	want := domainStep.NewExposeStep(string(domain.ExposeKindCLI), "tool", "bin/tool")
+	want.MediaIcon = "icon.png"
+
+	require.NoError(t, lc.BeginInstall(context.Background(), ns, nil))
+
+	req := <-started
+	assert.Equal(t, domainStep.Step(want), req.Steps[2])
+	select {
+	case rt := <-ended:
+		require.NotNil(t, rt.LastReturn)
+		require.Len(t, rt.LastReturn.Steps, 3)
+		assert.Equal(t, domainStep.Step(want), rt.LastReturn.Steps[2].Step)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "install never ended")
+	}
+}
+
+func TestBeginInstall_ArrowUnreadableWhilePlanning_Fails(t *testing.T) {
+	ns := testNs()
+	boom := errors.New("catalog closed")
+	reads := 0
+	lc := newPlanningRuntime(t, func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		reads++
+		if reads > 1 {
+			return nil, boom
+		}
+		return plannedArrow(ns), nil
+	}, &mocks.Wizard{})
+
+	require.ErrorIs(t, lc.BeginInstall(context.Background(), ns, nil), boom)
 }
 
 // ─── BeginStop assembler fallback paths ──────────────────────────────────────

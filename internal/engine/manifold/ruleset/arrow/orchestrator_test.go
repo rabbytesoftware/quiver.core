@@ -64,6 +64,7 @@ func TestCompiledRuleNames(t *testing.T) {
 		{LifecyclePairsRule{}, "lifecycle_pairs"},
 		{TimeoutFormatRule{}, "timeout_format"},
 		{MethodStatesRule{}, "method_states"},
+		{ExposeEntriesRule{}, "expose_entries"},
 	}
 	for _, tc := range cases {
 		if got := tc.rule.Name(); got != tc.want {

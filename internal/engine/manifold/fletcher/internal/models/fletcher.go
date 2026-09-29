@@ -1,0 +1,33 @@
+package models
+
+import (
+	"context"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	manifoldModels "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+)
+
+type Fletcher interface {
+	Recover(
+		ctx context.Context,
+		ns domain.Namespace,
+		cause error,
+	) ([]byte, string, error)
+}
+
+type Releases interface {
+	ResolveLatestStable(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (string, error)
+
+	ListChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]manifoldModels.ChannelInfo, error)
+
+	ResolveDefaultBranch(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (branch, hash string, err error)
+}

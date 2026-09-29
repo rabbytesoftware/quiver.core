@@ -1013,6 +1013,188 @@ func TestResolveForInstall_Refless_LatestStableManifestErrorDoesNotFallBack(t *t
 	assert.Equal(t, []domain.Namespace{"github.com/user/pkg@v2.0.0"}, *asked)
 }
 
+// refServingManifold answers ResolveArrow for the refs in served and fails
+// every other ref with missing, recording each namespace it is asked for.
+func refServingManifold(
+	missing error,
+	served ...string,
+) (*mocks.Manifold, *[]domain.Namespace) {
+	asked := make([]domain.Namespace, 0, 4)
+	m := &mocks.Manifold{}
+	m.ResolveArrowFunc = func(
+		_ context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, string, error) {
+		asked = append(asked, ns)
+		for _, ref := range served {
+			if ns.Ref() == ref {
+				return &domain.Arrow{Namespace: ns}, []byte("raw"), "arrow.yaml", nil
+			}
+		}
+		return nil, nil, "", missing
+	}
+	return m, &asked
+}
+
+// Only a definitive not-found on the stable release earns a fallback to the
+// repository's other channels or its default branch.
+func TestResolveForInstall_Refless_StableUnresolvable(t *testing.T) {
+	const ghostty = "github.com/ghostty-org/ghostty"
+	tipChannels := []manifold.ChannelInfo{
+		{Name: manifold.StableChannel, Kind: "ordered", Latest: "v1.3.1"},
+		{Name: "tip", Kind: "pointer", Latest: "tip"},
+	}
+
+	testCases := []struct {
+		name            string
+		missing         error
+		served          []string
+		channels        []manifold.ChannelInfo
+		defaultBranch   string
+		wantErr         error
+		wantNs          domain.Namespace
+		wantChannel     string
+		wantRefIsBranch bool
+		wantAsked       []domain.Namespace
+	}{
+		{
+			name:        "other channel",
+			missing:     manifoldresolver.ErrNotFound,
+			served:      []string{"tip"},
+			channels:    tipChannels,
+			wantNs:      ghostty + "@tip",
+			wantChannel: "tip",
+			wantAsked:   []domain.Namespace{ghostty + "@v1.3.1", ghostty + "@tip"},
+		},
+		{
+			name:            "git default branch",
+			missing:         manifoldresolver.ErrNotFound,
+			served:          []string{"main"},
+			defaultBranch:   "main",
+			wantNs:          ghostty + "@main",
+			wantRefIsBranch: true,
+			wantAsked:       []domain.Namespace{ghostty + "@v1.3.1", ghostty + "@main"},
+		},
+		{
+			name:          "every fallback fails",
+			missing:       manifoldresolver.ErrNotFound,
+			channels:      tipChannels[1:],
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrNotFound,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked: []domain.Namespace{
+				ghostty + "@v1.3.1",
+				ghostty + "@tip",
+				ghostty + "@main",
+			},
+		},
+		{
+			name:          "fetch failure does not fall back",
+			missing:       manifoldresolver.ErrFetchFailed,
+			served:        []string{"tip", "main"},
+			channels:      tipChannels[1:],
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrFetchFailed,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked:     []domain.Namespace{ghostty + "@v1.3.1"},
+		},
+		{
+			name:          "invalid manifest does not fall back",
+			missing:       manifold.ErrInvalidManifest,
+			served:        []string{"main"},
+			defaultBranch: "main",
+			wantErr:       apperrors.ErrInvalidManifest,
+			wantNs:        ghostty + "@v1.3.1",
+			wantAsked:     []domain.Namespace{ghostty + "@v1.3.1"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, asked := refServingManifold(tc.missing, tc.served...)
+			m.ResolveLatestInChannelRef = "v1.3.1"
+			m.ListChannelsResult = tc.channels
+			m.DefaultBranchRef = tc.defaultBranch
+			m.DefaultBranchHash = "abc123def456"
+
+			r := newTestReaderWithVaultManifold(t, nil, m)
+
+			resolvedNs, got, _, err := r.ResolveForInstall(
+				context.Background(),
+				ghostty,
+				"",
+			)
+
+			assert.Equal(t, tc.wantAsked, *asked)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.wantNs, resolvedNs)
+			assert.Equal(t, tc.wantChannel, got.Channel)
+			assert.Equal(t, tc.wantRefIsBranch, got.RefIsBranch)
+			if tc.wantRefIsBranch {
+				assert.Equal(t, "abc123def456", got.RefCommitSHA)
+			}
+		})
+	}
+}
+
+// The original stable failure wins even when a fallback fails differently.
+func TestResolveForInstall_Refless_StableNotFound_FallbackFailsDifferently_ReturnsTheStableNotFound(t *testing.T) {
+	m, _ := refServingManifold(manifoldresolver.ErrNotFound)
+	m.ResolveLatestInChannelRef = "v1.3.1"
+	m.DefaultBranchRef = "main"
+	m.ResolveArrowFunc = func(
+		_ context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, string, error) {
+		if ns.Ref() == "main" {
+			return nil, nil, "", manifoldresolver.ErrFetchFailed
+		}
+		return nil, nil, "", manifoldresolver.ErrNotFound
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	_, _, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/ghostty-org/ghostty"),
+		"",
+	)
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
+}
+
+// GetDetail's live path and ResolveManifest reach the same cascade for an
+// uncatalogued refless namespace.
+func TestGetDetail_Refless_StableNotFound_UsesOtherChannel(t *testing.T) {
+	m, _ := refServingManifold(manifoldresolver.ErrNotFound, "tip")
+	m.ResolveLatestInChannelRef = "v1.3.1"
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "tip", Kind: "pointer", Latest: "tip"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	detail, err := r.GetDetail(
+		context.Background(),
+		domain.Namespace("github.com/ghostty-org/ghostty"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/ghostty-org/ghostty@tip"), detail.Metadata.Namespace)
+
+	manifest, err := r.ResolveManifest(
+		context.Background(),
+		domain.Namespace("github.com/ghostty-org/ghostty"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/ghostty-org/ghostty@tip"), manifest.Namespace)
+}
+
 func TestResolveForInstall_ExplicitRef_IsTakenAsWritten(t *testing.T) {
 	m, asked := branchServingManifold("v1.0.0")
 	m.ResolveLatestStableRef = "v9.9.9"

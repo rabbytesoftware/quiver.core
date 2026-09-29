@@ -6,7 +6,7 @@ type ReturnDTO struct {
 	Method    string            `json:"method" yaml:"method"`
 	Outcome   string            `json:"outcome" yaml:"outcome"`
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
-	Steps     []StepProgressDTO `json:"steps,omitempty" yaml:"steps,omitempty"`
+	Steps     []StepProgressDTO `json:"steps" yaml:"steps"`
 }
 
 func ReturnDTOFrom(r *domainRuntime.Return) *ReturnDTO {

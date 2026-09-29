@@ -291,6 +291,10 @@ func newDiscovery(
 		Topics:           metadata.GetDiscovery().Topics,
 		PerProviderLimit: search.PerProviderLimit,
 		FetchConcurrency: search.FetchConcurrency,
+		Unmarked: discovery.UnmarkedConfig{
+			MinStars:   search.Unmarked.MinStars,
+			ProbeLimit: search.Unmarked.ProbeLimit,
+		},
 	})
 }
 

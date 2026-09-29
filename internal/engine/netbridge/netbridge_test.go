@@ -115,7 +115,7 @@ func TestAllocate_HonorsPreferredPort(
 ) {
 	nb := buildNetbridge(t)
 
-	const preferred = 54321
+	preferred := freePort(t)
 	port, err := nb.Allocate(context.Background(), "owner1", netbridge.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
@@ -161,7 +161,7 @@ func TestAllocate_WithActiveStrategy_SetsForwarded(
 	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
-	const preferred = 54600
+	preferred := freePort(t)
 	port, err := nb.Allocate(ctx, "owner-fwd", netbridge.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
@@ -191,11 +191,9 @@ func TestDeallocateByOwner_ReleasesAllPorts(
 	nb := buildNetbridge(t)
 	ctx := context.Background()
 
-	const (
-		preferred1 = 54400
-		preferred2 = 54401
-		ownerKey   = "owner-dealloc"
-	)
+	const ownerKey = "owner-dealloc"
+	free := freePorts(t, 2)
+	preferred1, preferred2 := free[0], free[1]
 
 	port1, err := nb.Allocate(ctx, ownerKey, netbridge.ProtocolTCP, preferred1)
 	require.NoError(t, err)
@@ -236,7 +234,7 @@ func TestDeallocateByOwner_WithActiveStrategy_CallsReverse(
 	nb := buildNetbridgeWithStrategy(t, strat)
 	ctx := context.Background()
 
-	const preferred = 54700
+	preferred := freePort(t)
 	port, err := nb.Allocate(ctx, "owner-rev", netbridge.ProtocolTCP, preferred)
 	require.NoError(t, err)
 	assert.Equal(t, preferred, port)
@@ -254,7 +252,7 @@ func TestDeallocateByOwner_SendErrorOnCancelledContext(
 ) {
 	nb := buildNetbridge(t)
 
-	const preferred = 54800
+	preferred := freePort(t)
 	port, allocErr := nb.Allocate(context.Background(), "owner-cancel", netbridge.ProtocolTCP, preferred)
 	require.NoError(t, allocErr)
 	assert.Equal(t, preferred, port)
@@ -363,7 +361,7 @@ func TestAllocate_SamePreferredPortTwiceGetsDifferentPort(
 	nb := buildNetbridge(t)
 	ctx := context.Background()
 
-	const preferred = 54500
+	preferred := freePort(t)
 
 	port1, err := nb.Allocate(ctx, "owner-a", netbridge.ProtocolTCP, preferred)
 	require.NoError(t, err)

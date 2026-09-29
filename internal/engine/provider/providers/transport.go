@@ -88,6 +88,21 @@ func (t transport) get(
 	return resp.Body, nil
 }
 
+func (t transport) fetch(
+	ctx context.Context,
+	rawURL string,
+	headers http.Header,
+) (fns.Response, error) {
+	ctx, cancel := t.bound(ctx)
+	defer cancel()
+
+	return t.do(ctx, fns.Request{
+		Method:  http.MethodGet,
+		URL:     rawURL,
+		Headers: headers,
+	})
+}
+
 // redirect issues one bounded GET and returns the response unclassified: this
 // exchange succeeds with a 3xx, which every other request treats as a failure.
 func (t transport) redirect(
@@ -131,7 +146,7 @@ func (t transport) classify(
 	if resp.Status == http.StatusUnauthorized || resp.Status == http.StatusForbidden {
 		return &UnauthorizedError{Host: t.host}
 	}
-	return fmt.Errorf("provider %s: search: http %d", t.host, resp.Status)
+	return fmt.Errorf("provider %s: http %d", t.host, resp.Status)
 }
 
 // isExhausted reads the budget header a 403 carries when the refusal is a rate

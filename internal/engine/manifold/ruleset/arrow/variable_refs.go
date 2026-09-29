@@ -139,6 +139,12 @@ func checkCompiledStepVars(
 	case step.FetchStep:
 		errs = append(errs, checkVarTokens(prefix, "url", overrideableValues(rs.URL), known)...)
 		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
+	case step.ExtractStep:
+		errs = append(errs, checkVarTokens(prefix, "from", overrideableValues(rs.From), known)...)
+		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
+	case step.PortableStep:
+		errs = append(errs, checkVarTokens(prefix, "from", overrideableValues(rs.From), known)...)
+		errs = append(errs, checkVarTokens(prefix, "to", overrideableValues(rs.To), known)...)
 	}
 	return errs
 }

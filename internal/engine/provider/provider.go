@@ -99,5 +99,10 @@ func configFor(
 	cfg.DefaultBranches = platform.DefaultBranches
 	cfg.LatestReleaseURL = platform.LatestReleaseURL
 	cfg.SearchURL = platform.SearchURL
+	cfg.ExpandedAssetsURL = platform.ExpandedAssetsURL
+	cfg.RepoPageURL = platform.RepoPageURL
+	cfg.BlobURL = platform.BlobURL
+	cfg.ReleaseAPIURL = platform.ReleaseAPIURL
+	cfg.PackagesAPIURL = platform.PackagesAPIURL
 	return cfg
 }

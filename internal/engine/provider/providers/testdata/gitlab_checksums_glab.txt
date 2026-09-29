@@ -1,0 +1,4 @@
+d9cddd1dbe9a8bea8d5709f90a9ac13c3dd3eb0d0e94e3bc4fae6b27abd6a3db  glab_1.119.0_darwin_arm64.tar.gz
+95a9ca105518dec7f70ee403d98501402a5fda154c406f4f4cd6696928d3a098  glab_1.119.0_linux_amd64.deb
+4d83375d202ffa634eaf627fd9272b610fa599f20f5b711f55d770583eca2b84  glab_1.119.0_linux_amd64.tar.gz
+fa12c31cf8100fd5b41f6fc9cf907b344474d183c766d9b6806dbbbeba14e7af  glab_1.119.0_windows_amd64.zip

@@ -7,4 +7,5 @@ type Target struct {
 	Exports      map[string]string `json:"exports"`
 	Lifecycle    TargetLifecycle   `json:"lifecycle"`
 	Methods      map[string]Method `json:"methods"`
+	Expose       Expose            `json:"expose"`
 }

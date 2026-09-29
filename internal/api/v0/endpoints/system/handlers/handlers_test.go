@@ -17,6 +17,7 @@ import (
 
 	systemhandlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/system/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
@@ -54,11 +55,36 @@ func (s *stubConfigUsecase) Patch(
 	return s.result, nil
 }
 
+type stubPathUsecase struct {
+	statusResult models.PathStatus
+	statusErr    error
+	setupResult  models.PathStatus
+	setupErr     error
+}
+
+func (s *stubPathUsecase) Status(
+	_ context.Context,
+) (models.PathStatus, error) {
+	return s.statusResult, s.statusErr
+}
+
+func (s *stubPathUsecase) Setup(
+	_ context.Context,
+) (models.PathStatus, error) {
+	return s.setupResult, s.setupErr
+}
+
 func newRouter(svc usecases.ConfigUsecase) *gin.Engine {
+	return newRouterWithPath(svc, &stubPathUsecase{})
+}
+
+func newRouterWithPath(svc usecases.ConfigUsecase, pathSvc usecases.PathUsecase) *gin.Engine {
 	r := gin.New()
-	h := systemhandlers.New(svc)
+	h := systemhandlers.New(svc, pathSvc)
 	r.GET("/config", h.Config)
 	r.PATCH("/config", h.PatchConfig)
+	r.GET("/system/path", h.PathStatus)
+	r.POST("/system/path", h.SetupPath)
 	return r
 }
 
@@ -72,6 +98,14 @@ func do(r *gin.Engine, method, body string) *httptest.ResponseRecorder {
 
 	req := httptest.NewRequest(method, "/config", reader)
 	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func doPath(r *gin.Engine, method string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, "/system/path", strings.NewReader(""))
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -202,4 +236,50 @@ func TestPatchConfig_MalformedBodyIsForwarded(t *testing.T) {
 	w := do(newRouter(svc), http.MethodPatch, `{"vault":`)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+}
+
+func TestPathStatus_ReturnsShelfStatus(t *testing.T) {
+	pathSvc := &stubPathUsecase{statusResult: models.PathStatus{
+		BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true, Files: []string{"/home/u/.zshrc"},
+	}}
+
+	w := doPath(newRouterWithPath(&stubConfigUsecase{}, pathSvc), http.MethodGet)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	data := decodeData(t, w)
+	assert.JSONEq(t, `"/home/u/.quiver/bin"`, string(data["bin_dir"]))
+	assert.JSONEq(t, `true`, string(data["on_path"]))
+	assert.JSONEq(t, `["/home/u/.zshrc"]`, string(data["files"]))
+}
+
+func TestSetupPath_ReturnsUpdatedStatus(t *testing.T) {
+	pathSvc := &stubPathUsecase{setupResult: models.PathStatus{
+		BinDir: "/home/u/.quiver/bin", OnPath: true, Configured: true,
+	}}
+
+	w := doPath(newRouterWithPath(&stubConfigUsecase{}, pathSvc), http.MethodPost)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	data := decodeData(t, w)
+	assert.JSONEq(t, `true`, string(data["configured"]))
+}
+
+func TestPath_UsecaseErrorReturns500(t *testing.T) {
+	failing := errors.New("disk on fire")
+	testCases := []struct {
+		name   string
+		method string
+		svc    *stubPathUsecase
+	}{
+		{name: "status", method: http.MethodGet, svc: &stubPathUsecase{statusErr: failing}},
+		{name: "setup", method: http.MethodPost, svc: &stubPathUsecase{setupErr: failing}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := doPath(newRouterWithPath(&stubConfigUsecase{}, tc.svc), tc.method)
+
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+		})
+	}
 }

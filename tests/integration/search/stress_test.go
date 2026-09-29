@@ -130,7 +130,7 @@ func (s *SearchSuite) TestStress_Discovery_ManyConcurrentJobs() {
 		s.Zero(summary.Skipped, "job %s", job.JobID)
 	}
 
-	s.Equal(jobs, prov.searches())
+	s.Equal(jobs*2, prov.searches(), "one search per pass per job")
 
 	results, status := tc.Search("widget", kit.SearchParams{})
 	s.Equal(http.StatusOK, status)

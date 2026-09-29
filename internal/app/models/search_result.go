@@ -50,7 +50,9 @@ type SearchResult struct {
 	// are known by construction; a streamed discovery result is known when
 	// the catalog already held it, which is what stops a client's merge from
 	// downgrading a row it has already rendered correctly.
-	Known  bool
-	Stars  int
-	Source string
+	Known      bool
+	Stars      int
+	Source     string
+	Origin     string
+	Confidence string
 }

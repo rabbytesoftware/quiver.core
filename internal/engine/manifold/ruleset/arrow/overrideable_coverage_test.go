@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
@@ -451,5 +453,73 @@ func TestOverrideableCoverageRule_NonOSTargetKeyStillRequiresEveryOS(t *testing.
 	errs := rule.Validate(&domain.Arrow{}, precompiled)
 	if len(errs) == 0 {
 		t.Fatal("expected coverage errors for a target key that matches no OS")
+	}
+}
+
+func fromToKinds() []string {
+	return []string{"extract", "portable"}
+}
+
+func fromToStep(
+	kind string,
+	from step.Overrideable[string],
+	to step.Overrideable[string],
+	timeout step.Overrideable[string],
+) step.Step {
+	if kind == "extract" {
+		return step.ExtractStep{From: from, To: to, Timeout: timeout}
+	}
+	return step.PortableStep{From: from, To: to, Timeout: timeout}
+}
+
+func TestOverrideableCoverageRule_Validate_FromToSteps(t *testing.T) {
+	dest := step.Overrideable[string]{Default: "./"}
+	timeout := step.Overrideable[string]{Default: "10s"}
+
+	testCases := []struct {
+		name    string
+		from    step.Overrideable[string]
+		timeout step.Overrideable[string]
+		wantErr bool
+	}{
+		{
+			name: "missing darwin coverage",
+			from: step.Overrideable[string]{OSArch: map[string]string{
+				"linux/amd64":   "./a",
+				"linux/arm64":   "./b",
+				"windows/amd64": "./c",
+				"windows/arm64": "./d",
+			}},
+			timeout: timeout,
+			wantErr: true,
+		},
+		{
+			name:    "omitted timeout is valid",
+			from:    step.Overrideable[string]{Default: "./archive"},
+			timeout: step.Overrideable[string]{},
+		},
+		{
+			name:    "missing from",
+			timeout: timeout,
+			wantErr: true,
+		},
+	}
+
+	for _, kind := range fromToKinds() {
+		for _, tc := range testCases {
+			t.Run(kind+" "+tc.name, func(t *testing.T) {
+				precompiled := map[string]models.PrecompiledTarget{
+					"t": {
+						Lifecycle: domain.TargetLifecycle{
+							Install: step.StepList{fromToStep(kind, tc.from, dest, tc.timeout)},
+						},
+					},
+				}
+
+				errs := OverrideableCoverageRule{}.Validate(&domain.Arrow{}, precompiled)
+
+				assert.Equal(t, tc.wantErr, len(errs) > 0)
+			})
+		}
 	}
 }

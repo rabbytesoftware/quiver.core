@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -82,7 +83,7 @@ func TestOpenIndex_ColumnsAreStable(t *testing.T) {
 			columns: []string{
 				"namespace", "ref", "name", "description", "license", "url",
 				"icon", "banner", "stars", "source", "filename", "branch",
-				"seen_at", "row_expire_at",
+				"seen_at", "row_expire_at", "generator", "confidence",
 			},
 		},
 		{
@@ -357,6 +358,33 @@ func TestIndex_Search_HydratesFullMetadata(t *testing.T) {
 	require.True(t, got.SeenAt.Equal(now))
 }
 
+func TestIndex_Search_RoundTripsGenerator(t *testing.T) {
+	testCases := []struct {
+		name      string
+		generator *domain.ArrowGenerator
+	}{
+		{name: "declared arrow has no generator", generator: nil},
+		{
+			name:      "inferred arrow",
+			generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndex(t)
+			now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+			meta := testMeta()
+			meta.Arrow.Generator = tc.generator
+			require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, meta, now, testIndexTTL))
+
+			rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, now)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			require.Equal(t, tc.generator, rows[0].Meta.Arrow.Generator)
+		})
+	}
+}
+
 func TestIndex_Search_ZeroLimitUsesDefault(t *testing.T) {
 	idx := newTestIndex(t)
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
@@ -387,13 +415,52 @@ func TestIndex_Search_QuerySyntaxCharactersAreLiteral(t *testing.T) {
 // Error paths.
 
 func TestOpenIndex_OpenError(t *testing.T) {
-	_, err := openIndex(filepath.Join(t.TempDir(), "missing", "index.db"))
-	require.ErrorContains(t, err, "vault index: open")
+	idx, err := openIndex(filepath.Join(t.TempDir(), "missing", "index.db"))
+	require.Error(t, err)
+	assert.Nil(t, idx)
 }
 
 // readOnlyDSN builds a DSN that opens path read-only, so writes fail without
 // depending on filesystem permissions (which root would bypass).
 func readOnlyDSN(path string) string { return "file:" + path + "?mode=ro" }
+
+func indexTables() []string {
+	return []string{"vault_arrows", "vault_arrow_tags", "vault_arrow_os", "vault_arrows_fts"}
+}
+
+func tableRows(
+	t *testing.T,
+	idx *index,
+	table string,
+) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, idx.db.Raw("SELECT COUNT(*) FROM "+table).Scan(&n).Error)
+	return n
+}
+
+func seedIndex(
+	t *testing.T,
+	idx *index,
+) {
+	t.Helper()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL))
+}
+
+func assertSeedIntact(
+	t *testing.T,
+	idx *index,
+	dropped string,
+) {
+	t.Helper()
+	want := map[string]int64{"vault_arrows": 1, "vault_arrow_tags": 2, "vault_arrow_os": 1, "vault_arrows_fts": 1}
+	for _, table := range indexTables() {
+		if table != dropped {
+			assert.Equal(t, want[table], tableRows(t, idx, table), table)
+		}
+	}
+}
 
 func TestOpenIndex_MigrateError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.db")
@@ -405,8 +472,9 @@ func TestOpenIndex_MigrateError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = openIndex(readOnlyDSN(path))
-	require.ErrorContains(t, err, "vault index: migrate")
+	idx, err := openIndex(readOnlyDSN(path))
+	require.Error(t, err)
+	assert.Nil(t, idx)
 }
 
 func TestOpenIndex_CreateFTSError(t *testing.T) {
@@ -418,31 +486,21 @@ func TestOpenIndex_CreateFTSError(t *testing.T) {
 	require.NoError(t, idx.db.Exec(`DROP TABLE vault_arrows_fts`).Error)
 	require.NoError(t, idx.close())
 
-	_, err = openIndex(readOnlyDSN(path))
-	require.ErrorContains(t, err, "vault index: create fts")
+	reopened, err := openIndex(readOnlyDSN(path))
+	require.Error(t, err)
+	assert.Nil(t, reopened)
 }
 
 func TestIndex_Close_InvalidDB(t *testing.T) {
 	i := &index{db: &gorm.DB{Config: &gorm.Config{}}}
-	require.ErrorContains(t, i.close(), "vault index: close")
+	require.Error(t, i.close())
 }
 
-func TestIndex_Upsert_SQLFailures(t *testing.T) {
-	testCases := []struct {
-		name    string
-		drop    string
-		wantErr string
-	}{
-		{name: "row table missing", drop: "vault_arrows", wantErr: "upsert row"},
-		{name: "tag table missing", drop: "vault_arrow_tags", wantErr: "clear tags"},
-		{name: "os table missing", drop: "vault_arrow_os", wantErr: "clear os"},
-		{name: "fts table missing", drop: "vault_arrows_fts", wantErr: "clear fts"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+func TestIndex_Upsert_SQLFailuresRollBack(t *testing.T) {
+	for _, dropped := range indexTables() {
+		t.Run(dropped, func(t *testing.T) {
 			idx := newTestIndex(t)
-			require.NoError(t, idx.db.Exec("DROP TABLE "+tc.drop).Error)
+			require.NoError(t, idx.db.Exec("DROP TABLE "+dropped).Error)
 
 			err := idx.upsert(
 				"github.com/u/r@v1",
@@ -451,7 +509,12 @@ func TestIndex_Upsert_SQLFailures(t *testing.T) {
 				time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC),
 				testIndexTTL,
 			)
-			require.ErrorContains(t, err, tc.wantErr)
+			require.Error(t, err)
+			for _, table := range indexTables() {
+				if table != dropped {
+					assert.Zero(t, tableRows(t, idx, table), table)
+				}
+			}
 		})
 	}
 }
@@ -464,7 +527,9 @@ func TestReplaceChildRows_WriteTagError(t *testing.T) {
 		PRIMARY KEY (namespace, ref, tag))`).Error)
 
 	err := replaceChildRows(idx.db, "github.com/u/r", "v1", testMeta())
-	require.ErrorContains(t, err, "write tag")
+	require.Error(t, err)
+	assert.Zero(t, tableRows(t, idx, "vault_arrow_tags"))
+	assert.Zero(t, tableRows(t, idx, "vault_arrow_os"), "writing stops at the first failed tag")
 }
 
 func TestReplaceChildRows_WriteOSError(t *testing.T) {
@@ -475,7 +540,9 @@ func TestReplaceChildRows_WriteOSError(t *testing.T) {
 		PRIMARY KEY (namespace, ref, os))`).Error)
 
 	err := replaceChildRows(idx.db, "github.com/u/r", "v1", testMeta())
-	require.ErrorContains(t, err, "write os")
+	require.Error(t, err)
+	assert.Equal(t, int64(2), tableRows(t, idx, "vault_arrow_tags"), "tags are written before the os rows")
+	assert.Zero(t, tableRows(t, idx, "vault_arrow_os"))
 }
 
 func TestReplaceFTS_WriteError(t *testing.T) {
@@ -486,36 +553,30 @@ func TestReplaceFTS_WriteError(t *testing.T) {
 		description TEXT, tags TEXT)`).Error)
 
 	err := replaceFTS(idx.db, "github.com/u/r", "v1", testMeta())
-	require.ErrorContains(t, err, "write fts")
+	require.Error(t, err)
+	assert.Zero(t, tableRows(t, idx, "vault_arrows_fts"))
 }
 
 func TestIndex_Search_QueryError(t *testing.T) {
 	idx := newTestIndex(t)
 	require.NoError(t, idx.db.Exec(`DROP TABLE vault_arrows_fts`).Error)
 
-	_, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, time.Now())
-	require.ErrorContains(t, err, "vault index: search")
+	rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, time.Now())
+	require.Error(t, err)
+	assert.Nil(t, rows)
 }
 
 func TestIndex_Hydrate_ChildLoadFailures(t *testing.T) {
-	testCases := []struct {
-		name    string
-		drop    string
-		wantErr string
-	}{
-		{name: "tag table missing", drop: "vault_arrow_tags", wantErr: "load tags"},
-		{name: "os table missing", drop: "vault_arrow_os", wantErr: "load os"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, dropped := range []string{"vault_arrow_tags", "vault_arrow_os"} {
+		t.Run(dropped, func(t *testing.T) {
 			idx := newTestIndex(t)
 			now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 			require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL))
-			require.NoError(t, idx.db.Exec("DROP TABLE "+tc.drop).Error)
+			require.NoError(t, idx.db.Exec("DROP TABLE "+dropped).Error)
 
-			_, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, now)
-			require.ErrorContains(t, err, tc.wantErr)
+			rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 10}, now)
+			require.Error(t, err)
+			assert.Nil(t, rows)
 		})
 	}
 }
@@ -524,58 +585,44 @@ func TestIndex_EvictExpired_SelectError(t *testing.T) {
 	idx := newTestIndex(t)
 	require.NoError(t, idx.db.Exec(`DROP TABLE vault_arrows`).Error)
 
-	require.ErrorContains(t, idx.evictExpired(time.Now()), "select expired")
+	require.Error(t, idx.evictExpired(time.Now()))
 }
 
-func TestIndex_EvictExpired_DeleteError(t *testing.T) {
+func TestIndex_EvictExpired_DeleteErrorRollsBack(t *testing.T) {
 	idx := newTestIndex(t)
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), t0, 24*time.Hour))
 	require.NoError(t, idx.db.Exec(`DROP TABLE vault_arrow_tags`).Error)
 
-	require.ErrorContains(t, idx.evictExpired(t0.Add(48*time.Hour)), "delete tags")
+	require.Error(t, idx.evictExpired(t0.Add(48*time.Hour)))
+	assert.Equal(t, int64(1), tableRows(t, idx, "vault_arrows"))
 }
 
-func TestIndex_Forget_SQLFailures(t *testing.T) {
-	testCases := []struct {
-		name    string
-		drop    string
-		wantErr string
-	}{
-		{name: "row table missing", drop: "vault_arrows", wantErr: "forget row"},
-		{name: "tag table missing", drop: "vault_arrow_tags", wantErr: "forget tags"},
-		{name: "os table missing", drop: "vault_arrow_os", wantErr: "forget os"},
-		{name: "fts table missing", drop: "vault_arrows_fts", wantErr: "forget fts"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+func TestIndex_Forget_SQLFailuresRollBack(t *testing.T) {
+	for _, dropped := range indexTables() {
+		t.Run(dropped, func(t *testing.T) {
 			idx := newTestIndex(t)
-			require.NoError(t, idx.db.Exec("DROP TABLE "+tc.drop).Error)
+			seedIndex(t, idx)
+			require.NoError(t, idx.db.Exec("DROP TABLE "+dropped).Error)
 
-			require.ErrorContains(t, idx.forget("github.com/u/r"), tc.wantErr)
+			require.Error(t, idx.forget("github.com/u/r"))
+			assertSeedIntact(t, idx, dropped)
 		})
 	}
 }
 
-func TestDeleteKey_SQLFailures(t *testing.T) {
-	testCases := []struct {
-		name    string
-		drop    string
-		wantErr string
-	}{
-		{name: "row table missing", drop: "vault_arrows", wantErr: "delete row"},
-		{name: "tag table missing", drop: "vault_arrow_tags", wantErr: "delete tags"},
-		{name: "os table missing", drop: "vault_arrow_os", wantErr: "delete os"},
-		{name: "fts table missing", drop: "vault_arrows_fts", wantErr: "delete fts"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+func TestDeleteKey_SQLFailuresRollBack(t *testing.T) {
+	for _, dropped := range indexTables() {
+		t.Run(dropped, func(t *testing.T) {
 			idx := newTestIndex(t)
-			require.NoError(t, idx.db.Exec("DROP TABLE "+tc.drop).Error)
+			seedIndex(t, idx)
+			require.NoError(t, idx.db.Exec("DROP TABLE "+dropped).Error)
 
-			require.ErrorContains(t, deleteKey(idx.db, "github.com/u/r", "v1"), tc.wantErr)
+			err := idx.db.Transaction(func(tx *gorm.DB) error {
+				return deleteKey(tx, "github.com/u/r", "v1")
+			})
+			require.Error(t, err)
+			assertSeedIntact(t, idx, dropped)
 		})
 	}
 }

@@ -272,6 +272,7 @@ func TestDiscoveryStream_SerializeMatchesLaneADTO(t *testing.T) {
 		Provenance:   models.ProvenanceSeen,
 		Stars:        42,
 		Source:       "github.com",
+		Origin:       domain.ArrowOriginDeclared,
 	}))
 	require.NoError(t, err)
 

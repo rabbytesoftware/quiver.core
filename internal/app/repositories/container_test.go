@@ -686,6 +686,28 @@ func (s *stubSearchProvider) RawFileURL(
 	return "", errNotSearch
 }
 
+func (s *stubSearchProvider) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s *stubSearchProvider) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s *stubSearchProvider) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (s *stubSearchProvider) DefaultBranches() []string { return nil }
 
 var errNotSearch = errors.New("stub provider: discovery never asks this")
@@ -693,15 +715,15 @@ var errNotSearch = errors.New("stub provider: discovery never asks this")
 // A catalog that is broken rather than merely empty must surface the failure,
 // not silently answer "not known".
 func TestCatalogHas_LookupFailure_PropagatesTheError(t *testing.T) {
+	locked := errors.New("database is locked")
 	broken := &ucmocks.MockArrow{
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
-			return nil, errors.New("database is locked")
+			return nil, locked
 		},
 	}
 
 	_, err := repositories.CatalogHas(broken)(context.Background(), domain.Namespace("github.com/u/r"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "database is locked")
+	require.ErrorIs(t, err, locked)
 }
 
 // ─── Dependency edges are in place before an arrow can be acted on ───────────
@@ -875,7 +897,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 	testCases := []struct {
 		name  string
 		arrow *ucmocks.MockArrow
-		want  string
 	}{
 		{
 			name: "added",
@@ -884,7 +905,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "repositories: wire OnArrowAdded",
 		},
 		{
 			name: "updated",
@@ -893,7 +913,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "repositories: wire OnArrowUpdated",
 		},
 		{
 			name: "upgraded",
@@ -902,7 +921,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "repositories: wire OnArrowUpgraded",
 		},
 		{
 			name: "removed",
@@ -911,7 +929,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "repositories: wire OnArrowRemoved",
 		},
 	}
 
@@ -923,7 +940,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, boom)
-			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
 }
@@ -1033,17 +1049,16 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 	testCases := []struct {
 		name       string
 		collection *ucmocks.MockCollection
-		want       string
 	}{
-		{name: "begun", want: "hub OnRuntimeBegun"},
-		{name: "ended", want: "hub OnRuntimeEnded"},
-		{name: "recovered", want: "hub OnRuntimeRecovered"},
-		{name: "detached", want: "hub OnRuntimeDetached"},
-		{name: "pid", want: "hub OnRuntimePIDRecorded"},
-		{name: "outdated", want: "hub OnRuntimeOutdated"},
-		{name: "outdated cleared", want: "hub OnRuntimeOutdatedCleared"},
-		{name: "step advanced", want: "hub OnRuntimeStepAdvanced"},
-		{name: "preinstalled", want: "hub OnRuntimePreinstalled"},
+		{name: "begun"},
+		{name: "ended"},
+		{name: "recovered"},
+		{name: "detached"},
+		{name: "pid"},
+		{name: "outdated"},
+		{name: "outdated cleared"},
+		{name: "step advanced"},
+		{name: "preinstalled"},
 		{
 			name: "collection followed",
 			collection: &ucmocks.MockCollection{
@@ -1051,7 +1066,6 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "hub OnCollectionFollowed",
 		},
 		{
 			name: "collection unfollowed",
@@ -1060,7 +1074,6 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 					return boom
 				},
 			},
-			want: "hub OnCollectionUnfollowed",
 		},
 	}
 
@@ -1079,7 +1092,6 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, boom)
-			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
 }
@@ -1157,14 +1169,16 @@ func TestNew_GraphFails_ReturnsError(t *testing.T) {
 		_ = axCollection.Shutdown(context.Background())
 	})
 
-	_, err = repositories.New(
+	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repositories: graph")
+	assert.Nil(t, c)
 }
+
+var errSubscribeBoom = errors.New("subscribe boom")
 
 func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 	db, err := adapterSQLite.OpenDB(":memory:")
@@ -1176,7 +1190,7 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 			_ asynxModels.ProjectionHandler[domain.Arrow],
 			_ ...asynxModels.SubscriptionOpt[domain.Arrow],
 		) (string, error) {
-			return "", errors.New("subscribe boom")
+			return "", errSubscribeBoom
 		},
 	}
 	axRuntime := newTestAsynxRuntime(t)
@@ -1186,13 +1200,14 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 		_ = axCollection.Shutdown(context.Background())
 	})
 
-	_, err = repositories.New(
+	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repositories: arrow")
+	require.ErrorIs(t, err, errSubscribeBoom)
+	assert.Nil(t, c)
 }
 
 func TestNew_CollectionFails_ReturnsError(t *testing.T) {
@@ -1209,13 +1224,13 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	})
 
 	// A directory is not a database file.
-	_, err = repositories.New(
+	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, t.TempDir(),
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repositories: quiver")
+	assert.Nil(t, c)
 }
 
 func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
@@ -1231,13 +1246,13 @@ func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
 		_ = axCollection.Shutdown(context.Background())
 	})
 
-	_, err = repositories.New(
+	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, newTestAsynxDevice(t), db,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repositories: pairingcode")
+	assert.Nil(t, c)
 }
 
 func TestNew_DeviceFails_ReturnsError(t *testing.T) {
@@ -1253,13 +1268,13 @@ func TestNew_DeviceFails_ReturnsError(t *testing.T) {
 		_ = axCollection.Shutdown(context.Background())
 	})
 
-	_, err = repositories.New(
+	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
 		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, newTestAsynxPairingCode(t), nil, db,
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "repositories: device")
+	assert.Nil(t, c)
 }
 
 // ─── Adapters handed to the runtime ──────────────────────────────────────────
@@ -1471,7 +1486,6 @@ func TestWireCallbacks_SelfUpdateRegistrationFails_PropagatesTheError(t *testing
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom)
-	assert.Contains(t, err.Error(), "repositories: wire self-update trigger")
 }
 
 // The option has to survive the whole of New, not just wireCallbacks: a

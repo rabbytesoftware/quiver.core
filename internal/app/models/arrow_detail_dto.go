@@ -24,4 +24,6 @@ type ArrowDetailDTO struct {
 	State               domain.ArrowState           `json:"state"`
 	ActiveRun           *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn          *domainRuntime.Return       `json:"last_return,omitempty"`
+	Origin              string                      `json:"origin"`
+	Generator           *domain.ArrowGenerator      `json:"generator,omitempty"`
 }

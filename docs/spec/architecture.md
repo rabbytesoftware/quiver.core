@@ -61,14 +61,14 @@ Engines are independent business components. The `engine.Container` holds one in
 |--------|------|------|
 | `manifold` | Resolves remote namespaces — fetches raw manifests, translates, compiles per-OS targets, validates against the ruleset. | [manifold.md](manifold.md) |
 | `vault` | Per-namespace workdir allocation and TTL-bounded manifest cache on disk. Sweeps stale entries. | [vault.md](vault.md) |
-| `wizard` | Sequential step execution (run, fetch, signal, dependencies) with event emission and graceful shutdown. | [wizard.md](wizard.md), [runtime.md](runtime.md) |
+| `wizard` | Sequential step execution (run, fetch, extract, portable, signal, dependencies) with event emission and graceful shutdown; places and removes an arrow's `expose` entries on the OS as the `expose`/`unexpose` steps of its runs, and reports/sets up `PATH`. | [wizard.md](wizard.md), [runtime.md](runtime.md) |
 | `deptree` | DFS topological sort over a transitive dependency graph with cycle detection. | [deptree.md](deptree.md) |
 | `netbridge` | Asynx-backed dynamic port allocation with best-effort UPnP/NAT-PMP forwarding. | [netbridge.md](netbridge.md) |
 | `requirements` | OS, CPU, memory, and disk validation against an arrow's declared requirement block. **TODO — package exists but is not wired into the engine container or any usecase yet.** | — |
 
 Engines that need event sourcing (`netbridge`) hold their own private Asynx aggregate inside their `internal/` subtree. The other engines are stateless, save for the on-disk cache in `vault`.
 
-`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), and constraint resolvers. `wizard` decomposes into a runtime layer (process spawn, signal, alive checks) and per-step-type handlers.
+`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), and constraint resolvers. `wizard` decomposes into a runtime layer (process spawn, signal, alive checks), per-step-type handlers, and the shelf (OS entry placement and `PATH`), reached only through its `expose`/`unexpose` steps and `PathStatus`/`SetupPath`.
 
 ---
 
@@ -217,7 +217,7 @@ For the REST endpoint catalog see [http-api.md](http-api.md). For WebSocket fram
 | Identity | `Namespace`, `Method` |
 | Aggregates | `Arrow` (with `ArrowMeta`, `ArrowState`, transitions), `Collection`, `CollectionArrow`, `CollectionArrowEntry` |
 | Manifest fragments | `Variable`, `VariableType`, `Requirement`, `Target`, `TargetLifecycle` |
-| Runtime sub-tree | `domain/runtime` — `ArrowRuntime`, `Execution`, `ExecutionOutcome`, `StepProgress` and the typed `step/` hierarchy (`Step`, `RunStep`, `FetchStep`, `SignalStep`, `DependenciesStep`) |
+| Runtime sub-tree | `domain/runtime` — `ArrowRuntime`, `Execution`, `ExecutionOutcome`, `StepProgress` and the typed `step/` hierarchy (`Step`, `RunStep`, `FetchStep`, `ExtractStep`, `PortableStep`, `SignalStep`, `DependenciesStep`) |
 | Networking | `domain/netbridge` — `Protocol`, `PortDef` |
 | Misc | `OS`, `Credit`, `DependencyEdge` |
 

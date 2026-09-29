@@ -15,12 +15,27 @@ import (
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
-// providerFor finds one host's outcome in a job summary.
+// providersIn returns the outcomes one pass reported, one per host.
+func providersIn(
+	summary apidto.DiscoveryJobDTO,
+	pass string,
+) []apidto.DiscoveryProviderDTO {
+	var outcomes []apidto.DiscoveryProviderDTO
+	for _, p := range summary.Providers {
+		if p.Pass == pass {
+			outcomes = append(outcomes, p)
+		}
+	}
+	return outcomes
+}
+
+// providerFor finds one host's outcome for one pass in a job summary.
 func providerFor(
 	summary apidto.DiscoveryJobDTO,
 	host string,
+	pass string,
 ) (apidto.DiscoveryProviderDTO, bool) {
-	for _, p := range summary.Providers {
+	for _, p := range providersIn(summary, pass) {
 		if p.Host == host {
 			return p, true
 		}
@@ -52,11 +67,15 @@ func (s *SearchSuite) TestDiscover_Start_ReturnsAJobAndCompletes() {
 	s.Equal(2, summary.Verified)
 	s.Zero(summary.Skipped)
 
-	s.Require().Len(summary.Providers, 1)
-	s.Equal(fixtureHost, summary.Providers[0].Host)
-	s.True(summary.Providers[0].OK)
-	s.Equal(2, summary.Providers[0].Returned)
-	s.Empty(summary.Providers[0].Reason)
+	s.Require().Len(summary.Providers, 2, "one outcome per host per pass")
+	for _, pass := range []string{discovery.PassTagged, discovery.PassUnmarked} {
+		outcomes := providersIn(summary, pass)
+		s.Require().Len(outcomes, 1, pass)
+		s.Equal(fixtureHost, outcomes[0].Host, pass)
+		s.True(outcomes[0].OK, pass)
+		s.Equal(2, outcomes[0].Returned, pass)
+		s.Empty(outcomes[0].Reason, pass)
+	}
 
 	s.Equal(metadata.GetDiscovery().Topics, prov.topicsAsked(),
 		"a candidate is asked for by the discovery markers, never by a hardcoded topic")
@@ -185,7 +204,7 @@ func (s *SearchSuite) TestDiscover_Provider_RateLimitIsDistinguishableFromNoResu
 	s.Zero(summary.Found)
 	s.Zero(summary.Verified)
 
-	outcome, ok := providerFor(summary, fixtureHost)
+	outcome, ok := providerFor(summary, fixtureHost, discovery.PassTagged)
 	s.Require().True(ok)
 	s.False(outcome.OK, "a rate-limited host is not an ok host that found nothing")
 	s.Equal(discovery.ReasonRateLimited, outcome.Reason)
@@ -204,7 +223,7 @@ func (s *SearchSuite) TestDiscover_Provider_RateLimitWithoutAHintReportsNoRetryA
 	s.Require().Equal(http.StatusAccepted, status)
 
 	summary := s.waitForCompleted(tc, job.JobID)
-	outcome, ok := providerFor(summary, fixtureHost)
+	outcome, ok := providerFor(summary, fixtureHost, discovery.PassTagged)
 	s.Require().True(ok)
 	s.False(outcome.OK)
 	s.Equal(discovery.ReasonRateLimited, outcome.Reason)
@@ -224,7 +243,7 @@ func (s *SearchSuite) TestDiscover_Provider_EmptyResultIsAnOkHostThatFoundNothin
 	s.Zero(summary.Verified)
 	s.Zero(summary.Skipped)
 
-	outcome, ok := providerFor(summary, fixtureHost)
+	outcome, ok := providerFor(summary, fixtureHost, discovery.PassTagged)
 	s.Require().True(ok)
 	s.True(outcome.OK, "an empty result set is a working host, not a failure")
 	s.Zero(outcome.Returned)
@@ -277,7 +296,7 @@ func (s *SearchSuite) TestDiscover_Provider_FailuresAreReportedPerHost() {
 			s.Equal(string(usecases.JobCompleted), summary.Status,
 				"a broken host still completes the job")
 
-			outcome, ok := providerFor(summary, fixtureHost)
+			outcome, ok := providerFor(summary, fixtureHost, discovery.PassTagged)
 			s.Require().True(ok)
 			s.False(outcome.OK)
 			s.Equal(tc.wantReason, outcome.Reason)
@@ -300,17 +319,21 @@ func (s *SearchSuite) TestDiscover_Provider_PartialSuccessKeepsTheHealthyHost() 
 	summary := s.waitForCompleted(tc, job.JobID)
 	s.Equal(1, summary.Found, "one host down does not cost the other host's results")
 	s.Equal(1, summary.Verified)
-	s.Require().Len(summary.Providers, 2)
+	s.Require().Len(summary.Providers, 4, "one outcome per host per pass")
+	s.Len(providersIn(summary, discovery.PassTagged), 2)
+	s.Len(providersIn(summary, discovery.PassUnmarked), 2)
 
-	good, ok := providerFor(summary, fixtureHost)
-	s.Require().True(ok)
-	s.True(good.OK)
-	s.Equal(1, good.Returned)
+	for _, pass := range []string{discovery.PassTagged, discovery.PassUnmarked} {
+		good, ok := providerFor(summary, fixtureHost, pass)
+		s.Require().True(ok, pass)
+		s.True(good.OK, pass)
+		s.Equal(1, good.Returned, pass)
 
-	bad, ok := providerFor(summary, secondHost)
-	s.Require().True(ok)
-	s.False(bad.OK)
-	s.Equal(discovery.ReasonRateLimited, bad.Reason)
+		bad, ok := providerFor(summary, secondHost, pass)
+		s.Require().True(ok, pass)
+		s.False(bad.OK, pass)
+		s.Equal(discovery.ReasonRateLimited, bad.Reason, pass)
+	}
 
 	results, status := tc.Search("widget", kit.SearchParams{})
 	s.Equal(http.StatusOK, status)

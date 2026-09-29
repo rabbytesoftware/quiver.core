@@ -13,6 +13,8 @@ type ArrowDTO struct {
 	Media         domain.ArrowMedia `json:"media" yaml:"media"`
 	UserInstalled bool              `json:"user_installed" yaml:"user_installed"`
 	LastUsedAt    string            `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
+	Origin        string            `json:"origin" yaml:"origin"`
+	Inference     *InferenceDTO     `json:"inference,omitempty" yaml:"inference,omitempty"`
 }
 
 func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
@@ -28,6 +30,8 @@ func ArrowDTOFrom(a domain.Arrow) ArrowDTO {
 		Media:         a.Media,
 		UserInstalled: a.UserInstalled,
 		LastUsedAt:    lastUsedAt,
+		Origin:        a.Origin(),
+		Inference:     InferenceDTOFrom(a.Generator),
 	}
 }
 
