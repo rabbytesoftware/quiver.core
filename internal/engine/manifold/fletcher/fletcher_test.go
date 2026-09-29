@@ -15,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
+	manifoldModels "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 )
 
@@ -25,18 +26,18 @@ const (
 
 type noReleases struct{}
 
-func (noReleases) LatestStable(
+func (noReleases) ResolveLatestStable(
 	_ context.Context,
 	_ domain.Namespace,
 ) (string, error) {
 	return "", nil
 }
 
-func (noReleases) LatestUnstable(
+func (noReleases) ListChannels(
 	_ context.Context,
 	_ domain.Namespace,
-) (string, error) {
-	return "", nil
+) ([]manifoldModels.ChannelInfo, error) {
+	return nil, nil
 }
 
 func (noReleases) ResolveDefaultBranch(

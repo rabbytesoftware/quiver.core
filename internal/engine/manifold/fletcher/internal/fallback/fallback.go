@@ -96,8 +96,8 @@ func (f *fallback) draftFromReleases(
 
 func (f *fallback) releaseSources() []func(context.Context, domain.Namespace) (string, error) {
 	return []func(context.Context, domain.Namespace) (string, error){
-		f.releases.LatestStable,
-		f.releases.LatestUnstable,
+		f.latestStable,
+		f.latestUnstable,
 	}
 }
 

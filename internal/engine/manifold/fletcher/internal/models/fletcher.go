@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	manifoldModels "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 )
 
 type Fletcher interface {
@@ -15,18 +16,18 @@ type Fletcher interface {
 }
 
 type Releases interface {
-	LatestStable(
+	ResolveLatestStable(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
 
-	LatestUnstable(
+	ListChannels(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (string, error)
+	) ([]manifoldModels.ChannelInfo, error)
 
 	ResolveDefaultBranch(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (string, string, error)
+	) (branch, hash string, err error)
 }

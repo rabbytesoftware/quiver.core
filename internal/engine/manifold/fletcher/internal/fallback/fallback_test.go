@@ -16,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
+	manifoldModels "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 )
 
@@ -37,26 +38,34 @@ func (s *stubDrafter) Draft(
 
 type stubReleases struct {
 	stable      string
+	stableErr   error
 	unstable    string
+	channels    []manifoldModels.ChannelInfo
 	unstableErr error
 	branch      string
 	branchErr   error
 	stableCalls int
 }
 
-func (s *stubReleases) LatestStable(
+func (s *stubReleases) ResolveLatestStable(
 	_ context.Context,
 	_ domain.Namespace,
 ) (string, error) {
 	s.stableCalls++
-	return s.stable, nil
+	return s.stable, s.stableErr
 }
 
-func (s *stubReleases) LatestUnstable(
+func (s *stubReleases) ListChannels(
 	_ context.Context,
 	_ domain.Namespace,
-) (string, error) {
-	return s.unstable, s.unstableErr
+) ([]manifoldModels.ChannelInfo, error) {
+	if s.unstableErr != nil {
+		return nil, s.unstableErr
+	}
+	if s.channels != nil || s.unstable == "" {
+		return s.channels, nil
+	}
+	return []manifoldModels.ChannelInfo{{Name: "beta", Kind: "ordered", Latest: s.unstable}}, nil
 }
 
 func (s *stubReleases) ResolveDefaultBranch(
@@ -384,4 +393,63 @@ func TestRecover_NoReleaseTagFletchesNothing(t *testing.T) {
 	assert.ErrorIs(t, err, models.ErrNotFletchable)
 	assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
 	assert.Empty(t, drafter.fletchTags)
+}
+
+func TestRecover_ReleaseLookupPolicy(t *testing.T) {
+	boom := errors.New("lookup failed")
+	testCases := []struct {
+		name     string
+		releases *stubReleases
+		wantTags []string
+		wantErr  error
+	}{
+		{
+			name:     "no latest stable is a miss",
+			releases: &stubReleases{stableErr: fmt.Errorf("wrap: %w", manifoldModels.ErrNoLatestStable), unstable: "v3.0.0-rc1"},
+			wantTags: []string{"v3.0.0-rc1"},
+		},
+		{
+			name:     "no tag in channel is a miss",
+			releases: &stubReleases{stable: "v2.0.0", unstableErr: fmt.Errorf("wrap: %w", manifoldModels.ErrNoTagInChannel)},
+			wantTags: []string{"v2.0.0"},
+		},
+		{
+			name:     "other stable lookup failure surfaces",
+			releases: &stubReleases{stableErr: boom},
+			wantErr:  boom,
+		},
+		{
+			name: "stable and default branch fallback channels are skipped",
+			releases: &stubReleases{channels: []manifoldModels.ChannelInfo{
+				{Name: "stable", Latest: "v2.0.0"},
+				{Name: "main", Latest: "main", IsDefaultBranchFallback: true},
+				{Name: "beta", Latest: "v3.0.0-beta.2"},
+				{Name: "nightly", Latest: "nightly"},
+			}},
+			wantTags: []string{"v3.0.0-beta.2"},
+		},
+		{
+			name: "only skipped channels is a miss",
+			releases: &stubReleases{channels: []manifoldModels.ChannelInfo{
+				{Name: "stable", Latest: "v2.0.0"},
+				{Name: "main", Latest: "main", IsDefaultBranchFallback: true},
+			}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			drafter := &stubDrafter{answer: draftAt(t, "none")}
+			f := fallback.New(hosts.None, tc.releases, drafter)
+
+			_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
+
+			require.Error(t, err)
+			assert.Equal(t, tc.wantTags, drafter.fletchTags)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
+		})
+	}
 }
