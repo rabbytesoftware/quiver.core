@@ -3252,3 +3252,405 @@ func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 	assert.NotErrorIs(t, err, apperrors.ErrFetchFailed)
 }
+
+// ─── Advance / Adopt ─────────────────────────────────────────────────────────
+
+func rollingNs() domain.Namespace {
+	return domain.Namespace("github.com/user/repo@nightly-latest")
+}
+
+func seedSelectorRow(
+	t *testing.T,
+	axArrow asynx.Asynx[domain.Arrow],
+	ns domain.Namespace,
+	kind domain.SelectorKind,
+	resolved domain.Resolved,
+) {
+	t.Helper()
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Old"},
+		DirectInstall: true,
+		SelectorKind:  kind,
+		Resolved:      resolved,
+	})
+	require.NoError(t, err)
+}
+
+// failOnNetworkManifold answers ParseArrow and fails the test on any remote
+// fetch, so a test proves a method never touched the network.
+func failOnNetworkManifold(t *testing.T, parsed *domain.Arrow) *mocks.Manifold {
+	t.Helper()
+	return &mocks.Manifold{
+		ParseArrowResult: parsed,
+		ResolveArrowFunc: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error) {
+			t.Errorf("ResolveArrow(%s) must never be called", ns)
+			return nil, nil, "", errors.New("network")
+		},
+		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _ string) (*domain.Arrow, []byte, string, error) {
+			t.Errorf("ResolveArrowAtCommit(%s) must never be called", ns)
+			return nil, nil, "", errors.New("network")
+		},
+	}
+}
+
+func TestAdvance_MovesTheSameRowToTheTarget(t *testing.T) {
+	ns := rollingNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	var projected []domain.Arrow
+	var mu sync.Mutex
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, a domain.Arrow) error {
+			mu.Lock()
+			defer mu.Unlock()
+			projected = append(projected, a)
+			return nil
+		},
+	}
+	v := &mocks.Vault{}
+	var fetchedCommit string
+	m := &mocks.Manifold{
+		ResolveArrowAtCommitFn: func(_ context.Context, got domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+			assert.Equal(t, ns, got)
+			fetchedCommit = commit
+			return &domain.Arrow{Namespace: got, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+	hub := &recordingHub{}
+	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, v, m, hub)
+	require.NoError(t, err)
+
+	var updated, removed atomic.Int32
+	require.NoError(t, cat.OnArrowUpdated(func(_ context.Context, _ domain.Namespace, _ *domain.Arrow) error {
+		updated.Add(1)
+		return nil
+	}))
+	require.NoError(t, cat.OnArrowRemoved(func(_ context.Context, _ domain.Namespace) error {
+		removed.Add(1)
+		return nil
+	}))
+
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"})
+	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{
+		Namespace: ns,
+		Available: &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, cat.Advance(context.Background(), ns, domain.Available{Ref: "nightly-latest", Commit: "new222"}))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, domain.Resolved{Ref: "nightly-latest", Commit: "new222", Fingerprint: "new222"}, got.Resolved)
+	assert.Nil(t, got.Available)
+	assert.Equal(t, "New", got.Name)
+	assert.True(t, got.UserInstalled)
+	assert.Equal(t, "new222", fetchedCommit)
+
+	exists, err := axArrow.Exists(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.Zero(t, removed.Load(), "an advance must never forget the row")
+	assert.Equal(t, int32(1), updated.Load(), "an advance must re-sync the dependency graph")
+
+	assert.Equal(t, []string{"delete " + ns.String(), "put " + ns.String()}, v.ArrowOps)
+	require.NotEmpty(t, v.PutArrowFiles)
+	assert.NotNil(t, v.PutArrowFiles[len(v.PutArrowFiles)-1].Meta)
+
+	mu.Lock()
+	last := projected[len(projected)-1]
+	mu.Unlock()
+	assert.Equal(t, "new222", last.Resolved.Commit, "the read model must carry the advanced row")
+	assert.Nil(t, last.Available)
+	assert.Equal(t, apphub.CatalogUpserted, hub.kinds()[len(hub.kinds())-1])
+}
+
+func TestAdvance_MissingRow_ReturnsNotFound(t *testing.T) {
+	m := failOnNetworkManifold(t, nil)
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), &mocks.Vault{}, m)
+
+	err := cat.Advance(context.Background(), rollingNs(), domain.Available{Ref: "nightly-latest", Commit: "c1"})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestAdvance_FailureChangesNothing(t *testing.T) {
+	testCases := []struct {
+		name      string
+		vault     *mocks.Vault
+		fetchErr  error
+		wantErrIs error
+	}{
+		{
+			name:      "fetch at the target commit fails",
+			vault:     &mocks.Vault{},
+			fetchErr:  errors.New("503"),
+			wantErrIs: apperrors.ErrFetchFailed,
+		},
+		{
+			name:  "the stale cache entry cannot be deleted",
+			vault: &mocks.Vault{DeleteArrowErr: errors.New("busy")},
+		},
+		{
+			name:  "the vault cache write fails",
+			vault: &mocks.Vault{PutArrowErr: errors.New("disk full")},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := rollingNs()
+			axArrow := newTestAsynxArrow(t)
+			before := domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"}
+			seedSelectorRow(t, axArrow, ns, domain.SelectorPin, before)
+			m := &mocks.Manifold{
+				ResolveArrowAtCommitResult: &domain.Arrow{Namespace: ns},
+				ResolveArrowAtCommitErr:    tc.fetchErr,
+			}
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, tc.vault, m)
+
+			err := cat.Advance(context.Background(), ns, domain.Available{Ref: "nightly-latest", Commit: "new222"})
+
+			require.Error(t, err)
+			if tc.wantErrIs != nil {
+				assert.ErrorIs(t, err, tc.wantErrIs)
+			}
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, before, got.Resolved)
+		})
+	}
+}
+
+func TestAdvance_AsynxFailures_AreMapped(t *testing.T) {
+	testCases := []struct {
+		name      string
+		ax        *arrowMocks.AsynxArrow
+		wantErrIs error
+	}{
+		{
+			name: "existence check fails",
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, errors.New("db down") },
+			},
+		},
+		{
+			name: "the advance is rejected",
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+				SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrValidation)
+				},
+			},
+			wantErrIs: apperrors.ErrStateViolation,
+		},
+		{
+			name: "the advance fails to send",
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+				SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, errors.New("closed")
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := rollingNs()
+			m := &mocks.Manifold{ResolveArrowAtCommitResult: &domain.Arrow{Namespace: ns}}
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, tc.ax, &mocks.Vault{}, m)
+
+			err := cat.Advance(context.Background(), ns, domain.Available{Ref: "nightly-latest", Commit: "c1"})
+
+			require.Error(t, err)
+			if tc.wantErrIs != nil {
+				assert.ErrorIs(t, err, tc.wantErrIs)
+			}
+		})
+	}
+}
+
+func TestAdopt_AbsentRow_CreatesItOffline(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	axArrow := newTestAsynxArrow(t)
+	v := &mocks.Vault{}
+	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver"}})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "abc123"}
+
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "Quiver", got.Name)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.True(t, got.UserInstalled)
+	assert.Equal(t, []string{"put " + ns.String()}, v.ArrowOps)
+	assert.Zero(t, m.ResolveArrowCalls)
+}
+
+func TestAdopt_PresentRow_AdvancesIt(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	axArrow := newTestAsynxArrow(t)
+	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.1.0", Commit: "old111"})
+	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver 1.2"}})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "new222", Fingerprint: "new222"}
+
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.Equal(t, "Quiver 1.2", got.Name)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+}
+
+func TestAdopt_UnchangedResolved_IsANoOp(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	axArrow := newTestAsynxArrow(t)
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "abc123"}
+	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, resolved)
+	available := &domain.Available{Ref: "v1.3.0", Commit: "def456"}
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+	require.NoError(t, err)
+	m := failOnNetworkManifold(t, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Changed"}})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, resolved, []byte("manifest")))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, "Old", got.Name, "an unchanged adopt must not rewrite the row")
+	assert.Equal(t, available, got.Available)
+}
+
+func TestAdopt_Failures(t *testing.T) {
+	validNs := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	testCases := []struct {
+		name      string
+		ns        domain.Namespace
+		manifold  *mocks.Manifold
+		vault     *mocks.Vault
+		ax        *arrowMocks.AsynxArrow
+		wantErrIs error
+	}{
+		{
+			name:      "invalid namespace",
+			ns:        domain.Namespace("not a namespace"),
+			manifold:  &mocks.Manifold{},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidNamespace,
+		},
+		{
+			name:      "namespace without a selector",
+			ns:        domain.Namespace("github.com/rabbytesoftware/quiver.core"),
+			manifold:  &mocks.Manifold{},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidNamespace,
+		},
+		{
+			name:      "manifest does not parse",
+			ns:        validNs,
+			manifold:  &mocks.Manifold{ParseArrowErr: errors.New("bad yaml")},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidManifest,
+		},
+		{
+			name:     "vault write fails",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{PutArrowErr: errors.New("disk full")},
+		},
+		{
+			name:     "existence check fails",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, errors.New("db down") },
+			},
+		},
+		{
+			name:     "reading the present row fails",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+				GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
+					return domain.Arrow{}, errors.New("db down")
+				},
+			},
+		},
+		{
+			name:     "the create is rejected",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, nil },
+				SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrValidation)
+				},
+			},
+			wantErrIs: apperrors.ErrStateViolation,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := newTestAsynxArrow(t)
+			if tc.ax != nil {
+				ax = tc.ax
+			}
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, tc.vault, tc.manifold)
+
+			err := cat.Adopt(context.Background(), tc.ns, domain.SelectorChannel,
+				domain.Resolved{Ref: "v1.2.0", Commit: "abc123"}, []byte("manifest"))
+
+			require.Error(t, err)
+			if tc.wantErrIs != nil {
+				assert.ErrorIs(t, err, tc.wantErrIs)
+			}
+		})
+	}
+}
+
+func TestProjectAvailableChecked_ReachesTheReadModel(t *testing.T) {
+	ns := rollingNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+
+	var mu sync.Mutex
+	var projected []domain.Arrow
+	r := &arrowStoreMocks.MockCQRS{
+		ProjectFn: func(_ context.Context, a domain.Arrow) error {
+			mu.Lock()
+			defer mu.Unlock()
+			projected = append(projected, a)
+			return nil
+		},
+	}
+	hub := &recordingHub{}
+	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
+	require.NotNil(t, cat)
+
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "nightly-latest", Commit: "old111"})
+	available := &domain.Available{Ref: "nightly-latest", Commit: "new222"}
+	_, err := axArrow.SendWait(context.Background(), arrowcmds.RecordAvailable{Namespace: ns, Available: available})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, projected, 2)
+	assert.Equal(t, available, projected[1].Available)
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted, apphub.CatalogUpserted}, hub.kinds())
+}

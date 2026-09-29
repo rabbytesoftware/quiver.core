@@ -109,6 +109,22 @@ type Arrow interface {
 		ns domain.Namespace,
 		refCommit string,
 	) error
+	// Advance moves ns's row in place to target, refreshing its cached
+	// manifest to the one at target's commit.
+	Advance(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) error
+	// Adopt registers already-installed state for ns from manifest bytes the
+	// caller holds, creating the row or advancing it, without any network.
+	Adopt(
+		ctx context.Context,
+		ns domain.Namespace,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+	) error
 	ValidateManifest(
 		ctx context.Context,
 		data []byte,
@@ -291,9 +307,11 @@ func (s *arrowService) registerProjections() error {
 		{"arrow.added.*", s.projectAdded},
 		{"arrow.upgraded.*", s.projectUpgraded},
 		{"arrow.updated.*", s.projectUpdated},
+		{"arrow.advanced.*", s.projectUpdated},
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
 		{"arrow.version_checked.*", s.projectVersionCheck},
+		{"arrow.available_checked.*", s.projectVersionCheck},
 		{"arrow.channel_set.*", s.projectChannelSet},
 	}
 

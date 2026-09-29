@@ -16,6 +16,10 @@ type Vault struct {
 	// writes a manifest the vault lane of search can never answer with, and a
 	// call count alone cannot tell that apart from a correct write.
 	PutArrowFiles []vault.ManifestFile
+	// ArrowOps records every DeleteArrow and PutArrow as "delete <ns>" or
+	// "put <ns>", in call order, so a test can assert a cache was replaced
+	// for the right namespace and in the right order.
+	ArrowOps []string
 
 	PutArrowNotFoundErr   error
 	PutArrowNotFoundCalls int
@@ -65,10 +69,11 @@ func (m *Vault) GetArrow(
 
 func (m *Vault) PutArrow(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 	file vault.ManifestFile,
 ) error {
 	m.PutArrowCalls++
+	m.ArrowOps = append(m.ArrowOps, "put "+ns.String())
 	m.PutArrowFiles = append(m.PutArrowFiles, file)
 	return m.PutArrowErr
 }
@@ -84,9 +89,10 @@ func (m *Vault) PutArrowNotFound(
 
 func (m *Vault) DeleteArrow(
 	_ context.Context,
-	_ domain.Namespace,
+	ns domain.Namespace,
 ) error {
 	m.DeleteArrowCalls++
+	m.ArrowOps = append(m.ArrowOps, "delete "+ns.String())
 	return m.DeleteArrowErr
 }
 

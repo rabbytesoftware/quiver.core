@@ -137,6 +137,18 @@ type MockArrow struct {
 		userInstalled bool,
 		pinnedRef string,
 	) (*domain.Arrow, error)
+	AdvanceFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) error
+	AdoptFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+	) error
 	UpgradeVersionSeededFn func(
 		ctx context.Context,
 		oldNs domain.Namespace,
@@ -474,6 +486,30 @@ func (m *MockArrow) UpgradeVersionSeeded(
 ) error {
 	if m.UpgradeVersionSeededFn != nil {
 		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data, refCommit)
+	}
+	return nil
+}
+
+func (m *MockArrow) Advance(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) error {
+	if m.AdvanceFn != nil {
+		return m.AdvanceFn(ctx, ns, target)
+	}
+	return nil
+}
+
+func (m *MockArrow) Adopt(
+	ctx context.Context,
+	ns domain.Namespace,
+	kind domain.SelectorKind,
+	resolved domain.Resolved,
+	manifest []byte,
+) error {
+	if m.AdoptFn != nil {
+		return m.AdoptFn(ctx, ns, kind, resolved, manifest)
 	}
 	return nil
 }

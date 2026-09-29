@@ -21,6 +21,8 @@ type AddArrow struct {
 	RefIsBranch         bool
 	RefCommitSHA        string
 	Channel             string
+	SelectorKind        domain.SelectorKind
+	Resolved            domain.Resolved
 }
 
 func (c AddArrow) AggregateID() string {
@@ -59,5 +61,7 @@ func (c AddArrow) EmitEvent(
 		RefIsBranch:         c.RefIsBranch,
 		RefCommitSHA:        c.RefCommitSHA,
 		Channel:             c.Channel,
+		SelectorKind:        c.SelectorKind,
+		Resolved:            c.Resolved,
 	}
 }

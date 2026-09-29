@@ -904,6 +904,170 @@ func TestSetChannel_EmptyRef_ClearsPreviousPin(t *testing.T) {
 	assert.Empty(t, got.PinnedRef, "an empty Ref must clear the previously pinned ref")
 }
 
+// ─── AddArrow selector state ─────────────────────────────────────────────────
+
+func TestAddArrow_SelectorKindAndResolved_RoundTrip(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@stable")
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "sha256:ff"}
+
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorChannel,
+		Resolved:      resolved,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.Nil(t, got.Available)
+}
+
+// ─── AdvanceArrow ────────────────────────────────────────────────────────────
+
+func TestAdvanceArrow_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.AdvanceArrow{Namespace: testNs()})
+
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestAdvanceArrow_ReplacesManifestAndResolved_PreservesRowState(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@nightly-latest")
+	installedAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	lastUsedAt := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
+
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Old"},
+		Readme:        "old readme",
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorPin,
+		Resolved:      domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"},
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.MarkInstalled{Namespace: ns, InstalledAt: installedAt})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.MarkLastUsed{Namespace: ns, LastUsedAt: lastUsedAt})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.RecordAvailable{
+		Namespace: ns,
+		Available: &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+	})
+	require.NoError(t, err)
+
+	target := domain.Resolved{Ref: "nightly-latest", Commit: "new222", Fingerprint: "new222"}
+	targets := map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}}
+	variables := []domain.Variable{{Name: "PORT"}}
+	_, err = ax.Send(context.Background(), commands.AdvanceArrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "New"},
+		Variables: variables,
+		Targets:   targets,
+		Readme:    "new readme",
+		Resolved:  target,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "New", got.Name)
+	assert.Equal(t, "new readme", got.Readme)
+	assert.Equal(t, variables, got.Variables)
+	assert.Equal(t, targets, got.Targets)
+	assert.Equal(t, target, got.Resolved)
+	assert.Nil(t, got.Available)
+	assert.True(t, installedAt.Equal(got.InstalledAt))
+	assert.True(t, lastUsedAt.Equal(got.LastUsedAt))
+	assert.True(t, got.UserInstalled)
+	assert.Equal(t, domain.SelectorPin, got.SelectorKind)
+}
+
+func TestAdvanceArrow_PreservesStoredSelectorKind(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@v1.*")
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:    ns,
+		SelectorKind: domain.SelectorConstraint,
+	})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.AdvanceArrow{
+		Namespace: ns,
+		Resolved:  domain.Resolved{Ref: "v1.3.0", Commit: "c3"},
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.SelectorConstraint, got.SelectorKind)
+	assert.Equal(t, "v1.3.0", got.Resolved.Ref)
+}
+
+// ─── RecordAvailable ─────────────────────────────────────────────────────────
+
+func TestRecordAvailable_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.RecordAvailable{
+		Namespace: testNs(),
+		Available: &domain.Available{Ref: "v1.1.0", Commit: "c1"},
+	})
+
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+func TestRecordAvailable_SetsAndClears(t *testing.T) {
+	testCases := []struct {
+		name      string
+		available []*domain.Available
+		want      *domain.Available
+	}{
+		{
+			name:      "sets the available ref",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}},
+			want:      &domain.Available{Ref: "v1.1.0", Commit: "c1"},
+		},
+		{
+			name:      "a later check overwrites the earlier one",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}, {Ref: "v1.2.0", Commit: "c2"}},
+			want:      &domain.Available{Ref: "v1.2.0", Commit: "c2"},
+		},
+		{
+			name:      "nil clears it",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}, nil},
+			want:      nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := testNs()
+			seedArrow(t, ax, ns, true)
+
+			for _, a := range tc.available {
+				_, err := ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: a})
+				require.NoError(t, err)
+			}
+
+			got, err := ax.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Available)
+			assert.Equal(t, "Test Arrow", got.Name)
+			assert.True(t, got.UserInstalled)
+		})
+	}
+}
+
 // ─── Validate helpers ─────────────────────────────────────────────────────────
 
 func isValidationErr(err error) bool {
