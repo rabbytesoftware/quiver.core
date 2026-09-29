@@ -27,7 +27,6 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 				State:       domain.ArrowStateReady,
 				InstalledAt: installedAt,
 				LastUsedAt:  lastUsedAt,
-				Constraint:  "^1.0.0",
 			},
 		},
 	}
@@ -41,7 +40,6 @@ func TestArrowListItemDTOFrom(t *testing.T) {
 	assert.Equal(t, "ready", d.Versions[0].State)
 	assert.Equal(t, "2026-04-11T15:33:00Z", d.Versions[0].InstalledAt)
 	assert.Equal(t, "2026-08-01T09:30:00Z", d.Versions[0].LastUsedAt)
-	assert.Equal(t, "^1.0.0", d.Versions[0].Constraint)
 }
 
 func TestArrowListItemDTOFrom_NeverUsed_LastUsedAtOmitted(t *testing.T) {

@@ -78,12 +78,6 @@ type Vault interface {
 		ns domain.Namespace,
 	) error
 
-	RenameArrow(
-		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-	) error
-
 	ListVersions(
 		ctx context.Context,
 		ns domain.Namespace,

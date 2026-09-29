@@ -52,7 +52,6 @@ func ViewDetail(d apidto.ArrowDetailDTO, t theme.Theme) string {
 	fields = field(fields, "Description", d.Description)
 	fields = field(fields, "License", d.License)
 	fields = field(fields, "Tags", strings.Join(d.Tags, ", "))
-	fields = field(fields, "Constraint", d.InstalledConstraint)
 	fields = field(fields, "Installed", d.InstalledAt)
 	return component.Fields("ARROW", fields, t)
 }

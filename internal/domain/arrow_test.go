@@ -131,8 +131,7 @@ func TestArrowState_CanTransitionTo_UnknownStateRejectsAll(t *testing.T) {
 // is a place for the two answers to drift apart, so neither may exist.
 func TestArrow_HasNoFieldRestatingTheNamespaceRef(t *testing.T) {
 	blob, err := json.Marshal(Arrow{
-		Namespace:           Namespace("github.com/user/repo@v1.0.0"),
-		InstalledConstraint: "v1.*",
+		Namespace: Namespace("github.com/user/repo@v1.0.0"),
 	})
 	require.NoError(t, err)
 
@@ -142,7 +141,6 @@ func TestArrow_HasNoFieldRestatingTheNamespaceRef(t *testing.T) {
 	assert.NotContains(t, decoded, "resolved_branch")
 	assert.NotContains(t, decoded, "installed_ref")
 	assert.Equal(t, "github.com/user/repo@v1.0.0", decoded["namespace"])
-	assert.Equal(t, "v1.*", decoded["installed_constraint"])
 
 	for _, field := range []string{"ResolvedBranch", "InstalledRef"} {
 		_, found := reflect.TypeOf(Arrow{}).FieldByName(field)
@@ -169,36 +167,32 @@ func TestArrow_UnmarshalsLegacyEventWithRemovedRefFields(t *testing.T) {
 	assert.False(t, arrow.InstalledAt.IsZero())
 }
 
-// The version-check fields round-trip through the same encoding/json path the
-// Manifest JSON blob column relies on — a regression here breaks storage, not
-// just serialization.
-func TestArrow_JSONRoundTrip_VersionCheckFields(t *testing.T) {
-	a := Arrow{
-		Namespace:      Namespace("github.com/user/repo@main"),
-		RefIsBranch:    true,
-		RefCommitSHA:   "abc123",
-		Outdated:       true,
-		RecommendedRef: "v2.0.0",
-	}
+// Rows and events written before selectors existed carry the channel, pin,
+// constraint, branch and upgrade keys. encoding/json ignores them, and the
+// zero selector kind makes such a row a pin of its own ref.
+func TestArrow_UnmarshalsLegacyBlobAsPin(t *testing.T) {
+	legacy := []byte(`{
+		"namespace": "github.com/user/repo@v1.0.0",
+		"installed_at": "2026-04-11T15:33:00Z",
+		"channel": "stable",
+		"pinned_ref": "v1.0.0",
+		"installed_constraint": "v1.*",
+		"ref_is_branch": true,
+		"ref_commit_sha": "abc123",
+		"outdated": true,
+		"recommended_ref": "v2.0.0",
+		"upgraded_from_ns": "github.com/user/repo@v0.9.0",
+		"already_ready": true
+	}`)
 
-	data, err := json.Marshal(a)
-	require.NoError(t, err)
+	var arrow Arrow
+	require.NoError(t, json.Unmarshal(legacy, &arrow))
 
-	var got Arrow
-	require.NoError(t, json.Unmarshal(data, &got))
-	assert.Equal(t, a.RefIsBranch, got.RefIsBranch)
-	assert.Equal(t, a.RefCommitSHA, got.RefCommitSHA)
-	assert.Equal(t, a.Outdated, got.Outdated)
-	assert.Equal(t, a.RecommendedRef, got.RecommendedRef)
-}
-
-func TestArrow_VersionCheckFields_ZeroValueByDefault(t *testing.T) {
-	var a Arrow
-
-	assert.False(t, a.RefIsBranch)
-	assert.Empty(t, a.RefCommitSHA)
-	assert.False(t, a.Outdated)
-	assert.Empty(t, a.RecommendedRef)
+	assert.Equal(t, Namespace("github.com/user/repo@v1.0.0"), arrow.Namespace)
+	assert.False(t, arrow.InstalledAt.IsZero())
+	assert.Equal(t, SelectorPin, arrow.SelectorKind)
+	assert.Equal(t, Resolved{}, arrow.Resolved)
+	assert.Nil(t, arrow.Available)
 }
 
 // TestArrowState_TransitionsMatchSpecDiagram enforces the invariant

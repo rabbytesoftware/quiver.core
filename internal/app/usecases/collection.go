@@ -18,10 +18,13 @@ import (
 )
 
 type arrowCache interface {
-	Seed(
+	Adopt(
 		ctx context.Context,
 		ns domain.Namespace,
-		data []byte,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
 	) error
 	ResolveManifest(
 		ctx context.Context,
@@ -118,11 +121,11 @@ func (u *quiverUsecase) Follow(
 	for _, arrow := range coll.Arrows {
 		arrowNS := arrow.Namespace
 		seedLocal := func() error {
-			_, b, _, e := u.manifold.ResolveArrowAt(ctx, arrowNS, arrow.SourcePath)
+			_, b, filename, e := u.manifold.ResolveArrowAt(ctx, arrowNS, arrow.SourcePath)
 			if e != nil {
 				return e
 			}
-			return u.arrows.Seed(ctx, arrowNS, b)
+			return u.arrows.Adopt(ctx, arrowNS, domain.SelectorPin, domain.Resolved{Ref: arrowNS.Ref()}, b, filename)
 		}
 		resolveRemote := func() error {
 			_, e := u.arrows.ResolveManifest(ctx, arrowNS)

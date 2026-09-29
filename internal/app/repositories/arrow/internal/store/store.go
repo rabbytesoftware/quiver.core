@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store/internal/storage"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
@@ -44,11 +42,6 @@ type Store interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	ResolveForInstall(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-	) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error)
 	// ResolveInstall settles the identity a namespace is installed under and
 	// what that identity resolves to right now: a refless namespace follows
 	// its repository's default channel, any other keeps its ref as the
@@ -105,33 +98,6 @@ type Store interface {
 		ns domain.Namespace,
 		lastCheckedAt time.Time,
 	) (bool, error)
-	// CheckVersionDrift re-resolves arrow's namespace against the remote and
-	// reports whether a better ref exists. ok is false whenever any resolution
-	// step errors — the caller must not write a guessed answer in that case.
-	CheckVersionDrift(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) (outdated bool, recommendedRef string, ok bool)
-	// ResolveTrackedRef resolves the ref arrow should be at right now:
-	// constraint-first when InstalledConstraint is set, its tracked channel's
-	// latest otherwise (stable when no channel is tracked either). This is
-	// the single source of truth CheckVersionDrift's own checkTagDrift
-	// already uses, exported so an explicit upgrade (usecases/arrow.go's
-	// upgradeRef) resolves its target the identical way the passive
-	// drift-check does, rather than a second, independently maintained copy
-	// of the same constraint-then-channel rule.
-	ResolveTrackedRef(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) (string, error)
-	// PointerCommit reports the commit ns's ref currently points at when that
-	// ref is a rolling pointer tag, and "" for any other ref or when the
-	// remote cannot say. It is what an upgrade stamps onto the arrow it moves
-	// onto a pointer tag, so a later drift check has something to compare.
-	PointerCommit(
-		ctx context.Context,
-		ns domain.Namespace,
-	) string
 }
 
 type storeService struct {
@@ -140,7 +106,6 @@ type storeService struct {
 	resolveManifest ResolveFunc
 	vault           vault.Vault
 	manifold        manifold.Manifold
-	platforms       metadata.Platforms
 	clock           func() time.Time
 	versionCheckTTL time.Duration
 }
@@ -181,7 +146,6 @@ func newStore(
 		resolveManifest: newResolver(v, m),
 		vault:           v,
 		manifold:        m,
-		platforms:       metadata.GetPlatforms(),
 		clock:           clock,
 		versionCheckTTL: resolveVersionCheckTTL(),
 	}, nil
@@ -379,9 +343,8 @@ func (r *storeService) GetManifest(
 // ResolveManifest resolves a namespace's manifest, live if the vault has
 // never cached it or the cache has gone stale. A ref-less namespace resolves
 // to whatever this arrow is already catalogued at, so repeated calls agree
-// with the version Add committed to instead of re-guessing "latest" through a
-// narrower path than Add itself used. An arrow not yet catalogued falls back
-// to the same cascade ResolveForInstall uses to pick a ref for it. The
+// with the version Add committed to. An arrow not yet catalogued resolves the
+// way Add would install it. The
 // returned arrow's Namespace is stamped with whichever ref was actually
 // resolved: a manifest declares no version of its own, so manifold parsing
 // never sets it.
@@ -395,7 +358,6 @@ func (r *storeService) ResolveManifest(
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
 		arrow.Namespace = ns
-		arrow.RefCommitSHA = r.PointerCommit(ctx, ns)
 		return arrow, nil
 	}
 
@@ -427,7 +389,7 @@ func (r *storeService) resolveAtRef(
 // ResolveCatalogued maps a namespace as the caller typed it onto the one the
 // catalog actually holds it under.
 //
-// ResolveForInstall guarantees nothing refless ever reaches the catalog, while
+// ResolveInstall guarantees nothing refless ever reaches the catalog, while
 // every command accepts a refless namespace. Without this the namespace that
 // arrow add has just accepted is rejected by install as not found.
 //
@@ -470,11 +432,11 @@ func (r *storeService) resolveCatalogedOrLatest(
 		return nil, fmt.Errorf("catalog lookup: %w", err)
 	}
 	if vm == nil {
-		resolvedNs, arrow, _, err := r.resolveRefless(ctx, ns, "")
+		identity, arrow, err := r.ResolveInstall(ctx, ns)
 		if err != nil {
 			return nil, err
 		}
-		arrow.Namespace = resolvedNs
+		arrow.Namespace = identity
 		return arrow, nil
 	}
 
@@ -484,251 +446,6 @@ func (r *storeService) resolveCatalogedOrLatest(
 	}
 	arrow.Namespace = vm.Metadata.Namespace
 	return arrow, nil
-}
-
-// ResolveForInstall settles the concrete ref a namespace will live under. A
-// glob resolves through its constraint, a refless namespace through the
-// requested channel (stable by default), and an explicit ref is taken as
-// written. The returned namespace always carries a ref, so nothing refless
-// ever reaches the catalog. Every path stamps Channel on the resolved arrow,
-// though only the refless path uses channel to drive resolution — the other
-// paths derive it from whatever ref they already settled on.
-func (r *storeService) ResolveForInstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
-	if ns.IsGlob() {
-		return r.resolveGlob(ctx, ns)
-	}
-	if ns.Ref() == "" {
-		return r.resolveRefless(ctx, ns, channel)
-	}
-
-	arrow, err = r.resolveManifest(ctx, ns)
-	if err != nil {
-		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
-	}
-	if c, ok := manifold.ClassifyChannel(ns.Ref()); ok {
-		arrow.Channel = c
-	}
-	if r.isPointerTag(ctx, ns, ns.Ref()) {
-		arrow.Channel = ns.Ref()
-		arrow.RefCommitSHA = r.PointerCommit(ctx, ns)
-	}
-	return ns, arrow, "", nil
-}
-
-func (r *storeService) resolveGlob(
-	ctx context.Context,
-	ns domain.Namespace,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	constraint := ns.Ref()
-
-	resolved, err := r.manifold.ResolveConstraint(ctx, ns, constraint)
-	if err != nil {
-		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
-	}
-
-	resolvedNs := ns.WithRef(resolved)
-	arrow, err := r.resolveManifest(ctx, resolvedNs)
-	if err != nil {
-		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
-	}
-	if c, ok := manifold.ClassifyChannel(resolved); ok {
-		arrow.Channel = c
-	}
-	return resolvedNs, arrow, constraint, nil
-}
-
-func (r *storeService) resolveRefless(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	if channel == "" {
-		channel = manifold.StableChannel
-	}
-	ref, err := r.manifold.ResolveLatestInChannel(ctx, ns, channel)
-	if err == nil && ref != "" {
-		resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(ref))
-		if resolveErr != nil {
-			return resolvedNs, arrow, constraint, resolveErr
-		}
-		arrow.Channel = channel
-		return resolvedNs, arrow, constraint, nil
-	}
-
-	if resolvedNs, arrow, constraint, ok := r.resolveBestOtherChannel(ctx, ns, channel); ok {
-		return resolvedNs, arrow, constraint, nil
-	}
-
-	return r.resolveDefaultBranch(ctx, ns)
-}
-
-func (r *storeService) resolveBestOtherChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	triedChannel string,
-) (domain.Namespace, *domain.Arrow, string, bool) {
-	channels, err := r.manifold.ListChannels(ctx, ns)
-	if err != nil || len(channels) == 0 {
-		return ns, nil, "", false
-	}
-
-	for _, candidate := range channels {
-		if candidate.Name == triedChannel || candidate.Latest == "" || candidate.IsDefaultBranchFallback {
-			continue
-		}
-
-		resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(candidate.Latest))
-		if resolveErr != nil {
-			continue
-		}
-		arrow.Channel = candidate.Name
-		return resolvedNs, arrow, constraint, true
-	}
-
-	return ns, nil, "", false
-}
-
-// resolveDefaultBranch asks git which branch the repository's HEAD points at.
-// That works on every host, so the configured branch list is only reached when
-// the remote cannot be listed at all — a raw fetch may still succeed there.
-// The resolved arrow is stamped RefIsBranch/RefCommitSHA: this is a mutable
-// ref, not a pinned release, and a later version check needs the hash to tell
-// whether the branch has since moved. Channel is stamped only when branch is
-// itself a genuine, listed channel (see channelIsListed) — a repository that
-// actually publishes real channels elsewhere must not have this arrow
-// "track" a raw branch snapshot that never appears as an option in its own
-// channel listing.
-func (r *storeService) resolveDefaultBranch(
-	ctx context.Context,
-	ns domain.Namespace,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, ns)
-	if err != nil || branch == "" {
-		return r.resolveConfiguredBranch(ctx, ns)
-	}
-	resolvedNs, arrow, constraint, resolveErr := r.resolveAt(ctx, ns.WithRef(branch))
-	if resolveErr != nil {
-		return resolvedNs, arrow, constraint, resolveErr
-	}
-	arrow.RefIsBranch = true
-	arrow.RefCommitSHA = hash
-	if r.channelIsListed(ctx, ns, branch) {
-		arrow.Channel = branch
-	}
-	return resolvedNs, arrow, constraint, nil
-}
-
-// resolveConfiguredBranch walks the platform's default branches in order and
-// keeps the one that served the manifest: that branch is what the arrow was
-// resolved at, so it is the ref the arrow is recorded under. Channel is
-// stamped only when the branch is itself a genuine, listed channel — see
-// resolveDefaultBranch's own doc comment for why.
-func (r *storeService) resolveConfiguredBranch(
-	ctx context.Context,
-	ns domain.Namespace,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	branches := r.platforms[ns.Domain()].DefaultBranches
-	if len(branches) == 0 {
-		return ns, nil, "", fmt.Errorf(
-			"reader resolve for install %s: no stable release and no default branch to fall back to: %w",
-			ns, apperrors.ErrNotFound,
-		)
-	}
-
-	var lastErr error
-	for _, branch := range branches {
-		candidate := ns.WithRef(branch)
-		arrow, err := r.resolveManifest(ctx, candidate)
-		if err == nil {
-			if r.channelIsListed(ctx, ns, branch) {
-				arrow.Channel = branch
-			}
-			return candidate, arrow, "", nil
-		}
-		lastErr = err
-	}
-
-	return ns, nil, "", fmt.Errorf("reader resolve for install: %w", lastErr)
-}
-
-// channelIsListed reports whether branch appears as a genuine, selectable
-// channel in ns's own ListChannels result — the single source of truth
-// ListChannels itself already is (it excludes the default branch whenever
-// the repository has any real tag at all), so a raw-branch fallback here
-// checks against that same result rather than re-deriving "does this repo
-// have tags" a second, separate way and risking the two drifting apart
-// again. A ListChannels error means "not confirmed", not "assume
-// legitimate": the fallback branch resolution still succeeds, just without
-// asserting a channel that couldn't be verified.
-func (r *storeService) channelIsListed(
-	ctx context.Context,
-	ns domain.Namespace,
-	branch string,
-) bool {
-	channels, err := r.manifold.ListChannels(ctx, ns)
-	if err != nil {
-		return false
-	}
-	for _, c := range channels {
-		if c.Name == branch && !c.IsDefaultBranchFallback {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *storeService) resolveAt(
-	ctx context.Context,
-	resolvedNs domain.Namespace,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	arrow, err := r.resolveManifest(ctx, resolvedNs)
-	if err != nil {
-		return resolvedNs, nil, "", fmt.Errorf("reader resolve for install: %w", err)
-	}
-	arrow.RefCommitSHA = r.PointerCommit(ctx, resolvedNs)
-	return resolvedNs, arrow, "", nil
-}
-
-func (r *storeService) PointerCommit(
-	ctx context.Context,
-	ns domain.Namespace,
-) string {
-	ref := ns.Ref()
-	if ref == "" {
-		return ""
-	}
-	if !r.isPointerTag(ctx, ns, ref) {
-		return ""
-	}
-	hash, err := r.manifold.ResolveRefCommit(ctx, ns)
-	if err != nil {
-		return ""
-	}
-	return hash
-}
-
-// isPointerTag reports whether ref is a rolling tag: a listed pointer channel
-// whose only member is that tag. A synthetic default-branch entry is not one;
-// branches are tracked through their own RefIsBranch path.
-func (r *storeService) isPointerTag(
-	ctx context.Context,
-	ns domain.Namespace,
-	ref string,
-) bool {
-	channels, err := r.manifold.ListChannels(ctx, ns)
-	if err != nil {
-		return false
-	}
-	for _, c := range channels {
-		if c.Kind == "pointer" && !c.IsDefaultBranchFallback && c.Latest == ref {
-			return true
-		}
-	}
-	return false
 }
 
 // Search translates the storage result into the app-layer contract: the
@@ -767,133 +484,6 @@ func refsOf(
 		refs = append(refs, vr.Namespace.Ref())
 	}
 	return refs
-}
-
-// CheckVersionDrift re-resolves arrow's namespace and reports whether a
-// better ref exists. The legacy raw branch-hash comparison (checkBranchDrift)
-// only applies to a true no-channel branch install: resolveDefaultBranch can
-// stamp BOTH RefIsBranch and a genuine, listed Channel on the same row (the
-// branch happens to also be a real channel), and once a Channel is set it
-// takes priority — checkTagDrift/ResolveTrackedRef is channel- (and
-// PinnedRef-) aware, whereas checkBranchDrift only ever compares against the
-// repository's default branch, blind to whatever channel or pin the user
-// actually chose. A branch-tracked arrow with no channel at all is still
-// checked against tags first — once a repository has real tags, a branch is
-// never again the answer, however long ago it was resolved onto one.
-func (r *storeService) CheckVersionDrift(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (bool, string, bool) {
-	if arrow.RefIsBranch && arrow.Channel == "" {
-		return r.checkBranchDrift(ctx, arrow)
-	}
-	return r.checkTagDrift(ctx, arrow)
-}
-
-func (r *storeService) checkBranchDrift(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (bool, string, bool) {
-	latestTag, err := r.manifold.ResolveLatestStable(ctx, arrow.Namespace)
-	if err == nil && latestTag != "" {
-		return true, latestTag, true
-	}
-	if err != nil && !errors.Is(err, manifold.ErrNoLatestStable) {
-		return false, "", false
-	}
-
-	branch, hash, err := r.manifold.ResolveDefaultBranch(ctx, arrow.Namespace)
-	if err != nil {
-		return false, "", false
-	}
-
-	if ref, ok := r.firstOtherChannelRef(ctx, arrow.Namespace, branch); ok {
-		return true, ref, true
-	}
-
-	if branch != arrow.Namespace.Ref() || hash != arrow.RefCommitSHA {
-		return true, "", true
-	}
-	return false, "", true
-}
-
-func (r *storeService) firstOtherChannelRef(
-	ctx context.Context,
-	ns domain.Namespace,
-	currentRef string,
-) (string, bool) {
-	channels, err := r.manifold.ListChannels(ctx, ns)
-	if err != nil {
-		return "", false
-	}
-	for _, c := range channels {
-		if c.Name == manifold.StableChannel || c.Latest == "" || c.Latest == currentRef {
-			continue
-		}
-		return c.Latest, true
-	}
-	return "", false
-}
-
-func (r *storeService) checkTagDrift(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (bool, string, bool) {
-	latest, err := r.ResolveTrackedRef(ctx, arrow)
-	if err != nil {
-		return false, "", false
-	}
-	if r.isPointerTag(ctx, arrow.Namespace, latest) {
-		return r.checkPointerDrift(ctx, arrow, latest)
-	}
-	if latest != arrow.Namespace.Ref() {
-		return true, latest, true
-	}
-	return false, "", true
-}
-
-// checkPointerDrift compares commits rather than names: a rolling tag keeps
-// its name while it is force-moved onto new commits, so the ref alone can
-// never show drift. An arrow with no recorded commit cannot prove it is
-// current, so it is reported behind until an update stamps one.
-func (r *storeService) checkPointerDrift(
-	ctx context.Context,
-	arrow domain.Arrow,
-	pointer string,
-) (bool, string, bool) {
-	remote, err := r.manifold.ResolveRefCommit(ctx, arrow.Namespace.WithRef(pointer))
-	if err != nil {
-		return false, "", false
-	}
-	if arrow.RefCommitSHA != "" && remote == arrow.RefCommitSHA {
-		return false, "", true
-	}
-	return true, pointer, true
-}
-
-func (r *storeService) ResolveTrackedRef(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (string, error) {
-	if arrow.InstalledConstraint != "" {
-		return r.manifold.ResolveConstraint(ctx, arrow.Namespace, arrow.InstalledConstraint)
-	}
-	if arrow.PinnedRef != "" {
-		return arrow.PinnedRef, nil
-	}
-	if arrow.Channel == "" && r.isPointerTag(ctx, arrow.Namespace, arrow.Namespace.Ref()) {
-		return arrow.Namespace.Ref(), nil
-	}
-	return r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channelOf(arrow))
-}
-
-func channelOf(
-	arrow domain.Arrow,
-) string {
-	if arrow.Channel == "" {
-		return manifold.StableChannel
-	}
-	return arrow.Channel
 }
 
 func findVersionRef(

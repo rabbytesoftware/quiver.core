@@ -13,7 +13,6 @@ type InstalledVersionItemDTO struct {
 	State       string `json:"state" yaml:"state"`
 	InstalledAt string `json:"installed_at" yaml:"installed_at"`
 	LastUsedAt  string `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
-	Constraint  string `json:"constraint,omitempty" yaml:"constraint,omitempty"`
 }
 
 type ArrowListItemDTO struct {
@@ -39,7 +38,6 @@ func ArrowListItemDTOFrom(
 			State:       string(v.State),
 			InstalledAt: v.InstalledAt.Format("2006-01-02T15:04:05Z07:00"),
 			LastUsedAt:  lastUsedAt,
-			Constraint:  v.Constraint,
 		})
 	}
 	return ArrowListItemDTO{

@@ -16,15 +16,11 @@ type MockCQRS struct {
 	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error)
 	ResolveCataloguedFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, error)
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
 	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace, lastCheckedAt time.Time) (bool, error)
-	CheckVersionDriftFn func(ctx context.Context, arrow domain.Arrow) (outdated bool, recommendedRef string, ok bool)
-	ResolveTrackedRefFn func(ctx context.Context, arrow domain.Arrow) (string, error)
-	PointerCommitFn     func(ctx context.Context, ns domain.Namespace) string
 	ResolveInstallFn    func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error)
 	CheckDriftFn        func(ctx context.Context, arrow domain.Arrow) (*domain.Available, bool)
 }
@@ -79,17 +75,6 @@ func (m *MockCQRS) ResolveManifest(
 	return nil, nil
 }
 
-func (m *MockCQRS) ResolveForInstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns, channel)
-	}
-	return ns, nil, "", nil
-}
-
 func (m *MockCQRS) ResolveCatalogued(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -139,36 +124,6 @@ func (m *MockCQRS) NeedsVersionCheck(
 		return m.NeedsVersionCheckFn(ctx, ns, lastCheckedAt)
 	}
 	return false, nil
-}
-
-func (m *MockCQRS) CheckVersionDrift(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (bool, string, bool) {
-	if m.CheckVersionDriftFn != nil {
-		return m.CheckVersionDriftFn(ctx, arrow)
-	}
-	return false, "", false
-}
-
-func (m *MockCQRS) ResolveTrackedRef(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (string, error) {
-	if m.ResolveTrackedRefFn != nil {
-		return m.ResolveTrackedRefFn(ctx, arrow)
-	}
-	return "", nil
-}
-
-func (m *MockCQRS) PointerCommit(
-	ctx context.Context,
-	ns domain.Namespace,
-) string {
-	if m.PointerCommitFn != nil {
-		return m.PointerCommitFn(ctx, ns)
-	}
-	return ""
 }
 
 func (m *MockCQRS) ResolveInstall(

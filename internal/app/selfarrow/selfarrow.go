@@ -14,7 +14,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // UpdatedBinaryName is the name the self-arrow's update fetch step downloads
@@ -59,7 +58,6 @@ type runtimeMarker interface {
 	MarkReady(
 		ctx context.Context,
 		ns domain.Namespace,
-		lastReturn *domainRuntime.Return,
 	) error
 }
 
@@ -130,7 +128,7 @@ func settleRuntime(
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	if state == domain.ArrowStateAbsent {
-		if err := rt.MarkReady(ctx, ns, nil); err != nil {
+		if err := rt.MarkReady(ctx, ns); err != nil {
 			return fmt.Errorf("selfarrow: ensure registered: %w", err)
 		}
 		return nil

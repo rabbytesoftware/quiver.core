@@ -114,7 +114,7 @@ func (u *arrowUsecase) Add(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return u.arrow.Add(ctx, ns, models.AddOptions{})
+	return u.arrow.Add(ctx, ns)
 }
 
 func (u *arrowUsecase) Remove(
@@ -305,12 +305,16 @@ func (u *arrowUsecase) GetDependencies(
 	return u.graph.Resolve(ctx, ns)
 }
 
+// seededFilename is what a manifest posted to the seed endpoint is cached as.
+const seededFilename = "ARROW.md"
+
+// Seed registers posted manifest bytes as a pin of ns's own ref.
 func (u *arrowUsecase) Seed(
 	ctx context.Context,
 	ns domain.Namespace,
 	data []byte,
 ) error {
-	return u.arrow.Seed(ctx, ns, data)
+	return u.arrow.Adopt(ctx, ns, domain.SelectorPin, domain.Resolved{Ref: ns.Ref()}, data, seededFilename)
 }
 
 func edgesToNs(edges []domain.DependencyEdge) []domain.Namespace {

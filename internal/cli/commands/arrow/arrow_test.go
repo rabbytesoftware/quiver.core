@@ -478,7 +478,6 @@ func TestViewDetail_OmitsEmptyOptionalFields(t *testing.T) {
 	assert.NotContains(t, got, "Description")
 	assert.NotContains(t, got, "License")
 	assert.NotContains(t, got, "Tags")
-	assert.NotContains(t, got, "Constraint")
 	assert.NotContains(t, got, "Installed")
 }
 
@@ -487,11 +486,10 @@ func TestViewDetail_IncludesAllPopulatedFields(t *testing.T) {
 
 	got := arrow.ViewDetail(apidto.ArrowDetailDTO{
 		Namespace: testNS, Name: "App", State: "ready",
-		Description:         "An app",
-		License:             "MIT",
-		Tags:                []string{"web", "cli"},
-		InstalledConstraint: ">=1.0.0",
-		InstalledAt:         "2026-01-01T00:00:00Z",
+		Description: "An app",
+		License:     "MIT",
+		Tags:        []string{"web", "cli"},
+		InstalledAt: "2026-01-01T00:00:00Z",
 	}, th)
 	assert.Contains(t, got, "Description")
 	assert.Contains(t, got, "An app")
@@ -499,6 +497,5 @@ func TestViewDetail_IncludesAllPopulatedFields(t *testing.T) {
 	assert.Contains(t, got, "MIT")
 	assert.Contains(t, got, "Tags")
 	assert.Contains(t, got, "web, cli")
-	assert.Contains(t, got, "Constraint")
 	assert.Contains(t, got, "Installed")
 }

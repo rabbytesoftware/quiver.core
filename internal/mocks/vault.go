@@ -30,7 +30,6 @@ type Vault struct {
 
 	DeleteArrowErr   error
 	DeleteArrowCalls int
-	RenameArrowErr   error
 	ListVersionsResp []string
 	ListVersionsErr  error
 
@@ -94,14 +93,6 @@ func (m *Vault) DeleteArrow(
 	m.DeleteArrowCalls++
 	m.ArrowOps = append(m.ArrowOps, "delete "+ns.String())
 	return m.DeleteArrowErr
-}
-
-func (m *Vault) RenameArrow(
-	_ context.Context,
-	_ domain.Namespace,
-	_ domain.Namespace,
-) error {
-	return m.RenameArrowErr
 }
 
 func (m *Vault) ListVersions(

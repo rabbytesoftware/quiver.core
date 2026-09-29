@@ -10,11 +10,7 @@ import (
 )
 
 // RecordPreinstalled lands an arrow at Ready without an install ever having
-// run. Two callers use it: an ordinary preinstalled detection, where nothing
-// ran and LastReturn stays nil, and a catalog swap raised after an arrow's
-// own update already succeeded (domain.Arrow.AlreadyReady; see
-// onArrowUpgraded), which sets LastReturn to carry that outcome onto a brand
-// new aggregate that never ran anything itself.
+// run, keeping whatever return history the aggregate already had.
 //
 // Ready is an accepted current state, alongside no-aggregate and Absent, so
 // the command stays idempotent: Add writes the runtime before the catalog
@@ -22,8 +18,6 @@ import (
 // on rather than trip over.
 type RecordPreinstalled struct {
 	Namespace domain.Namespace
-	// LastReturn is set only by the catalog-swap caller.
-	LastReturn *domainRuntime.Return
 }
 
 func (c RecordPreinstalled) AggregateID() string {
@@ -54,17 +48,14 @@ func (c RecordPreinstalled) Validate(current *domainRuntime.ArrowRuntime) error 
 
 func (c RecordPreinstalled) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	next := domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      domain.ArrowStateReady,
-		LastReturn: c.LastReturn,
+		Ref:   c.Namespace,
+		State: domain.ArrowStateReady,
 	}
 	if current == nil {
 		return next
 	}
 
-	if next.LastReturn == nil {
-		next.LastReturn = current.LastReturn
-	}
+	next.LastReturn = current.LastReturn
 	next.PendingDepSync = current.PendingDepSync
 
 	return next

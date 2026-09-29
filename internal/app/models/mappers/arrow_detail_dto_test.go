@@ -1,7 +1,6 @@
 package mappers_test
 
 import (
-	"reflect"
 	"testing"
 	"time"
 
@@ -31,15 +30,11 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 				Description: "desc",
 				Tags:        []string{"t"},
 			},
-			Variables:           []domain.Variable{{Name: "VAR"}},
-			InstalledAt:         at,
-			LastUsedAt:          lastUsed,
-			InstalledConstraint: "^1.0.0",
-			UserInstalled:       true,
-			Outdated:            true,
-			RecommendedRef:      "v2.0.0",
-			RefIsBranch:         true,
-			RefCommitSHA:        "abc123",
+			Variables:     []domain.Variable{{Name: "VAR"}},
+			InstalledAt:   at,
+			LastUsedAt:    lastUsed,
+			UserInstalled: true,
+			Available:     &domain.Available{Ref: "v2.0.0", Commit: "c2"},
 		},
 		State: domain.ArrowStateRunning,
 		LastReturn: &domainRuntime.Return{
@@ -58,36 +53,11 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, []domain.Variable{{Name: "VAR"}}, result.Variables)
 	assert.Equal(t, at, result.InstalledAt)
 	assert.Equal(t, lastUsed, result.LastUsedAt)
-	assert.Equal(t, "^1.0.0", result.InstalledConstraint)
 	assert.True(t, result.UserInstalled)
 	assert.True(t, result.Outdated)
-	assert.Equal(t, "v2.0.0", result.RecommendedRef)
 	assert.Equal(t, domain.ArrowStateRunning, result.State)
 	assert.Nil(t, result.ActiveRun)
 	assert.Equal(t, domain.MethodExecute, result.LastReturn.Method)
-}
-
-// RefIsBranch/RefCommitSHA are internal mechanism fields the design deems
-// "Quiver's internal affair, not the client's" — models.ArrowDetailDTO simply
-// has no fields for them, so this test's real assertion is the absence of
-// those fields on the struct literal above compiling as ArrowDetailDTO at
-// all: there is nothing here to map them into.
-func TestArrowDetailDTOFrom_NeverExposesRefMutabilityFields(t *testing.T) {
-	view := &models.ArrowDetailView{
-		Metadata: domain.Arrow{
-			Namespace:    "github.com/org/repo@develop",
-			RefIsBranch:  true,
-			RefCommitSHA: "abc123",
-		},
-	}
-
-	result := mappers.ArrowDetailDTOFrom(view)
-
-	require.NotNil(t, result)
-	for _, field := range []string{"RefIsBranch", "RefCommitSHA"} {
-		_, found := reflect.TypeOf(*result).FieldByName(field)
-		assert.False(t, found, "ArrowDetailDTO must not declare a %s field", field)
-	}
 }
 
 func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {
@@ -99,4 +69,5 @@ func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {
 
 	require.NotNil(t, result)
 	assert.True(t, result.LastUsedAt.IsZero())
+	assert.False(t, result.Outdated)
 }

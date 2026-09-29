@@ -134,15 +134,10 @@ type Runtime interface {
 	) error
 	// MarkReady lands ns's runtime aggregate at Ready without an install ever
 	// having run, the same outcome MarkPreinstalled records for a preinstalled
-	// detection. Its caller is the arrow.upgraded reaction for a swap raised
-	// after this arrow's own update lifecycle already finished successfully,
-	// see domain.Arrow.AlreadyReady. lastReturn, when non-nil, carries that
-	// completed update's outcome onto the new aggregate; pass nil when there
-	// is none to carry.
+	// detection.
 	MarkReady(
 		ctx context.Context,
 		ns domain.Namespace,
-		lastReturn *domainRuntime.Return,
 	) error
 	Forget(
 		ctx context.Context,
@@ -736,12 +731,11 @@ func (s *runtimeRepository) ClearVersionBadge(
 }
 
 // MarkReady sends the same RecordPreinstalled command MarkPreinstalled sends,
-// as a plain method rather than a construction-time closure: its caller
-// (usecases/runtime.go onArrowUpgraded) already holds a Runtime built by
-// New, so none of MarkPreinstalled's construction-order constraint applies
-// here.
-func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: lastReturn})
+// as a plain method rather than a construction-time closure: its caller holds
+// a Runtime built by New, so none of MarkPreinstalled's construction-order
+// constraint applies here.
+func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace) error {
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns})
 	if err == nil {
 		return nil
 	}

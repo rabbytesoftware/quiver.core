@@ -64,16 +64,15 @@ func TestAdd_ServiceError(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
-// The selector lives in the namespace; a channel sent in the body of a
-// refless add is folded into it.
-func TestAdd_ChannelBodyBecomesTheSelector(t *testing.T) {
+// The selector lives in the namespace alone; a request body is not read.
+func TestAdd_SelectorComesFromThePath(t *testing.T) {
 	testCases := []struct {
 		name string
 		path string
 		want domain.Namespace
 	}{
-		{"refless takes the channel", encodedNS, "github.com/user/repo@beta"},
-		{"a selector in the path wins", encodedNS + "@stable", "github.com/user/repo@stable"},
+		{"refless stays refless", encodedNS, "github.com/user/repo"},
+		{"the path selector is the identity", encodedNS + "@stable", "github.com/user/repo@stable"},
 	}
 
 	for _, tc := range testCases {

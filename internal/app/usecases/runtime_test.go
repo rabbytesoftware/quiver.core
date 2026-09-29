@@ -294,7 +294,7 @@ func TestRuntimeInstall_NoDeps_Success(t *testing.T) {
 	}
 }
 
-func TestRuntimeInstall_AlreadyReady_IsIdempotent(t *testing.T) {
+func TestRuntimeInstall_ReadyArrow_IsIdempotent(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
 	}
@@ -411,7 +411,7 @@ func TestRuntimeInstall_DepAlreadyInstalled(t *testing.T) {
 
 // ─── installOneDep ────────────────────────────────────────────────────────────
 
-func TestInstallOneDep_AlreadyReady_NoWait(t *testing.T) {
+func TestInstallOneDep_ReadyDep_NoWait(t *testing.T) {
 	rt := &ucmocks.MockRuntime{
 		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil

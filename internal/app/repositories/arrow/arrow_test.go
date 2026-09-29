@@ -32,7 +32,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -589,21 +588,6 @@ func TestResolveManifest_DelegatesToCQRS(t *testing.T) {
 	assert.Equal(t, expected, got)
 }
 
-func TestResolveForInstall_DelegatesToCQRS(t *testing.T) {
-	expected := testArrow()
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveForInstallFn: func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error) {
-			return testNs(), expected, "^v1", nil
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-	resolvedNs, arrow, constraint, err := cat.ResolveForInstall(context.Background(), testNs(), "")
-	require.NoError(t, err)
-	assert.Equal(t, testNs(), resolvedNs)
-	assert.Equal(t, expected, arrow)
-	assert.Equal(t, "^v1", constraint)
-}
-
 func TestMarkInstalled_SendsCommand(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
@@ -697,145 +681,6 @@ func TestMarkLastUsed_UnknownNamespace_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSetChannel_SendsCommand(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	expected := testArrow()
-
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
-			return ns, expected, nil
-		},
-	}
-	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
-
-	err := cat.SetChannel(context.Background(), ns, "rc", "")
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "rc", got.Channel)
-}
-
-// TestSetChannel_WithRef_SendsPinnedRef proves ref threads through to the
-// SetChannel command as its Ref field, landing on the aggregate's
-// PinnedRef -- the carry-forward that used to be validated then silently
-// discarded.
-func TestSetChannel_WithRef_SendsPinnedRef(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	expected := testArrow()
-
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveInstallFn: func(context.Context, domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
-			return ns, expected, nil
-		},
-	}
-	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
-
-	err := cat.SetChannel(context.Background(), ns, "beta", "v1.1.0-beta.1")
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "beta", got.Channel)
-	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef)
-}
-
-// TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel
-// guards the exact regression a review caught in commit 45d8fc76: a glob
-// install (resolveGlob) leaves an arrow with BOTH InstalledConstraint set
-// AND a classified Channel. ResolveTrackedRef is constraint-first, so
-// without SetChannel clearing the constraint, switching channel on such an
-// arrow would have zero effect on drift-check resolution ever again —
-// exactly the "dropdown does nothing" bug class this whole feature exists
-// to kill, recurring in a narrower case. This proves the fix end to end:
-// seed a constraint-tracked arrow, switch its channel, and confirm the
-// live aggregate CheckVersionNow feeds into the drift check no longer
-// carries the old constraint.
-func TestSetChannel_OnConstraintTrackedArrow_ClearsConstraintSoDriftUsesChannel(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{
-		Namespace:           ns,
-		InstalledConstraint: "^v1",
-		Channel:             "stable",
-	})
-	require.NoError(t, err)
-
-	var seenArrow atomic.Value
-	r := &arrowStoreMocks.MockCQRS{
-		CheckDriftFn: func(_ context.Context, arrow domain.Arrow) (*domain.Available, bool) {
-			seenArrow.Store(arrow)
-			return nil, true
-		},
-	}
-	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-
-	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta", ""))
-
-	// The switch itself must already be visible on the aggregate: SetChannel
-	// blocks until its write is durable (see CheckVersionNow's own doc
-	// comment for why that is safe to rely on here).
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Empty(t, got.InstalledConstraint, "InstalledConstraint must be cleared by the channel switch")
-	assert.Equal(t, "beta", got.Channel)
-
-	cat.CheckVersionNow(context.Background(), ns)
-	require.Eventually(t, func() bool {
-		_, ok := seenArrow.Load().(domain.Arrow)
-		return ok
-	}, 2*time.Second, 10*time.Millisecond, "CheckDrift was never reached")
-	seen := seenArrow.Load().(domain.Arrow)
-	assert.Empty(t, seen.InstalledConstraint, "the drift check must not see the pre-switch constraint")
-	assert.Equal(t, "beta", seen.Channel, "the drift check must resolve against the newly picked channel")
-}
-
-// TestSetChannel_ClearsStaleOutdatedAndRecommendedRef guards the second half
-// of the same regression: RecordVersionCheck is Outdated's and
-// RecommendedRef's only other writer, and it writes nothing at all when a
-// check errors (e.g. offline) -- so a stale RecommendedRef from the
-// PREVIOUS channel could otherwise survive indefinitely, and since
-// upgradeRef prefers RecommendedRef outright when set, a click on Update
-// right after switching channels could upgrade onto the OLD channel's
-// target instead of the new one.
-func TestSetChannel_ClearsStaleOutdatedAndRecommendedRef(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	_, err := axArrow.SendWait(context.Background(), arrowcmds.AddArrow{Namespace: ns, Channel: "stable"})
-	require.NoError(t, err)
-	_, err = axArrow.SendWait(context.Background(), arrowcmds.RecordVersionCheck{
-		Namespace:      ns,
-		Outdated:       true,
-		RecommendedRef: "stable-v9.9.9",
-	})
-	require.NoError(t, err)
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	require.NoError(t, cat.SetChannel(context.Background(), ns, "beta", ""))
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.False(t, got.Outdated, "Outdated must be cleared by the channel switch")
-	assert.Empty(t, got.RecommendedRef, "a stale RecommendedRef from the old channel must not survive the switch")
-	assert.Equal(t, "beta", got.Channel)
-}
-
-// Nothing tracks a channel for an arrow that is not in the catalog, so a
-// change asked for on an unknown namespace is a state violation rather than
-// a silent no-op.
-func TestSetChannel_UnknownNamespace_Errors(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err := cat.SetChannel(context.Background(), testNs(), "rc", "")
-
-	require.Error(t, err)
-}
-
 func TestForget_UsesAsynxArrow(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	ns := testNs()
@@ -850,83 +695,6 @@ func TestForget_UsesAsynxArrow(t *testing.T) {
 	exists, err := axArrow.Exists(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.False(t, exists)
-}
-
-func TestUpdateManifest_SendsCommand(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-
-	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
-	require.NoError(t, err)
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	updated := &domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Updated Arrow"},
-	}
-	err = cat.UpdateManifest(context.Background(), ns, updated)
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "Updated Arrow", got.Name)
-}
-
-func TestUpdateManifest_RecordsTheCommitTheRefreshResolvedAt(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-
-	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
-	require.NoError(t, err)
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err = cat.UpdateManifest(context.Background(), ns, &domain.Arrow{
-		Namespace:    ns,
-		ArrowMeta:    domain.ArrowMeta{Name: "Updated Arrow"},
-		RefCommitSHA: "bbb222",
-	})
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "bbb222", got.RefCommitSHA)
-}
-
-// TestResolveTrackedRef_DelegatesToStore proves this repository-layer method
-// is a pure passthrough to arrowstore.Store.ResolveTrackedRef — the single
-// source of truth the passive drift-check (checkTagDrift) already uses,
-// exported so usecases/arrow.go's upgradeRef resolves its own target the
-// identical way instead of a second, independently maintained copy.
-func TestResolveTrackedRef_DelegatesToStore(t *testing.T) {
-	arrow := domain.Arrow{Namespace: testNs(), Channel: "beta"}
-	var gotArrow domain.Arrow
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveTrackedRefFn: func(_ context.Context, a domain.Arrow) (string, error) {
-			gotArrow = a
-			return "v1.2.0-beta.1", nil
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-
-	ref, err := cat.ResolveTrackedRef(context.Background(), arrow)
-
-	require.NoError(t, err)
-	assert.Equal(t, "v1.2.0-beta.1", ref)
-	assert.Equal(t, arrow, gotArrow)
-}
-
-func TestResolveTrackedRef_PropagatesStoreError(t *testing.T) {
-	wantErr := errors.New("resolve tracked ref unavailable")
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveTrackedRefFn: func(_ context.Context, _ domain.Arrow) (string, error) {
-			return "", wantErr
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-
-	_, err := cat.ResolveTrackedRef(context.Background(), domain.Arrow{Namespace: testNs()})
-
-	assert.ErrorIs(t, err, wantErr)
 }
 
 func TestListChannels_DelegatesToManifold(t *testing.T) {
@@ -991,7 +759,7 @@ func TestAdd_NewArrow(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns, models.AddOptions{})
+	err := cat.Add(context.Background(), ns)
 	require.NoError(t, err)
 
 	exists, err := axArrow.Exists(context.Background(), ns.String())
@@ -1024,13 +792,12 @@ func TestAdd_StampsIdentityAndSelectorState(t *testing.T) {
 		},
 	}
 	cat := newProjectingTestable(t, r, axArrow)
-	require.NoError(t, cat.Add(context.Background(), requested, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), requested))
 
 	got, err := axArrow.Get(context.Background(), identity.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
 	assert.Equal(t, resolved.Resolved, got.Resolved)
-	assert.Empty(t, got.InstalledConstraint)
 	assert.True(t, got.UserInstalled)
 
 	exists, err := axArrow.Exists(context.Background(), requested.String())
@@ -1076,48 +843,17 @@ func TestAdd_ExistingIdentity_TargetMoved_LeavesRowAndCacheAlone(t *testing.T) {
 	axArrow := newTestAsynxArrow(t)
 	cat := arrowRepo.NewTestable(st, axArrow, v, m)
 
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 	require.Len(t, v.ArrowOps, 2, "a first install caches its manifest")
 
 	commit = "c2"
 	v.ArrowOps = nil
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 
 	assert.Empty(t, v.ArrowOps)
 	got, err := axArrow.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.Equal(t, domain.Resolved{Ref: "nightly", Commit: "c1", Fingerprint: "c1"}, got.Resolved)
-}
-
-func TestAdd_ChannelOption_SelectsTheChannelOfARefless(t *testing.T) {
-	bare := testNs().BareNamespace()
-
-	testCases := []struct {
-		name    string
-		ns      domain.Namespace
-		channel string
-		want    domain.Namespace
-	}{
-		{name: "refless without a channel", ns: bare, want: bare},
-		{name: "refless with a channel", ns: bare, channel: "beta", want: bare.WithRef("beta")},
-		{name: "selector wins over the channel", ns: bare.WithRef("v1.*"), channel: "beta", want: bare.WithRef("v1.*")},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var asked domain.Namespace
-			r := &arrowStoreMocks.MockCQRS{
-				ResolveInstallFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error) {
-					asked = ns
-					return testNs(), testArrow(), nil
-				},
-			}
-			cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-
-			require.NoError(t, cat.Add(context.Background(), tc.ns, models.AddOptions{Channel: tc.channel}))
-			assert.Equal(t, tc.want, asked)
-		})
-	}
 }
 
 func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
@@ -1134,7 +870,7 @@ func TestAdd_ExistingUserInstalled_Noop(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err = cat.Add(context.Background(), ns, models.AddOptions{})
+	err = cat.Add(context.Background(), ns)
 	require.NoError(t, err) // Should be no error - existing user-installed arrow is a no-op
 }
 
@@ -1155,7 +891,7 @@ func TestAdd_ExistingNotUserInstalled_SetsUserInstalled(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err = cat.Add(context.Background(), ns, models.AddOptions{})
+	err = cat.Add(context.Background(), ns)
 	require.NoError(t, err)
 
 	got, err := axArrow.Get(context.Background(), ns.String())
@@ -1194,308 +930,6 @@ func TestShutdown_DelegatesToAsynxArrow(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestUpgradeVersion_FetchesAndAdds(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
-	v := &mocks.Vault{
-		GetArrowErr:    errors.New("not cached"),
-		DeleteArrowErr: nil,
-	}
-
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, "Updated", got.Name)
-}
-
-// TestUpgradeVersion_CarriesConstraintAndChannelTogether guards the
-// regression a review caught right after commit 45d8fc76: upgradeRef used
-// to carry the channel forward via a separate, follow-up SetChannel call
-// after UpgradeVersion returned -- but SetChannel's own EmitEvent
-// unconditionally clears InstalledConstraint (correct for an explicit
-// channel switch, wrong here), so a glob-installed arrow (constraint AND
-// channel both set) lost its constraint on its very first ordinary
-// upgrade. Channel now travels in UpgradeVersion's own event instead, with
-// no follow-up command at all, so both fields land on the new aggregate
-// together and neither one clears the other.
-func TestUpgradeVersion_CarriesConstraintAndChannelTogether(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "v1.0.*", "stable", true, false, false, "")
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.Equal(t, "v1.0.*", got.InstalledConstraint, "InstalledConstraint must survive an ordinary upgrade")
-	assert.Equal(t, "stable", got.Channel)
-}
-
-func TestUpgradeVersion_OntoARollingTag_RecordsItsCommit(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("nightly")
-	m := &mocks.Manifold{
-		ResolveArrowResult:   &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}},
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
-	st := &arrowStoreMocks.MockCQRS{
-		PointerCommitFn: func(_ context.Context, ns domain.Namespace) string {
-			if ns.Ref() == "nightly" {
-				return "bbb222"
-			}
-			return ""
-		},
-	}
-
-	cat := arrowRepo.NewTestable(st, axArrow, v, m)
-	upgraded, err := cat.UpgradeVersion(context.Background(), ns, newNs, "", "nightly", true, false, false, "")
-	require.NoError(t, err)
-	assert.Equal(t, "bbb222", upgraded.RefCommitSHA)
-
-	got, err := axArrow.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.Equal(t, "bbb222", got.RefCommitSHA)
-}
-
-func TestUpgradeVersionSeeded_RecordsTheBuildCommit(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	oldNs := testNs()
-	newNs := oldNs.BareNamespace().WithRef("nightly-latest")
-	m := &mocks.Manifold{ParseArrowResult: testArrow()}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
-	require.NoError(t, cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("bytes"), "a95333b"))
-
-	got, err := axArrow.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.Equal(t, "a95333b", got.RefCommitSHA)
-}
-
-func TestRecordRefCommit(t *testing.T) {
-	testCases := []struct {
-		name   string
-		prior  string
-		record string
-	}{
-		{name: "a new commit is recorded", prior: "aaa111", record: "bbb222"},
-		{name: "the commit the row already carries is left alone", prior: "aaa111", record: "aaa111"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			axArrow := newTestAsynxArrow(t)
-			ns := testNs()
-			_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
-			require.NoError(t, err)
-			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-			require.NoError(t, cat.RecordRefCommit(context.Background(), ns, tc.prior))
-
-			require.NoError(t, cat.RecordRefCommit(context.Background(), ns, tc.record))
-
-			got, err := axArrow.Get(context.Background(), ns.String())
-			require.NoError(t, err)
-			assert.Equal(t, tc.record, got.RefCommitSHA)
-		})
-	}
-}
-
-func TestRecordRefCommit_UnknownArrow_ReturnsError(t *testing.T) {
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, nil)
-
-	err := cat.RecordRefCommit(context.Background(), testNs(), "aaa111")
-
-	require.Error(t, err)
-}
-
-func TestSeedAtCommit(t *testing.T) {
-	testCases := []struct {
-		name    string
-		commit  string
-		wantSHA string
-	}{
-		{name: "new row records the commit", commit: "a95333b", wantSHA: "a95333b"},
-		{name: "plain seed records none", wantSHA: ""},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			axArrow := newTestAsynxArrow(t)
-			ns := testNs()
-			m := &mocks.Manifold{ParseArrowResult: testArrow()}
-			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
-
-			require.NoError(t, cat.SeedAtCommit(context.Background(), ns, []byte("valid manifest"), tc.commit))
-
-			got, err := axArrow.Get(context.Background(), ns.String())
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantSHA, got.RefCommitSHA)
-		})
-	}
-}
-
-// TestUpgradeVersion_UserInstalled_CarriesThrough guards the regression a
-// review caught: UpgradeArrow's EmitEvent used to build the new aggregate
-// without ever setting UserInstalled, silently resetting an arrow the user
-// explicitly installed back to false on its very first upgrade. It also
-// guards the sibling regression a later review caught for PinnedRef: an
-// arrow pinned to a specific ref within a channel must keep that pin across
-// its own upgrade, or the next drift check would silently revert it to
-// tracking the channel's moving latest again.
-func TestUpgradeVersion_UserInstalled_CarriesThrough(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, true, "v1.1.0-beta.1")
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.True(t, got.UserInstalled, "UserInstalled must survive an upgrade")
-	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef, "PinnedRef must survive an upgrade")
-}
-
-// TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly proves the real,
-// filesystem-backed hardening this feature added: UpgradeVersion (through
-// vault.RenameArrow) must not fail just because oldNs was never cached in
-// the vault at all — TTL-swept, never cached, or any other benign reason —
-// since PutArrow writes newNs's own entry fresh right afterward regardless.
-// This uses a real vault.Vault rather than the mock: the mock's RenameArrow
-// always succeeds by default, so it cannot reproduce the "no cached meta
-// file" condition the real vault hit in production.
-func TestUpgradeVersion_NoVaultEntryForOldNs_SucceedsCleanly(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
-
-	v, err := vault.New(t.TempDir(), t.TempDir(), time.Hour)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = v.Close() })
-
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, "Updated", got.Name)
-}
-
-// TestUpgradeVersion_CachesTheNewRefWithIndexMetadata guards the same defect
-// Seed had: caching a manifest without Meta writes the bytes to disk but no
-// vault index row, so the upgraded ref exists on disk and is invisible to the
-// vault lane of search. A call count cannot distinguish that from a good write,
-// which is why the assertion is on the metadata.
-func TestUpgradeVersion_CachesTheNewRefWithIndexMetadata(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{
-		Namespace: newNs,
-		ArrowMeta: domain.ArrowMeta{Name: "Updated"},
-		Targets:   map[domain.OS]domain.Target{domain.OSDarwinARM64: {}},
-	}
-	v := &mocks.Vault{GetArrowErr: errors.New("not cached")}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
-	require.NoError(t, err)
-
-	require.NotEmpty(t, v.PutArrowFiles, "the upgraded ref must be cached")
-	cached := v.PutArrowFiles[len(v.PutArrowFiles)-1]
-	require.NotNil(t, cached.Meta,
-		"a manifest cached without Meta is unreachable through the vault lane of search")
-	assert.Equal(t, "Updated", cached.Meta.Arrow.Name)
-	assert.Equal(t, []domain.OS{domain.OSDarwinARM64}, cached.Meta.OS)
-}
-
-// TestUpgradeVersionSeeded_NeverCallsManifold pins the whole point of this
-// method: quiver.core's own self-registration must never depend on network
-// reachability just to record which version of itself is running. A
-// Manifold whose ResolveArrow always errors would fail this test the moment
-// UpgradeVersionSeeded touched it.
-func TestUpgradeVersionSeeded_NeverCallsManifold(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	oldNs := testNs()
-	newNs := oldNs.BareNamespace().WithRef("v1.1.0")
-	arrow := testArrow()
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{
-		ParseArrowResult: arrow,
-		ResolveArrowErr:  errors.New("must never be reached"),
-	}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), oldNs, newNs, []byte("embedded manifest bytes"), "")
-	require.NoError(t, err)
-
-	got, err := axArrow.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.Equal(t, newNs, got.Namespace)
-	assert.Equal(t, oldNs, got.UpgradedFromNs)
-	assert.True(t, got.AlreadyReady)
-	assert.Empty(t, got.InstalledConstraint)
-}
-
-func TestUpgradeVersionSeeded_InvalidManifest_ReturnsError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	m := &mocks.Manifold{ParseArrowErr: errors.New("bad manifest")}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("bad"), "")
-	require.Error(t, err)
-}
-
-func TestUpgradeVersionSeeded_VaultPutError_ReturnsError(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	arrow := testArrow()
-	v := &mocks.Vault{PutArrowErr: errors.New("put failed")}
-	m := &mocks.Manifold{ParseArrowResult: arrow}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.UpgradeVersionSeeded(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), []byte("data"), "")
-	require.Error(t, err)
-}
-
 // ─── Internal command helpers ──────────────────────────────────────────────
 
 // These replicate the catalog commands to seed test state directly.
@@ -1527,98 +961,6 @@ func addArrowCmdUserInstalled(ns domain.Namespace) asynxModels.Command[domain.Ar
 	return addArrowCommand{ns: ns, userInstalled: true}
 }
 
-func TestAddDep_NewArrow(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	arrow := testArrow()
-	arrow.UserInstalled = false
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err := cat.AddDep(context.Background(), ns, arrow, "")
-	require.NoError(t, err)
-
-	exists, err := axArrow.Exists(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.True(t, exists)
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.False(t, got.UserInstalled)
-}
-
-func TestAddDep_ExistingArrow_AlreadyUserInstalled_Noop(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-
-	// Seed user-installed
-	_, err := axArrow.Send(context.Background(), addArrowCmdUserInstalled(ns))
-	require.NoError(t, err)
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	err = cat.AddDep(context.Background(), ns, testArrow(), "")
-	require.NoError(t, err) // Should be no-op
-}
-
-func TestSeed_ValidManifest(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	arrow := testArrow()
-	arrow.UserInstalled = true
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{ParseArrowResult: arrow}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), ns, []byte("valid manifest content"))
-	require.NoError(t, err)
-
-	exists, err := axArrow.Exists(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.True(t, exists)
-}
-
-func TestSeed_InvalidNamespace(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	// Empty namespace is invalid
-	err := cat.Seed(context.Background(), domain.Namespace(""), []byte("data"))
-	require.Error(t, err)
-}
-
-func TestSeed_InvalidManifest(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{ParseArrowErr: errors.New("bad manifest")}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), testNs(), []byte("bad"))
-	require.Error(t, err)
-}
-
-func TestSeed_ExistingArrow_SetsUserInstalled(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-
-	// Add the arrow first (not user-installed)
-	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
-	require.NoError(t, err)
-
-	arrow := testArrow()
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{ParseArrowResult: arrow}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err = cat.Seed(context.Background(), ns, []byte("valid manifest"))
-	require.NoError(t, err)
-
-	// Arrow should now be marked as user-installed
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.True(t, got.UserInstalled)
-}
-
 func TestValidateManifest_InvalidWithRuleErrors(t *testing.T) {
 	m := &mocks.Manifold{ParseArrowErr: errors.New("some generic parse error")}
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
@@ -1626,29 +968,6 @@ func TestValidateManifest_InvalidWithRuleErrors(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Valid)
 	require.NotEmpty(t, result.Errors)
-}
-
-func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVault(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "Updated"}}
-	v := &mocks.Vault{} // vault should not be called for rename/put
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	// runtimeAlreadyExists=true → skips vault rename
-	got, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, "Updated", got.Name)
-	assert.Equal(t, "v1.1.0", got.Namespace.Ref(), "the upgraded arrow takes its version from the new ref")
-	// Vault rename should NOT have been called when runtime exists
-	assert.Equal(t, 0, v.PutArrowCalls)
 }
 
 func TestValidateManifest_RuleErrors(t *testing.T) {
@@ -1672,97 +991,7 @@ func TestAdd_ResolveInstallError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
-	require.Error(t, err)
-}
-
-// Seeded bytes have no remote to ask for a ref, and nothing inside a manifest
-// is one: the caller has to say which ref these bytes are.
-func TestSeed_BareNamespace_IsRejected(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	arrow := testArrow()
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{ParseArrowResult: arrow}
-
-	bareNs := testNs().BareNamespace() // no ref
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), bareNs, []byte("data"))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidNamespace)
-	assert.Contains(t, err.Error(), string(bareNs))
-	assert.Equal(t, 0, v.PutArrowCalls, "nothing is written for a namespace with no ref")
-
-	exists, err := axArrow.Exists(context.Background(), bareNs.String())
-	require.NoError(t, err)
-	assert.False(t, exists)
-}
-
-// The ref the caller seeds under is the arrow's version, so it has to win over
-// whatever ref the parsed bytes happen to name themselves.
-func TestSeed_VersionComesFromTheRef(t *testing.T) {
-	axArrow := newTestAsynxArrow(t)
-	arrow := testArrow()
-	arrow.Namespace = testNs().BareNamespace().WithRef("nightly")
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{ParseArrowResult: arrow}
-
-	ns := testNs().BareNamespace().WithRef("v3.1.0")
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	require.NoError(t, cat.Seed(context.Background(), ns, []byte("data")))
-
-	got, err := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "v3.1.0", got.Namespace.Ref())
-}
-
-func TestSeed_VaultPutError(t *testing.T) {
-	v := &mocks.Vault{PutArrowErr: errors.New("vault error")}
-	m := &mocks.Manifold{ParseArrowResult: testArrow()}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	err := cat.Seed(context.Background(), testNs(), []byte("data"))
-	require.Error(t, err)
-}
-
-func TestSeed_InvalidNamespace_Error(t *testing.T) {
-	m := &mocks.Manifold{ParseArrowResult: testArrow()}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	// Use a namespace with no version or bare that validates to error
-	err := cat.Seed(context.Background(), domain.Namespace(""), []byte("data"))
-	require.Error(t, err)
-}
-
-func TestUpgradeVersion_ManifoldError(t *testing.T) {
-	m := &mocks.Manifold{ResolveArrowErr: errors.New("fetch failed")}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), testNs().BareNamespace().WithRef("v2"), "^v1", "", false, false, false, "")
-	require.Error(t, err)
-}
-
-func TestUpgradeVersion_VaultPutError(t *testing.T) {
-	newNs := testNs().BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs}
-	v := &mocks.Vault{PutArrowErr: errors.New("put failed")}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false, "")
-	require.Error(t, err)
-}
-
-func TestUpgradeVersion_VaultRenameError(t *testing.T) {
-	newNs := testNs().BareNamespace().WithRef("v1.1.0")
-	newArrow := &domain.Arrow{Namespace: newNs}
-	v := &mocks.Vault{RenameArrowErr: errors.New("rename failed")}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   newArrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), v, m)
-	_, err := cat.UpgradeVersion(context.Background(), testNs(), newNs, "^v1", "", false, false, false, "")
+	err := cat.Add(context.Background(), testNs())
 	require.Error(t, err)
 }
 
@@ -1773,29 +1002,6 @@ func TestRemove_NotFound_NoSeededArrow(t *testing.T) {
 	err := cat.Remove(context.Background(), testNs())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
-}
-
-func TestAddArrowCommand_GetError(t *testing.T) {
-	// To test the getErr != ErrNotFound path, we'd need an asynx that
-	// returns something other than ErrNotFound. This is hard to mock with real asynx.
-	// Instead test the normal path through AddDep with a bad asynx.
-	// This is a best-effort test for the existing branch.
-	axArrow := newTestAsynxArrow(t)
-	ns := testNs()
-	// Seed the arrow as not user-installed
-	_, err := axArrow.Send(context.Background(), addArrowCmd(ns))
-	require.NoError(t, err)
-
-	arrow := testArrow()
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
-	// AddDep with non-user-installed → SetUserInstalled path
-	err = cat.AddDep(context.Background(), ns, arrow, "")
-	require.NoError(t, err)
-
-	// After SetUserInstalled, arrow should be user-installed
-	got, getErr := axArrow.Get(context.Background(), ns.String())
-	require.NoError(t, getErr)
-	assert.True(t, got.UserInstalled)
 }
 
 // ─── arrowRepo.New coverage ─────────────────────────────────────────────────────
@@ -1882,52 +1088,6 @@ func TestNew_TopicSubscribeError(t *testing.T) {
 	require.Error(t, err)
 }
 
-// ─── Seed: addArrowCommand returns non-ErrAlreadyExists error ─────────────────
-
-func TestSeed_AddArrowError_NonErrAlreadyExists(t *testing.T) {
-	ns := testNs()
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			return domain.Arrow{}, asynxModels.ErrNotFound
-		},
-		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			return asynxModels.Event[domain.Arrow]{}, errors.New("send error")
-		},
-	}
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{
-		ParseArrowResult: &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Test"}},
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), ns, []byte("raw"))
-	require.Error(t, err)
-}
-
-// ─── UpgradeVersion: addArrowCommand returns non-ErrAlreadyExists error ───────
-
-func TestUpgradeVersion_AddArrowError(t *testing.T) {
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v2.0.0")
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			return domain.Arrow{}, asynxModels.ErrNotFound
-		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			return asynxModels.Event[domain.Arrow]{}, errors.New("add error")
-		},
-	}
-	arrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   arrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "") // skip vault ops
-	require.Error(t, err)
-}
-
 // ─── addArrowCommand: non-ErrNotFound getErr ──────────────────────────────────
 
 func TestAddArrow_GetReturnsNonErrNotFoundError(t *testing.T) {
@@ -1943,7 +1103,7 @@ func TestAddArrow_GetReturnsNonErrNotFoundError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns, models.AddOptions{})
+	err := cat.Add(context.Background(), ns)
 	require.Error(t, err)
 }
 
@@ -1965,7 +1125,7 @@ func TestAddArrow_SendValidationError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns, models.AddOptions{})
+	err := cat.Add(context.Background(), ns)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrAlreadyExists))
 }
@@ -1986,7 +1146,7 @@ func TestAddArrow_SendPipelineFailedError_ReturnsAlreadyExists(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns, models.AddOptions{})
+	err := cat.Add(context.Background(), ns)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrAlreadyExists))
 }
@@ -2007,7 +1167,7 @@ func TestAddArrow_SendGenericError(t *testing.T) {
 		},
 	}
 	cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
-	err := cat.Add(context.Background(), ns, models.AddOptions{})
+	err := cat.Add(context.Background(), ns)
 	require.Error(t, err)
 }
 
@@ -2022,118 +1182,6 @@ func TestRemove_ExistsError(t *testing.T) {
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
 	err := cat.Remove(context.Background(), testNs())
 	require.Error(t, err)
-}
-
-// ─── Seed: ErrAlreadyExists → UpdateArrowManifest ────────────────────────────
-
-func TestSeed_AlreadyExists_UpdatesManifest(t *testing.T) {
-	ns := testNs()
-	callCount := 0
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			if callCount == 0 {
-				callCount++
-				return domain.Arrow{Namespace: ns}, nil // exists, UserInstalled=false
-			}
-			return domain.Arrow{}, nil
-		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			return asynxModels.Event[domain.Arrow]{}, nil
-		},
-	}
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{
-		ParseArrowResult: &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Seeded"}},
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), ns, []byte("raw"))
-	// addArrowCommand finds existing non-user-installed → sends SetUserInstalled (success)
-	// Then returns nil (not ErrAlreadyExists) → Seed returns nil
-	require.NoError(t, err)
-}
-
-func TestSeed_AlreadyExists_ErrAlreadyExists_UpdatesManifest(t *testing.T) {
-	ns := testNs()
-	var sentManifest arrowcmds.UpdateArrowManifest
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			return domain.Arrow{}, asynxModels.ErrNotFound
-		},
-		SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			// First send (AddArrow) returns ErrValidation → ErrAlreadyExists in addArrowCommand
-			// Second send (UpdateArrowManifest) returns nil
-			if len(cmd.EventName()) > 12 && cmd.EventName()[:12] == "arrow.added." {
-				return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrValidation
-			}
-			sentManifest = cmd.(arrowcmds.UpdateArrowManifest)
-			return asynxModels.Event[domain.Arrow]{}, nil
-		},
-	}
-	v := &mocks.Vault{}
-	m := &mocks.Manifold{
-		ParseArrowResult: &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Seeded"}, Readme: "# Docs"},
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	err := cat.Seed(context.Background(), ns, []byte("raw"))
-	require.NoError(t, err)
-	assert.Equal(t, "# Docs", sentManifest.Readme, "the update falls back to re-sending the seeded manifest's readme")
-}
-
-// ─── UpgradeVersion: DeleteArrow error is logged (soft-fail) ──────────────────
-
-func TestUpgradeVersion_DeleteArrowError_Continues(t *testing.T) {
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v2.0.0")
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			return domain.Arrow{}, asynxModels.ErrNotFound
-		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			return asynxModels.Event[domain.Arrow]{}, nil
-		},
-	}
-	v := &mocks.Vault{
-		DeleteArrowErr: errors.New("delete error"), // soft-fail
-		RenameArrowErr: nil,
-		PutArrowErr:    nil,
-	}
-	arrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   arrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	_, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", false, false, false, "")
-	require.NoError(t, err) // DeleteArrow error is logged, not returned
-}
-
-// ─── UpgradeVersion: runtimeAlreadyExists=true path ──────────────────────────
-
-func TestUpgradeVersion_RuntimeAlreadyExists_SkipsVaultOps(t *testing.T) {
-	ns := testNs()
-	newNs := ns.BareNamespace().WithRef("v2.0.0")
-	axArrow := &arrowMocks.AsynxArrow{
-		GetFn: func(ctx context.Context, id string) (domain.Arrow, error) {
-			return domain.Arrow{}, asynxModels.ErrNotFound
-		},
-		SendFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
-			return asynxModels.Event[domain.Arrow]{}, nil
-		},
-	}
-	v := &mocks.Vault{
-		RenameArrowErr: errors.New("rename should not be called"), // should not be reached
-	}
-	arrow := &domain.Arrow{Namespace: newNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}
-	m := &mocks.Manifold{
-		ResolveArrowResult:   arrow,
-		ResolveArrowRaw:      []byte("raw"),
-		ResolveArrowFilename: "ARROW.md",
-	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, v, m)
-	result, err := cat.UpgradeVersion(context.Background(), ns, newNs, "^v1", "", true, false, false, "") // runtimeAlreadyExists=true
-	require.NoError(t, err)
-	require.NotNil(t, result)
 }
 
 // ─── Callbacks: OnArrowAdded ──────────────────────────────────────────────────
@@ -2165,7 +1213,7 @@ func TestOnArrowAdded_CallbackFiresOnAdd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Trigger by adding an arrow
-	err = cat.Add(context.Background(), ns, models.AddOptions{})
+	err = cat.Add(context.Background(), ns)
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2197,7 +1245,7 @@ func TestOnArrowRemoved_CallbackFiresOnRemove(t *testing.T) {
 	require.NoError(t, err)
 
 	// First add an arrow so we can remove it
-	err = cat.Add(context.Background(), ns, models.AddOptions{})
+	err = cat.Add(context.Background(), ns)
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2271,7 +1319,7 @@ func TestOnArrowUpdated_CallbackFires(t *testing.T) {
 		return nil
 	}))
 
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.updated." + ns.String()})
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.advanced." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2296,7 +1344,7 @@ func TestOnArrowUpdated_ErrorCallbackLogged(t *testing.T) {
 		return errors.New("update cb error")
 	}))
 
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.updated." + ns.String()})
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.advanced." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2327,7 +1375,7 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 	}))
 
 	// Add then remove to trigger OnForget.
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2339,56 +1387,7 @@ func TestOnArrowRemoved_ErrorCallbackLogged(t *testing.T) {
 	}
 }
 
-// ─── Callbacks: OnArrowUpgraded ──────────────────────────────────────────────
-
-func TestOnArrowUpgraded_CallbackFires(t *testing.T) {
-	ns := testNs()
-	called := make(chan domain.Arrow, 1)
-
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
-
-	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, a domain.Arrow) error {
-		called <- a
-		return nil
-	}))
-
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.upgraded." + ns.String()})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	select {
-	case got := <-called:
-		assert.Equal(t, ns, got.Namespace)
-	case <-time.After(2 * time.Second):
-		t.Fatal("OnArrowUpgraded callback not called")
-	}
-}
-
-func TestOnArrowUpgraded_ErrorCallbackLogged(t *testing.T) {
-	ns := testNs()
-	errored := make(chan struct{}, 1)
-
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	cat := newProjectingTestable(t, &arrowStoreMocks.MockCQRS{}, axArrow)
-
-	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, _ domain.Arrow) error {
-		errored <- struct{}{}
-		return errors.New("upgraded cb error")
-	}))
-
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.upgraded." + ns.String()})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	select {
-	case <-errored:
-	case <-time.After(2 * time.Second):
-		t.Fatal("callback not called")
-	}
-}
+// ─── Search ──────────────────────────────────────────────────────────────────
 
 func TestSearch_DelegatesToCQRS(t *testing.T) {
 	hit := models.CatalogHit{
@@ -2540,7 +1539,7 @@ func TestProjectUpdated_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
 		return nil
 	}))
 
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.updated." + ns.String()})
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.advanced." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2550,42 +1549,6 @@ func TestProjectUpdated_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
 		assert.Zero(t, got.broadcasts)
 	case <-time.After(2 * time.Second):
 		t.Fatal("OnArrowUpdated reaction never ran")
-	}
-
-	assert.Equal(t, int32(1), projected.Load())
-}
-
-func TestProjectUpgraded_ReactionsRunBeforeReadModelAndBroadcast(t *testing.T) {
-	ns := testNs()
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	hub := &recordingHub{}
-	var projected atomic.Int32
-	r := &arrowStoreMocks.MockCQRS{
-		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
-			projected.Add(1)
-			return nil
-		},
-	}
-	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
-
-	seen := make(chan observation, 1)
-	require.NoError(t, cat.OnArrowUpgraded(func(_ context.Context, _ domain.Arrow) error {
-		seen <- observation{projected: projected.Load(), broadcasts: hub.count()}
-		return nil
-	}))
-
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.upgraded." + ns.String()})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	select {
-	case got := <-seen:
-		assert.Zero(t, got.projected)
-		assert.Zero(t, got.broadcasts)
-	case <-time.After(2 * time.Second):
-		t.Fatal("OnArrowUpgraded reaction never ran")
 	}
 
 	assert.Equal(t, int32(1), projected.Load())
@@ -2642,11 +1605,11 @@ func TestProjectUninstalled_WritesReadModelAndAnnounces(t *testing.T) {
 }
 
 // A version check that finds a diff has to reach the read model too — that is
-// where the API answers outdated/recommended_ref from. This also guards
-// against the easiest way to make the whole feature silently inert: wiring
-// the command's EmitEvent correctly (tested in commands_test.go) but
-// forgetting to subscribe arrowService to its topic.
-func TestProjectVersionChecked_WritesReadModelAndAnnounces(t *testing.T) {
+// where the API answers available from. This also guards against the easiest
+// way to make the whole feature silently inert: wiring the command's
+// EmitEvent correctly (tested in commands_test.go) but forgetting to
+// subscribe arrowService to its topic.
+func TestProjectAvailableChecked_WritesReadModelAndAnnounces(t *testing.T) {
 	ns := testNs()
 	axArrow := newTestAsynxArrow(t)
 	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
@@ -2662,37 +1625,7 @@ func TestProjectVersionChecked_WritesReadModelAndAnnounces(t *testing.T) {
 	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
 	require.NotNil(t, cat)
 
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.version_checked." + ns.String()})
-	require.NoError(t, err)
-	axArrow.WaitPublish()
-
-	assert.Equal(t, int32(1), projected.Load())
-	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
-}
-
-// TestProjectChannelSet_WritesReadModelAndAnnounces guards the exact gap
-// switchChannel's redesign would otherwise reintroduce: switchChannel now
-// only ever sends SetChannel against an already-installed row, with no
-// upgrade of its own to ride along on any more, so without this projection
-// wired up, the channel would land on the aggregate but never reach the read
-// model at all — same shape as TestProjectVersionChecked_WritesReadModelAndAnnounces.
-func TestProjectChannelSet_WritesReadModelAndAnnounces(t *testing.T) {
-	ns := testNs()
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-
-	hub := &recordingHub{}
-	var projected atomic.Int32
-	r := &arrowStoreMocks.MockCQRS{
-		ProjectFn: func(_ context.Context, _ domain.Arrow) error {
-			projected.Add(1)
-			return nil
-		},
-	}
-	cat := newProjectingTestableWithHub(t, r, axArrow, hub)
-	require.NotNil(t, cat)
-
-	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.channel_set." + ns.String()})
+	_, err := axArrow.Send(context.Background(), emitArrowCmd{ns: ns, eventName: "arrow.available_checked." + ns.String()})
 	require.NoError(t, err)
 	axArrow.WaitPublish()
 
@@ -2749,7 +1682,7 @@ func TestProjectForgotten_ReadModelClearedBeforeReactions(t *testing.T) {
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2789,7 +1722,7 @@ func TestProjectForgotten_ReadModelFailureKeepsReactionsAndBroadcast(t *testing.
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2837,7 +1770,7 @@ func TestProjectForgotten_ReleasesVaultWorkDir(t *testing.T) {
 	cat, err := arrowRepo.NewTestableProjecting(r, axArrow, v, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, cat.Add(context.Background(), ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(context.Background(), ns))
 	axArrow.WaitPublish()
 	require.NoError(t, cat.Remove(context.Background(), ns))
 	axArrow.WaitPublish()
@@ -2916,7 +1849,7 @@ func TestArrowService_Add_PreinstalledDetected_MarksReadyDirectly(t *testing.T) 
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	arrow, err := axArrow.Get(ctx, ns.String())
 	require.NoError(t, err)
@@ -2970,7 +1903,7 @@ func TestArrowService_Add_PreinstalledDetected_NoAbsentWindow(t *testing.T) {
 		return nil
 	}))
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	// No WaitPublish: addArrowCommand sends with SendWait, which asynx
 	// documents as blocking until every subscribed projection has finished, so
@@ -3015,7 +1948,7 @@ func TestArrowService_Add_NoPreinstalledBlock_UnchangedBehavior(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	assert.False(t, probed.Load(), "an arrow with no preinstalled block must never be probed")
 	assert.False(t, marked.Load(), "an arrow with no preinstalled block must never touch the runtime")
@@ -3059,7 +1992,7 @@ func TestArrowService_Add_PreinstalledNotDetected_UnchangedBehavior(t *testing.T
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	assert.False(t, marked.Load(), "a probe that finds nothing must not mark the runtime")
 	assert.True(t, forgotten.Load(), "a negative probe must always clear any stale runtime before returning")
@@ -3117,7 +2050,7 @@ func TestArrowService_Add_PreinstalledNotDetected_ClearsOrphanRuntime(t *testing
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	// Step 4: the catalog row now exists (this Add's own doing), and the
 	// orphan Ready runtime from the first, incomplete attempt must be gone —
@@ -3155,7 +2088,7 @@ func TestArrowService_Add_PreinstalledForgetFails_AddsNothing(t *testing.T) {
 		),
 	)
 
-	err := cat.Add(ctx, ns, models.AddOptions{})
+	err := cat.Add(ctx, ns)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, forgetErr)
@@ -3186,7 +2119,7 @@ func TestArrowService_Add_PreinstalledMarkFails_AddsNothing(t *testing.T) {
 		),
 	)
 
-	require.Error(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.Error(t, cat.Add(ctx, ns))
 
 	exists, err := axArrow.Exists(ctx, ns.String())
 	require.NoError(t, err)
@@ -3220,7 +2153,7 @@ func TestArrowService_Add_PreinstalledAlreadyCatalogued_SkipsProbe(t *testing.T)
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 	assert.False(t, probed.Load(), "an arrow already in the catalog must not be re-probed")
 }
 
@@ -3253,7 +2186,7 @@ func TestArrowService_Add_PreinstalledForeignPlatform_SkipsProbe(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 	assert.False(t, probed.Load())
 }
 
@@ -3293,7 +2226,7 @@ func TestArrowService_Add_PreinstalledProbeVariables(t *testing.T) {
 		),
 	)
 
-	require.NoError(t, cat.Add(ctx, ns, models.AddOptions{}))
+	require.NoError(t, cat.Add(ctx, ns))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -3333,7 +2266,7 @@ func TestArrowService_Add_PreinstalledCatalogLookupFails_AddsNothing(t *testing.
 		),
 	)
 
-	err := cat.Add(ctx, ns, models.AddOptions{})
+	err := cat.Add(ctx, ns)
 
 	require.ErrorIs(t, err, lookupErr)
 	assert.False(t, probed.Load(), "nothing is probed on an answer Add could not get")
@@ -3358,7 +2291,7 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
+	err := cat.Add(context.Background(), testNs())
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
@@ -3376,7 +2309,7 @@ func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
+	err := cat.Add(context.Background(), testNs())
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
@@ -3394,7 +2327,7 @@ func TestAdd_RemoteFailureMapsToFetchFailed(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
+	err := cat.Add(context.Background(), testNs())
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrFetchFailed)
@@ -3412,7 +2345,7 @@ func TestAdd_ExistingSentinelIsPreserved(t *testing.T) {
 	}
 	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
 
-	err := cat.Add(context.Background(), testNs(), models.AddOptions{})
+	err := cat.Add(context.Background(), testNs())
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)

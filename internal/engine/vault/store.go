@@ -301,23 +301,6 @@ func (s *store) DeleteCollection(
 	return deleteCollection(s, ns)
 }
 
-func (s *store) RenameArrow(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-) error {
-	if err := oldNs.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
-	}
-	if err := newNs.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
-	}
-	if oldNs == newNs {
-		return nil
-	}
-	return renameArrow(s, oldNs, newNs)
-}
-
 func (s *store) ListVersions(
 	ctx context.Context,
 	ns domain.Namespace,

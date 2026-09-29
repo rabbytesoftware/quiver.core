@@ -382,15 +382,6 @@ func (c *Container) wireCallbacks(
 		return fmt.Errorf("repositories: wire OnArrowUpdated: %w", err)
 	}
 
-	// An upgrade replaces the manifest, so it replaces the edges too. graph no
-	// longer projects this itself, and the usecase reaction that runs after
-	// this one reads the edges back.
-	if err := c.Arrow.OnArrowUpgraded(func(ctx context.Context, a domain.Arrow) error {
-		return c.Graph.SyncDependencies(ctx, a.Namespace, &a)
-	}); err != nil {
-		return fmt.Errorf("repositories: wire OnArrowUpgraded: %w", err)
-	}
-
 	if err := c.Arrow.OnArrowRemoved(func(ctx context.Context, ns domain.Namespace) error {
 		if err := c.Graph.RemoveDependencies(ctx, ns); err != nil {
 			return err

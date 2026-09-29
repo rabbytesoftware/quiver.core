@@ -24,7 +24,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	engineMocks "github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -106,7 +105,7 @@ func TestEnsureRegistered_UnstampedBuild_IsANoOp(t *testing.T) {
 				},
 			}
 			rt := &mocks.MockRuntime{
-				MarkReadyFn: func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+				MarkReadyFn: func(context.Context, domain.Namespace) error {
 					t.Fatal("an unstamped build must not mark anything ready")
 					return nil
 				},
@@ -121,9 +120,8 @@ func TestEnsureRegistered_Channel_AdoptsTheChannelIdentity(t *testing.T) {
 	m, adopted, _, checked := recordingCatalog()
 	var markedReady domain.Namespace
 	rt := &mocks.MockRuntime{
-		MarkReadyFn: func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace) error {
 			markedReady = ns
-			assert.Nil(t, lastReturn)
 			return nil
 		},
 	}
@@ -265,7 +263,7 @@ func TestEnsureRegistered_Failures(t *testing.T) {
 			name:    "marking ready fails",
 			catalog: func(*mocks.MockArrow) {},
 			runtime: &mocks.MockRuntime{
-				MarkReadyFn: func(context.Context, domain.Namespace, *domainRuntime.Return) error { return sentinel },
+				MarkReadyFn: func(context.Context, domain.Namespace) error { return sentinel },
 			},
 			wantMarkReady: true,
 		},
@@ -296,10 +294,10 @@ func TestEnsureRegistered_Failures(t *testing.T) {
 			tc.catalog(m)
 			markReady := tc.runtime.MarkReadyFn
 			var markedReady bool
-			tc.runtime.MarkReadyFn = func(ctx context.Context, ns domain.Namespace, r *domainRuntime.Return) error {
+			tc.runtime.MarkReadyFn = func(ctx context.Context, ns domain.Namespace) error {
 				markedReady = true
 				if markReady != nil {
-					return markReady(ctx, ns, r)
+					return markReady(ctx, ns)
 				}
 				return nil
 			}
@@ -312,13 +310,13 @@ func TestEnsureRegistered_Failures(t *testing.T) {
 	}
 }
 
-func TestEnsureRegistered_AlreadyReady_SkipsMarkReady(t *testing.T) {
+func TestEnsureRegistered_ReadyRuntime_SkipsMarkReady(t *testing.T) {
 	m, _, _, _ := recordingCatalog()
 	rt := &mocks.MockRuntime{
 		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
 			return domain.ArrowStateReady, nil
 		},
-		MarkReadyFn: func(context.Context, domain.Namespace, *domainRuntime.Return) error {
+		MarkReadyFn: func(context.Context, domain.Namespace) error {
 			t.Fatal("ready -> ready is not a valid transition")
 			return nil
 		},
@@ -339,7 +337,7 @@ func runtimeIn(state domain.ArrowState) *settledRuntime {
 	r := &settledRuntime{}
 	r.MockRuntime = &mocks.MockRuntime{
 		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return state, nil },
-		MarkReadyFn: func(_ context.Context, ns domain.Namespace, _ *domainRuntime.Return) error {
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace) error {
 			r.markedReady = append(r.markedReady, ns)
 			return nil
 		},
@@ -479,6 +477,11 @@ func (libraryCatalog) CheckVersionNow(context.Context, domain.Namespace) {}
 
 func newLibrary(t *testing.T) (libraryCatalog, asynx.Asynx[domain.Arrow]) {
 	t.Helper()
+	return newLibraryWith(t, &engineMocks.Manifold{ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}})
+}
+
+func newLibraryWith(t *testing.T, m *engineMocks.Manifold) (libraryCatalog, asynx.Asynx[domain.Arrow]) {
+	t.Helper()
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	ss, err := sqlite.NewSnapshotStore(":memory:")
@@ -492,7 +495,6 @@ func newLibrary(t *testing.T) (libraryCatalog, asynx.Asynx[domain.Arrow]) {
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 	db, err := adapterSQLite.OpenDB(":memory:")
 	require.NoError(t, err)
-	m := &engineMocks.Manifold{ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}}
 	cat, err := arrowRepo.New(db, ax, &engineMocks.Vault{}, m, nil)
 	require.NoError(t, err)
 	return libraryCatalog{Arrow: cat}, ax
@@ -567,10 +569,16 @@ func TestEnsureRegistered_CoreStaysInTheLibraryAcrossUpdates(t *testing.T) {
 // A self row left without the user-installed flag, as the bug left it, is
 // back in the library after the next boot.
 func TestEnsureRegistered_RowLeftOutOfTheLibrary_IsRepaired(t *testing.T) {
-	cat, ax := newLibrary(t)
-	ctx := context.Background()
 	ns := selfNs().WithRef("stable")
-	require.NoError(t, cat.AddDep(ctx, ns, &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}, ""))
+	quiverCore := &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}
+	cat, ax := newLibraryWith(t, &engineMocks.Manifold{
+		ParseArrowResult:           quiverCore,
+		SnapshotResult:             domain.RefSnapshot{Branches: map[string]string{"stable": "aaa"}},
+		ResolveArrowAtCommitResult: quiverCore,
+	})
+	ctx := context.Background()
+	_, err := cat.AddDependency(ctx, ns)
+	require.NoError(t, err)
 	require.Empty(t, library(t, cat))
 
 	require.NoError(t, selfarrow.EnsureRegistered(ctx, cat, &mocks.MockRuntime{}, "stable-26.5.2", "bbb", "stable"))

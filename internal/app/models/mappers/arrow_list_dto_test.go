@@ -48,9 +48,8 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 					Namespace: "github.com/org/repo@v1.0.0",
 					State:     domain.ArrowStateReady,
 					Metadata: domain.Arrow{
-						InstalledAt:         at,
-						LastUsedAt:          lastUsed,
-						InstalledConstraint: "^1.0.0",
+						InstalledAt: at,
+						LastUsedAt:  lastUsed,
 					},
 				},
 			},
@@ -71,7 +70,6 @@ func TestArrowListDTOsFrom_MapsVersions(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateReady, ver.State)
 	assert.Equal(t, at, ver.InstalledAt)
 	assert.Equal(t, lastUsed, ver.LastUsedAt)
-	assert.Equal(t, "^1.0.0", ver.Constraint)
 }
 
 // A catalog row that has never been installed still names the ref it is filed

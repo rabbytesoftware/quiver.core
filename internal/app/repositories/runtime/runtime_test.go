@@ -941,30 +941,11 @@ func TestMarkReady_CreatesReadyRuntime(t *testing.T) {
 	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
 	require.NoError(t, err)
 
-	require.NoError(t, lc.MarkReady(context.Background(), ns, nil))
+	require.NoError(t, lc.MarkReady(context.Background(), ns))
 
 	state, err := lc.GetState(context.Background(), ns)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateReady, state)
-}
-
-func TestMarkReady_CarriesLastReturnThrough(t *testing.T) {
-	axRuntime := newTestAsynxRuntime(t)
-	cat := &runtimeMocks.MockArrow{}
-	ns := testNs()
-	lastReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
-
-	f := catToFuncs(cat)
-	lc, err := runtime.NewTestable(axRuntime, nil, successAssembler(), f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
-	require.NoError(t, err)
-
-	require.NoError(t, lc.MarkReady(context.Background(), ns, lastReturn))
-
-	rt, err := lc.GetRuntime(context.Background(), ns)
-	require.NoError(t, err)
-	require.NotNil(t, rt.LastReturn)
-	assert.Equal(t, domain.MethodUpdate, rt.LastReturn.Method)
-	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
 }
 
 func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
@@ -981,7 +962,7 @@ func TestMarkReady_ActiveExecution_StateViolation(t *testing.T) {
 	_, err = axRuntime.Send(context.Background(), setRuntimeStateCmd{ns: ns, state: domain.ArrowStateInstalling})
 	require.NoError(t, err)
 
-	err = lc.MarkReady(context.Background(), ns, nil)
+	err = lc.MarkReady(context.Background(), ns)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
@@ -995,7 +976,7 @@ func TestMarkReady_GenericError_ReturnsError(t *testing.T) {
 
 	_ = axRuntime.Shutdown(context.Background())
 
-	err = lc.MarkReady(context.Background(), testNs(), nil)
+	err = lc.MarkReady(context.Background(), testNs())
 	_ = err // either error or no-op after shutdown; just don't panic
 }
 
@@ -1287,8 +1268,7 @@ func TestOnRuntimePreinstalled_FiresOnMarkPreinstalled(t *testing.T) {
 }
 
 // TestOnRuntimePreinstalled_FiresOnMarkReady proves the hook also fires for
-// MarkReady's caller — the catalog-swap-after-update case and quiver.core's
-// own self-registration, both documented on Runtime.MarkReady.
+// MarkReady's caller, quiver.core's own self-registration.
 func TestOnRuntimePreinstalled_FiresOnMarkReady(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	cat := &runtimeMocks.MockArrow{}
@@ -1302,14 +1282,11 @@ func TestOnRuntimePreinstalled_FiresOnMarkReady(t *testing.T) {
 		called <- rt
 	}))
 
-	lastReturn := &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess}
-	require.NoError(t, lc.MarkReady(context.Background(), ns, lastReturn))
+	require.NoError(t, lc.MarkReady(context.Background(), ns))
 
 	select {
 	case rt := <-called:
 		assert.Equal(t, domain.ArrowStateReady, rt.State)
-		require.NotNil(t, rt.LastReturn)
-		assert.Equal(t, domain.MethodUpdate, rt.LastReturn.Method)
 	case <-time.After(2 * time.Second):
 		t.Fatal("OnRuntimePreinstalled callback was not called for MarkReady")
 	}

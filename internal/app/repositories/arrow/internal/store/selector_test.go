@@ -162,7 +162,6 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			assert.Equal(t, tc.wantKind, arrow.SelectorKind)
 			assert.Equal(t, tc.wantResolved, arrow.Resolved)
 			assert.Nil(t, arrow.Available)
-			assert.Empty(t, arrow.InstalledConstraint)
 			assert.Equal(t, []commitFetch{{ns: tc.wantIdentity, commit: tc.wantResolved.Commit}}, fetched)
 		})
 	}

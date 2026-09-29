@@ -157,20 +157,3 @@ func TestReconcileVersionBadge_StaleReconcileThenClear_ConvergesReady(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateReady, got.State)
 }
-
-// The legacy Outdated flag is no longer the drift fact; only Available is.
-func TestReconcileVersionBadge_LegacyOutdatedFlagIgnored(t *testing.T) {
-	ax := newTestAsynxRuntime(t)
-	ns := testNs()
-	seedState(t, ax, ns, domain.ArrowStateReady)
-
-	reconcile := runtime.ReconcileVersionBadge(
-		catalogReturning(&domain.Arrow{Namespace: ns, Outdated: true}, nil),
-		ax,
-	)
-	require.NoError(t, reconcile(context.Background(), ns))
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, domain.ArrowStateReady, got.State)
-}

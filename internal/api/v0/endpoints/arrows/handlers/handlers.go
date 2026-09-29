@@ -9,7 +9,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs/apierr"
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -25,10 +24,9 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // Add registers an arrow from an existing manifest in the Quiver registry.
 //
 // @Summary      Register arrow
-// @Description  Registers an arrow by its namespace. The manifest must already exist in the registry.
+// @Description  Registers an arrow by its namespace. The ref after @ is the selector the row tracks; a refless namespace follows the repository's default channel.
 // @Tags         arrows
 // @Param        ns    path  string  true  "Arrow namespace (e.g. github.com/user/repo@v1.0.0)"
-// @Param        body  body  models.AddOptions  false  "Optional install preferences (e.g. channel)"
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
@@ -37,13 +35,6 @@ func New(svc usecases.ArrowUsecase) *Handlers {
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
 	ns := domain.Namespace(c.Param("ns"))
-	opts := models.AddOptions{}
-	if c.Request.Body != nil {
-		_ = c.ShouldBindJSON(&opts)
-	}
-	if ns.Ref() == "" && opts.Channel != "" {
-		ns = ns.WithRef(opts.Channel)
-	}
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
@@ -52,20 +43,13 @@ func (h *Handlers) Add(c *gin.Context) {
 	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
 }
 
-// Update pulls the latest manifest for an arrow from the registry and re-registers it.
-// It also accepts an optional channel switch: setting channel moves the
-// arrow onto a different release channel (taking that channel's latest ref
-// unless ref pins to a specific member of it), independent of upgrade_ref's
-// existing constraint-based upgrade.
+// Update advances an arrow to what its selector points at now.
 //
-// @Summary      Update arrow manifest
-// @Description  Fetches the latest manifest for the arrow and updates its registration. Optional body fields: "channel" switches which release channel the arrow tracks (its latest ref is taken unless "ref" pins to a specific ref within that channel); "upgrade_ref" resolves the arrow's existing installed constraint to its latest matching ref instead.
+// @Summary      Update arrow
+// @Description  Re-checks the arrow's selector against its repository and advances the row to the available ref, running the target's update steps when it is installed.
 // @Tags         arrows
-// @Accept       json
-// @Param        ns    path  string              true   "Arrow namespace"
-// @Param        body  body  models.UpdateOptions  false  "Optional update preferences (e.g. channel, ref, upgrade_ref)"
+// @Param        ns    path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.MutationResponse  "Arrow updated"
-// @Failure      400  {object}  libs.ErrResponse       "Requested channel or ref does not exist"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [patch]

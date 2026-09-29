@@ -226,7 +226,7 @@ func TestArrowGet_DelegatesToArrow(t *testing.T) {
 func TestArrowAdd_Success(t *testing.T) {
 	called := false
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error {
+		AddFn: func(_ context.Context, _ domain.Namespace) error {
 			called = true
 			return nil
 		},
@@ -243,7 +243,7 @@ func TestArrowAdd_Success(t *testing.T) {
 func TestArrowAdd_PropagatesError(t *testing.T) {
 	expected := errors.New("add error")
 	a := &ucmocks.MockArrow{
-		AddFn: func(_ context.Context, _ domain.Namespace, _ models.AddOptions) error { return expected },
+		AddFn: func(_ context.Context, _ domain.Namespace) error { return expected },
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if err := uc.Add(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
@@ -475,21 +475,36 @@ func TestArrowGetReadme_ResolveManifestError(t *testing.T) {
 	}
 }
 
-func TestArrowSeed_DelegatesToArrow(t *testing.T) {
-	called := false
+func TestArrowSeed_AdoptsAPinOfItsOwnRef(t *testing.T) {
+	var (
+		gotNs       domain.Namespace
+		gotKind     domain.SelectorKind
+		gotResolved domain.Resolved
+		gotManifest []byte
+		gotFilename string
+	)
 	a := &ucmocks.MockArrow{
-		SeedFn: func(_ context.Context, _ domain.Namespace, _ []byte) error {
-			called = true
+		AdoptFn: func(
+			_ context.Context,
+			ns domain.Namespace,
+			kind domain.SelectorKind,
+			resolved domain.Resolved,
+			manifest []byte,
+			filename string,
+		) error {
+			gotNs, gotKind, gotResolved, gotManifest, gotFilename = ns, kind, resolved, manifest, filename
 			return nil
 		},
 	}
 	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
-	if err := uc.Seed(context.Background(), "test/arrow@v1", []byte("data")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !called {
-		t.Fatal("expected arrow.Seed to be called")
-	}
+
+	require.NoError(t, uc.Seed(context.Background(), "test/arrow/x@v1", []byte("data")))
+
+	assert.Equal(t, domain.Namespace("test/arrow/x@v1"), gotNs)
+	assert.Equal(t, domain.SelectorPin, gotKind)
+	assert.Equal(t, domain.Resolved{Ref: "v1"}, gotResolved)
+	assert.Equal(t, []byte("data"), gotManifest)
+	assert.Equal(t, "ARROW.md", gotFilename)
 }
 
 func TestArrowValidateManifest_DelegatesToArrow(t *testing.T) {

@@ -149,47 +149,6 @@ func deleteArrow(s *store, ns domain.Namespace) error {
 	return nil
 }
 
-func renameArrow(s *store, oldNs, newNs domain.Namespace) error {
-	// consistent ordering to prevent lock-order deadlock
-	first, second := string(oldNs), string(newNs)
-	if first > second {
-		first, second = second, first
-	}
-	mu1 := s.namespaceLock(first)
-	mu2 := s.namespaceLock(second)
-	mu1.Lock()
-	defer mu1.Unlock()
-	mu2.Lock()
-	defer mu2.Unlock()
-
-	meta, err := readMeta(s.metaFilePath(oldNs))
-	if errors.Is(err, os.ErrNotExist) {
-		// Nothing cached for oldNs to move: a vault entry can be
-		// legitimately absent (TTL-swept, never cached, or any other
-		// benign reason), and UpgradeVersion's caller writes newNs's entry
-		// fresh right after this call succeeds either way, so there is
-		// nothing else to do here.
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("vault rename: read old meta: %w", err)
-	}
-
-	oldManifest := s.manifestFilePath(oldNs, meta.Filename)
-	newManifest := s.manifestFilePath(newNs, meta.Filename)
-	oldMeta := s.metaFilePath(oldNs)
-	newMeta := s.metaFilePath(newNs)
-
-	if err := os.Rename(oldManifest, newManifest); err != nil {
-		return fmt.Errorf("vault rename manifest: %w", err)
-	}
-	if err := os.Rename(oldMeta, newMeta); err != nil {
-		_ = os.Rename(newManifest, oldManifest) // rollback
-		return fmt.Errorf("vault rename meta: %w", err)
-	}
-	return nil
-}
-
 func listVersions(s *store, ns domain.Namespace) ([]string, error) {
 	bare := ns.BareNamespace()
 

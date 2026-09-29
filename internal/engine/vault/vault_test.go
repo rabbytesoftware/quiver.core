@@ -567,67 +567,6 @@ func TestNamespaceLock_ConcurrentLockCreation(t *testing.T) {
 	assert.Same(t, firstLock, s.locks[key])
 }
 
-// RenameArrow
-
-func TestRenameArrow_MovesFilesAndContents(t *testing.T) {
-	v := newTestVault(t)
-
-	oldNs := domain.Namespace("github.com/org/repo@v1.0.0")
-	newNs := domain.Namespace("github.com/org/repo@v2.0.0")
-
-	require.NoError(t, v.PutArrow(context.Background(), oldNs, testManifest))
-
-	err := v.RenameArrow(context.Background(), oldNs, newNs)
-	require.NoError(t, err)
-
-	_, err = v.GetArrow(context.Background(), oldNs)
-	assert.ErrorIs(t, err, ErrNotCached)
-
-	got, err := v.GetArrow(context.Background(), newNs)
-	require.NoError(t, err)
-	assert.Equal(t, testManifest.Content, got.Content)
-}
-
-func TestRenameArrow_SameNamespace_Noop(t *testing.T) {
-	v := newTestVault(t)
-	ns := domain.Namespace("github.com/org/repo@v1.0.0")
-
-	err := v.RenameArrow(context.Background(), ns, ns)
-	require.NoError(t, err)
-}
-
-// TestRenameArrow_SourceDoesNotExist_IsANoop mirrors the manifest-level
-// TestHelperRenameArrow_SourceDoesNotExist_IsANoop through the public Vault
-// interface: an absent source entry is not an error, since UpgradeVersion
-// calls PutArrow right after RenameArrow either way to write the fresh
-// entry newNs actually needs.
-func TestRenameArrow_SourceDoesNotExist_IsANoop(t *testing.T) {
-	v := newTestVault(t)
-
-	oldNs := domain.Namespace("github.com/org/nonexistent@v1.0.0")
-	newNs := domain.Namespace("github.com/org/new@v1.0.0")
-
-	err := v.RenameArrow(context.Background(), oldNs, newNs)
-	require.NoError(t, err)
-
-	_, err = v.GetArrow(context.Background(), newNs)
-	assert.ErrorIs(t, err, ErrNotCached)
-}
-
-func TestRenameArrow_WithInvalidOldNamespace(t *testing.T) {
-	v := newTestVault(t)
-
-	err := v.RenameArrow(context.Background(), domain.Namespace(""), domain.Namespace("github.com/org/new@v1.0.0"))
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
-func TestRenameArrow_WithInvalidNewNamespace(t *testing.T) {
-	v := newTestVault(t)
-
-	err := v.RenameArrow(context.Background(), domain.Namespace("github.com/org/repo@v1.0.0"), domain.Namespace(""))
-	assert.ErrorIs(t, err, ErrInvalidNamespace)
-}
-
 // Search index
 
 func TestVault_PutArrow_WithMeta_IsSearchable(t *testing.T) {
