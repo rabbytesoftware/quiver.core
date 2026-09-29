@@ -488,7 +488,7 @@ func TestRunVersionCheck_TargetMovedAgain_RecordsTheNewTarget(t *testing.T) {
 }
 
 // A record that cannot be written must not cost the runtime its badge.
-func TestRunVersionCheck_RecordFails_StillSyncsRuntime(t *testing.T) {
+func TestRunVersionCheck_RecordFails_SyncsFromTheRow(t *testing.T) {
 	ns := testNs()
 	axArrow := &arrowMocks.AsynxArrow{
 		GetFn: func(context.Context, string) (domain.Arrow, error) {
@@ -512,7 +512,7 @@ func TestRunVersionCheck_RecordFails_StillSyncsRuntime(t *testing.T) {
 
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), domain.Arrow{Namespace: ns})
 
-	assert.Equal(t, []bool{true}, synced)
+	assert.Equal(t, []bool{false}, synced, "the badge follows the row, which recorded nothing")
 }
 
 // ok=false must abort before ever touching the aggregate — a resolution

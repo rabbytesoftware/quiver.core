@@ -199,10 +199,14 @@ func (s *arrowService) sendAdvance(
 }
 
 // sendRetryingConflicts sends a write whose event depends only on the row
-// existing, sending it again when it loses a version-conflict race to another
-// append of the row. Callers have already swapped the vault cache for it, so
-// giving up at the first conflict would leave the cache and the row
-// disagreeing until the next advance or adopt.
+// existing, sending it again when it fails with ErrPipelineFailed: most often
+// a version conflict with another append to the row, but asynx also reports
+// that after the event committed (a dispatcher closing on shutdown), so a
+// retry may append the same advance or refresh twice. Both events are
+// idempotent — they set the row to the same manifest and Resolved — so a
+// duplicate is harmless. Callers have already swapped the vault cache, so
+// giving up at the first failure would leave cache and row disagreeing until
+// the next advance or adopt.
 func (s *arrowService) sendRetryingConflicts(
 	ctx context.Context,
 	cmd asynxModels.Command[domain.Arrow],

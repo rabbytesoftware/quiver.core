@@ -2,6 +2,7 @@ package arrow_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -157,7 +158,9 @@ func TestRunVersionCheck_VersionConflict_RecordsOnRetry(t *testing.T) {
 	var sends atomic.Int32
 	var recorded atomic.Pointer[domain.Available]
 	ax := &arrowMocks.AsynxArrow{
-		GetFn: rowSequence(domain.Arrow{SelectorKind: domain.SelectorChannel}),
+		GetFn: func(context.Context, string) (domain.Arrow, error) {
+			return domain.Arrow{SelectorKind: domain.SelectorChannel, Available: recorded.Load()}, nil
+		},
 		SendWaitFn: func(_ context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
 			if sends.Add(1) == 1 {
 				return asynxModels.Event[domain.Arrow]{}, versionConflict()
@@ -185,10 +188,14 @@ func TestRunVersionCheck_VersionConflict_RecordsOnRetry(t *testing.T) {
 	assert.Equal(t, []bool{true}, synced)
 }
 
-func TestRunVersionCheck_RecordFails_StillSyncsTheAnswer(t *testing.T) {
+// Every attempt finds the row moved under it: the answer that never landed is
+// not what the badge shows; the row as it stands is.
+func TestRunVersionCheck_RetriesExhausted_SyncsFromTheRow(t *testing.T) {
+	var sends atomic.Int32
 	ax := &arrowMocks.AsynxArrow{
 		GetFn: rowSequence(domain.Arrow{SelectorKind: domain.SelectorChannel}),
 		SendWaitFn: func(context.Context, asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+			sends.Add(1)
 			return asynxModels.Event[domain.Arrow]{}, asynxModels.ErrValidation
 		},
 	}
@@ -204,7 +211,90 @@ func TestRunVersionCheck_RecordFails_StillSyncsTheAnswer(t *testing.T) {
 
 	arrowRepo.RunVersionCheckForTest(cat, context.Background(), domain.Arrow{Namespace: stableNs()})
 
-	assert.Equal(t, []bool{true}, synced, "the answer holds even when recording it failed")
+	assert.Equal(t, int32(3), sends.Load())
+	assert.Equal(t, []bool{false}, synced, "the row holds no Available, so the badge must not say outdated")
+}
+
+// The usual state before an update: the row already records the target as
+// available. A passive check judging the row before the update's advance
+// lands answers that same target, so it writes nothing; the badge must still
+// follow the advanced row, not that answer.
+func TestRunVersionCheck_AdvanceLandsWhileJudgingAnUnchangedAnswer_LeavesNoBadge(t *testing.T) {
+	ctx := context.Background()
+	axArrow := newTestAsynxArrow(t)
+	ns := stableNs()
+	installed := domain.Resolved{Ref: "v1.0.0", Commit: "c100"}
+	target := domain.Available{Ref: "v1.1.0", Commit: "c110"}
+	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, installed)
+	_, err := axArrow.SendWait(ctx, arrowcmds.RecordAvailable{Namespace: ns, Available: &target, JudgedResolved: installed})
+	require.NoError(t, err)
+	stale, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+
+	var advanced atomic.Bool
+	r := &arrowStoreMocks.MockCQRS{
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			if !advanced.Swap(true) {
+				_, sendErr := axArrow.SendWait(ctx, arrowcmds.AdvanceArrow{
+					Namespace: ns,
+					Resolved:  domain.Resolved{Ref: target.Ref, Commit: target.Commit},
+				})
+				require.NoError(t, sendErr)
+			}
+			return &target, true
+		},
+	}
+	var synced []bool
+	cat := arrowRepo.NewTestable(r, axArrow, nil, nil,
+		arrowRepo.WithVersionOutdatedSync(func(_ context.Context, _ domain.Namespace, outdated bool) error {
+			synced = append(synced, outdated)
+			return nil
+		}))
+
+	arrowRepo.RunVersionCheckForTest(cat, ctx, stale)
+
+	got, err := axArrow.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Nil(t, got.Available)
+	assert.NotContains(t, synced, true, "no outdated badge right after the update")
+}
+
+func TestRunVersionCheck_NoRace_SyncsTheRecordedAnswer(t *testing.T) {
+	testCases := []struct {
+		name   string
+		answer *domain.Available
+		want   []bool
+	}{
+		{name: "something ahead badges outdated", answer: ahead(), want: []bool{true}},
+		{name: "nothing ahead clears the badge", want: []bool{false}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			axArrow := newTestAsynxArrow(t)
+			ns := stableNs()
+			seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.0.0", Commit: "c100"})
+			row, err := axArrow.Get(ctx, ns.String())
+			require.NoError(t, err)
+			r := &arrowStoreMocks.MockCQRS{
+				CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) { return tc.answer, true },
+			}
+			var synced []bool
+			cat := arrowRepo.NewTestable(r, axArrow, nil, nil,
+				arrowRepo.WithVersionOutdatedSync(func(_ context.Context, _ domain.Namespace, outdated bool) error {
+					synced = append(synced, outdated)
+					return nil
+				}))
+
+			arrowRepo.RunVersionCheckForTest(cat, ctx, row)
+
+			assert.Equal(t, tc.want, synced)
+			got, err := axArrow.Get(ctx, ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.answer, got.Available)
+		})
+	}
 }
 
 func TestRunVersionCheck_RowGone_WritesNothing(t *testing.T) {
@@ -272,4 +362,29 @@ func TestRunVersionCheck_AdvanceLandsWhileJudging_RecordsNothingStale(t *testing
 	require.NoError(t, err)
 	assert.Nil(t, got.Available, "the advanced row is current")
 	assert.Equal(t, domain.ArrowStateReady, runtimeState(t, axRuntime, ns), "no outdated badge")
+}
+
+func TestRunVersionCheck_RowUnreadableAfterWrite_SyncsNothing(t *testing.T) {
+	var reads atomic.Int32
+	ax := &arrowMocks.AsynxArrow{
+		GetFn: func(context.Context, string) (domain.Arrow, error) {
+			if reads.Add(1) > 1 {
+				return domain.Arrow{}, errors.New("event store down")
+			}
+			return domain.Arrow{SelectorKind: domain.SelectorChannel}, nil
+		},
+	}
+	r := &arrowStoreMocks.MockCQRS{
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) { return ahead(), true },
+	}
+	var synced []bool
+	cat := arrowRepo.NewTestable(r, ax, nil, nil,
+		arrowRepo.WithVersionOutdatedSync(func(_ context.Context, _ domain.Namespace, outdated bool) error {
+			synced = append(synced, outdated)
+			return nil
+		}))
+
+	arrowRepo.RunVersionCheckForTest(cat, context.Background(), domain.Arrow{Namespace: stableNs()})
+
+	assert.Empty(t, synced, "a badge is only ever derived from a row actually read")
 }

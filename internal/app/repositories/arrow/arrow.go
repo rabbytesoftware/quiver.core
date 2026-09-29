@@ -456,7 +456,7 @@ func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) {
-	available, answered, err := s.recordAvailable(ctx, arrow.Namespace,
+	_, answered, err := s.recordAvailable(ctx, arrow.Namespace,
 		func(current domain.Arrow) (*domain.Available, bool, error) {
 			available, ok := s.store.CheckDrift(ctx, current)
 			return available, ok, nil
@@ -467,7 +467,24 @@ func (s *arrowService) runVersionCheck(
 	if err != nil {
 		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", err)
 	}
-	s.syncVersionOutdated(ctx, arrow.Namespace, available != nil)
+	s.syncBadgeFromRow(ctx, arrow.Namespace)
+}
+
+// syncBadgeFromRow pushes the row's Available, read now, onto the runtime
+// badge. The answer a check judged may already be about a row an update has
+// since advanced — and an unchanged answer is never written, so the atomic
+// write guard never saw it — so the badge follows the row, never the answer.
+// A row that cannot be read syncs nothing.
+func (s *arrowService) syncBadgeFromRow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	row, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		slog.WarnContext(ctx, "arrow version check: re-read row", "ns", ns, "err", err)
+		return
+	}
+	s.syncVersionOutdated(ctx, ns, row.Available != nil)
 }
 
 // maxWriteAttempts bounds how often a write to a row another writer changed

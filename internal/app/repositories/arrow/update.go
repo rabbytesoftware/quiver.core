@@ -48,7 +48,7 @@ func (s *arrowService) CheckAvailable(
 		return nil, mapSendErr("check available", ns, err)
 	}
 
-	s.syncVersionOutdated(ctx, ns, available != nil)
+	s.syncBadgeFromRow(ctx, ns)
 	return available, nil
 }
 
