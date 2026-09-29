@@ -6,6 +6,9 @@ FROM golang:1.24.2-alpine AS builder
 # the released binaries. Left empty, the build falls back to `git describe`,
 # same as `make build` locally.
 ARG VERSION=""
+# Optional: the release channel the build is published under (stable, beta,
+# hotfix, nightly-latest). Empty for a local build.
+ARG QUIVER_CHANNEL=""
 
 # Set working directory
 WORKDIR /app
@@ -33,7 +36,7 @@ RUN QUIVER_EPOCH=1775932380; \
     RESOLVED_VERSION=${VERSION:-$(git describe --tags --always --dirty --exclude='nightly*' 2>/dev/null || echo dev)}; \
     COMMIT=$(git rev-parse HEAD 2>/dev/null || true); \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-      -ldflags "-X main.version=${RESOLVED_VERSION} -X main.commit=${COMMIT} -X main.buildID=${BUILD_ID}" \
+      -ldflags "-X main.version=${RESOLVED_VERSION} -X main.commit=${COMMIT} -X main.channel=${QUIVER_CHANNEL} -X main.buildID=${BUILD_ID}" \
       -o quiver ./cmd/quiver
 
 # Stage 2: Create the final image

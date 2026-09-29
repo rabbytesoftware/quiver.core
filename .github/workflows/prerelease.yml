@@ -18,6 +18,7 @@ jobs:
       contents: read
     outputs:
       tag: ${{ steps.tag.outputs.TAG }}
+      channel: ${{ steps.tag.outputs.CHANNEL }}
 
     steps:
     - name: Checkout code
@@ -35,6 +36,7 @@ jobs:
       run: |
 
         if [[ "$BRANCH" == beta/* ]]; then
+          CHANNEL="beta"
           SERIES="${BRANCH#beta/}"
           COUNT=$(git tag -l "beta-${SERIES}" "beta-${SERIES}-*" | wc -l | tr -d ' ')
           if [ "$COUNT" -eq "0" ]; then
@@ -44,6 +46,7 @@ jobs:
           fi
 
         elif [[ "$BRANCH" == hotfix/* ]]; then
+          CHANNEL="hotfix"
           LATEST=$(git tag -l "stable-*" | sort -V | tail -1)
           if [ -z "$LATEST" ]; then
             echo "❌ No stable baseline found. A hotfix requires an existing stable release."
@@ -70,6 +73,7 @@ jobs:
         fi
 
         echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "CHANNEL=${CHANNEL}" >> "$GITHUB_OUTPUT"
         echo "Computed pre-release tag: ${TAG}"
 
   build:
@@ -79,6 +83,7 @@ jobs:
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.prepare.outputs.tag }}
+      channel: ${{ needs.prepare.outputs.channel }}
 
   publish:
     name: Publish Pre-release

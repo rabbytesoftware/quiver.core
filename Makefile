@@ -26,7 +26,10 @@ SWAG           := $(GOBIN)/swag
 # BUILD_ID counts seconds elapsed since that moment.
 QUIVER_EPOCH := 1775932380
 BUILD_ID     := $(shell expr \( $$(date +%s) - $(QUIVER_EPOCH) \) / 86400)
-LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always --dirty --exclude='nightly*' 2>/dev/null || echo 'dev') -X main.commit=$(shell git rev-parse HEAD 2>/dev/null) -X main.buildID=$(BUILD_ID)"
+# QUIVER_CHANNEL is the release channel a build is published under; empty for
+# a local build, which then registers itself pinned to its own version.
+QUIVER_CHANNEL ?=
+LDFLAGS      := -ldflags "-X main.version=$(shell git describe --tags --always --dirty --exclude='nightly*' 2>/dev/null || echo 'dev') -X main.commit=$(shell git rev-parse HEAD 2>/dev/null) -X main.channel=$(QUIVER_CHANNEL) -X main.buildID=$(BUILD_ID)"
 BUILD_FLAGS := -a -installsuffix cgo
 
 # Colors for terminal output
