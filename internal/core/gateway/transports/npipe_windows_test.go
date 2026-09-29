@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,10 @@ func TestNPipe_ListenAndDial_RoundTrip(t *testing.T) {
 		accepted <- buf
 	}()
 
-	conn, err := transports.DialPipe(context.Background(), path)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, err := transports.DialPipe(ctx, path)
 	require.NoError(t, err)
 	defer conn.Close()
 	_, err = conn.Write([]byte("ping"))
@@ -74,7 +78,10 @@ func TestNPipe_Listen_InvalidPathErrors(t *testing.T) {
 }
 
 func TestDialPipe_MissingPipeErrors(t *testing.T) {
-	_, err := transports.DialPipe(context.Background(), pipePath(t))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := transports.DialPipe(ctx, pipePath(t))
 
 	assert.Error(t, err)
 }
