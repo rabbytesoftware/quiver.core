@@ -1,8 +1,9 @@
 schema: "arrow@v0"
 
 # Served from a container-local git host under a rolling tag the suite
-# force-moves. run.sh rewrites build-1 to build-2 in the moved commit, so the
-# workdir markers prove which revision's steps actually ran.
+# force-moves. run.sh rewrites build-N to build-N+1 in each moved commit, so
+# the workdir markers prove which revision's steps actually ran. The update
+# step takes seconds, so a CLI that returned before it finished would show.
 metadata:
   name: e2e.rolling-tool
   description: Rolling-tag fixture whose steps record the ref and build they ran for
@@ -20,8 +21,8 @@ targets:
       update:
         - type: run
           title: Update
-          command: echo "${REF}" >> "${WORKDIR}/update-refs"; echo build-1 > "${WORKDIR}/build"
-          timeout: 10s
+          command: sleep 3; echo "${REF}" >> "${WORKDIR}/update-refs"; echo build-1 > "${WORKDIR}/build"
+          timeout: 30s
           exit_on_failure: true
 
       uninstall:

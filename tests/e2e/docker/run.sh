@@ -8,13 +8,12 @@
 #            (githost + git-http-backend on https://localhost), force-moved
 #            under an installed row: drift -> available -> update -> advanced,
 #            on one identity that never stops answering 200.
-#   Phase C  opt-in (E2E_KNOWN_BUGS=1): the CLI-booted daemon path, which
-#            loses an update's commit when the CLI idle-stops the daemon.
-#            Fails until that bug is fixed.
+#   Phase C  the CLI-booted daemon: an update's commit survives the CLI's
+#            idle-stop, and a second update of a row whose last run was an
+#            update waits for its own steps.
 #
 # Environment:
-#   E2E_PHASES         phases to run, default "A B"
-#   E2E_KNOWN_BUGS     1 adds phase C
+#   E2E_PHASES         phases to run, default "A B C"
 #   E2E_WAIT_SECONDS   deadline for any single wait, default 1500
 set -Eeuo pipefail
 
@@ -23,11 +22,9 @@ readonly CROWBAR=github.com/char2cs/crowbar@nightly
 readonly FIXTURE_SRC=/opt/e2e/fixture
 readonly GIT_ROOT=/srv/git
 readonly SOCK="$HOME/.quiver/quiver.sock"
+readonly PID_FILE="$HOME/.quiver/quiver.pid"
 WAIT_SECONDS="${E2E_WAIT_SECONDS:-1500}"
-PHASES="${E2E_PHASES:-A B}"
-if [[ "${E2E_KNOWN_BUGS:-0}" == 1 ]]; then
-	PHASES="$PHASES C"
-fi
+PHASES="${E2E_PHASES:-A B C}"
 
 SUITE_START=$SECONDS
 PHASE_START=$SECONDS
@@ -130,9 +127,7 @@ expect_no_file() {
 
 # ─── quiver helpers ───────────────────────────────────────────────────────────
 
-# The CLI renders JSON whenever stdout is not a terminal. Output is always
-# captured, never sent to /dev/null: the CLI mistakes /dev/null (a character
-# device) for a terminal.
+# The CLI renders JSON whenever stdout is not a terminal.
 show() {
 	quiver arrow show "$1" -o json
 }
@@ -467,6 +462,10 @@ phase_b() {
 	expect_eq "install step \${REF}" "$(cat "$workdir/install-ref")" nightly
 	expect_eq "installed build" "$(cat "$workdir/build")" build-1
 
+	step "output redirected to /dev/null: a successful command still exits 0"
+	quiver arrow show "$ns" >/dev/null || fail "arrow show >/dev/null exited $?"
+	ok "arrow show >/dev/null exits 0"
+
 	step "force-move nightly to a new commit (annotated tag)"
 	local c2
 	c2=$(move_tag "$name" 1 2)
@@ -530,20 +529,29 @@ phase_b() {
 	phase_done B "nightly moved $c1 -> $c2: available, updated, advanced in place, $polls reads all 200"
 }
 
-# ─── Phase C: known bug — the CLI-booted daemon drops an update's commit ─────
+# ─── Phase C: the CLI-booted daemon keeps an update's commit ─────────────────
+
+# expect_idle_stopped asserts the last CLI command stopped the daemon it had
+# booted: the idle-stop removes the PID file before the command exits.
+expect_idle_stopped() {
+	[[ ! -e "$PID_FILE" ]] || fail "the CLI left its daemon running (pid $(cat "$PID_FILE"))"
+	ok "the CLI idle-stopped its daemon"
+}
 
 phase_c() {
-	banner "Phase C — KNOWN BUG probe: update commit on a CLI-booted daemon"
+	banner "Phase C — CLI-booted daemon: an update's commit survives the idle-stop"
 	PHASE_START=$SECONDS
 	local name=autoboot-tool
 	local ns="localhost/tester/$name@nightly"
+	local workdir="$HOME/.quiver/namespaces/$ns"
 
 	step "hand the socket back to the CLI's auto-boot"
 	stop_daemon
 	publish "$name"
 
 	step "install, move the tag, refresh"
-	local out
+	local out c1
+	c1=$(git -C "$HOME/work/$name" rev-parse HEAD)
 	out=$(quiver arrow add "$ns")
 	out=$(lifecycle install "$ns")
 	expect_eq "install outcome" "$(jq -r .outcome <<<"$out")" success
@@ -551,15 +559,44 @@ phase_c() {
 	c2=$(move_tag "$name" 1 2)
 	out=$(quiver arrow refresh "$ns")
 	expect_eq "available.commit" "$(field "$ns" .available.commit)" "$c2"
+	expect_eq "installed_commit" "$(field "$ns" .installed_commit)" "$c1"
 
-	step "update, then read the row right away (the CLI idle-stops the daemon after this read)"
+	step "update, then read the row: the CLI stops its daemon only once the commit landed"
 	out=$(lifecycle update "$ns")
 	expect_eq "update outcome" "$(jq -r .outcome <<<"$out")" success
 	show "$ns" | jq -c '{state, installed_commit, available}'
-	# A healthy commit lands in well under a second; a minute is generous.
+	# Each read is followed by the CLI's idle check; a read that finds the
+	# update still settling leaves the daemon up, so the commit is never cut
+	# off. A healthy commit lands in well under a second.
 	WAIT_SECONDS=60 wait_for "$ns" ".installed_commit == \"$c2\" and .available == null" "row advanced to $c2"
+	expect_idle_stopped
+	local detail
+	detail=$(show "$ns")
+	expect_eq "after a fresh boot: installed_commit" "$(jq -r .installed_commit <<<"$detail")" "$c2"
+	expect_eq "after a fresh boot: available" "$(jq -c '.available // "absent"' <<<"$detail")" '"absent"'
+	expect_eq "update steps ran once" "$(paste -sd, "$workdir/update-refs")" nightly
 
-	phase_done C "update commit survived the CLI idle-stop"
+	step "update again after a moved tag, unrefreshed: the CLI waits for this run's own steps"
+	# The row's last run was an update, and the bracket re-announces that
+	# return before this update begins; the CLI must not take it for this
+	# run's end. The update step takes seconds, so an early return shows.
+	local c3
+	c3=$(move_tag "$name" 2 3)
+	out=$(lifecycle update "$ns")
+	expect_eq "update outcome" "$(jq -r .outcome <<<"$out")" success
+	expect_eq "this update's steps had run when it returned" "$(cat "$workdir/build")" build-3
+	expect_eq "update steps run" "$(paste -sd, "$workdir/update-refs")" nightly,nightly
+	WAIT_SECONDS=60 wait_for "$ns" ".installed_commit == \"$c3\" and .available == null" "row advanced to $c3"
+	expect_idle_stopped
+
+	step "uninstall + remove"
+	out=$(lifecycle uninstall "$ns" -y)
+	expect_eq "uninstall outcome" "$(jq -r .outcome <<<"$out")" success
+	out=$(quiver arrow remove -y "$ns")
+	[[ -z "$(listed "$ns")" ]] || fail "$ns is still listed after remove"
+	ok "$ns no longer listed"
+
+	phase_done C "CLI-booted daemon: $c1 -> $c2 -> $c3 committed across idle-stops, no update ran twice"
 }
 
 # ─── main ─────────────────────────────────────────────────────────────────────

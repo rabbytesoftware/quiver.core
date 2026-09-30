@@ -220,8 +220,7 @@ test-docker:
 # network access; not part of pr-checks.
 #   E2E_PLATFORM    image/container platform (default linux/arm64; linux/amd64
 #                   runs under emulation on an arm64 host)
-#   E2E_ARGS        extra `docker run` arguments, e.g. -e E2E_PHASES=B or
-#                   -e E2E_KNOWN_BUGS=1
+#   E2E_ARGS        extra `docker run` arguments, e.g. -e E2E_PHASES=B
 E2E_PLATFORM ?= linux/arm64
 E2E_ARGS     ?=
 test-e2e-docker:
