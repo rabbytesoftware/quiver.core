@@ -423,6 +423,9 @@ func storeObject(t *testing.T, storer *memory.Storage, obj encodable) plumbing.H
 type testResolver struct {
 	repos           *FixtureRepos
 	collectionRepos *FixtureRepos
+	// cloneOnly refuses a manifest fetch at anything but a tag or branch
+	// name, as the clone path does.
+	cloneOnly bool
 }
 
 func newTestResolver(repos, collectionRepos *FixtureRepos) *testResolver {
@@ -443,6 +446,9 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 	}
 	r.repos.io.Lock()
 	defer r.repos.io.Unlock()
+	if err := r.admitsRef(storer, ns.Ref()); err != nil {
+		return nil, "", err
+	}
 	if data, err := readFromRepo(storer, ns.Ref(), "ARROW.md"); err == nil {
 		return data, "ARROW.md", nil
 	}
@@ -461,6 +467,9 @@ func (r *testResolver) ResolveArrowAt(_ context.Context, ns domain.Namespace, pa
 	}
 	r.repos.io.Lock()
 	defer r.repos.io.Unlock()
+	if err := r.admitsRef(storer, ns.Ref()); err != nil {
+		return nil, "", err
+	}
 	if data, err := readFromRepo(storer, ns.Ref(), path+".md"); err == nil {
 		return data, path + ".md", nil
 	}
@@ -469,6 +478,21 @@ func (r *testResolver) ResolveArrowAt(_ context.Context, ns domain.Namespace, pa
 		return nil, "", err
 	}
 	return data, path + ".yaml", nil
+}
+
+// admitsRef refuses, on a clone-only host, a ref that names no tag or
+// branch: an empty ref clones the default branch.
+func (r *testResolver) admitsRef(storer *memory.Storage, ref string) error {
+	if !r.cloneOnly || ref == "" {
+		return nil
+	}
+	if _, err := storer.Reference(plumbing.NewTagReferenceName(ref)); err == nil {
+		return nil
+	}
+	if _, err := storer.Reference(plumbing.NewBranchReferenceName(ref)); err == nil {
+		return nil
+	}
+	return fmt.Errorf("clone-only host: couldn't find remote ref %q", ref)
 }
 
 func (r *testResolver) ResolveCollection(_ context.Context, ns domain.Namespace) ([]byte, error) {

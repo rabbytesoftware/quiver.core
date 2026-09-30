@@ -89,14 +89,17 @@ type Manifold interface {
 		ns domain.Namespace,
 	) (domain.RefSnapshot, error)
 
-	// ResolveArrowAtCommit fetches ns's manifest at commit and returns it
-	// stamped with ns itself. Raw-file hosts serve a commit SHA as a ref; the
-	// clone path only checks out tags and branches, so when the fetch at the
-	// commit fails it falls back to ns's own ref, and the caller verifies the
-	// commit afterwards. A manifest that fetched but is invalid never falls back.
+	// ResolveArrowAtCommit fetches ns's manifest at commit, the commit ref
+	// resolved to, and returns it stamped with ns itself. Raw-file hosts serve
+	// a commit SHA as a ref; the clone path only checks out tags and branches,
+	// so when the fetch at the commit fails it falls back to ref — never to
+	// ns's own selector, which need not name a git ref at all — and the caller
+	// verifies the commit afterwards. A manifest that fetched but is invalid
+	// never falls back.
 	ResolveArrowAtCommit(
 		ctx context.Context,
 		ns domain.Namespace,
+		ref string,
 		commit string,
 	) (*domain.Arrow, []byte, string, error)
 }
@@ -405,14 +408,16 @@ func sortChannels(
 func (m *manifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,
+	ref string,
 	commit string,
 ) (*domain.Arrow, []byte, string, error) {
 	arrow, raw, filename, err := m.ResolveArrow(ctx, ns.WithRef(commit))
-	if err != nil && !errors.Is(err, ErrInvalidManifest) {
-		arrow, raw, filename, err = m.ResolveArrow(ctx, ns)
+	fallBack := ref != "" && ref != commit && !errors.Is(err, ErrInvalidManifest)
+	if err != nil && fallBack {
+		arrow, raw, filename, err = m.ResolveArrow(ctx, ns.WithRef(ref))
 	}
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at commit %s: %w", ns, commit, err)
+		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at %s (commit %s): %w", ns, ref, commit, err)
 	}
 
 	arrow.Namespace = ns

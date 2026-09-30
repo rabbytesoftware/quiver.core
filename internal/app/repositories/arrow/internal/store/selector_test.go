@@ -37,6 +37,7 @@ func selectorSnapshot() domain.RefSnapshot {
 
 type commitFetch struct {
 	ns     domain.Namespace
+	ref    string
 	commit string
 }
 
@@ -49,9 +50,10 @@ func selectorManifold(
 		ResolveArrowAtCommitFn: func(
 			_ context.Context,
 			ns domain.Namespace,
+			ref string,
 			commit string,
 		) (*domain.Arrow, []byte, string, error) {
-			*fetched = append(*fetched, commitFetch{ns: ns, commit: commit})
+			*fetched = append(*fetched, commitFetch{ns: ns, ref: ref, commit: commit})
 			return &domain.Arrow{
 				Namespace: ns,
 				ArrowMeta: domain.ArrowMeta{Name: "crowbar"},
@@ -162,7 +164,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			assert.Equal(t, tc.wantKind, arrow.SelectorKind)
 			assert.Equal(t, tc.wantResolved, arrow.Resolved)
 			assert.Nil(t, arrow.Available)
-			assert.Equal(t, []commitFetch{{ns: tc.wantIdentity, commit: tc.wantResolved.Commit}}, fetched)
+			assert.Equal(t, []commitFetch{{ns: tc.wantIdentity, ref: tc.wantResolved.Ref, commit: tc.wantResolved.Commit}}, fetched)
 		})
 	}
 }
@@ -562,12 +564,12 @@ func TestResolveManifest_SelectorIdentityFallsBackToItsTarget(t *testing.T) {
 		{
 			name:        "constraint reads its highest match",
 			ns:          selectorBare.WithRef("v1.*"),
-			wantFetched: []commitFetch{{ns: selectorBare.WithRef("v1.*"), commit: "c130"}},
+			wantFetched: []commitFetch{{ns: selectorBare.WithRef("v1.*"), ref: "v1.3.0", commit: "c130"}},
 		},
 		{
 			name:        "channel reads its latest member",
 			ns:          selectorBare.WithRef("stable"),
-			wantFetched: []commitFetch{{ns: selectorBare.WithRef("stable"), commit: "c200"}},
+			wantFetched: []commitFetch{{ns: selectorBare.WithRef("stable"), ref: "v2.0.0", commit: "c200"}},
 		},
 		{
 			name:    "an unresolvable selector reports the original failure",

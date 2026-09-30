@@ -217,6 +217,7 @@ func (m *liveReads) fetchesAt() int {
 func (m *liveReads) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,
+	ref string,
 	commit string,
 ) (*domain.Arrow, []byte, string, error) {
 	m.mu.Lock()
@@ -224,7 +225,7 @@ func (m *liveReads) ResolveArrowAtCommit(
 		m.fetches++
 	}
 	m.mu.Unlock()
-	return m.Manifold.ResolveArrowAtCommit(ctx, ns, commit)
+	return m.Manifold.ResolveArrowAtCommit(ctx, ns, ref, commit)
 }
 
 func (m *liveReads) FreshSnapshot(ctx context.Context, ns domain.Namespace) (domain.RefSnapshot, error) {

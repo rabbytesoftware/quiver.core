@@ -56,6 +56,7 @@ type envConfig struct {
 	selfUpdateTrigger *selfupdate.Trigger
 	clock             func() time.Time
 	build             buildStamp
+	cloneOnly         bool
 }
 
 // buildStamp is what the release pipeline injects into a daemon binary.
@@ -89,6 +90,13 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 // uses the real clock.
 func WithClock(clock func() time.Time) EnvOption {
 	return func(c *envConfig) { c.clock = clock }
+}
+
+// WithCloneOnlyHost serves every fixture repo the way a host reachable only
+// by cloning does: a manifest is fetched at a tag or branch name, never at a
+// commit SHA.
+func WithCloneOnlyHost() EnvOption {
+	return func(c *envConfig) { c.cloneOnly = true }
 }
 
 // WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
@@ -241,6 +249,7 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
+	rsv.cloneOnly = cfg.cloneOnly
 	if cfg.clock != nil {
 		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, cfg.clock)
 	} else {

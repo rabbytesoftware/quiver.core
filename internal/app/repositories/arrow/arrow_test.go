@@ -829,6 +829,7 @@ func TestAdd_ExistingIdentity_TargetMoved_LeavesRowAndCacheAlone(t *testing.T) {
 			_ context.Context,
 			reqNs domain.Namespace,
 			_ string,
+			_ string,
 		) (*domain.Arrow, []byte, string, error) {
 			return &domain.Arrow{Namespace: reqNs}, []byte("raw"), "ARROW.md", nil
 		},
@@ -2384,7 +2385,7 @@ func failOnNetworkManifold(t *testing.T, parsed *domain.Arrow) *mocks.Manifold {
 			t.Errorf("ResolveArrow(%s) must never be called", ns)
 			return nil, nil, "", errors.New("network")
 		},
-		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _ string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _, _ string) (*domain.Arrow, []byte, string, error) {
 			t.Errorf("ResolveArrowAtCommit(%s) must never be called", ns)
 			return nil, nil, "", errors.New("network")
 		},
@@ -2407,11 +2408,11 @@ func TestAdvance_MovesTheSameRowToTheTarget(t *testing.T) {
 		},
 	}
 	v := &mocks.Vault{}
-	var fetchedCommit string
+	var fetchedRef, fetchedCommit string
 	m := &mocks.Manifold{
-		ResolveArrowAtCommitFn: func(_ context.Context, got domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, got domain.Namespace, ref, commit string) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, ns, got)
-			fetchedCommit = commit
+			fetchedRef, fetchedCommit = ref, commit
 			return &domain.Arrow{Namespace: got, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
 		},
 	}
@@ -2448,6 +2449,7 @@ func TestAdvance_MovesTheSameRowToTheTarget(t *testing.T) {
 	assert.Equal(t, "New", got.Name)
 	assert.True(t, got.UserInstalled)
 	assert.Equal(t, "new222", fetchedCommit)
+	assert.Equal(t, "nightly-latest", fetchedRef)
 
 	exists, err := axArrow.Exists(context.Background(), ns.String())
 	require.NoError(t, err)

@@ -37,7 +37,7 @@ func adoptManifold(fetched *[]string) *mocks.Manifold {
 	return &mocks.Manifold{
 		SnapshotResult:   adoptSnapshot(),
 		ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver Desktop"}},
-		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _, commit string) (*domain.Arrow, []byte, string, error) {
 			*fetched = append(*fetched, commit)
 			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Quiver Desktop"}}, []byte("manifest"), "ARROW.md", nil
 		},

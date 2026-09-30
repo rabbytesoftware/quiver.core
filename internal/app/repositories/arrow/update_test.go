@@ -254,10 +254,10 @@ func TestRefreshToTarget_StagesTheTargetManifestOnTheSameRow(t *testing.T) {
 		},
 	}
 	v := &mocks.Vault{}
-	var fetchedCommit string
+	var fetchedRef, fetchedCommit string
 	m := &mocks.Manifold{
-		ResolveArrowAtCommitFn: func(_ context.Context, got domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
-			fetchedCommit = commit
+		ResolveArrowAtCommitFn: func(_ context.Context, got domain.Namespace, ref, commit string) (*domain.Arrow, []byte, string, error) {
+			fetchedRef, fetchedCommit = ref, commit
 			return &domain.Arrow{Namespace: got, ArrowMeta: domain.ArrowMeta{Name: "Target"}}, []byte("raw"), "arrow.yaml", nil
 		},
 	}
@@ -282,6 +282,7 @@ func TestRefreshToTarget_StagesTheTargetManifestOnTheSameRow(t *testing.T) {
 	assert.Equal(t, "Target", staged.Name)
 	assert.Equal(t, ns, staged.Namespace)
 	assert.Equal(t, "c2", fetchedCommit)
+	assert.Equal(t, "nightly-latest", fetchedRef)
 
 	row, err := axArrow.Get(ctx, ns.String())
 	require.NoError(t, err)

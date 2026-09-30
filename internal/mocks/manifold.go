@@ -69,11 +69,12 @@ type Manifold struct {
 		ns domain.Namespace,
 	) (domain.RefSnapshot, error)
 
-	// ResolveArrowAtCommitFn, when set, answers per (namespace, commit) pair
-	// so a test can assert which commit a caller fetched.
+	// ResolveArrowAtCommitFn, when set, answers per (namespace, ref, commit)
+	// so a test can assert which ref and commit a caller fetched.
 	ResolveArrowAtCommitFn func(
 		ctx context.Context,
 		ns domain.Namespace,
+		ref string,
 		commit string,
 	) (*domain.Arrow, []byte, string, error)
 }
@@ -155,10 +156,11 @@ func (m *Manifold) FreshSnapshot(
 func (m *Manifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,
+	ref string,
 	commit string,
 ) (*domain.Arrow, []byte, string, error) {
 	if m.ResolveArrowAtCommitFn != nil {
-		return m.ResolveArrowAtCommitFn(ctx, ns, commit)
+		return m.ResolveArrowAtCommitFn(ctx, ns, ref, commit)
 	}
 	return m.ResolveArrowAtCommitResult, m.ResolveArrowAtCommitRaw, m.ResolveArrowAtCommitFilename, m.ResolveArrowAtCommitErr
 }

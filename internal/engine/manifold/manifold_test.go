@@ -2288,7 +2288,7 @@ func TestResolveArrowAtCommit_FetchesAtTheCommitAndStampsTheOriginalNamespace(t 
 	m := commitManifold(rsv, nil)
 	ns := domain.Namespace("github.com/u/r@stable")
 
-	arrow, raw, filename, err := m.ResolveArrowAtCommit(context.Background(), ns, commit)
+	arrow, raw, filename, err := m.ResolveArrowAtCommit(context.Background(), ns, "v1.2.0", commit)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2303,39 +2303,87 @@ func TestResolveArrowAtCommit_FetchesAtTheCommitAndStampsTheOriginalNamespace(t 
 	}
 }
 
-func TestResolveArrowAtCommit_FetchFailure_FallsBackToTheNamespaceRef(t *testing.T) {
+// A clone-only host serves no SHA, and a selector that is not itself a git
+// ref names nothing there: the fallback must fetch the resolved ref.
+func TestResolveArrowAtCommit_CommitRefused_FallsBackToTheResolvedRef(t *testing.T) {
 	const commit = "9dd0b18"
-	ns := domain.Namespace("github.com/u/r@nightly")
-	rsv := &stubResolver{arrowFn: func(requested domain.Namespace) ([]byte, string, error) {
-		if requested.Ref() == commit {
-			return nil, "", resolvers.ErrFetchFailed
-		}
-		return []byte("test"), "ARROW.md", nil
-	}}
-	m := commitManifold(rsv, nil)
+	testCases := []struct {
+		name string
+		ns   domain.Namespace
+		ref  string
+	}{
+		{name: "channel", ns: "git.example.org/u/r@stable", ref: "stable-26.6.0"},
+		{name: "constraint", ns: "git.example.org/u/r@v1.*", ref: "v1.3.0"},
+		{name: "pointer tag", ns: "git.example.org/u/r@nightly", ref: "nightly"},
+		{name: "refless identity", ns: "git.example.org/u/r", ref: "v2.0.0"},
+	}
 
-	arrow, _, _, err := m.ResolveArrowAtCommit(context.Background(), ns, commit)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rsv := &stubResolver{arrowFn: func(requested domain.Namespace) ([]byte, string, error) {
+				if requested.Ref() != tc.ref {
+					return nil, "", resolvers.ErrFetchFailed
+				}
+				return []byte("test"), "ARROW.md", nil
+			}}
+			m := commitManifold(rsv, nil)
+
+			arrow, raw, _, err := m.ResolveArrowAtCommit(context.Background(), tc.ns, tc.ref, commit)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			want := []domain.Namespace{tc.ns.WithRef(commit), tc.ns.WithRef(tc.ref)}
+			if !slices.Equal(rsv.arrowRequests, want) {
+				t.Errorf("requests = %v, want %v", rsv.arrowRequests, want)
+			}
+			if arrow.Namespace != tc.ns {
+				t.Errorf("Namespace = %q, want %q", arrow.Namespace, tc.ns)
+			}
+			if string(raw) != "test" {
+				t.Errorf("raw = %q", raw)
+			}
+		})
 	}
-	if want := []domain.Namespace{ns.WithRef(commit), ns}; !slices.Equal(rsv.arrowRequests, want) {
-		t.Errorf("requests = %v, want %v", rsv.arrowRequests, want)
+}
+
+func TestResolveArrowAtCommit_NoSeparateRefToFallBackTo_FetchesOnce(t *testing.T) {
+	const commit = "9dd0b18"
+	testCases := []struct {
+		name string
+		ref  string
+	}{
+		{name: "no resolved ref", ref: ""},
+		{name: "the resolved ref is the commit", ref: commit},
 	}
-	if arrow.Namespace != ns {
-		t.Errorf("Namespace = %q, want %q", arrow.Namespace, ns)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rsv := &stubResolver{arrowErr: resolvers.ErrFetchFailed}
+			m := commitManifold(rsv, nil)
+			ns := domain.Namespace("git.example.org/u/r@" + commit)
+
+			_, _, _, err := m.ResolveArrowAtCommit(context.Background(), ns, tc.ref, commit)
+			if !errors.Is(err, resolvers.ErrFetchFailed) {
+				t.Fatalf("err = %v, want ErrFetchFailed", err)
+			}
+			if want := []domain.Namespace{ns.WithRef(commit)}; !slices.Equal(rsv.arrowRequests, want) {
+				t.Errorf("requests = %v, want %v", rsv.arrowRequests, want)
+			}
+		})
 	}
 }
 
 func TestResolveArrowAtCommit_BothFetchesFail_ReturnsTheError(t *testing.T) {
 	rsv := &stubResolver{arrowErr: resolvers.ErrNotFound}
 	m := commitManifold(rsv, nil)
+	ns := domain.Namespace("github.com/u/r@stable")
 
-	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), domain.Namespace("github.com/u/r@v1.0.0"), "9dd0b18")
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), ns, "v1.0.0", "9dd0b18")
 	if !errors.Is(err, resolvers.ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
-	if len(rsv.arrowRequests) != 2 {
-		t.Errorf("requests = %v, want the commit then the ref", rsv.arrowRequests)
+	if want := []domain.Namespace{ns.WithRef("9dd0b18"), ns.WithRef("v1.0.0")}; !slices.Equal(rsv.arrowRequests, want) {
+		t.Errorf("requests = %v, want the commit then the resolved ref", rsv.arrowRequests)
 	}
 }
 
@@ -2343,7 +2391,7 @@ func TestResolveArrowAtCommit_InvalidManifestAtCommit_DoesNotFallBack(t *testing
 	rsv := &stubResolver{arrowData: []byte("test"), arrowFilename: "ARROW.md"}
 	m := commitManifold(rsv, &stubTranslator{arrowErr: errors.New("bad yaml")})
 
-	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), domain.Namespace("github.com/u/r@v1.0.0"), "9dd0b18")
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), domain.Namespace("github.com/u/r@v1.0.0"), "v1.0.0", "9dd0b18")
 	if !errors.Is(err, ErrInvalidManifest) {
 		t.Fatalf("err = %v, want ErrInvalidManifest", err)
 	}

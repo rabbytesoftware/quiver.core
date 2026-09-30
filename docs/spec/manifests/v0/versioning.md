@@ -372,9 +372,12 @@ Every update is one in-place operation on the same aggregate. `AdvanceArrow` (ev
 `Resolved` to the target and clears `Available`. Identity, runtime aggregate and workdir are
 untouched; the update steps overwrite files in place. Before every advance the vault
 manifest cache for the identity is replaced with the manifest fetched at the target commit
-(`ns.WithRef(commit)`; hosts serve raw files by SHA). On a host that cannot serve a SHA the
-fetch falls back to the identity's own ref, which is why the bracket re-verifies the commit
-before it stamps anything (see [manifold.md §2](../../manifold.md#2-public-api)).
+(`ns.WithRef(commit)`; hosts serve raw files by SHA). On a host that cannot serve a SHA (one
+reached only by cloning, such as a self-hosted git server) the fetch falls back to the
+RESOLVED ref — the target's ref, never the identity's selector, which for `pkg@stable` or
+`pkg@v1.*` names no git ref. That ref may move between the snapshot and the fetch, which is
+why the update bracket's snapshot re-check verifies the commit afterwards, before it stamps
+anything (see [manifold.md §2](../../manifold.md#2-public-api)).
 
 Two entry points reach it.
 

@@ -51,7 +51,7 @@ func (r *storeService) ResolveInstall(
 		return identity, nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, targetSentinel(kind), err)
 	}
 
-	arrow, err := r.fetchAtCommit(ctx, identity, target.Commit, o.exists)
+	arrow, err := r.fetchAtCommit(ctx, identity, target, o.exists)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %s: %w", identity, err)
 	}
@@ -131,10 +131,10 @@ func targetSentinel(
 func (r *storeService) fetchAtCommit(
 	ctx context.Context,
 	identity domain.Namespace,
-	commit string,
+	target domain.Available,
 	exists ExistsFunc,
 ) (*domain.Arrow, error) {
-	arrow, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, commit)
+	arrow, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, target.Ref, target.Commit)
 	if err != nil {
 		return nil, wrapManifoldErr("fetch at commit", err)
 	}
@@ -191,7 +191,7 @@ func (r *storeService) ResolveAdoption(
 		return Adoption{}, fmt.Errorf("reader resolve adoption %s: %w: %w", identity, admitSentinel(err), err)
 	}
 
-	_, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, declared.Commit)
+	_, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, declared.Ref, declared.Commit)
 	if err != nil {
 		return Adoption{}, fmt.Errorf("reader resolve adoption %s: %w", identity, wrapManifoldErr("fetch at commit", err))
 	}

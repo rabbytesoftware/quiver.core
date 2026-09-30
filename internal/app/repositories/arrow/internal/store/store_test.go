@@ -152,7 +152,7 @@ func TestGetDetail_NotCatalogued_Refless_FollowsTheDefaultChannel(t *testing.T) 
 	ns := domain.Namespace("github.com/char2cs/crowbar")
 	m := &mocks.Manifold{
 		SnapshotResult: domain.RefSnapshot{Branches: map[string]string{"develop": "d1"}, Head: "develop"},
-		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, _, commit string) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "develop", resolveNs.Ref())
 			assert.Equal(t, "d1", commit)
 			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, []byte("raw"), "ARROW.md", nil
@@ -405,7 +405,7 @@ func TestResolveManifest_BareNamespace_NotCatalogued_FollowsTheDefaultChannel(t 
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
 		SnapshotResult: domain.RefSnapshot{Tags: map[string]string{"v3.0.0": "c3"}},
-		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, _, commit string) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "c3", commit)
 			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
 		},
@@ -470,7 +470,7 @@ func TestResolveManifest_BareNamespace_NotCatalogued_StampsTheChannelIdentity(t 
 	ns := domain.Namespace("github.com/user/newpkg")
 	m := &mocks.Manifold{
 		SnapshotResult: domain.RefSnapshot{Tags: map[string]string{"v3.0.0": "c3"}},
-		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, commit string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, resolveNs domain.Namespace, _, commit string) (*domain.Arrow, []byte, string, error) {
 			assert.Equal(t, "c3", commit)
 			return &domain.Arrow{Namespace: resolveNs, ArrowMeta: domain.ArrowMeta{Name: "New"}}, []byte("raw"), "ARROW.md", nil
 		},

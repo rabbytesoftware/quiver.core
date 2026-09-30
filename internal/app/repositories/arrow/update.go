@@ -87,7 +87,7 @@ func (s *arrowService) RefreshToTarget(
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, apperrors.ErrNotFound)
 	}
 
-	m, raw, filename, err := s.manifold.ResolveArrowAtCommit(ctx, ns, target.Commit)
+	m, raw, filename, err := s.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
 	if err != nil {
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, mapResolveErr(err))
 	}

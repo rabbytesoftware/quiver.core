@@ -88,7 +88,7 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			assert.Equal(t, tc.wantResolved, got.Resolved)
 			assert.Equal(t, []byte("raw"), got.Manifest)
 			assert.Equal(t, "ARROW.md", got.Filename)
-			assert.Equal(t, []commitFetch{{ns: tc.wantIdentity, commit: tc.wantResolved.Commit}}, fetched)
+			assert.Equal(t, []commitFetch{{ns: tc.wantIdentity, ref: tc.wantResolved.Ref, commit: tc.wantResolved.Commit}}, fetched)
 			assert.Equal(t, 1, m.FreshSnapshotCalls)
 			assert.Zero(t, m.SnapshotCalls)
 			assert.Empty(t, v.ArrowOps)

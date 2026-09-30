@@ -37,7 +37,7 @@ func (c *conflictingAsynx) SendWait(
 
 func targetManifold() *mocks.Manifold {
 	return &mocks.Manifold{
-		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _ string) (*domain.Arrow, []byte, string, error) {
+		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _, _ string) (*domain.Arrow, []byte, string, error) {
 			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Target"}}, []byte("raw"), "arrow.yaml", nil
 		},
 	}

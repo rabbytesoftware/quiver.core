@@ -243,10 +243,11 @@ func (m *countingManifold) ResolveArrow(
 func (m *countingManifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,
+	ref string,
 	commit string,
 ) (*domain.Arrow, []byte, string, error) {
 	m.count()
-	return m.Manifold.ResolveArrowAtCommit(ctx, ns, commit)
+	return m.Manifold.ResolveArrowAtCommit(ctx, ns, ref, commit)
 }
 
 func (m *countingManifold) count() {

@@ -21,7 +21,7 @@ The `Manifold` interface is the only surface the app layer imports.
 | `ParseArrow` | raw `[]byte` | `*domain.Arrow`, `error` |
 | `ParseCollection` | raw `[]byte`, `domain.Namespace` (collection ns) | `*domain.Collection`, `error` |
 | `ResolveArrowAt` | `ctx`, `namespace`, `path` | as `ResolveArrow`, at an explicit path inside the repository |
-| `ResolveArrowAtCommit` | `ctx`, `namespace`, `commit` | as `ResolveArrow`, fetched at `commit` and stamped with `namespace` |
+| `ResolveArrowAtCommit` | `ctx`, `namespace`, `ref`, `commit` | as `ResolveArrow`, fetched at `commit` (falling back to `ref`) and stamped with `namespace` |
 | `ListChannels` | `ctx`, `namespace` | `[]ChannelInfo`, `error` |
 | `Snapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (cached), `error` |
 | `FreshSnapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (read live, refreshes the cache), `error` |
@@ -30,7 +30,7 @@ The `Manifold` interface is the only surface the app layer imports.
 
 `Parse*` skip the resolver entirely — they translate, validate, and compile bytes already in hand. Used in tests, by the wizard for ad-hoc validation, and anywhere the bytes come from a non-resolver source.
 
-`ResolveArrowAtCommit` is how every install and advance reads a manifest: at the commit the selector points at (`namespace.WithRef(commit)`), which raw-file hosts serve as a ref. When that fetch fails for any reason other than an invalid manifest — the clone path only checks out tags and branches — it falls back to the namespace's own ref.
+`ResolveArrowAtCommit` is how every install, adoption and advance reads a manifest: at the commit the selector points at (`namespace.WithRef(commit)`), which raw-file hosts serve as a ref. `ref` is the ref that commit was resolved from (`Resolved.Ref`, the update's target ref, or the admitted ref of an adoption). When the fetch at the commit fails for any reason other than an invalid manifest — the clone path only checks out tags and branches, so a self-hosted git server never serves a SHA — it falls back to `namespace.WithRef(ref)`: the resolved ref, never the namespace's own selector, which for a channel or constraint (`stable`, `v1.*`) names no git ref at all. No fallback runs when `ref` is empty or is the commit itself. The ref may have moved since it was resolved, so the caller verifies the commit afterwards (the update bracket's snapshot re-check).
 
 ### 2.1 Ref snapshots, selectors and drift
 

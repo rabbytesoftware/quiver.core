@@ -139,6 +139,7 @@ func (m *countingManifold) FreshSnapshot(
 func (m *countingManifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,
+	_ string,
 	commit string,
 ) (*domain.Arrow, []byte, string, error) {
 	if commit != acceptanceCommit {

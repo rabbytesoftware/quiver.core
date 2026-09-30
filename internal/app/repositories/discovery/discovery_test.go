@@ -139,6 +139,7 @@ func (s *stubManifold) ResolveArrowAtCommit(
 	_ context.Context,
 	_ domain.Namespace,
 	_ string,
+	_ string,
 ) (*domain.Arrow, []byte, string, error) {
 	return nil, nil, "", errors.New("not used")
 }
