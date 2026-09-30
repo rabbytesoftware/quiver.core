@@ -121,8 +121,10 @@ func (s *FletcherSuite) TestFletcher_LowConfidenceIsAMissingManifest() {
 
 	s.Equal(http.StatusNotFound, tc.Add(ns))
 	s.Require().Positive(host.Calls())
+	callsAfterAdd := host.Calls()
 	_, detailStatus := tc.GetDetail(ns)
 	s.Equal(http.StatusNotFound, detailStatus)
+	s.Equal(callsAfterAdd, host.Calls())
 	arrows, listStatus := tc.List()
 	s.Require().Equal(http.StatusOK, listStatus)
 	s.Empty(arrows)

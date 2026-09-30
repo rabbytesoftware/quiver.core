@@ -374,8 +374,11 @@ on it (an update stages it, an install of an absent row or a catalog advance rea
 that definitively finds no manifest at the target records so in the vault — a not-found marker at
 the target's ref, for its commit — and a check does not offer a target so marked; the update
 bracket judges the row again when it cannot stage its target, so a target no update can install
-stops being offered right after the first attempt. A tag that moves names another commit and is
-judged afresh.
+stops being offered right after the first attempt. A read of that same commit (an add, a preview,
+the details of a repository an add just failed on) answers not found from the marker without
+asking the host. The marker never replaces a cached manifest, so a pin whose ref is a row's own
+identity keeps its installed manifest. A tag that moves names another commit and is judged
+afresh.
 
 A branch of a repository that ships no manifest has no release of its own, so a selector naming
 it (a branch pin) is not found at add: the draft Fletcher would build for it comes from a release

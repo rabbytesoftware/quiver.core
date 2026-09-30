@@ -224,6 +224,9 @@ func (r *storeService) manifestAt(
 	if arrow, file, ok := r.CachedAtCommit(ctx, identity, target); ok {
 		return arrow, file.Content, file.Filename, nil
 	}
+	if r.knownAbsent(ctx, identity, target) {
+		return nil, nil, "", fmt.Errorf("resolver: fetch at commit: %w: no manifest at %s", apperrors.ErrNotFound, target.Commit)
+	}
 	return r.fetchManifestAt(ctx, identity, target)
 }
 
@@ -273,20 +276,28 @@ func (r *storeService) CachedAtCommit(
 }
 
 // RecordAbsent marks target's ref as holding no manifest at target's commit.
-// A ref that is the identity itself is left alone: the identity's entry is
-// the installed row's own manifest.
+// An entry that holds a manifest is left alone: it may be a row's installed
+// manifest, as a pin's ref is its own identity.
 func (r *storeService) RecordAbsent(
 	ctx context.Context,
 	identity domain.Namespace,
 	target domain.Available,
 ) {
 	key := identity.WithRef(target.Ref)
-	if r.vault == nil || key == identity || target.Commit == "" {
+	if r.vault == nil || target.Commit == "" || r.holdsManifest(ctx, key) {
 		return
 	}
 	if err := r.vault.PutArrowNotFound(ctx, key, target.Commit); err != nil {
 		slog.WarnContext(ctx, "store: record absent target", "ns", key, "err", err)
 	}
+}
+
+func (r *storeService) holdsManifest(
+	ctx context.Context,
+	key domain.Namespace,
+) bool {
+	_, err := r.vault.GetArrow(ctx, key)
+	return err == nil || errors.Is(err, vault.ErrStale)
 }
 
 // knownAbsent reports whether a fetch already found no manifest at target's
@@ -296,11 +307,10 @@ func (r *storeService) knownAbsent(
 	identity domain.Namespace,
 	target domain.Available,
 ) bool {
-	key := identity.WithRef(target.Ref)
-	if r.vault == nil || key == identity {
+	if r.vault == nil || target.Commit == "" {
 		return false
 	}
-	file, err := r.vault.GetArrow(ctx, key)
+	file, err := r.vault.GetArrow(ctx, identity.WithRef(target.Ref))
 	return errors.Is(err, vault.ErrConfirmedAbsent) && file.Commit != "" && strings.EqualFold(file.Commit, target.Commit)
 }
 

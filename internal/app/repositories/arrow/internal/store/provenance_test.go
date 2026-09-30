@@ -113,31 +113,73 @@ func TestResolveManifest_UncataloguedPreview_ReusesTheBuildAtTheTarget(t *testin
 }
 
 // A target that definitively holds no manifest is recorded at its ref for
-// its commit, never over the identity's own entry.
+// its commit. A pin's ref is its identity, whose entry is recorded only while
+// it holds no manifest: a row's installed manifest is never replaced.
 func TestResolveInstall_AbsentTargetIsRecordedAtItsRef(t *testing.T) {
 	testCases := []struct {
 		name       string
 		ns         domain.Namespace
-		wantMarker bool
+		cached     bool
+		wantMarker domain.Namespace
 	}{
-		{name: "a channel's release", ns: selectorBare.WithRef("stable"), wantMarker: true},
-		{name: "a pin is its own identity", ns: selectorBare.WithRef("v2.0.0")},
+		{name: "a channel's release", ns: selectorBare.WithRef("stable"), wantMarker: selectorBare.WithRef("v2.0.0")},
+		{name: "a pin nothing is cached for", ns: selectorBare.WithRef("v2.0.0"), wantMarker: selectorBare.WithRef("v2.0.0")},
+		{name: "a pin whose identity holds a manifest", ns: selectorBare.WithRef("v2.0.0"), cached: true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+			if tc.cached {
+				v = &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("installed"), Filename: "ARROW.md"}}
+			}
 			fetches := 0
 			r := newTestReaderWithVaultManifold(t, v, countingFetches(selectorSnapshot(), manifoldresolver.ErrNotFound, &fetches))
 
 			_, _, err := r.ResolveInstall(context.Background(), tc.ns)
 
 			require.ErrorIs(t, err, apperrors.ErrNotFound)
-			if !tc.wantMarker {
+			if tc.wantMarker == "" {
 				assert.Zero(t, v.PutArrowNotFoundCalls)
 				return
 			}
-			assert.Equal(t, []domain.Namespace{selectorBare.WithRef("v2.0.0")}, v.PutArrowNotFoundNamespaces)
+			assert.Equal(t, []domain.Namespace{tc.wantMarker}, v.PutArrowNotFoundNamespaces)
 			assert.Equal(t, []string{"c200"}, v.PutArrowNotFoundCommits)
+		})
+	}
+}
+
+// Once a fetch found no manifest at a commit, reading that commit again —
+// the details of a repository an add just failed on — asks the host nothing
+// about it, until the tag moves. A refless read may still try other channels.
+func TestResolveManifest_KnownAbsentTarget_AsksTheHostNothing(t *testing.T) {
+	testCases := []struct {
+		name        string
+		ns          domain.Namespace
+		absentAt    string
+		wantFetches int
+	}{
+		{name: "a pin", ns: selectorBare.WithRef("v2.0.0"), absentAt: "c200"},
+		{name: "the default channel's release", ns: selectorBare, absentAt: "c200"},
+		{name: "a tag that moved since", ns: selectorBare, absentAt: "c199", wantFetches: 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := realVault(t)
+			require.NoError(t, v.PutArrowNotFound(context.Background(), selectorBare.WithRef("v2.0.0"), tc.absentAt))
+			fetchedTarget := 0
+			m := countingFetches(selectorSnapshot(), manifoldresolver.ErrNotFound, new(int))
+			m.ResolveArrowAtCommitFn = func(_ context.Context, _ domain.Namespace, ref, _ string) (*domain.Arrow, []byte, string, error) {
+				if ref == stableTarget.Ref {
+					fetchedTarget++
+				}
+				return nil, nil, "", manifoldresolver.ErrNotFound
+			}
+			r := newTestReaderWithVaultManifold(t, v, m)
+
+			_, err := r.ResolveManifest(context.Background(), tc.ns)
+
+			require.ErrorIs(t, err, apperrors.ErrNotFound)
+			assert.Equal(t, tc.wantFetches, fetchedTarget)
 		})
 	}
 }
