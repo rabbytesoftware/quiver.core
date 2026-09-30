@@ -111,3 +111,9 @@ func TestReturnDTOFrom_IncludesSteps(t *testing.T) {
 	require.NotNil(t, d.Steps[1].Error)
 	assert.Equal(t, errMsg, *d.Steps[1].Error)
 }
+
+func TestReturnDTOFrom_CarriesTheExecutionID(t *testing.T) {
+	d := dto.ReturnDTOFrom(&domainRuntime.Return{Method: "_update", ExecutionID: "exec-1"})
+	require.NotNil(t, d)
+	assert.Equal(t, "exec-1", d.ExecutionID)
+}

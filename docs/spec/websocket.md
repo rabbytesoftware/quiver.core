@@ -175,6 +175,7 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 
 | Field | JSON | Type | Notes |
 |---|---|---|---|
+| ExecutionID | `execution_id` | `string` | `omitempty` — the run this return ended. Two returns of one method are the same run exactly when their IDs match; empty for a return recorded before returns carried one. A client waiting for the run it just started compares against the return it read before starting it. |
 | Method | `method` | `string` | Method that completed. |
 | Outcome | `outcome` | `string` | `success`, `failed`, `cancelled`. |
 | Variables | `variables` | `map[string]string` | `omitempty`. |

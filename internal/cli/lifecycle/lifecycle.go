@@ -34,15 +34,20 @@ func MatchesMethod(recorded, invoked string) bool {
 	return strings.EqualFold(r, i)
 }
 
-// Wait consumes runtime events until the invoked method completes. onEvent,
-// when non-nil, observes every event (for rendering). It errors when the
-// stream ends without a terminal event or ctx expires.
+// Wait consumes runtime events until the invoked method completes. previous
+// is the arrow's last return read before the method was invoked, nil when it
+// had none or it could not be read: a return that is still that one belongs
+// to an earlier run, even of the same method, and is never this run's end.
+// onEvent, when non-nil, observes every event (for rendering). It errors when
+// the stream ends without a terminal event or ctx expires.
 func Wait(
 	ctx context.Context,
 	events <-chan apidto.ArrowRuntimeDTO,
 	method string,
+	previous *apidto.ReturnDTO,
 	onEvent func(apidto.ArrowRuntimeDTO),
 ) (Result, error) {
+	w := waiter{method: method, previous: previous}
 	for {
 		select {
 		case <-ctx.Done():
@@ -54,19 +59,32 @@ func Wait(
 			if onEvent != nil {
 				onEvent(evt)
 			}
-			if res, done := terminal(evt, method); done {
+			if res, done := w.terminal(evt); done {
 				return res, nil
 			}
 		}
 	}
 }
 
-// terminal checks whether an event carries the invoked method's return.
-func terminal(evt apidto.ArrowRuntimeDTO, method string) (Result, bool) {
-	if evt.ActiveRun != nil || evt.LastReturn == nil {
+type waiter struct {
+	method   string
+	previous *apidto.ReturnDTO
+	// began records an event showing a run of method active. It tells this
+	// run's return apart from the previous one on a daemon whose returns
+	// carry no execution ID.
+	began bool
+}
+
+// terminal checks whether an event carries this run's return.
+func (w *waiter) terminal(evt apidto.ArrowRuntimeDTO) (Result, bool) {
+	if evt.ActiveRun != nil {
+		w.began = w.began || MatchesMethod(evt.ActiveRun.Method, w.method)
 		return Result{}, false
 	}
-	if !MatchesMethod(evt.LastReturn.Method, method) {
+	if evt.LastReturn == nil || !MatchesMethod(evt.LastReturn.Method, w.method) {
+		return Result{}, false
+	}
+	if !w.isNew(evt.LastReturn) {
 		return Result{}, false
 	}
 
@@ -82,6 +100,16 @@ func terminal(evt apidto.ArrowRuntimeDTO, method string) (Result, bool) {
 		}
 	}
 	return res, true
+}
+
+func (w *waiter) isNew(ret *apidto.ReturnDTO) bool {
+	if w.previous == nil {
+		return true
+	}
+	if ret.ExecutionID != w.previous.ExecutionID {
+		return true
+	}
+	return ret.ExecutionID == "" && w.began
 }
 
 // UntitledStep is rendered when a manifest step has no title.

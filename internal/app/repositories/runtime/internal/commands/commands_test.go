@@ -393,6 +393,27 @@ func TestEndExecution_AfterUninstall_Success_SetsAbsent(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateAbsent, got.State)
 }
 
+// A return names the execution it ended, so a client can tell this run's
+// return from the previous one of the same method.
+func TestEndExecution_ReturnNamesTheExecutionItEnded(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+	_, err := ax.Send(context.Background(), commands.BeginInstall{Namespace: ns, ExecutionID: "exec-1"})
+	require.NoError(t, err)
+
+	_, err = ax.Send(context.Background(), commands.EndExecution{
+		Namespace:   ns,
+		ExecutionID: "exec-1",
+		Outcome:     domainRuntime.ExecutionOutcomeSuccess,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.LastReturn)
+	assert.Equal(t, "exec-1", got.LastReturn.ExecutionID)
+}
+
 func TestEndExecution_WithoutExecution_Fails(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()

@@ -2354,6 +2354,10 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO": {
             "type": "object",
             "properties": {
+                "execution_id": {
+                    "description": "ExecutionID names the run this return ended; two returns of the same\nmethod are the same run exactly when their IDs match.",
+                    "type": "string"
+                },
                 "method": {
                     "type": "string"
                 },

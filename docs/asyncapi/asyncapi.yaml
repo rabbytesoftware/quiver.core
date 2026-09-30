@@ -234,6 +234,9 @@ components:
         - steps
         - variables
       properties:
+        execution_id:
+          type: string
+          description: The run this return ended; omitted for a return recorded before returns carried one.
         method:
           type: string
         outcome:
