@@ -29,9 +29,13 @@ type FakeHost interface {
 		ns domain.Namespace,
 	) (hosts.Host, bool)
 	Calls() int64
+	MetadataCalls() int64
 }
 
-var errNoFakeRelease = errors.New("fake host: no release")
+var (
+	errNoFakeRelease  = errors.New("fake host: no release")
+	errNoFakeMetadata = errors.New("fake host: no metadata")
+)
 
 type fakeHost struct {
 	repos  map[domain.Namespace]HostRepo
@@ -39,6 +43,7 @@ type fakeHost struct {
 	assets map[string][]domain.ReleaseAsset
 	server *httptest.Server
 	calls  atomic.Int64
+	meta   atomic.Int64
 }
 
 func NewFakeHost(
@@ -73,6 +78,22 @@ func (f *fakeHost) Calls() int64 {
 	return f.calls.Load()
 }
 
+func (f *fakeHost) MetadataCalls() int64 {
+	return f.meta.Load()
+}
+
+func (f *fakeHost) RepoMetadata(
+	_ context.Context,
+	ns domain.Namespace,
+) (domain.RepoMetadata, error) {
+	f.meta.Add(1)
+	repo, ok := f.repos[ns.BareNamespace()]
+	if !ok || repo.APIDescription == "" && repo.AvatarURL == "" {
+		return domain.RepoMetadata{}, fmt.Errorf("fake host: repo metadata %s: %w", ns, errNoFakeMetadata)
+	}
+	return domain.RepoMetadata{Description: repo.APIDescription, AvatarURL: repo.AvatarURL}, nil
+}
+
 func (f *fakeHost) RawFileURL(
 	ns domain.Namespace,
 	ref string,
@@ -98,6 +119,12 @@ func (f *fakeHost) BlobFileURL(
 		"{branch}", ref,
 		"{file}", file,
 	).Replace(metadata.GetPlatforms()["github.com"].BlobURL), nil
+}
+
+func (f *fakeHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
 }
 
 func (f *fakeHost) RepoPageURL(
@@ -138,6 +165,11 @@ func (f *fakeHost) register(
 		`<html><head><meta property="og:description" content=%q></head></html>`,
 		repo.Description,
 	))
+	for _, ref := range append([]string{"main"}, repo.Tags...) {
+		for path, body := range repo.Files {
+			f.files["/raw/"+string(ns)+"/"+ref+"/"+path] = body
+		}
+	}
 	for _, tag := range repo.Tags {
 		f.assets[releaseKey(ns, tag)] = f.release(t, repo, tag)
 		f.files["/raw/"+string(ns)+"/"+tag+"/README.md"] = []byte(repo.Readme)

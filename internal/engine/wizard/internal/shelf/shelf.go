@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 
@@ -209,6 +210,7 @@ func (s *shelf) applyEntry(
 		return fmt.Errorf("shelf: apply %s %s: %w", kind, entry.Name, err)
 	}
 	if autoAbsent(entry, reason) {
+		skip(ctx, req, out, kind, index, entry.Name, reason)
 		return nil
 	}
 	if reason != "" {
@@ -223,6 +225,7 @@ func (s *shelf) applyEntry(
 			return fmt.Errorf("shelf: apply %s %s: %w", kind, c.Name, err)
 		}
 		if autoAbsent(entry, p.Refused) {
+			skip(ctx, req, out, kind, index, c.Name, p.Refused)
 			continue
 		}
 		out.Record(kind, index, c, p)
@@ -276,6 +279,19 @@ func relocate(
 		}
 	}
 	return target
+}
+
+func skip(
+	ctx context.Context,
+	req models.Request,
+	out *Applied,
+	kind domain.ExposeKind,
+	index int,
+	name string,
+	reason string,
+) {
+	out.Skip(kind, index, name, reason)
+	slog.InfoContext(ctx, "shelf: auto entry skipped, nothing exposed", "ns", req.Bare, "kind", kind, "name", name, "reason", reason)
 }
 
 func autoAbsent(

@@ -227,9 +227,9 @@ func TestIndex_Search_ExcludesExpiredRowsBeforeSweep(t *testing.T) {
 func TestIndex_Search_RespectsLimit(t *testing.T) {
 	idx := newTestIndex(t)
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
-	for _, ref := range []string{"v1", "v2", "v3"} {
+	for _, ns := range []string{"github.com/u/a@v1", "github.com/u/b@v1", "github.com/u/c@v1"} {
 		require.NoError(t, idx.upsert(
-			domain.Namespace("github.com/u/r@"+ref),
+			domain.Namespace(ns),
 			ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL,
 		))
 	}
@@ -237,6 +237,105 @@ func TestIndex_Search_RespectsLimit(t *testing.T) {
 	rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 2}, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
+}
+
+func TestIndex_Search_LimitCountsNamespacesNotRefs(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	popular := testMeta()
+	popular.Stars = 100
+	for _, ref := range []string{"v1", "v2", "v3"} {
+		require.NoError(t, idx.upsert(
+			domain.Namespace("github.com/u/multi@"+ref),
+			ManifestFile{Filename: "ARROW.md"}, popular, now, testIndexTTL,
+		))
+	}
+	require.NoError(t, idx.upsert("github.com/u/single@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL))
+
+	rows, err := idx.search(IndexQuery{Text: "chrom", Limit: 2}, now)
+	require.NoError(t, err)
+
+	namespaces := map[domain.Namespace]int{}
+	for _, row := range rows {
+		namespaces[row.Namespace]++
+	}
+	assert.Equal(t, map[domain.Namespace]int{
+		"github.com/u/multi":  3,
+		"github.com/u/single": 1,
+	}, namespaces)
+}
+
+func terseMeta() IndexMeta {
+	return IndexMeta{
+		Arrow: domain.ArrowMeta{Name: "app", Description: "tool", Tags: []string{"cli"}},
+		OS:    []domain.OS{domain.OSLinuxAMD64},
+	}
+}
+
+func TestIndex_Search_TokenMatching(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, idx.upsert("github.com/acme/rocketship@v1", ManifestFile{Filename: "ARROW.md"}, terseMeta(), now, testIndexTTL))
+	require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL))
+
+	testCases := []struct {
+		name string
+		text string
+		want []domain.Namespace
+	}{
+		{"repository name", "rocketship", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"owner and repo", "acme/rocket", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"query shorter than a trigram", "ap", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"two chars in namespace", "cm", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"words in different fields", "rocket cli", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"every token must match", "rocket browser", []domain.Namespace{}},
+		{"multi word in one field", "fast web", []domain.Namespace{"github.com/u/r"}},
+		{"case insensitive", "ROCKETSHIP", []domain.Namespace{"github.com/acme/rocketship"}},
+		{"like wildcard is literal", "roc%", []domain.Namespace{}},
+		{"underscore is literal", "r_cket", []domain.Namespace{}},
+		{"backslash is literal", `a\c`, []domain.Namespace{}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := idx.search(IndexQuery{Text: tc.text, Limit: 10}, now)
+			require.NoError(t, err)
+
+			got := make([]domain.Namespace, 0, len(rows))
+			for _, row := range rows {
+				got = append(got, row.Namespace)
+			}
+			assert.ElementsMatch(t, tc.want, got)
+		})
+	}
+}
+
+func TestIndex_Search_RanksTrigramMatchesFirst(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	byNamespace := terseMeta()
+	byNamespace.Stars = 1000
+	byNamespace.Arrow.Name = "other"
+	require.NoError(t, idx.upsert("github.com/u/chromium-fork@v1", ManifestFile{Filename: "ARROW.md"}, byNamespace, now, testIndexTTL))
+	require.NoError(t, idx.upsert("github.com/u/r@v1", ManifestFile{Filename: "ARROW.md"}, testMeta(), now, testIndexTTL))
+
+	rows, err := idx.search(IndexQuery{Text: "chromium", Limit: 10}, now)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.Equal(t, domain.Namespace("github.com/u/r"), rows[0].Namespace)
+}
+
+func TestIndex_Search_OSFilterAppliesToNamespaceOnlyMatch(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, idx.upsert("github.com/acme/rocketship@v1", ManifestFile{Filename: "ARROW.md"}, terseMeta(), now, testIndexTTL))
+
+	hit, err := idx.search(IndexQuery{Text: "rocketship", OS: domain.OSLinuxAMD64, Limit: 10}, now)
+	require.NoError(t, err)
+	assert.Len(t, hit, 1)
+
+	miss, err := idx.search(IndexQuery{Text: "rocketship", OS: domain.OSDarwinARM64, Limit: 10}, now)
+	require.NoError(t, err)
+	assert.Empty(t, miss)
 }
 
 func TestIndex_Search_EmptyTextReturnsEmpty(t *testing.T) {

@@ -14,6 +14,10 @@ type HostRepo struct {
 	Binary      string
 	Asset       string
 	Tags        []string
+
+	APIDescription string
+	AvatarURL      string
+	Files          map[string][]byte
 }
 
 func (r HostRepo) assetName(

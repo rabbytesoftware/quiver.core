@@ -64,7 +64,10 @@ func (s *searchUsecase) Search(
 		return nil, fmt.Errorf("search: catalog: %w", err)
 	}
 
-	rows, err := s.vault.SearchArrows(ctx, vault.IndexQuery{Text: text, OS: q.OS, Limit: limit})
+	// The vault lane may return arrows the catalog already answered for, and
+	// those are dropped in seenResults; widening the request by the catalog's
+	// size keeps them from eating the budget of arrows that are not.
+	rows, err := s.vault.SearchArrows(ctx, vault.IndexQuery{Text: text, OS: q.OS, Limit: limit + len(hits)})
 	if err != nil {
 		return nil, fmt.Errorf("search: vault: %w", err)
 	}

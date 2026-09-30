@@ -204,9 +204,20 @@ func (u *runtimeUsecase) resolveOutdatedBeforeInstall(
 		ctx, ns, newNs, current.InstalledConstraint, current.Channel, false, false, current.UserInstalled,
 		current.PinnedRef,
 	); err != nil {
-		return ns, err
+		if !isUnresolvable(err) {
+			return ns, err
+		}
+		slog.WarnContext(ctx, "install: recommended ref cannot be resolved, installing the current ref",
+			"ns", ns, "recommended", newNs, "err", err)
+		return ns, nil
 	}
 	return newNs, nil
+}
+
+func isUnresolvable(
+	err error,
+) bool {
+	return errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrFetchFailed)
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {

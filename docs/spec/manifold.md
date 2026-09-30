@@ -177,7 +177,9 @@ keeps working from its cached manifest.
 
 **Ref selection.** The namespace's ref is tried first. When it has no release and the ref is
 empty or a default branch, Fletcher retries on `ResolveLatestStable`, then on the latest tag of
-the first non-stable channel (`ListChannels`, skipping the default-branch fallback entry); a
+the newest non-stable channel (`ListChannels` re-ordered by
+`resolvers.NewestFirst`: highest version core first, pointer channels last; the default-branch
+fallback entry is skipped), never an older channel just because its name sorts first; a
 prerelease-only repository resolves this way. An exact tag with no release never falls back.
 If no draft was produced and any of those lookups failed with anything other than
 `ErrNoLatestStable` / `ErrNoTagInChannel` (for example `ls-remote` failing), that lookup error
@@ -185,15 +187,18 @@ is returned rather than `no_release_assets`, even when the other lookup did yiel
 tried: a failed lookup means a release may exist that was never seen.
 
 **Host sources.** Fletcher reaches the host only through `hosts.Host`, the same contract the
-declared-manifest lookup uses: `ReleaseAssets`, `RawFileURL`, `BlobFileURL` and `RepoPageURL`.
-Everything else it fetches itself through `core/fns` (see **Fetch bounds**). On GitHub it makes
-**zero** metered API calls (60/h unauthenticated):
+declared-manifest lookup uses: `ReleaseAssets`, `RawFileURL`, `BlobFileURL`, `RepoPageURL`,
+`OwnerAvatarURL` and `RepoMetadata`. Everything else it fetches itself through `core/fns` (see **Fetch bounds**). On
+GitHub it makes **one** metered API call per repository (60/h unauthenticated), `RepoMetadata`;
+everything else is unmetered pages and raw files:
 
 | Source | Where it comes from |
 |---|---|
 | Release assets | GitHub provider: `github.com/<repo>/releases/expanded_assets/<tag>` HTML fragment — asset names, download URLs, `sha256:` digests. A fragment whose shape stops matching fails loudly, never with a partial list. A 404 is an empty list. |
 | README, icon probes | `RawFileURL` (`raw.githubusercontent.com`). |
-| Repo page | `RepoPageURL` (`github.com/<repo>`), parsed by Fletcher. |
+| Repo page | `RepoPageURL` (`github.com/<repo>`), parsed by Fletcher for the banner and as the description fallback. |
+| Owner avatar (icon fallback) | `OwnerAvatarURL`: the stable, unmetered `github.com/<owner>.png` (`owner_avatar_url` in `metadata.yaml`), fetched once through the same 64 KiB prefix probe and image sniff as any icon, and stored as that stable URL, never the `avatars.githubusercontent.com` address it redirects to. A host with no template returns `""`. |
+| Description (and avatar, secondarily) | `RepoMetadata`: GitHub provider, `api.github.com/repos/<repo>` (`repo_api_url`), at most one request per bare repository, memoized in-process (concurrent callers share it; a failure is remembered for 10 minutes). Unauthenticated; any failure, rate limits included, is a miss and never fails a draft. |
 | README links | `RawFileURL` for images, `BlobFileURL` for other relative links, both pinned to the ref. |
 
 On GitLab the provider uses the public REST API anonymously (500/min) for release assets only:
@@ -206,35 +211,65 @@ while an installable asset still lacks a digest; any failure is a miss). Names m
 name and on the basename of the link and download URLs; an entry listed twice with different
 digests is dropped. An asset whose link or download URL is not https never carries a digest, so
 the picker drops it. A 404 on the release is an empty list. The README, icon probes and repo page
-(`gitlab.com/<repo>`) come through `RawFileURL` and `RepoPageURL` exactly as on GitHub.
+(`gitlab.com/<repo>`) come through `RawFileURL` and `RepoPageURL` exactly as on GitHub. GitLab
+and Bitbucket offer no `RepoMetadata` (it is always a miss), so their description comes from the
+repo page and they have no avatar fallback.
 
 **Repo page.** Fletcher reads the page's Open Graph tags with one host-agnostic rule set: text or
 images that name the repository's own `owner/repo` slug are the site's template, not the
-author's. `og:description` becomes the description after a trailing ` - <slug>` and every
+author's. `og:description` is the description only when `RepoMetadata` gave none; it becomes the description after a trailing ` - <slug>` and every
 sentence naming the slug are dropped. `og:image` is a banner candidate only when its URL does not
 name the slug and its sniffed dimensions (one capped fetch) are banner-shaped; it is never an
 icon. A host with no repo page (`RepoPageURL` empty) contributes neither.
 
 URL templates live in `internal/core/metadata/metadata.yaml`.
 
+**Which ref a build lives under.** `Recover` reports the ref it actually drafted from, and
+`ResolveArrow` stamps it on the arrow's `Namespace` (bare namespace at that ref) whenever it
+differs from the ref asked. This matters for a branch: discovery asks for the default branch the
+search response named, but a repository whose only manifest is inferred has no release assets at
+a branch, so the draft comes from a release tag (the same tag details, add and install pick when
+they ask for the stable channel, or the newest non-stable one when there is no stable). Discovery
+files the arrow under that tag, so the ref shown in search is the ref installed, and opening the
+details, adding or installing a discovered arrow reads the vault row and builds nothing again. A
+declared manifest keeps the branch discovery fetched it from.
+
+**Caching of resolution.** `ResolveLatestStable`, `ResolveConstraint` and `ListChannels` share
+one TTL cache keyed by the namespace as asked, so the release-permalink request that picks the
+stable tag happens once per TTL, not once per detail sub-endpoint (every one of them asks the
+same refless namespace). A failed lookup is never cached.
+
+A manifest built while `RepoMetadata` was failing is cached like any other (the vault has one TTL
+per entry and no per-entry override): no icon depends on that call any more, and the only loss
+is an API-authored description where the page has no `og:description`.
+
 **One build.** There is a single Fletcher mode, `Recover` (used by `ResolveArrow`), and it builds
 the whole manifest: picks, page metadata, a transformed README (relative URLs absolutized and
 pinned to the ref; badge rows, the leading title block and install/download sections stripped;
 an English README preferred when the default is CJK-dominant; a literal ` ```arrow ` fence
-escaped) and a media cascade: icon from the icon probes, then a square README image; banner from
-the repo page's `og:image`, then a banner-shaped README image. Search results, details and adds
+escaped) and a media cascade: icon from the icon probes, then the owner's avatar from
+`OwnerAvatarURL` (unmetered, validated as an image), then the avatar `RepoMetadata` reported
+(no README image is ever parsed for media). The icon therefore never depends on the metered API:
+a rate-limited `RepoMetadata` costs the API description and nothing else, since the page's
+`og:description` still covers it; banner from the repo page's `og:image` only. Search results, details and adds
 all come from this build and the same vault cache.
 
 **Latency.** Once the tag is known, the release assets, the repo page, the README and the icon
 probes are fetched concurrently (a fixed set of goroutines, all bound to the caller's context).
 Errors keep the sequential precedence — release assets, then repo page, then README — and a
-release-asset failure cancels the other fetches. Icon probes try `src-tauri/icons/icon.png`,
-`build/icon.png` and `logo.svg`; when several are accepted, the earliest in that list wins
-regardless of which answered first. The README-image fallbacks run after the README is in hand.
+release-asset failure cancels the other fetches. Icon probes are an ordered table of
+raw-file paths (`src-tauri/icons/…`, then `icon|logo|app-icon` as `png|svg` under the root,
+`assets`, `.github`, `docs`, `images`, `icons`, `resources`, `build` and `public`), pinned to the
+tag first and then to each default branch, all candidates ranked ref-major and path-minor and
+fetched 24 at a time; the highest-ranked accepted candidate wins regardless of which answered
+first, and a hit stops every lower-ranked candidate from being fetched. A raster icon must be square within 2% and
+at least 128 px; an SVG is judged by its root `<svg>` start tag alone (`width`/`height`, else
+`viewBox` when those are missing, non-numeric or percentages) and must be square within 2%; an
+unparsable file is never an icon.
 
 **Fetch bounds.** Fletcher fetches through `core/fns` and refuses anything but an `http(s)` URL
 before calling it. Every fetch is bounded by manifold's `fetch_timeout` through its context;
-fns's own fixed client timeout is disabled. Media probes (icon probes, README images, the
+fns's own fixed client timeout is disabled. Media probes (icon probes, the
 `og:image` sniff) stream and read at most 64 KiB. The repo page streams and reads at most 1 MiB
 (Open Graph tags sit in `<head>`). The README is read whole under `fns.Do`'s own body cap (20
 MiB): a 404 moves on to the next README name, while any other status, a transport failure or a
@@ -255,12 +290,18 @@ body over the cap is `resolver.ErrFetchFailed`.
   `.deb`, `.rpm`, …) are dropped.
 - Tiebreak on the fewest extra tokens after removing OS, arch, version, libc, extension and
   channel tokens; an asset whose product token equals the repo name beats a suffixed one
-  (`zed` over `zed-remote-server`). Candidates still differing after the tiebreak refuse the
-  target — Fletcher never guesses.
+  (`zed` over `zed-remote-server`). When candidates of one product still differ only in
+  packaging (`zen-x86_64.AppImage` vs `zen.linux-x86_64.tar.xz`), a linux target takes the
+  AppImage if the release ships GUI packaging, else the archive; an arch-less `.dmg` with no
+  same-stem archive competes with the darwin universal/native picks and wins as the canonical
+  GUI package (`Ghostty.dmg` over `ghostty-macos-universal.zip`), while a `.dmg` sharing a stem
+  with an archive loses to it. Candidates still differing after the tiebreak refuse the
+  target — Fletcher never guesses. A release shipping several unrelated products (none named
+  after the repo) yields no pick at all.
 - A pick without a `sha256` digest, whose download URL is not `https`/`http`, or whose file
   name (taken from the download URL) is not a plain `[A-Za-z0-9._+-]` name, is dropped.
 
-`picker.Pick` also carries `GUI bool`: whether the release ships a GUI package (`.dmg` /
+`picker.Pick` also carries `Product` (the normalized product token) and `GUI bool`: whether the release ships a GUI package (`.dmg` /
 `.AppImage`, the same `shipsGUI` check used to drop GUI installer `.exe`s above).
 
 The forged target installs every format, bare binaries included, with `fetch` (checksum-pinned)
@@ -291,8 +332,26 @@ entries with `path: auto`, except a bare binary, which gets an explicit `cli` pa
 | Level | When |
 |---|---|
 | `high` | No warnings: every pick is exact-arch and named after the repo. |
-| `medium` | Any `assumed_arch`, `emulated` or `windows_exe_unverified` warning. |
-| `low` | Any pick whose product token differs from the repo name (`name_mismatch`). |
+| `medium` | Any `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch` or `unpinned_rolling_tag` warning. |
+| `low` | No platform survives the name-consistency check. |
+
+A pick is name-consistent when its product is the repo name, or equals the release's dominant
+product (the repo-named product if any pick has it, else the most common product among the
+picks; a tie has no dominant product) **and** the pick's companion tokens all appear in the repo
+name. A companion token (`cli`, `api`, `server`, `remote`, `agent`, `daemon`, `client`, `plugin`,
+`extension`, `helper`, `headless`, `worker`, `proxy`, `bridge`, `updater`, `go`, `py`, `python`)
+marks an asset as a satellite of the main product, so a release whose only product is
+`gadget-cli` counts as consistent for repo `gadget-cli` but not for repo `gadget`. Earlier, the picker
+already restricts a platform to assets whose companions the repo name carries whenever the release
+ships any such asset. Consistency is judged per platform: an inconsistent
+platform is **dropped** from the manifest and raises `name_mismatch`; a consistent pick that
+merely is not named after the repo (`zen` in repo `desktop`) also raises `name_mismatch` (medium).
+`low` is reached only when no platform survives.
+
+**Rolling tags.** A ref with no version core (`tip`, `nightly`; see `resolvers.ParseTag`) names
+assets replaced on every build, so a pinned `sha256` would fail later installs. Fletcher then
+omits the `fetch` checksum from every target, tolerates assets that carry no digest, and raises
+`unpinned_rolling_tag` (confidence at most `medium`). Versioned releases still require a digest.
 
 A `low` build is refused: `Recover` returns `NotFletchableError{Reason: low_confidence}` instead
 of a manifest, so every synthesized manifest is `high` or `medium`. The generator block is data
@@ -310,7 +369,7 @@ stays in the wrapped chain for logs:
 | `no_release_assets` | No release, or a release with no assets, at any ref tried. |
 | `no_usable_asset` | Releases exist but no OS target produced a usable, checksummed pick. |
 | `no_digest` | Releases exist and would have produced a pick, but no candidate asset carries a `sha256` digest (older GitHub releases publish none). |
-| `low_confidence` | The picks assess as `low` (a `name_mismatch`). |
+| `low_confidence` | No platform's pick is consistent with the release's dominant product. |
 
 **Transient failures.** Any other `Recover` failure (a 5xx or 429 on the release
 assets, repo page or README, or a failed tag lookup) is wrapped in `resolver.ErrFetchFailed`,

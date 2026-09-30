@@ -69,6 +69,8 @@ platforms:
     search_url: "https://api.github.com/search/repositories?q={query}"
     expanded_assets_url: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}"
     repo_page_url: "https://github.com/{user}/{repo}"
+    repo_api_url: "https://api.github.com/repos/{user}/{repo}"
+    owner_avatar_url: "https://github.com/{user}.png"
   gitlab.com:
     kind: gitlab
     raw_url: "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}"

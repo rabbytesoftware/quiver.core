@@ -17,5 +17,6 @@ type Event struct {
 	StepIndex int
 	PID       int
 	Err       error
+	Note      string
 	Outcome   domainRuntime.ExecutionOutcome
 }

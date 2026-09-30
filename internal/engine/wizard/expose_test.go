@@ -89,6 +89,24 @@ func TestStart_ExposeSteps_ReportEachEntryWithoutFailingTheRun(t *testing.T) {
 	assert.Equal(t, filepath.Join(wd, "tool"), s.link(t, "tool"))
 }
 
+func TestStart_ExposeAutoStepThatFindsNothing_CompletesWithANote(t *testing.T) {
+	s := newExposeSandbox(t)
+	ns := domain.Namespace("github.com/acme/tool@v1")
+	wd := s.workdir(t, ns)
+
+	rec := s.run(ns, domain.MethodInstall, wd,
+		domainstep.NewExposeStep("desktop", "Tool", domain.ExposeAuto),
+		domainstep.NewExposeStep("cli", "tool", domain.ExposeAuto),
+	)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	assert.Equal(t, []int{0, 1}, rec.Completed)
+	assert.Empty(t, rec.Failed)
+	assert.Contains(t, rec.Notes, 0)
+	assert.NotContains(t, rec.Notes, 1)
+	assert.Equal(t, filepath.Join(wd, "tool"), s.link(t, "tool"))
+}
+
 func TestStart_ExposeStepsAfterAFatalFailure_NeverRun(t *testing.T) {
 	s := newExposeSandbox(t)
 	ns := domain.Namespace("github.com/acme/tool@v1")

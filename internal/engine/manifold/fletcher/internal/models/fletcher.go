@@ -8,11 +8,15 @@ import (
 )
 
 type Fletcher interface {
+	// Recover drafts a manifest for a repository that ships none. Besides the
+	// manifest and its filename it returns the ref the draft was built from,
+	// which differs from ns's own when ns named a branch and the release
+	// assets came from a tag.
 	Recover(
 		ctx context.Context,
 		ns domain.Namespace,
 		cause error,
-	) ([]byte, string, error)
+	) ([]byte, string, string, error)
 }
 
 type Releases interface {

@@ -14,10 +14,10 @@ func tier(
 	t target,
 ) ([]classification, Match) {
 	if native := keep(cs, t.native); len(native) > 0 {
-		return native, MatchExact
+		return withGUIDMG(native, cs, t), MatchExact
 	}
 	if universal := keep(cs, t.universal); len(universal) > 0 {
-		return universal, MatchExact
+		return withGUIDMG(universal, cs, t), MatchExact
 	}
 	if !t.assumesArch() {
 		return nil, ""
@@ -29,6 +29,20 @@ func tier(
 		return nil, ""
 	}
 	return keep(cs, classification.amd64), MatchEmulated
+}
+
+func withGUIDMG(
+	tiered []classification,
+	all []classification,
+	t target,
+) []classification {
+	if t.family != familyDarwin {
+		return tiered
+	}
+	dmgs := keep(all, func(c classification) bool {
+		return c.format == FormatDMG && c.arch == archNone && !hasPortableTwin(c, all)
+	})
+	return append(slices.Clone(tiered), dmgs...)
 }
 
 func eligible(
@@ -83,9 +97,9 @@ func highestScored(
 ) []classification {
 	best := math.MinInt
 	for _, c := range cs {
-		best = max(best, score(c))
+		best = max(best, score(c, cs))
 	}
-	return keep(cs, func(c classification) bool { return score(c) == best })
+	return keep(cs, func(c classification) bool { return score(c, cs) == best })
 }
 
 func fewestExtras(
@@ -101,6 +115,40 @@ func fewestExtras(
 		fewest = min(fewest, id.extras(c))
 	}
 	return keep(related, func(c classification) bool { return id.extras(c) == fewest })
+}
+
+func preferPackaging(
+	cs []classification,
+	gui bool,
+	t target,
+) []classification {
+	if distinctProducts(cs) != 1 {
+		return cs
+	}
+	best := math.MaxInt
+	for _, c := range cs {
+		if c.format == FormatArchive || c.format == FormatAppImage {
+			best = min(best, packagingRank(c, gui, t))
+		}
+	}
+	return keep(cs, func(c classification) bool {
+		if c.format != FormatArchive && c.format != FormatAppImage {
+			return true
+		}
+		return packagingRank(c, gui, t) == best
+	})
+}
+
+func packagingRank(
+	c classification,
+	gui bool,
+	t target,
+) int {
+	appImageFirst := gui && t.family == familyLinux
+	if (c.format == FormatAppImage) == appImageFirst {
+		return 0
+	}
+	return 1
 }
 
 func distinctStems(
@@ -152,6 +200,7 @@ func distinctProducts(
 const (
 	portableScore = 30
 	dmgScore      = 20
+	guiDMGScore   = 40
 	muslBonus     = 2
 )
 
@@ -166,8 +215,9 @@ const (
 
 func score(
 	c classification,
+	siblings []classification,
 ) int {
-	base := formatScore(c.format)
+	base := formatScore(c, siblings)
 	if c.musl {
 		return base + muslBonus
 	}
@@ -175,12 +225,25 @@ func score(
 }
 
 func formatScore(
-	format Format,
+	c classification,
+	siblings []classification,
 ) int {
-	if format == FormatDMG {
+	if c.format != FormatDMG {
+		return portableScore
+	}
+	if hasPortableTwin(c, siblings) {
 		return dmgScore
 	}
-	return portableScore
+	return guiDMGScore
+}
+
+func hasPortableTwin(
+	c classification,
+	siblings []classification,
+) bool {
+	return slices.ContainsFunc(siblings, func(other classification) bool {
+		return other.format != FormatDMG && other.stem == c.stem
+	})
 }
 
 func tieRank(

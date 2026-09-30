@@ -4,6 +4,7 @@ package kit
 
 import (
 	"encoding/json"
+	"io"
 	"testing"
 
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
@@ -64,6 +65,18 @@ func (tc *TypedClient) GetDetail(ns string) (dto.ArrowDetailDTO, int) {
 		tc.t.Fatalf("TypedClient.GetDetail: decode: %v", err)
 	}
 	return env.Data, resp.StatusCode
+}
+
+// GetSub returns the status code and raw body of one of an arrow's detail
+// sub-resources.
+func (tc *TypedClient) GetSub(ns, sub string) (int, []byte) {
+	resp := tc.raw.GetSub(ns, sub)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		tc.t.Fatalf("TypedClient.GetSub %s: read: %v", sub, err)
+	}
+	return resp.StatusCode, body
 }
 
 // Update patches the arrow manifest and returns the HTTP status code.

@@ -141,10 +141,23 @@ func (p *stubProvider) BlobFileURL(
 	return "", nil
 }
 
+func (p *stubProvider) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (p *stubProvider) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (p *stubProvider) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (p *stubProvider) ReleaseAssets(

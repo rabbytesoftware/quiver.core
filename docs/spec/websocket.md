@@ -49,6 +49,7 @@ The `{namespace}` placeholder in all endpoint definitions below refers to the **
 | `ws://host/v0/runtime/{namespace}` | `ArrowRuntimeDTO` | Single arrow (or glob) — runtime/execution events |
 | `ws://host/v0/collection` | `collectionEventDTO` | All collections — follow/unfollow events |
 | `ws://host/v0/collection/{namespace}` | `collectionEventDTO` | Single collection (or glob) — follow/unfollow events |
+| `ws://host/v0/search/discover/{job}` | `SearchResultDTO` | One discovery job — verified search results |
 
 Every arrow and collection message carries an `event` field (`"upserted"` or `"removed"`) so clients can act without re-fetching. Runtime messages carry no `event` field — the `state` field already communicates what happened.
 
@@ -124,6 +125,24 @@ Routes are registered in `internal/api/v0/endpoints/collections/routes.go` via t
 ```
 
 The DTO is intentionally minimal in v0 — `media`, `arrows`, `maintainers`, and `failed_arrows` are not pushed over WS. Clients fetch full collection detail via `GET /v0/collection/{namespace}` after a notification.
+
+---
+
+### 3.4 Discovery Channel — `/v0/search/discover/{job}`
+
+Streams the verified results of one discovery pass (`POST /v0/search/discover` returns the job id). The same path without an `Upgrade` header is the job summary (counts, per-provider failures). The stream carries exactly one payload type, `SearchResultDTO`, the same shape `GET /v0/search` returns.
+
+**Identity.** A client merges streamed frames and `GET /v0/search` rows by `namespace` alone, which is always the bare namespace (no `@ref`). Everything else on a frame — `installed`, `provenance`, `versions`, `stars` — describes what that source knew and may differ between the two; the re-query is the authoritative row.
+
+**Replay.** The job buffers every result it emits. A subscriber that connects after the pass began, or reconnects, first receives the buffered results in emission order, then live ones, with no duplicate and no gap. A job stays replayable until it is evicted (30 seconds after it finishes); a subscriber to an evicted or unknown job receives nothing and is closed immediately.
+
+**Terminal signal.** When the pass finishes, the server flushes every queued frame and closes the socket with close code `1000` and reason `completed`. That close frame is the end-of-stream marker, so no second payload type is needed. Any other close (or none) means the stream was interrupted: reconnect to be replayed. The job summary is readable once the socket has closed.
+
+**Filters.** `os` (e.g. `?os=linux/amd64`) keeps only results whose compiled targets include that platform. This is the same rule `GET /v0/search?os=` applies to the vault lane, and it applies to replayed frames too. Pass the same value to both so the stream and the re-query cover the same set. An unknown platform value selects nothing here (the REST endpoint answers 400).
+
+**Backpressure.** Each subscriber has a 64-frame send buffer. Results are delivered once and cannot be recovered from the wire, so a subscriber that lets the buffer fill is disconnected with close code `1013` (`slow consumer`) instead of silently losing frames; reconnecting replays what it missed. (Replay itself waits for buffer space, so a backlog longer than the buffer is delivered whole.)
+
+**Lifetime.** The pass keeps running while at least one subscriber is attached. After the last subscriber disconnects it is cancelled following a 5-second grace, which lets a dropped client reconnect and resume. A pass that never had a subscriber runs to completion.
 
 ---
 
@@ -354,14 +373,16 @@ The Arrow broadcaster is `Broadcaster[apphub.ArrowEvent]` and the Collection bro
 
 ### 7.3 Slow-consumer policy
 
-Each client has a `send chan []byte` of capacity 64. `Push` performs a non-blocking send:
+Each client has a `send chan []byte` of capacity 64. `Push` performs a non-blocking send, and what a full buffer does is set per stream by `StreamDef.Overflow`:
 
-| Channel state | Outcome |
-|---|---|
-| Buffer space available | Frame queued for `writePump`. |
-| Buffer full | `default` branch fires — frame **dropped silently**. |
+| Channel state | `OverflowDrop` (arrow, runtime, collection) | `OverflowDisconnect` (discovery) |
+|---|---|---|
+| Buffer space available | Frame queued for `writePump`. | Frame queued for `writePump`. |
+| Buffer full | Frame dropped and logged at warn level. | Client closed with `1013`; reconnect replays. |
 
-This means a slow client that fills its 64-frame buffer simply misses subsequent pushes until `writePump` drains the channel. The broadcaster never blocks on a slow client. Clients that need authoritative state must reconcile via REST after detecting gaps.
+The broadcaster never blocks on a slow client. Drop suits streams whose next event supersedes the lost one and whose clients reconcile via REST. Disconnect suits streams that carry each item once and can replay.
+
+`StreamDef` also carries three optional hooks for such streams: `Replay(key)` (what the key already emitted), `Seq(event)` (per-key ordering, used to stitch replay to live frames) and `Done(key)` (a channel that, once closed, flushes the subscriber and closes with `1000`).
 
 ### 7.4 Mid-connection lifecycle
 

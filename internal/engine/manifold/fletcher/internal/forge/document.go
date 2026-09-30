@@ -1,5 +1,7 @@
 package forge
 
+import "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
+
 type document struct {
 	Schema   string            `yaml:"schema"`
 	Metadata metadata          `yaml:"metadata"`
@@ -32,7 +34,7 @@ func newDocument(
 	targets := make(map[string]target, len(in.Picks))
 	for platform, pick := range in.Picks {
 		if file, ok := LocalFile(pick); ok {
-			targets[string(platform)] = newTarget(name, file, platform, pick)
+			targets[string(platform)] = newTarget(name, file, platform, checksummed(pick, in.Unpinned))
 		}
 	}
 	return document{
@@ -50,4 +52,14 @@ func newDocument(
 		},
 		Targets: targets,
 	}
+}
+
+func checksummed(
+	pick picker.Pick,
+	unpinned bool,
+) picker.Pick {
+	if unpinned {
+		pick.Asset.Digest = ""
+	}
+	return pick
 }

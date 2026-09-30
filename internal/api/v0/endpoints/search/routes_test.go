@@ -76,9 +76,10 @@ func TestRoutes_UpgradeHeaderGoesToWS(t *testing.T) {
 	assert.Empty(t, disc.GetID(), "the summary handler must not run for an upgrade")
 }
 
-// TestRoutes_SubscriberLeavingCancelsThePass: the broadcaster's handler blocks
-// until the socket closes, so returning from it means the subscriber is gone.
-func TestRoutes_SubscriberLeavingCancelsThePass(t *testing.T) {
+// TestRoutes_SubscriberIsAttachedForTheLifeOfTheSocket: the broadcaster's
+// handler blocks until the socket closes, so returning from it means the
+// subscriber is gone. Leaving detaches; the usecase decides whether to cancel.
+func TestRoutes_SubscriberIsAttachedForTheLifeOfTheSocket(t *testing.T) {
 	disc := &mocks.DiscoveryService{}
 	r := gin.New()
 	Register(r.Group(""), &mocks.SearchService{}, disc, func(*gin.Context) {})
@@ -88,7 +89,9 @@ func TestRoutes_SubscriberLeavingCancelsThePass(t *testing.T) {
 	req.Header.Set("Upgrade", "websocket")
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, []string{"job-1"}, disc.Cancelled())
+	assert.Equal(t, []string{"job-1"}, disc.Attached())
+	assert.Equal(t, []string{"job-1"}, disc.Detached())
+	assert.Empty(t, disc.Cancelled(), "leaving must not cancel outright; the grace decides")
 }
 
 // TestRoutes_WithoutDiscovery_LeavingCancelsNothing guards the container built

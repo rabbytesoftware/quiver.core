@@ -402,8 +402,10 @@ the dep-sync reaction knows what changed.
 
 ### `StepProgress` & `StepStatus`
 
-`StepProgress` carries `Index int`, `Status StepStatus`, `Error *string`, and a
-`Step` field whose value is the executed step (overrideable fields collapsed).
+`StepProgress` carries `Index int`, `Status StepStatus`, `Error *string`, an
+optional `Note *string` (an explanation on a step that completed without doing
+its work, such as an `auto` expose entry that found nothing; omitted from the
+JSON when unset), and a `Step` field whose value is the executed step (overrideable fields collapsed).
 The struct has explicit JSON marshaling so the polymorphic `Step` round-trips
 through `step.StepList`.
 

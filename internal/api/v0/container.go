@@ -37,7 +37,12 @@ func New(
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
 	}
-	wsHandler := wshandler.NewHandler()
+
+	var wsOpts []wshandler.Option
+	if appContainer.Discovery != nil {
+		wsOpts = append(wsOpts, wshandler.WithDiscoveryJobs(appContainer.Discovery))
+	}
+	wsHandler := wshandler.NewHandler(wsOpts...)
 
 	// Discovery results are not domain aggregates and have no projection behind
 	// them, so they reach clients straight from the usecase rather than through

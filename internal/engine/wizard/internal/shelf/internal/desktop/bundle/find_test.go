@@ -52,6 +52,12 @@ func TestExposer_Find(t *testing.T) {
 			want: &models.Candidate{Name: "Tool", Target: "Tool.app", Depth: 1},
 		},
 		{
+			name:      "bundle inside a wrapper directory",
+			dirs:      []string{"Tool-1.0/Tool.app"},
+			entryName: "tool",
+			want:      &models.Candidate{Name: "Tool", Target: "Tool-1.0/Tool.app", Depth: 2},
+		},
+		{
 			name:       "several bundles without a match",
 			dirs:       []string{"One.app", "Two.app"},
 			wantReason: models.ReasonAmbiguous,

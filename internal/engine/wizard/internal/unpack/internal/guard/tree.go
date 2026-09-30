@@ -45,14 +45,46 @@ func (g *Guard) Apps(
 	dirs bool,
 ) []models.App {
 	apps := []models.App{}
+	wrappers := []string{}
 	for _, name := range g.TopLevel() {
 		entry := filepath.Join(dir, name)
-		if !hasSuffixFold(name, suffix) || !isKind(entry, dirs) {
+		if hasSuffixFold(name, suffix) && isKind(entry, dirs) {
+			apps = append(apps, models.App{Name: name[:len(name)-len(suffix)], Entry: entry})
 			continue
 		}
-		apps = append(apps, models.App{Name: name[:len(name)-len(suffix)], Entry: entry})
+		wrappers = append(wrappers, entry)
+	}
+	if !dirs {
+		return apps
 	}
 
+	for _, wrapper := range wrappers {
+		apps = append(apps, nestedApps(wrapper, suffix)...)
+	}
+	return apps
+}
+
+func nestedApps(
+	wrapper string,
+	suffix string,
+) []models.App {
+	info, err := os.Lstat(wrapper)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+
+	entries, err := os.ReadDir(wrapper)
+	if err != nil {
+		return nil
+	}
+
+	apps := []models.App{}
+	for _, e := range entries {
+		if !hasSuffixFold(e.Name(), suffix) || !e.IsDir() {
+			continue
+		}
+		apps = append(apps, models.App{Name: e.Name()[:len(e.Name())-len(suffix)], Entry: filepath.Join(wrapper, e.Name())})
+	}
 	return apps
 }
 

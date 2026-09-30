@@ -133,7 +133,7 @@ Terminates whatever execution is in progress and records its outcome (`success`,
 
 ### `AdvanceStep` (`runtime.step_advanced`)
 
-Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. No snapshot — replays reapply the sequence cheaply.
+Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps and an optional note for completed ones. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. No snapshot — replays reapply the sequence cheaply.
 
 ### `RecordPID` (`runtime.pid_recorded`)
 

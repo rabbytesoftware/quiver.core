@@ -15,6 +15,7 @@ type AppliedEntry struct {
 type Applied struct {
 	Entries []AppliedEntry
 	Refused []Refusal
+	Skipped []Refusal
 }
 
 func (a *Applied) Record(
@@ -42,6 +43,15 @@ func (a *Applied) Locations() map[string]bool {
 		locations[e.Location] = true
 	}
 	return locations
+}
+
+func (a *Applied) Skip(
+	kind domain.ExposeKind,
+	index int,
+	name string,
+	reason string,
+) {
+	a.Skipped = append(a.Skipped, Refusal{Kind: kind, Index: index, Name: name, Reason: reason})
 }
 
 func (a *Applied) Refuse(

@@ -8,12 +8,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 )
 
-const anyRef = "{ref}"
-
 type fileURLs struct {
-	raw     string
-	rawAny  string
-	blobAny string
+	raw string
 }
 
 func fileURLsOf(
@@ -22,13 +18,7 @@ func fileURLsOf(
 	ref string,
 ) fileURLs {
 	raw, _ := host.RawFileURL(ns, ref, readme.FilePlaceholder)
-	rawAny, _ := host.RawFileURL(ns, anyRef, readme.FilePlaceholder)
-	blobAny, _ := host.BlobFileURL(ns, anyRef, readme.FilePlaceholder)
-	return fileURLs{
-		raw:     raw,
-		rawAny:  rawAny,
-		blobAny: blobAny,
-	}
+	return fileURLs{raw: raw}
 }
 
 func (u fileURLs) pinned(
@@ -38,36 +28,4 @@ func (u fileURLs) pinned(
 		return "", false
 	}
 	return strings.ReplaceAll(u.raw, readme.FilePlaceholder, path), true
-}
-
-func (u fileURLs) resolve(
-	src string,
-) (string, bool) {
-	if readme.IsRelativePath(src) {
-		return readme.CleanRelativePath(src), true
-	}
-	if path, ok := pathUnder(src, u.rawAny); ok {
-		return path, true
-	}
-	return pathUnder(src, u.blobAny)
-}
-
-func pathUnder(
-	src string,
-	template string,
-) (string, bool) {
-	prefix, rest, ok := strings.Cut(template, anyRef)
-	if !ok || prefix == "" {
-		return "", false
-	}
-	separator, _, ok := strings.Cut(rest, readme.FilePlaceholder)
-	if !ok || separator == "" {
-		return "", false
-	}
-	remainder, ok := strings.CutPrefix(src, prefix)
-	if !ok {
-		return "", false
-	}
-	_, path, ok := strings.Cut(remainder, separator)
-	return path, ok
 }

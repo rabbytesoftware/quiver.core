@@ -1536,7 +1536,7 @@ const docTemplate = `{
         },
         "/search": {
             "get": {
-                "description": "Searches everything this machine already knows about: arrows installed, arrows pulled in as dependencies, arrows from followed collections, and every arrow Quiver has resolved recently. The search is offline and always answers — it never reaches the network.\n\nResults are ranked by textual relevance, then boosted for an exact name match, membership of a followed collection, and stars. Installed state, provenance and known versions are reported, never scored.\n\nThe os filter is advisory: the compatible-OS list is a denormalised projection of the last compile, and install-time re-resolution is authoritative. Treat it as a hint, not a gate.",
+                "description": "Searches everything this machine already knows about: arrows installed, arrows pulled in as dependencies, arrows from followed collections, and every arrow Quiver has resolved recently. The search is offline and always answers — it never reaches the network.\n\nThe query is split on whitespace and an arrow matches when every word appears, case-insensitively, in its namespace (owner and repository name included), name, description or tags, so short and multi-word queries work. Limit counts arrows, not versions.\n\nResults are ranked by textual relevance, then boosted for an exact name match, membership of a followed collection, and stars. Installed state, provenance and known versions are reported, never scored.\n\nEvery result a discovery pass streams is indexed before it is emitted, so this endpoint returns it for the same query, keyed by the same bare namespace.\n\nThe os filter is advisory: the compatible-OS list is a denormalised projection of the last compile, and install-time re-resolution is authoritative. Treat it as a hint, not a gate.",
                 "produces": [
                     "application/json"
                 ],
@@ -1612,7 +1612,7 @@ const docTemplate = `{
         },
         "/search/discover": {
             "post": {
-                "description": "Searches the configured git hosts for arrows nobody on this machine has seen yet, and returns immediately with a job id. It does not wait for providers.\n\nEvery candidate is proven before it is reported: its manifest is fetched, parsed and compiled, then written to the vault. That is what makes the results renderable without a second round trip, and what makes a later POST /v0/arrow/{ns} on a discovered namespace serve from cache.\n\nVerified results stream from GET /v0/search/discover/{job} with an Upgrade header. Counts and per-provider failures never appear on that stream; read them once from the same path without the header, after the socket closes.",
+                "description": "Searches the configured git hosts for arrows nobody on this machine has seen yet, and returns immediately with a job id. It does not wait for providers.\n\nEvery candidate is proven before it is reported: its manifest is fetched, parsed and compiled, then written to the vault. That is what makes the results renderable without a second round trip, and what makes a later POST /v0/arrow/{ns} on a discovered namespace serve from cache.\n\nVerified results stream from GET /v0/search/discover/{job} with an Upgrade header; a late or reconnecting subscriber is replayed what it missed, and the socket closes with code 1000 when the pass finishes. Counts and per-provider failures never appear on that stream; read them once from the same path without the header, after the socket closes.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2525,6 +2525,9 @@ const docTemplate = `{
                 },
                 "index": {
                     "type": "integer"
+                },
+                "note": {
+                    "type": "string"
                 },
                 "status": {
                     "type": "string"

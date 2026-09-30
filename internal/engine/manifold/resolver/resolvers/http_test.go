@@ -50,10 +50,23 @@ func (s stubHost) BlobFileURL(
 	return "", nil
 }
 
+func (s stubHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (s stubHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (s stubHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (s stubHost) ReleaseAssets(

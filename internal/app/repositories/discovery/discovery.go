@@ -345,10 +345,16 @@ func (d *discovery) verifyOne(
 		return false
 	}
 
-	// The branch the manifest was fetched from is the only revision a discovered
+	// The branch the manifest was fetched from is the revision a discovered
 	// arrow has: discovery runs on the metered path and never spends a request
 	// asking a host for its latest release. The namespace carries it, and nothing
-	// stores a second copy.
+	// stores a second copy. The one exception is a manifest manifold drafted
+	// from a release tag while the branch was only where the search pointed: it
+	// names that tag itself, and the arrow lives there, where details, add and
+	// install will look for it.
+	if arrow.Namespace.BareNamespace() == bare {
+		resolvedNs = arrow.Namespace
+	}
 	arrow.Namespace = resolvedNs
 
 	// Both stores are asked before index runs. Indexing writes this very arrow

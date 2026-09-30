@@ -15,6 +15,7 @@ type AdvanceStep struct {
 	StepIndex   int
 	ToStatus    domainRuntime.StepStatus
 	Error       *string
+	Note        *string
 }
 
 func (c AdvanceStep) AggregateID() string {
@@ -48,6 +49,7 @@ func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 	copy(steps, current.Execution.Steps)
 	steps[c.StepIndex].Status = c.ToStatus
 	steps[c.StepIndex].Error = c.Error
+	steps[c.StepIndex].Note = c.Note
 
 	updatedRun := &domainRuntime.Execution{
 		ID:        current.Execution.ID,

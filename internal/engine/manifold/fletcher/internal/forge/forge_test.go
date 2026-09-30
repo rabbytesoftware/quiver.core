@@ -420,3 +420,30 @@ func TestRender_MSIInstallsAsPortableStep(t *testing.T) {
 		assert.Empty(t, target.Expose.Desktop)
 	}
 }
+
+func TestRender_UnpinnedOmitsTheFetchChecksum(t *testing.T) {
+	testCases := []struct {
+		name     string
+		unpinned bool
+		want     string
+	}{
+		{name: "pinned keeps the digest", unpinned: false, want: digest},
+		{name: "unpinned drops the digest", unpinned: true, want: ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInput()
+			in.Unpinned = tc.unpinned
+			data, err := forge.Render(in)
+			require.NoError(t, err)
+
+			arrow := parse(t, data)
+
+			require.NotEmpty(t, arrow.Targets)
+			for _, target := range arrow.Targets {
+				fetch := fetchStep(t, target.Lifecycle.Install[0])
+				assert.Equal(t, tc.want, fetch.Checksum.Default)
+			}
+		})
+	}
+}

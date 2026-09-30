@@ -315,13 +315,40 @@ func TestLaunchers(t *testing.T) {
 			want:      &models.Candidate{Name: "obs-studio", Target: "app/OBS.exe", Depth: 2},
 		},
 		{
-			name:       "linux executables without a matching name are not desktop apps",
+			name:      "linux single unmatched executable is the desktop app",
+			scan:      unixScan(),
+			suffix:    models.AppImageExt,
+			bare:      "github.com/logseq/logseq",
+			files:     map[string]os.FileMode{"bin/helper": 0o755},
+			entryName: "logseq-desktop",
+			want:      &models.Candidate{Name: "logseq-desktop", Target: "bin/helper", Depth: 2},
+		},
+		{
+			name:       "linux several unmatched executables are not desktop apps",
 			scan:       unixScan(),
 			suffix:     models.AppImageExt,
 			bare:       "github.com/logseq/logseq",
-			files:      map[string]os.FileMode{"bin/helper": 0o755},
+			files:      map[string]os.FileMode{"bin/helper": 0o755, "bin/other": 0o755},
 			entryName:  "logseq-desktop",
 			wantReason: models.ReasonNoDesktop,
+		},
+		{
+			name:      "linux helpers do not hide the single app",
+			scan:      unixScan(),
+			suffix:    models.AppImageExt,
+			bare:      "github.com/pingdotgg/t3code",
+			files:     map[string]os.FileMode{"t3/t3": 0o755, "t3/chrome-sandbox": 0o755, "t3/libffmpeg.so": 0o755, "t3/lib/x": 0o755},
+			entryName: "t3code",
+			want:      &models.Candidate{Name: "t3code", Target: "t3/t3", Depth: 2},
+		},
+		{
+			name:      "windows single unmatched exe inside a wrapper directory",
+			scan:      windowsScan(),
+			suffix:    models.ExeExt,
+			bare:      "github.com/pingdotgg/t3code",
+			files:     map[string]os.FileMode{"t3-0.0.44-win32-x64/t3.exe": 0o644, "t3-0.0.44-win32-x64/resources/elevate.exe": 0o644},
+			entryName: "t3code",
+			want:      &models.Candidate{Name: "t3code", Target: "t3-0.0.44-win32-x64/t3.exe", Depth: 2},
 		},
 		{
 			name:      "linux app suffixed archive tree is scanned like any directory",
@@ -448,4 +475,38 @@ func TestNative_Directories(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []models.Candidate{{Name: "Tool", Target: filepath.Join(wd, "Tool.app"), Depth: 1}}, got)
+}
+
+func TestNested_Bundles(t *testing.T) {
+	wd := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(wd, "wrap", "Tool.app"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(wd, "Top.app", "Inner.app"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(wd, ".hidden", "Ghost.app"), 0o750))
+
+	got, err := Nested(wd, models.BundleExt)
+
+	require.NoError(t, err)
+	assert.Equal(t, []models.Candidate{{Name: "Tool", Target: filepath.Join(wd, "wrap", "Tool.app"), Depth: 2}}, got)
+}
+
+func TestNested_MissingWorkdir(t *testing.T) {
+	_, err := Nested(filepath.Join(t.TempDir(), "missing"), models.BundleExt)
+
+	require.Error(t, err)
+}
+
+func TestNested_UnreadableWrapper(t *testing.T) {
+	mocks.RequireUnixHost(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable directories")
+	}
+	wd := t.TempDir()
+	locked := filepath.Join(wd, "locked")
+	require.NoError(t, os.MkdirAll(locked, 0o750))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) })
+
+	_, err := Nested(wd, models.BundleExt)
+
+	require.Error(t, err)
 }

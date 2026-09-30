@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/fsguard"
@@ -71,7 +72,11 @@ func launcherCandidates(
 	if err != nil {
 		return nil, err
 	}
-	return matching(scanned, RepoName(req.Bare), entry.Name), nil
+	matches := matching(scanned, RepoName(req.Bare), entry.Name)
+	if len(matches) == 0 && len(scanned) == 1 {
+		return scanned, nil
+	}
+	return matches, nil
 }
 
 func Native(
@@ -94,6 +99,32 @@ func Native(
 			Target: filepath.Join(workdir, e.Name()),
 			Depth:  1,
 		})
+	}
+	return found, nil
+}
+
+func Nested(
+	workdir string,
+	suffix string,
+) ([]models.Candidate, error) {
+	entries, err := os.ReadDir(workdir)
+	if err != nil {
+		return nil, fmt.Errorf("scan %s: %w", workdir, err)
+	}
+
+	found := []models.Candidate{}
+	for _, e := range entries {
+		if !e.IsDir() || fsguard.HasSuffixFold(e.Name(), suffix) || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		inner, err := Native(filepath.Join(workdir, e.Name()), suffix, true)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range inner {
+			c.Depth = 2
+			found = append(found, c)
+		}
 	}
 	return found, nil
 }

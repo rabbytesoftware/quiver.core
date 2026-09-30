@@ -27,6 +27,10 @@ type Manifold interface {
 	// ResolveArrow fetches and validates an ArrowManifest for the given namespace.
 	// The returned aggregate includes compiled OS-specific targets in manifest.Targets.
 	// Also returns the raw manifest bytes and the filename it was resolved from.
+	// The returned arrow carries no Namespace, except when Fletcher drafted it
+	// from a ref other than the one namespace named (a branch whose release
+	// assets live under a tag): then Namespace is the bare namespace at the
+	// ref actually drafted, which is the revision the arrow really is.
 	ResolveArrow(
 		ctx context.Context,
 		namespace domain.Namespace,
@@ -154,6 +158,11 @@ var ErrNoTagInChannel = models.ErrNoTagInChannel
 // anyTag matches every tag, letting the constraint resolver rank the whole
 // tag set instead of a subset.
 const anyTag = "*"
+
+// latestStablePattern keys ResolveLatestStable's own answer in the constraint
+// cache. It is not a pattern any caller can pass: it holds a character no tag
+// constraint may contain, so it can never collide with one.
+const latestStablePattern = "\x00latest-stable"
 
 // defaultManifoldCacheTTL is the fallback used when a Manifold is built with
 // no explicit cache TTL (a zero/negative value passed to New, or
@@ -335,8 +344,9 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	draftedFrom := ""
 	if err != nil && m.fl != nil {
-		raw, filename, err = m.fl.Recover(ctx, namespace, err)
+		raw, filename, draftedFrom, err = m.fl.Recover(ctx, namespace, err)
 	}
 	if err != nil {
 		return nil, nil, "", err
@@ -345,6 +355,9 @@ func (m *manifold) ResolveArrow(
 	arrow, err := m.ParseArrow(raw)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if draftedFrom != "" {
+		arrow.Namespace = namespace.WithRef(draftedFrom)
 	}
 
 	return arrow, raw, filename, nil
@@ -483,6 +496,24 @@ func (m *manifold) cachedConstraint(
 // falls through, and a repository with no stable release reports
 // ErrNoLatestStable rather than guessing.
 func (m *manifold) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	key := constraintCacheKey{ns: ns, pattern: latestStablePattern}
+	if cached, ok := m.cachedConstraint(key); ok {
+		return cached, nil
+	}
+
+	ref, err := m.resolveLatestStable(ctx, ns)
+	if err != nil {
+		return "", err
+	}
+
+	m.constraintCache.Store(key, constraintCacheEntry{ref: ref, cachedAt: m.clock()})
+	return ref, nil
+}
+
+func (m *manifold) resolveLatestStable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (string, error) {

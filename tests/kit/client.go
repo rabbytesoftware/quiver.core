@@ -87,6 +87,17 @@ func (c *Client) GetDetail(ns string) *http.Response {
 	return resp
 }
 
+// GetSub issues a plain GET of one of an arrow's detail sub-resources, such as
+// "manifest", "readme", "channels", "dependents" or "dependencies".
+func (c *Client) GetSub(ns, sub string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/" + sub))
+	if err != nil {
+		c.t.Fatalf("Client.GetSub %s: do request: %v", sub, err)
+	}
+	return resp
+}
+
 func (c *Client) Update(ns string, body map[string]any) *http.Response {
 	c.t.Helper()
 	b, err := json.Marshal(body)

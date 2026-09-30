@@ -335,6 +335,27 @@ func TestDrainExecution_StepCompleted_SendsAdvanceStepCompleted(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateReady, got.State)
 }
 
+func TestDrainExecution_StepCompletedWithNote_RecordsTheNote(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@v1.0.0")
+	axRuntime := newTestAsynxRuntimeForHooks(t)
+	seedRunningRuntimeForHooks(t, axRuntime, ns)
+
+	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
+	exec.emit(wizard.Event{Kind: wizard.EventKindStepCompleted, StepIndex: 0, Note: "nothing exposed: no executable found"})
+	exec.close()
+
+	runtimeinternal.DrainExecution(context.Background(), exec, ns.String(), testExecutionID, domain.MethodExecute, noopMarkInstalled, noopMarkUninstalled, noopMarkLastUsed, axRuntime)
+	axRuntime.WaitPublish()
+
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.LastReturn)
+	require.Len(t, got.LastReturn.Steps, 1)
+	assert.Equal(t, domainRuntime.StepStatusCompleted, got.LastReturn.Steps[0].Status)
+	require.NotNil(t, got.LastReturn.Steps[0].Note)
+	assert.Equal(t, "nothing exposed: no executable found", *got.LastReturn.Steps[0].Note)
+}
+
 func TestDrainExecution_StepFailed_SendsAdvanceStepFailed(t *testing.T) {
 	ns := domain.Namespace("github.com/user/repo@v1.0.0")
 	axRuntime := newTestAsynxRuntimeForHooks(t)

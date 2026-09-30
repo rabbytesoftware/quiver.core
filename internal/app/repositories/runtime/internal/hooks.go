@@ -56,11 +56,11 @@ func drainExecution(
 		}
 		switch evt.Kind {
 		case wizardPkg.EventKindStepStarted:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusRunning, nil)
+			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusRunning, nil, "")
 		case wizardPkg.EventKindStepCompleted:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusCompleted, nil)
+			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusCompleted, nil, evt.Note)
 		case wizardPkg.EventKindStepFailed:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err)
+			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err, "")
 		case wizardPkg.EventKindPID:
 			superseded = sendPID(ctx, axRuntime, ns, executionID, evt.PID)
 		case wizardPkg.EventKindEnded:
@@ -113,11 +113,16 @@ func sendStep(
 	stepIndex int,
 	status domainRuntime.StepStatus,
 	stepErr error,
+	note string,
 ) bool {
 	var errStr *string
 	if stepErr != nil {
 		s := stepErr.Error()
 		errStr = &s
+	}
+	var noteStr *string
+	if note != "" {
+		noteStr = &note
 	}
 	_, err := axRuntime.Send(ctx, runtimecmds.AdvanceStep{
 		Namespace:   domain.Namespace(ns),
@@ -125,6 +130,7 @@ func sendStep(
 		StepIndex:   stepIndex,
 		ToStatus:    status,
 		Error:       errStr,
+		Note:        noteStr,
 	})
 	if err == nil {
 		return false

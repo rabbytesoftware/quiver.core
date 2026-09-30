@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"time"
 
 	gormdb "gorm.io/gorm"
@@ -16,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -461,10 +464,26 @@ func (r *storeService) ResolveForInstall(
 	if err != nil {
 		return ns, nil, "", fmt.Errorf("reader resolve for install: %w", err)
 	}
-	if c, ok := manifold.ClassifyChannel(ns.Ref()); ok {
-		arrow.Channel = c
-	}
+	arrow.Channel = r.explicitRefChannel(ns)
 	return ns, arrow, "", nil
+}
+
+// explicitRefChannel names the channel an explicitly written ref tracks. A
+// versioned tag belongs to the channel its suffix names; a ref with no
+// version core that is not a default branch is a pointer channel, whose
+// identity is its own literal name, so it tracks itself and is never measured
+// against stable. A default branch stays channel-less: its drift is judged
+// by checkBranchDrift.
+func (r *storeService) explicitRefChannel(
+	ns domain.Namespace,
+) string {
+	if c, ok := manifold.ClassifyChannel(ns.Ref()); ok {
+		return c
+	}
+	if slices.Contains(r.platforms[ns.Domain()].DefaultBranches, ns.Ref()) {
+		return ""
+	}
+	return ns.Ref()
 }
 
 func (r *storeService) resolveGlob(
@@ -539,7 +558,7 @@ func (r *storeService) resolveBestOtherChannel(
 		return ns, nil, "", false
 	}
 
-	for _, candidate := range channels {
+	for _, candidate := range resolvers.NewestFirst(channels) {
 		if candidate.Name == triedChannel || candidate.Latest == "" || candidate.IsDefaultBranchFallback {
 			continue
 		}
@@ -720,7 +739,7 @@ func (r *storeService) checkBranchDrift(
 ) (bool, string, bool) {
 	latestTag, err := r.manifold.ResolveLatestStable(ctx, arrow.Namespace)
 	if err == nil && latestTag != "" {
-		return true, latestTag, true
+		return r.verifyRecommendation(ctx, arrow, latestTag)
 	}
 	if err != nil && !errors.Is(err, manifold.ErrNoLatestStable) {
 		return false, "", false
@@ -732,7 +751,7 @@ func (r *storeService) checkBranchDrift(
 	}
 
 	if ref, ok := r.firstOtherChannelRef(ctx, arrow.Namespace, branch); ok {
-		return true, ref, true
+		return r.verifyRecommendation(ctx, arrow, ref)
 	}
 
 	if branch != arrow.Namespace.Ref() || hash != arrow.RefCommitSHA {
@@ -750,7 +769,7 @@ func (r *storeService) firstOtherChannelRef(
 	if err != nil {
 		return "", false
 	}
-	for _, c := range channels {
+	for _, c := range resolvers.NewestFirst(channels) {
 		if c.Name == manifold.StableChannel || c.Latest == "" || c.Latest == currentRef {
 			continue
 		}
@@ -768,9 +787,31 @@ func (r *storeService) checkTagDrift(
 		return false, "", false
 	}
 	if latest != arrow.Namespace.Ref() {
-		return true, latest, true
+		return r.verifyRecommendation(ctx, arrow, latest)
 	}
 	return false, "", true
+}
+
+// verifyRecommendation confirms ref resolves to a manifest before it is
+// recommended: an update that cannot be fetched must never be offered. The
+// resolution goes through the vault-first resolver, so a confirmed ref is
+// also the one an install will find cached. A definitive absence reports the
+// arrow as up to date; any other failure leaves the answer unknown.
+func (r *storeService) verifyRecommendation(
+	ctx context.Context,
+	arrow domain.Arrow,
+	ref string,
+) (bool, string, bool) {
+	_, err := r.resolveManifest(ctx, arrow.Namespace.WithRef(ref))
+	if err == nil {
+		return true, ref, true
+	}
+	slog.DebugContext(ctx, "version drift: recommended ref does not resolve",
+		"ns", arrow.Namespace, "ref", ref, "err", err)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return false, "", true
+	}
+	return false, "", false
 }
 
 func (r *storeService) ResolveTrackedRef(
@@ -783,7 +824,20 @@ func (r *storeService) ResolveTrackedRef(
 	if arrow.PinnedRef != "" {
 		return arrow.PinnedRef, nil
 	}
+	if tracksItself(arrow) {
+		return arrow.Namespace.Ref(), nil
+	}
 	return r.manifold.ResolveLatestInChannel(ctx, arrow.Namespace, channelOf(arrow))
+}
+
+func tracksItself(
+	arrow domain.Arrow,
+) bool {
+	if arrow.RefIsBranch || arrow.Channel == "" || arrow.Channel != arrow.Namespace.Ref() {
+		return false
+	}
+	_, versioned := manifold.ClassifyChannel(arrow.Channel)
+	return !versioned
 }
 
 func channelOf(

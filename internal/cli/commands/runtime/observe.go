@@ -217,6 +217,9 @@ func stepTable(steps []apidto.StepProgressDTO, t theme.Theme) string {
 		if s.Error != nil && *s.Error != "" {
 			detail += " — " + *s.Error
 		}
+		if s.Note != nil && *s.Note != "" {
+			detail += " — " + *s.Note
+		}
 
 		rows = append(rows, []string{strconv.Itoa(s.Index), s.Status, detail})
 	}

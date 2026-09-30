@@ -18,6 +18,8 @@ type githubProvider struct {
 	host
 	searchURL         string
 	expandedAssetsURL string
+	repoAPIURL        string
+	metadata          *repoMetadataCache
 }
 
 // NewGitHub builds the provider answering for a GitHub host.
@@ -28,6 +30,8 @@ func NewGitHub(
 		host:              newHost(cfg, githubReleaseMarker),
 		searchURL:         cfg.SearchURL,
 		expandedAssetsURL: cfg.ExpandedAssetsURL,
+		repoAPIURL:        cfg.RepoAPIURL,
+		metadata:          newRepoMetadataCache(newTransport(cfg).now),
 	}
 }
 

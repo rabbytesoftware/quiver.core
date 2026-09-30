@@ -59,6 +59,10 @@ type stubHost struct {
 	assetCall  int
 	pageCall   int
 	rawCalls   []string
+	meta       domain.RepoMetadata
+	metaErr    error
+	metaCall   int
+	avatarPath string
 }
 
 func (s *stubHost) start(
@@ -142,6 +146,15 @@ func (s *stubHost) BlobFileURL(
 	return "https://github.com/acme/tool/blob/" + ref + "/" + file, nil
 }
 
+func (s *stubHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	if s.avatarPath == "" {
+		return ""
+	}
+	return s.server.URL + s.avatarPath
+}
+
 func (s *stubHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
@@ -149,6 +162,20 @@ func (s *stubHost) RepoPageURL(
 		return ""
 	}
 	return s.server.URL + repoPagePath
+}
+
+func (s *stubHost) DefaultBranches() []string {
+	return []string{"main"}
+}
+
+func (s *stubHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.metaCall++
+	return s.meta, s.metaErr
 }
 
 func (s *stubHost) ReleaseAssets(
@@ -168,15 +195,29 @@ func (s *stubHost) ReleaseAssets(
 func (s *stubHost) readmeReads() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	probes := []string{"src-tauri/icons/icon.png", "build/icon.png", "logo.svg"}
 	reads := make([]string, 0, len(s.rawCalls))
 	for _, path := range s.rawCalls {
-		if slices.Contains(probes, path) {
+		if isIconProbe(path) {
 			continue
 		}
 		reads = append(reads, path)
 	}
 	return reads
+}
+
+func isIconProbe(
+	path string,
+) bool {
+	if strings.HasPrefix(path, "src-tauri/icons/") {
+		return true
+	}
+	base := path[strings.LastIndex(path, "/")+1:]
+	for _, name := range []string{"icon.", "logo.", "app-icon."} {
+		if strings.HasPrefix(base, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func newDrafter(
@@ -316,6 +357,106 @@ func TestDrafter_Draft_RendersParseableManifest(t *testing.T) {
 	)
 	assert.Equal(t, 1, host.assetCall)
 	assert.Equal(t, 1, host.pageCall)
+}
+
+func TestDrafter_Draft_RepoMetadataFillsDescriptionAndAvatarIcon(t *testing.T) {
+	host := &stubHost{
+		assets: realAssets(),
+		page:   pageWith("og:description", "Scraped description."),
+		meta:   domain.RepoMetadata{Description: "Authored description.", AvatarURL: "https://avatars.example.test/u/9?v=4"},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	arrow := parse(t, manifest)
+	assert.Equal(t, "Authored description.", arrow.Description)
+	assert.Equal(t, "https://avatars.example.test/u/9?v=4", arrow.Media.Icon)
+	assert.Equal(t, 1, host.metaCall)
+}
+
+func TestDrafter_Draft_RepoIconBeatsTheAvatar(t *testing.T) {
+	host := &stubHost{
+		assets: realAssets(),
+		meta:   domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
+		files:  map[string][]byte{"assets/logo.png": encodePNG(t, 256, 256)},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	assert.Equal(t, host.server.URL+"/raw/v1.0.0/assets/logo.png", parse(t, manifest).Media.Icon)
+}
+
+func TestDrafter_Draft_UnmeteredAvatarIsTheIconWhenMetadataFails(t *testing.T) {
+	host := &stubHost{
+		assets:     realAssets(),
+		metaErr:    errors.New("rate limited"),
+		avatarPath: "/acme.png",
+		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	assert.Equal(t, host.server.URL+"/acme.png", parse(t, manifest).Media.Icon)
+}
+
+func TestDrafter_Draft_UnmeteredAvatarBeatsTheMeteredOne(t *testing.T) {
+	host := &stubHost{
+		assets:     realAssets(),
+		meta:       domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
+		avatarPath: "/acme.png",
+		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	assert.Equal(t, host.server.URL+"/acme.png", parse(t, manifest).Media.Icon)
+}
+
+func TestDrafter_Draft_RepoIconBeatsTheUnmeteredAvatar(t *testing.T) {
+	host := &stubHost{
+		assets:     realAssets(),
+		avatarPath: "/acme.png",
+		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
+		files:      map[string][]byte{"assets/logo.png": encodePNG(t, 256, 256)},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	assert.Equal(t, host.server.URL+"/raw/v1.0.0/assets/logo.png", parse(t, manifest).Media.Icon)
+}
+
+func TestDrafter_Draft_UnmeteredAvatarThatIsNotAnImageFallsBackToTheMeteredOne(t *testing.T) {
+	host := &stubHost{
+		assets:     realAssets(),
+		meta:       domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
+		avatarPath: "/acme.png",
+		images:     map[string][]byte{"/acme.png": []byte("<html>sign in</html>")},
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://avatars.example.test/u/9?v=4", parse(t, manifest).Media.Icon)
+}
+
+func TestDrafter_Draft_RepoMetadataFailureDegradesToThePage(t *testing.T) {
+	host := &stubHost{
+		assets:  realAssets(),
+		page:    pageWith("og:description", "Scraped description."),
+		metaErr: errors.New("rate limited"),
+	}
+
+	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	arrow := parse(t, manifest)
+	assert.Equal(t, "Scraped description.", arrow.Description)
+	assert.Empty(t, arrow.Media.Icon)
 }
 
 func TestDrafter_Draft_HostWithoutARepoPageHasNoDescription(t *testing.T) {
@@ -571,10 +712,10 @@ func TestDrafter_LowConfidenceIsNotFletchable(t *testing.T) {
 			},
 		},
 		{
-			name: "one mismatched pick among medium ones",
+			name: "every platform mismatched",
 			picks: map[domain.OS]picker.Pick{
 				domain.OSLinuxAMD64:  withMatch(exactPick("other.tar.gz", picker.FormatArchive), picker.MatchAssumed, false),
-				domain.OSDarwinARM64: withMatch(exactPick("tool-mac.zip", picker.FormatArchive), picker.MatchEmulated, true),
+				domain.OSDarwinARM64: withMatch(exactPick("tool-mac.zip", picker.FormatArchive), picker.MatchEmulated, false),
 			},
 		},
 	}
@@ -605,4 +746,148 @@ func TestDrafter_Draft_MediumConfidenceWarningsReachTheGenerator(t *testing.T) {
 	wantWarnings := []string{confidence.WarningAssumedArch, confidence.WarningEmulated}
 	assert.Equal(t, string(confidence.ConfidenceMedium), arrow.Generator.Confidence)
 	assert.Equal(t, wantWarnings, arrow.Generator.Warnings)
+}
+
+func TestDrafter_Draft_AnInconsistentPlatformIsDroppedNotTheWholeDraft(t *testing.T) {
+	pk := &stubPicker{picks: map[domain.OS]picker.Pick{
+		domain.OSLinuxAMD64:   exactPick("tool-linux.tar.gz", picker.FormatArchive),
+		domain.OSWindowsAMD64: withMatch(exactPick("other.zip", picker.FormatArchive), picker.MatchExact, false),
+	}}
+
+	manifest, err := newDrafter(t, &stubHost{assets: realAssets()}, pk).Draft(context.Background(), testNS, testTag)
+	require.NoError(t, err)
+
+	arrow := parse(t, manifest)
+	assert.Contains(t, arrow.Targets, domain.OSLinuxAMD64)
+	assert.NotContains(t, arrow.Targets, domain.OSWindowsAMD64)
+	assert.Contains(t, arrow.Generator.Warnings, confidence.WarningNameMismatch)
+}
+
+func releaseOf(
+	names ...string,
+) []domain.ReleaseAsset {
+	out := make([]domain.ReleaseAsset, 0, len(names))
+	for _, n := range names {
+		out = append(out, domain.ReleaseAsset{Name: n, URL: "https://example.test/" + n, Digest: "sha256:" + n})
+	}
+	return out
+}
+
+func TestDrafter_Draft_RealPickerReleases(t *testing.T) {
+	testCases := []struct {
+		name        string
+		ns          domain.Namespace
+		assets      []domain.ReleaseAsset
+		wantTargets []domain.OS
+		absent      []domain.OS
+	}{
+		{
+			name: "product differs from the repo name",
+			ns:   "github.com/zen-browser/desktop@v1.0.0",
+			assets: releaseOf(
+				"zen-x86_64.AppImage",
+				"zen.linux-x86_64.tar.xz",
+				"zen.macos-universal.dmg",
+			),
+			wantTargets: []domain.OS{domain.OSLinuxAMD64, domain.OSDarwinARM64},
+		},
+		{
+			name: "a stray windows product is dropped while the rest ships",
+			ns:   "github.com/pingdotgg/t3code@v1.0.0",
+			assets: releaseOf(
+				"T3-Code-0.0.44-x86_64.AppImage",
+				"T3-Code-0.0.44-arm64.dmg",
+				"t3-0.0.44-win32-x64.zip",
+			),
+			wantTargets: []domain.OS{domain.OSLinuxAMD64, domain.OSDarwinARM64},
+			absent:      []domain.OS{domain.OSWindowsAMD64},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, err := newDrafter(t, &stubHost{assets: tc.assets}, picker.New()).Draft(context.Background(), tc.ns, testTag)
+			require.NoError(t, err)
+
+			arrow := parse(t, manifest)
+			for _, platform := range tc.wantTargets {
+				assert.Contains(t, arrow.Targets, platform)
+			}
+			for _, platform := range tc.absent {
+				assert.NotContains(t, arrow.Targets, platform)
+			}
+			assert.NotEqual(t, string(confidence.ConfidenceLow), arrow.Generator.Confidence)
+		})
+	}
+}
+
+func TestDrafter_Draft_MonorepoWithUnrelatedProductsStaysRefused(t *testing.T) {
+	assets := releaseOf("alpha-linux-x86_64.tar.gz", "beta-linux-x86_64.tar.gz")
+
+	_, err := newDrafter(t, &stubHost{assets: assets}, picker.New()).Draft(context.Background(), testNS, testTag)
+
+	require.Error(t, err)
+	assert.Equal(t, models.ReasonNoUsableAsset, notFletchableReason(t, err))
+}
+
+func TestDrafter_Draft_WindowsInstallerOnlyIsNotFletchable(t *testing.T) {
+	assets := releaseOf("Tool-1.0.0-x64-setup.exe", "Tool.installer.exe")
+
+	_, err := newDrafter(t, &stubHost{assets: assets}, picker.New()).Draft(context.Background(), testNS, testTag)
+
+	require.Error(t, err)
+	assert.Equal(t, models.ReasonNoUsableAsset, notFletchableReason(t, err))
+}
+
+func TestDrafter_Draft_RollingTag(t *testing.T) {
+	testCases := []struct {
+		name         string
+		tag          string
+		wantChecksum bool
+		wantWarning  bool
+	}{
+		{name: "versioned release pins the checksum", tag: "v1.2.3", wantChecksum: true, wantWarning: false},
+		{name: "pointer tag is unpinned and warned", tag: "tip", wantChecksum: false, wantWarning: true},
+		{name: "nightly pointer tag is unpinned and warned", tag: "nightly", wantChecksum: false, wantWarning: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			host := &stubHost{assets: releaseOf("tool-linux-x86_64.tar.gz")}
+
+			manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, tc.tag)
+			require.NoError(t, err)
+
+			arrow := parse(t, manifest)
+			target := arrow.Targets[domain.OSLinuxAMD64]
+			require.NotEmpty(t, target.Lifecycle.Install)
+			assert.Equal(t, tc.wantChecksum, strings.Contains(string(manifest), "checksum:"))
+			assert.Equal(t, tc.wantWarning, slices.Contains(arrow.Generator.Warnings, confidence.WarningUnpinnedRollingTag))
+			if tc.wantWarning {
+				assert.Equal(t, string(confidence.ConfidenceMedium), arrow.Generator.Confidence)
+			}
+		})
+	}
+}
+
+func TestDrafter_Draft_RollingTagAcceptsAssetsWithoutADigest(t *testing.T) {
+	assets := []domain.ReleaseAsset{
+		{Name: "tool-linux-x86_64.tar.gz", URL: "https://example.test/a.tar.gz"},
+		{Name: "tool-darwin-arm64.tar.gz", URL: "https://example.test/b.tar.gz", Digest: digestA},
+	}
+
+	manifest, err := newDrafter(t, &stubHost{assets: assets}, picker.New()).Draft(context.Background(), testNS, "tip")
+	require.NoError(t, err)
+
+	arrow := parse(t, manifest)
+	assert.Contains(t, arrow.Targets, domain.OSLinuxAMD64)
+	assert.Contains(t, arrow.Targets, domain.OSDarwinARM64)
+	assert.NotContains(t, string(manifest), "checksum:")
+}
+
+func TestDrafter_Draft_VersionedReleaseStillRequiresADigest(t *testing.T) {
+	assets := []domain.ReleaseAsset{{Name: "tool-linux-x86_64.tar.gz", URL: "https://example.test/a.tar.gz"}}
+
+	_, err := newDrafter(t, &stubHost{assets: assets}, picker.New()).Draft(context.Background(), testNS, testTag)
+
+	require.Error(t, err)
+	assert.Equal(t, models.ReasonNoDigest, notFletchableReason(t, err))
 }
