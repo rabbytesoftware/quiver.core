@@ -106,6 +106,20 @@ func (s *arrowService) Adopt(
 	return mapSendErr("adopt", ns, err)
 }
 
+// AdoptInstalled leaves the runtime alone, as the core's own adoption does:
+// whether anything is installed stays the runtime's to report.
+func (s *arrowService) AdoptInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	adoption, err := s.store.ResolveAdoption(ctx, ns, resolvedRef)
+	if err != nil {
+		return fmt.Errorf("adopt installed: %w", mapResolveErr(err))
+	}
+	return s.Adopt(ctx, adoption.Identity, adoption.Kind, adoption.Resolved, adoption.Manifest, adoption.Filename)
+}
+
 // adoptOnto writes m and resolved onto the existing row current, replacing
 // the cache first, or writes nothing when the row already holds both.
 func (s *arrowService) adoptOnto(

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -52,6 +53,45 @@ func (h *Handlers) Add(c *gin.Context) {
 		return
 	}
 	if err := h.svc.Add(c.Request.Context(), ns); err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, string(ns), err)
+		return
+	}
+	libs.WriteMutationOK(c, http.StatusCreated, string(ns))
+}
+
+// AdoptInstalled registers an arrow as already installed at a declared ref.
+//
+// @Summary      Adopt installed arrow
+// @Description  Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed; the runtime state is not touched.
+// @Tags         arrows
+// @Accept       json
+// @Param        ns    path  string                   true  "Arrow namespace (e.g. github.com/user/repo@stable)"
+// @Param        body  body  apidto.AdoptRequestDTO   true  "The ref the caller has installed"
+// @Success      201  {object}  libs.MutationResponse  "Arrow adopted, or already at the declared state"
+// @Failure      400  {object}  libs.ErrResponse       "Invalid namespace, a body that is not JSON, a missing resolved_ref, or a ref the selector could never resolve to"
+// @Failure      404  {object}  libs.ErrResponse       "Repository or ref not found"
+// @Failure      422  {object}  libs.ErrResponse       "Invalid manifest at the declared ref"
+// @Failure      500  {object}  libs.ErrResponse       "Internal error"
+// @Failure      502  {object}  libs.ErrResponse       "Repository unreachable"
+// @Router       /arrow/{ns}/adopt [post]
+func (h *Handlers) AdoptInstalled(c *gin.Context) {
+	ns := domain.Namespace(c.Param("ns"))
+	if !validNamespace(c, ns) {
+		return
+	}
+
+	var req apidto.AdoptRequestDTO
+	if err := c.ShouldBindJSON(&req); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, "body must be a json object with a resolved_ref field", string(ns))
+		return
+	}
+	if strings.TrimSpace(req.ResolvedRef) == "" {
+		libs.WriteErr(c, http.StatusBadRequest, "field resolved_ref is required", string(ns))
+		return
+	}
+
+	if err := h.svc.AdoptInstalled(c.Request.Context(), ns, req.ResolvedRef); err != nil {
 		status, msg := apierr.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg, string(ns), err)
 		return

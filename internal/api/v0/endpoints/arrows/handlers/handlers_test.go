@@ -43,6 +43,7 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow/:ns/dependencies", h.GetDependencies)
 	r.GET("/v0/arrow/:ns/channels", h.ListChannels)
 	r.POST("/v0/arrow/:ns/manifest", h.Seed)
+	r.POST("/v0/arrow/:ns/adopt", h.AdoptInstalled)
 	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
 }

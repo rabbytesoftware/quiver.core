@@ -113,6 +113,15 @@ type Arrow interface {
 		manifest []byte,
 		filename string,
 	) error
+	// AdoptInstalled registers resolvedRef, settled against the live remote,
+	// as what ns's identity already has installed, and adopts it: ns names
+	// the identity exactly as it does for Add, and a ref the selector could
+	// never resolve to is refused.
+	AdoptInstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolvedRef string,
+	) error
 	ValidateManifest(
 		ctx context.Context,
 		data []byte,

@@ -79,6 +79,11 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) ([]models.ChannelInfo, error)
+	AdoptInstalledFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolvedRef string,
+	) error
 	CheckAvailableFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -302,6 +307,17 @@ func (m *MockArrow) ListChannels(
 		return m.ListChannelsFn(ctx, ns)
 	}
 	return nil, nil
+}
+
+func (m *MockArrow) AdoptInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	if m.AdoptInstalledFn != nil {
+		return m.AdoptInstalledFn(ctx, ns, resolvedRef)
+	}
+	return nil
 }
 
 func (m *MockArrow) CheckAvailable(

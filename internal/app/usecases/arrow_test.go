@@ -661,3 +661,44 @@ func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
 		t.Fatalf("got readme=%q, want %q", got, "hello")
 	}
 }
+
+func TestArrowAdoptInstalled_DelegatesAndLeavesTheRuntimeAlone(t *testing.T) {
+	adoptErr := errors.New("adopt error")
+	testCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "adopted"},
+		{name: "refused", err: adoptErr, wantErr: adoptErr},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotNs domain.Namespace
+			var gotRef string
+			a := &ucmocks.MockArrow{
+				AdoptInstalledFn: func(_ context.Context, ns domain.Namespace, ref string) error {
+					gotNs, gotRef = ns, ref
+					return tc.err
+				},
+			}
+			rt := &ucmocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+					t.Error("the runtime must not be read")
+					return "", nil
+				},
+			}
+			uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+
+			err := uc.AdoptInstalled(context.Background(), "github.com/u/r@stable", "v1.2.0")
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("expected %v, got %v", tc.wantErr, err)
+			}
+			if gotNs != "github.com/u/r@stable" || gotRef != "v1.2.0" {
+				t.Fatalf("expected the identity and ref to reach the catalog, got %q %q", gotNs, gotRef)
+			}
+		})
+	}
+}

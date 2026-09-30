@@ -27,6 +27,12 @@ func TestArrowService_Add(t *testing.T) {
 	assert.Equal(t, errTest, m.Add(ctx, testNS))
 }
 
+func TestArrowService_AdoptInstalled(t *testing.T) {
+	m := &mocks.ArrowService{AdoptInstalledErr: errTest}
+	assert.Equal(t, errTest, m.AdoptInstalled(ctx, testNS, "v1.2.0"))
+	assert.Equal(t, []mocks.AdoptInstalledCall{{Namespace: testNS, ResolvedRef: "v1.2.0"}}, m.AdoptInstalledCalls)
+}
+
 func TestArrowService_Update(t *testing.T) {
 	m := &mocks.ArrowService{UpdateErr: errTest}
 	_, err := m.Update(ctx, testNS)

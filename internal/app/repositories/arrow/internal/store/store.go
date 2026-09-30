@@ -52,6 +52,17 @@ type Store interface {
 		ns domain.Namespace,
 		opts ...InstallOption,
 	) (identity domain.Namespace, arrow *domain.Arrow, err error)
+	// ResolveAdoption settles the identity ns is catalogued under exactly as
+	// ResolveInstall does, then resolves resolvedRef, against a live
+	// snapshot, as state that identity already has installed: a ref the
+	// remote does not hold is not found, and one the selector could never
+	// resolve to is an invalid namespace. The manifest is the one at
+	// resolvedRef's commit; nothing is cached.
+	ResolveAdoption(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolvedRef string,
+	) (Adoption, error)
 	// CheckDrift reports what arrow's selector points at when that differs
 	// from what arrow has installed, nil when it is current. ok is false
 	// whenever the remote could not answer, and the caller must then record

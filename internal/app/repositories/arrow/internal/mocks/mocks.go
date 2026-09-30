@@ -22,6 +22,7 @@ type MockCQRS struct {
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
 	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace, lastCheckedAt time.Time) (bool, error)
 	ResolveInstallFn    func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error)
+	ResolveAdoptionFn   func(ctx context.Context, ns domain.Namespace, resolvedRef string) (arrowstore.Adoption, error)
 	CheckDriftFn        func(ctx context.Context, arrow domain.Arrow) (*domain.Available, bool)
 }
 
@@ -135,6 +136,17 @@ func (m *MockCQRS) ResolveInstall(
 		return m.ResolveInstallFn(ctx, ns)
 	}
 	return ns, &domain.Arrow{Namespace: ns}, nil
+}
+
+func (m *MockCQRS) ResolveAdoption(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) (arrowstore.Adoption, error) {
+	if m.ResolveAdoptionFn != nil {
+		return m.ResolveAdoptionFn(ctx, ns, resolvedRef)
+	}
+	return arrowstore.Adoption{}, nil
 }
 
 func (m *MockCQRS) CheckDrift(

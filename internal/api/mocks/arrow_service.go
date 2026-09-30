@@ -30,6 +30,7 @@ type ArrowService struct {
 	GetDependenciesResult  models.Plan
 	GetDependenciesErr     error
 	SeedErr                error
+	AdoptInstalledErr      error
 	ValidateManifestResult *models.ValidationResult
 	ValidateManifestErr    error
 	ListChannelsResult     []models.ChannelInfo
@@ -39,6 +40,15 @@ type ArrowService struct {
 	AddCalls []domain.Namespace
 	// UpdateCalls records the namespace each Update was called with.
 	UpdateCalls []domain.Namespace
+	// AdoptInstalledCalls records the arguments each AdoptInstalled was
+	// called with.
+	AdoptInstalledCalls []AdoptInstalledCall
+}
+
+// AdoptInstalledCall is one recorded AdoptInstalled call.
+type AdoptInstalledCall struct {
+	Namespace   domain.Namespace
+	ResolvedRef string
 }
 
 func (m *ArrowService) Add(
@@ -120,6 +130,15 @@ func (m *ArrowService) GetDependencies(
 	_ domain.Namespace,
 ) (models.Plan, error) {
 	return m.GetDependenciesResult, m.GetDependenciesErr
+}
+
+func (m *ArrowService) AdoptInstalled(
+	_ context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	m.AdoptInstalledCalls = append(m.AdoptInstalledCalls, AdoptInstalledCall{Namespace: ns, ResolvedRef: resolvedRef})
+	return m.AdoptInstalledErr
 }
 
 func (m *ArrowService) Seed(

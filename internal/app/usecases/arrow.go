@@ -25,6 +25,15 @@ type ArrowUsecase interface {
 		ns domain.Namespace,
 	) error
 
+	// AdoptInstalled registers ns's identity, named as for Add, as already
+	// installed at resolvedRef, a ref its selector could resolve to. The
+	// runtime is left alone.
+	AdoptInstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolvedRef string,
+	) error
+
 	// Update re-resolves what is ahead of ns. A row that is not installed is
 	// advanced to it in the catalog; an installed one is left where it is,
 	// since only POST /runtime/:ns/update runs the update steps that move it.
@@ -115,6 +124,14 @@ func (u *arrowUsecase) Add(
 	ns domain.Namespace,
 ) error {
 	return u.arrow.Add(ctx, ns)
+}
+
+func (u *arrowUsecase) AdoptInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	return u.arrow.AdoptInstalled(ctx, ns, resolvedRef)
 }
 
 func (u *arrowUsecase) Remove(
