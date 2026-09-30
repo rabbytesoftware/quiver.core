@@ -410,6 +410,11 @@ func TestGroupChannels_DatesNextToSemanticVersions(t *testing.T) {
 			want: []TagChannel{{Name: StableChannel, Members: []string{"v2.0.0", "v1.0.0", "stable-2026-01-02", "stable-2019-05-01"}}},
 		},
 		{
+			name: "a calendar-like major puts the whole channel on one calendar",
+			tags: []string{"v1.0.0", "v21.0.0", "stable-2025-01-01"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-2025-01-01", "v21.0.0", "v1.0.0"}}},
+		},
+		{
 			name: "a dated-only channel orders by date",
 			tags: []string{"stable-2026-01-02", "stable-2025-12-31"},
 			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-2026-01-02", "stable-2025-12-31"}}},
@@ -437,5 +442,22 @@ func TestParseTagFull_InvalidDatesAreNoDates(t *testing.T) {
 				t.Errorf("%s parsed as a version", tag)
 			}
 		})
+	}
+}
+
+// Every channel's order is total: the pairwise Outranks agrees with it for
+// any two members of the channels above.
+func TestOutranks_AgreesWithTheChannelOrder(t *testing.T) {
+	for _, tags := range [][]string{
+		{"v1.0.0", "v21.0.0", "stable-2025-01-01"},
+		{"v1.0.0", "v2.0.0", "stable-2019-05-01", "stable-2026-01-02"},
+		{"stable-26.5.1", "stable-2026-09-27", "stable-2026-09-27.1", "stable-26.10"},
+	} {
+		members := GroupChannels(tags)[0].Members
+		for i := 0; i+1 < len(members); i++ {
+			if Outranks(members[i+1], members[i]) {
+				t.Errorf("%v: Outranks(%q, %q) contradicts the channel order", members, members[i+1], members[i])
+			}
+		}
 	}
 }

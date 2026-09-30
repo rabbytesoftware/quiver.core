@@ -89,10 +89,13 @@ and `v1.2.0`) always settle the same way. A date core ranks as `YY.MM.DD.patch` 
 within the century — so it orders among calendar-versioned `YY.M` tags by release month,
 and a later date outranks every patch of an earlier one:
 `stable-26.5.1` < `stable-2026-09-27` < `stable-2026-09-27.1` < `stable-2026-10-01` <
-`stable-26.11`. That shared calendar only covers calendar versions, whose major is a year
-(`YY`, 20 or more). In a channel that holds dated tags, a semantic version (major below
-20, such as `v2.0.0`) ranks above every date, so a third-party `stable-2019-05-01` never
-outranks `v2.0.0`; a dated-only channel orders by date.
+`stable-26.11`. A channel that holds dated tags picks one order, so its order stays
+total: when every other member is a semantic version (major below 20, such as `v2.0.0`),
+those rank above every date, so a third-party `stable-2019-05-01` never outranks `v2.0.0`;
+when any member is calendar-like (major 20 or more, as quiver.core's `26.x`), the whole
+channel ranks numerically on one calendar, dates as `YY.MM.DD` — in
+`v1.0.0`, `v21.0.0`, `stable-2025-01-01` the date is the head. A dated-only channel orders
+by date.
 
 ### 2.2 Parse rule
 

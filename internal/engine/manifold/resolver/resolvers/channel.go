@@ -151,16 +151,22 @@ type classifiedTag struct {
 // core below it is a semantic version, which dates are never ranked against.
 const calendarMajor = 20
 
-// tierAgainstDates ranks the semantic versions of a channel that also holds
-// dated tags above all of those dates: a third-party stable-2019-05-01 never
-// outranks v2.0.0. Calendar versions (26.10) keep ranking against dates on
-// one calendar.
+// tierAgainstDates picks one order for a channel that holds dated tags, so
+// the order stays total. When every other member is a semantic version
+// (major below calendarMajor), those rank above all the dates: a third-party
+// stable-2019-05-01 never outranks v2.0.0. When any member is calendar-like
+// (26.10, or any major of calendarMajor or more), the whole channel ranks
+// numerically on one calendar, dates as YY.MM.DD, as quiver.core's own tags
+// do.
 func tierAgainstDates(members []classifiedTag) {
 	if !slices.ContainsFunc(members, func(c classifiedTag) bool { return c.dated }) {
 		return
 	}
+	if slices.ContainsFunc(members, func(c classifiedTag) bool { return !c.dated && c.core[0] >= calendarMajor }) {
+		return
+	}
 	for i := range members {
-		if !members[i].dated && members[i].core[0] < calendarMajor {
+		if !members[i].dated {
 			members[i].tier = 1
 		}
 	}
