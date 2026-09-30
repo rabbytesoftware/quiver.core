@@ -48,7 +48,7 @@ rank_key() {
 # the filter pattern (a bash regex over the version), or nothing.
 latest_stable() {
   local filter=$1 tag version
-  for tag in "${TAGS[@]}"; do
+  for tag in ${TAGS[@]+"${TAGS[@]}"}; do
     version=${tag#stable-}
     [ "$version" != "$tag" ] || continue
     is_version "$version" || continue
@@ -83,7 +83,7 @@ next_patch() {
 # rebuild prints name, or name-N when name was already published N times.
 rebuild() {
   local name=$1 count=0 tag
-  for tag in "${TAGS[@]}"; do
+  for tag in ${TAGS[@]+"${TAGS[@]}"}; do
     if [ "$tag" = "$name" ] || [[ $tag =~ ^${name//./\\.}-[0-9]+$ ]]; then
       count=$((count + 1))
     fi
@@ -137,7 +137,7 @@ tag_key() {
 
 latest_key() {
   local family=$1 tag key
-  for tag in "${TAGS[@]}"; do
+  for tag in ${TAGS[@]+"${TAGS[@]}"}; do
     [[ $tag == "$family"-* ]] || continue
     key=$(tag_key "$tag") || continue
     echo "$key"
