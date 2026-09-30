@@ -171,7 +171,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Arrow already registered",
+                        "description": "A concurrent registration of the same identity won the race; re-registering is otherwise idempotent (201)",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -280,7 +280,7 @@ const docTemplate = `{
         },
         "/arrow/{ns}/adopt": {
             "post": {
-                "description": "Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed; the runtime state is not touched.",
+                "description": "Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed. Adopt declares the catalog state only and leaves the runtime untouched: a client that also needs the arrow's installed state detected (its preinstalled probe) must POST /arrow/{ns} first and then call /adopt.",
                 "consumes": [
                     "application/json"
                 ],

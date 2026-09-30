@@ -44,7 +44,7 @@ func validNamespace(c *gin.Context, ns domain.Namespace) bool {
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
-// @Failure      409  {object}  libs.ErrResponse       "Arrow already registered"
+// @Failure      409  {object}  libs.ErrResponse       "A concurrent registration of the same identity won the race; re-registering is otherwise idempotent (201)"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
@@ -63,7 +63,7 @@ func (h *Handlers) Add(c *gin.Context) {
 // AdoptInstalled registers an arrow as already installed at a declared ref.
 //
 // @Summary      Adopt installed arrow
-// @Description  Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed; the runtime state is not touched.
+// @Description  Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed. Adopt declares the catalog state only and leaves the runtime untouched: a client that also needs the arrow's installed state detected (its preinstalled probe) must POST /arrow/{ns} first and then call /adopt.
 // @Tags         arrows
 // @Accept       json
 // @Param        ns    path  string                   true  "Arrow namespace (e.g. github.com/user/repo@stable)"

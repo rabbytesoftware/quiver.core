@@ -17,7 +17,9 @@ var ErrNotAdmitted = errors.New("manifold: ref not admitted by selector")
 // refuses any state that would contradict the row's identity: a channel
 // admits its members (a pointer channel only its own ref), a constraint the
 // tags its glob matches, a pin its own ref, and a commit selector itself or
-// any ref at a commit it prefixes. A ref snap does not hold is
+// any ref at a commit it prefixes, hex compared without case. The commit
+// selector itself is recorded as the selector, as an install records it. A
+// ref snap does not hold is
 // ErrUnknownSelector; one the selector could never resolve to is
 // ErrNotAdmitted.
 func Admit(
@@ -26,8 +28,8 @@ func Admit(
 	ref string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
-	if kind == domain.SelectorCommit && ref == selector {
-		return domain.Available{Ref: ref, Commit: ref}, nil
+	if kind == domain.SelectorCommit && strings.EqualFold(ref, selector) {
+		return domain.Available{Ref: selector, Commit: selector}, nil
 	}
 	commit, ok := snap.Commit(ref)
 	if !ok {

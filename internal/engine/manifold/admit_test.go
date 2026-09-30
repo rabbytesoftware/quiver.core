@@ -108,6 +108,14 @@ func TestAdmit(t *testing.T) {
 			ref: "main", snap: commits, want: domain.Available{Ref: "main", Commit: "ABCDEF1234567890"},
 		},
 		{
+			name: "uppercase commit selector admits itself spelled in lowercase", kind: domain.SelectorCommit, selector: "ABCDEF1",
+			ref: "abcdef1", snap: commits, want: domain.Available{Ref: "ABCDEF1", Commit: "ABCDEF1"},
+		},
+		{
+			name: "commit selector spelled differently records the row an add would", kind: domain.SelectorCommit, selector: "abcdef1",
+			ref: "ABCDEF1", snap: commits, want: domain.Available{Ref: "abcdef1", Commit: "abcdef1"},
+		},
+		{
 			name: "commit selector refuses a ref at another commit", kind: domain.SelectorCommit, selector: "abcdef1",
 			ref: "v1.3.0", snap: commits, wantErr: ErrNotAdmitted,
 		},

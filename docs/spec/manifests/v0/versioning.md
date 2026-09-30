@@ -526,9 +526,11 @@ only its own ref), a constraint the tags its glob matches, a pin its own ref, a 
 selector itself or a ref at a commit it prefixes. A ref the remote does not hold is not
 found; one the selector could never resolve to is an invalid namespace. The manifest is
 fetched at that commit and passed to `Adopt` with `Resolved{ref, commit, commit}`, so the
-row table above applies unchanged. The runtime is not touched, and nothing is judged
-inline: the next version check (the passive one a detail read triggers, or `PATCH`)
-records what is ahead.
+row table above applies unchanged. Nothing is judged inline: the next version check
+(the passive one a detail read triggers, or `PATCH`) records what is ahead. `/adopt`
+declares the catalog state only and leaves the runtime untouched; a client that also
+needs the arrow's installed state detected (the `preinstalled:` probe) must
+`POST /v0/arrow/{ns}` first and then call `/adopt` — the order the tests cover.
 
 ### 10.2 quiver.core's own row
 
