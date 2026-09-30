@@ -94,7 +94,7 @@ func (s *arrowService) Adopt(
 
 	current, err := s.axArrow.Get(ctx, ns.String())
 	if err != nil {
-		return fmt.Errorf("adopt %s: %w", ns, err)
+		return fmt.Errorf("adopt %s: %w", ns, mapGetErr(err))
 	}
 	if err := s.adoptOnto(ctx, ns, current, m, resolved, cache); err != nil {
 		return err

@@ -2881,6 +2881,20 @@ func TestAdopt_Failures(t *testing.T) {
 			},
 		},
 		{
+			name:     "the present row is forgotten before it is read",
+			filename: "ARROW.md",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return true, nil },
+				GetFn: func(_ context.Context, _ string) (domain.Arrow, error) {
+					return domain.Arrow{}, fmt.Errorf("get: %w", asynxModels.ErrNotFound)
+				},
+			},
+			wantErrIs: apperrors.ErrNotFound,
+		},
+		{
 			name:     "the create is rejected",
 			filename: "ARROW.md",
 			ns:       validNs,

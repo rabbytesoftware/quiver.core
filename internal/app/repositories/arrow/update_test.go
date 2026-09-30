@@ -3,6 +3,7 @@ package arrow_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -169,6 +170,16 @@ func TestCheckAvailable_AsynxFailures(t *testing.T) {
 				GetFn:    func(context.Context, string) (domain.Arrow, error) { return domain.Arrow{}, boom },
 			},
 			wantErr: boom,
+		},
+		{
+			name: "the row is forgotten mid-check",
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(context.Context, string) (bool, error) { return true, nil },
+				GetFn: func(context.Context, string) (domain.Arrow, error) {
+					return domain.Arrow{}, fmt.Errorf("get: %w", asynxModels.ErrNotFound)
+				},
+			},
+			wantErr: apperrors.ErrNotFound,
 		},
 		{
 			name: "record is rejected",

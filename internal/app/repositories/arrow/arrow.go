@@ -518,7 +518,7 @@ func (s *arrowService) recordAvailable(
 	for attempt := 1; ; attempt++ {
 		current, err := s.axArrow.Get(ctx, ns.String())
 		if err != nil {
-			return nil, false, err
+			return nil, false, mapGetErr(err)
 		}
 		available, answered, err := judge(current)
 		if err != nil || !answered {
@@ -540,6 +540,15 @@ func (s *arrowService) recordAvailable(
 			return available, true, err
 		}
 	}
+}
+
+// mapGetErr classifies a failed read of a row found moments earlier: one
+// forgotten in between is not found.
+func mapGetErr(err error) error {
+	if errors.Is(err, asynxModels.ErrNotFound) {
+		return fmt.Errorf("row forgotten: %w", apperrors.ErrNotFound)
+	}
+	return err
 }
 
 // retryableWrite reports whether a rejected write is worth judging again:
