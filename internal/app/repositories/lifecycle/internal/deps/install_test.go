@@ -146,28 +146,35 @@ func TestRuntimeOnEnded_Update_HandsOverToTheSettling(t *testing.T) {
 }
 
 // An install acts on the freshest target of the row's selector: a row nothing
-// is installed from, with a release a check found ahead of it, is advanced to
-// that release first, so ${REF} and Resolved name it. A target that cannot be
-// read never blocks the install of what the row records.
+// is installed from, with a release a check found ahead of it, is judged again
+// against the remote and advanced to what stands ahead now, so ${REF} and
+// Resolved name it. A re-check that cannot reach the remote falls back to the
+// recorded release, and a target that cannot be read never blocks the install
+// of what the row records.
 func TestRuntimeInstall_AbsentRowWithAvailable_InstallsTheTarget(t *testing.T) {
-	ahead := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+	recorded := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+	fresher := &domain.Available{Ref: "v1.2.0", Commit: "c3"}
 	boom := errors.New("boom")
 	testCases := []struct {
 		name        string
 		state       domain.ArrowState
 		available   *domain.Available
+		fresh       *domain.Available
+		checkErr    error
 		advanceErr  error
 		getErr      error
-		wantAdvance bool
-		wantBegin   bool
+		wantAdvance string
 		wantErr     error
 	}{
-		{name: "absent with a release ahead", state: domain.ArrowStateAbsent, available: ahead, wantAdvance: true, wantBegin: true},
-		{name: "never installed with a release ahead", available: ahead, wantAdvance: true, wantBegin: true},
-		{name: "nothing ahead", state: domain.ArrowStateAbsent, wantBegin: true},
-		{name: "target has no manifest", state: domain.ArrowStateAbsent, available: ahead, advanceErr: apperrors.ErrNotFound, wantAdvance: true, wantBegin: true},
-		{name: "target unreachable", state: domain.ArrowStateAbsent, available: ahead, advanceErr: apperrors.ErrFetchFailed, wantAdvance: true, wantBegin: true},
-		{name: "advance refused", state: domain.ArrowStateAbsent, available: ahead, advanceErr: boom, wantAdvance: true, wantErr: boom},
+		{name: "absent with a release ahead", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, wantAdvance: "v1.1.0"},
+		{name: "a newer release cut since the check", state: domain.ArrowStateAbsent, available: recorded, fresh: fresher, wantAdvance: "v1.2.0"},
+		{name: "never installed with a release ahead", available: recorded, fresh: recorded, wantAdvance: "v1.1.0"},
+		{name: "nothing ahead any more", state: domain.ArrowStateAbsent, available: recorded},
+		{name: "the re-check cannot reach the remote", state: domain.ArrowStateAbsent, available: recorded, checkErr: apperrors.ErrFetchFailed, wantAdvance: "v1.1.0"},
+		{name: "nothing recorded ahead", state: domain.ArrowStateAbsent},
+		{name: "target has no manifest", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: apperrors.ErrNotFound, wantAdvance: "v1.1.0"},
+		{name: "target unreachable", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: apperrors.ErrFetchFailed, wantAdvance: "v1.1.0"},
+		{name: "advance refused", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: boom, wantAdvance: "v1.1.0", wantErr: boom},
 		{name: "row unreadable", state: domain.ArrowStateAbsent, getErr: boom, wantErr: boom},
 	}
 	for _, tc := range testCases {
@@ -177,6 +184,10 @@ func TestRuntimeInstall_AbsentRowWithAvailable_InstallsTheTarget(t *testing.T) {
 				ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
 				GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 					return &domain.Arrow{Namespace: ns, Available: tc.available}, tc.getErr
+				},
+				CheckAvailableFn: func(context.Context, domain.Namespace) (*domain.Available, error) {
+					calls = append(calls, "check available")
+					return tc.fresh, tc.checkErr
 				},
 				AdvanceFn: func(_ context.Context, _ domain.Namespace, target domain.Available) error {
 					calls = append(calls, "advance to "+target.Ref)
@@ -197,18 +208,21 @@ func TestRuntimeInstall_AbsentRowWithAvailable_InstallsTheTarget(t *testing.T) {
 
 			began, err := newUC(a, rt, g).Install(context.Background(), rollingRow, nil)
 
+			var want []string
+			if tc.available != nil {
+				want = append(want, "check available")
+			}
+			if tc.wantAdvance != "" {
+				want = append(want, "advance to "+tc.wantAdvance)
+			}
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.NotContains(t, calls, "begin install")
+				assert.Equal(t, want, calls)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantBegin, began)
-			want := []string{"resolve deps", "begin install"}
-			if tc.wantAdvance {
-				want = append([]string{"advance to v1.1.0"}, want...)
-			}
-			assert.Equal(t, want, calls)
+			assert.True(t, began)
+			assert.Equal(t, append(want, "resolve deps", "begin install"), calls)
 		})
 	}
 }

@@ -671,9 +671,9 @@ targets:
           exit_on_failure: false
 `
 
-// A row uninstalled while a release was ahead of it installs that release
-// again, not the one it left: an install acts on the freshest target of its
-// selector.
+// A row uninstalled while a release was ahead of it installs the freshest
+// release of its selector, not the one it left nor the one a check recorded
+// before a newer one was cut: an install acts on the freshest target.
 func (s *AdvanceSuite) TestAdvance_AbsentOutdatedRow_InstallsTheReleaseAhead() {
 	manifest := []byte(installRefsManifest)
 	f := s.newFixture("install-refs", "v1.2.0", manifest)
@@ -682,20 +682,21 @@ func (s *AdvanceSuite) TestAdvance_AbsentOutdatedRow_InstallsTheReleaseAhead() {
 	ns := f.ns("stable")
 
 	s.install(env, tc, ns)
-	v130 := s.publish(f, "v1.3.0", manifest)
+	s.publish(f, "v1.3.0", manifest)
 	s.Require().NotNil(s.checkAvailable(tc, ns), "an installed row only records the release ahead")
 	s.Require().Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, wait)
 	s.Require().NotNil(s.detail(tc, ns).Available, "the uninstalled row still names the release ahead")
+	v140 := s.publish(f, "v1.4.0", manifest)
 
 	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, wait)
 
 	installed := s.detail(tc, ns)
-	s.Equal("v1.3.0", installed.ResolvedRef)
-	s.Equal(v130, installed.InstalledCommit)
+	s.Equal("v1.4.0", installed.ResolvedRef)
+	s.Equal(v140, installed.InstalledCommit)
 	s.Nil(installed.Available)
 	refs, ok := s.workFile(env, ns, "install-refs")
 	s.Require().True(ok)
-	s.Equal("v1.2.0\nv1.3.0\n", refs, "${REF} names the release each install ran for")
+	s.Equal("v1.2.0\nv1.4.0\n", refs, "${REF} names the release each install ran for")
 }

@@ -35,10 +35,12 @@ func needsInstall(
 		state == domain.ArrowStateRemoved
 }
 
-// advanceToAvailable moves a row nothing is installed from onto the release a
-// check found ahead of it, so an install acts on the freshest target of its
-// selector and ${REF} names that release. A target whose manifest cannot be
-// read never blocks the install of what the row records.
+// advanceToAvailable moves a row nothing is installed from, and that a check
+// found behind its selector, onto the freshest target of that selector: it is
+// judged again against the remote, so a release cut since the check is the
+// one installed, and ${REF} names it. A re-check that cannot answer falls
+// back to the recorded target, and a target whose manifest cannot be read
+// never blocks the install of what the row records.
 func (d *deps) advanceToAvailable(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -57,16 +59,25 @@ func (d *deps) advanceToAvailable(
 	if row == nil || row.Available == nil {
 		return nil
 	}
+	target, err := d.arrow.CheckAvailable(ctx, ns)
+	if err != nil {
+		slog.WarnContext(ctx, "install: re-check the release ahead, acting on the recorded one",
+			"ns", ns, "ahead", row.Available.Ref, "err", err)
+		target = row.Available
+	}
+	if target == nil {
+		return nil
+	}
 
-	err = d.arrow.Advance(ctx, ns, *row.Available)
+	err = d.arrow.Advance(ctx, ns, *target)
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, apperrors.ErrNotFound) && !errors.Is(err, apperrors.ErrFetchFailed) {
-		return fmt.Errorf("advance to %s: %w", row.Available.Ref, err)
+		return fmt.Errorf("advance to %s: %w", target.Ref, err)
 	}
 	slog.WarnContext(ctx, "install: the release ahead cannot be read, installing the recorded one",
-		"ns", ns, "ahead", row.Available.Ref, "err", err)
+		"ns", ns, "ahead", target.Ref, "err", err)
 	return nil
 }
 

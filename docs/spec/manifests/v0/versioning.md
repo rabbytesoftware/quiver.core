@@ -504,11 +504,15 @@ between is offered as an update by the next check.
 
 Three entry points reach it: the two below, and an install of a row nothing is installed from
 whose `Available` is set (an installed row that recorded a release ahead and was then
-uninstalled). Under the row's bracket, before its dependencies are resolved, the install
-advances the row in place to `Available`, so `${REF}` and, after the install, `Resolved` name
-that release: an install acts on the freshest target of its selector. A target whose manifest
-cannot be read (not found, unreachable) never blocks the install; the row installs what it
-records and the failure is logged.
+uninstalled). Under the row's bracket, before its dependencies are resolved, the install judges
+the row again against a fresh ref snapshot (`CheckAvailable`) and advances it in place to what
+stands ahead now, so a release cut since the recorded check is the one installed, and `${REF}`
+and, after the install, `Resolved` name it: an install acts on the freshest target of its
+selector. A re-check that cannot reach the remote falls back to the recorded `Available`; a
+re-check that finds nothing ahead any more advances nothing. A target whose manifest cannot be
+read (not found, unreachable) never blocks the install; the row installs what it records and the
+failure is logged. Only the row being installed is advanced: a dependency is installed at the
+release its own row records.
 
 ### 8.1 `PATCH /v0/arrow/{ns}` — check, and advance only what is not installed
 
