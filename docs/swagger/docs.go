@@ -171,7 +171,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "A concurrent registration of the same identity won the race; re-registering is otherwise idempotent (201)",
+                        "description": "A concurrent registration of the same identity won the race (re-registering is otherwise idempotent, 201), or another identity's workdir occupies this identity's path",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -265,6 +265,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Arrow not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Another identity's workdir occupies this identity's path",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -1596,7 +1602,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Arrow already running",
+                        "description": "Arrow already running, a cyclic dependency, or another identity's workdir occupies this identity's path (no step runs)",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }

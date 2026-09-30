@@ -35,7 +35,7 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
-// @Failure      409     {object}  libs.ErrResponse                  "Arrow already running"
+// @Failure      409     {object}  libs.ErrResponse                  "Arrow already running, a cyclic dependency, or another identity's workdir occupies this identity's path (no step runs)"
 // @Failure      422     {object}  libs.ErrResponse                  "State violation, e.g. an update while the previous one is still settling"
 // @Failure      500     {object}  libs.ErrResponse                  "Internal error"
 // @Router       /runtime/{ns}/{method} [post]

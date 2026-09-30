@@ -44,7 +44,7 @@ func validNamespace(c *gin.Context, ns domain.Namespace) bool {
 // @Success      201  {object}  libs.MutationResponse  "Arrow registered"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Manifest not found"
-// @Failure      409  {object}  libs.ErrResponse       "A concurrent registration of the same identity won the race; re-registering is otherwise idempotent (201)"
+// @Failure      409  {object}  libs.ErrResponse       "A concurrent registration of the same identity won the race (re-registering is otherwise idempotent, 201), or another identity's workdir occupies this identity's path"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [post]
 func (h *Handlers) Add(c *gin.Context) {
@@ -110,6 +110,7 @@ func (h *Handlers) AdoptInstalled(c *gin.Context) {
 // @Success      200  {object}  libs.MutationResultResponse{data=apidto.UpdateResultDTO}  "Update result"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace"
 // @Failure      404  {object}  libs.ErrResponse       "Arrow not found"
+// @Failure      409  {object}  libs.ErrResponse       "Another identity's workdir occupies this identity's path"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns} [patch]
 func (h *Handlers) Update(c *gin.Context) {
