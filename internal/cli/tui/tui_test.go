@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -232,4 +234,61 @@ func TestRunner_WithInput_IsAppliedToTheRunner(t *testing.T) {
 	// Both still render identically; the option changes only where keys come
 	// from, which the non-interactive path never reads.
 	assert.Equal(t, plain.Theme().Muted.Render("x"), withIn.Theme().Muted.Render("x"))
+}
+
+// brokenPipeWriter is a stdout whose reader went away.
+type brokenPipeWriter struct{ err error }
+
+func (w brokenPipeWriter) Write([]byte) (int, error) { return 0, w.err }
+
+// A reader that stopped listening is not the command failing: a command that
+// succeeded exits 0 whatever became of its output. A genuine failure still
+// fails.
+func TestRunner_Run_OutputReaderGone(t *testing.T) {
+	gone := []struct {
+		name string
+		err  error
+	}{
+		{name: "broken pipe", err: &os.PathError{Op: "write", Path: "/dev/stdout", Err: syscall.EPIPE}},
+		{name: "closed pipe", err: io.ErrClosedPipe},
+	}
+	for _, g := range gone {
+		for name, format := range everyFormat() {
+			t.Run(g.name+"/"+name+"/success", func(t *testing.T) {
+				r := tui.NewRunner(brokenPipeWriter{err: g.err}, format, false)
+
+				err := r.Run(context.Background(), newFake())
+
+				require.NoError(t, err)
+				assert.Equal(t, tui.ExitOK, tui.CodeFor(err))
+			})
+			t.Run(g.name+"/"+name+"/command failed", func(t *testing.T) {
+				m := newFake()
+				m.err = errors.New("install failed")
+				r := tui.NewRunner(brokenPipeWriter{err: g.err}, format, false)
+
+				err := r.Run(context.Background(), m)
+
+				require.ErrorIs(t, err, m.err)
+				assert.NotEqual(t, tui.ExitOK, tui.CodeFor(err))
+			})
+		}
+	}
+}
+
+func TestRunner_Run_OtherWriteFailuresStillFail(t *testing.T) {
+	for name, format := range everyFormat() {
+		t.Run(name, func(t *testing.T) {
+			r := tui.NewRunner(brokenPipeWriter{err: syscall.ENOSPC}, format, false)
+
+			err := r.Run(context.Background(), newFake())
+
+			require.ErrorIs(t, err, syscall.ENOSPC)
+			assert.NotEqual(t, tui.ExitOK, tui.CodeFor(err))
+		})
+	}
+}
+
+func everyFormat() map[string]tui.Format {
+	return map[string]tui.Format{"table": tui.FormatTable, "json": tui.FormatJSON, "yaml": tui.FormatYAML}
 }

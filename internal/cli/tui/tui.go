@@ -138,24 +138,34 @@ func (r Runner) writeFailedFrame(cm CommandModel) {
 	_, _ = io.WriteString(r.out, cm.View())
 }
 
+// write serializes cm's result. A reader that went away mid-write is not
+// the command failing: the command succeeded, and nobody is left to tell.
 func (r Runner) write(cm CommandModel) error {
+	out := &outputWriter{w: r.out}
+	if err := r.encode(out, cm); err != nil && !readerGone(out.err) {
+		return err
+	}
+	return nil
+}
+
+func (r Runner) encode(out *outputWriter, cm CommandModel) error {
 	switch r.format {
 	case FormatTable:
 		if r.tty {
 			return nil // bubbletea already drew it
 		}
 
-		if _, err := io.WriteString(r.out, cm.View()); err != nil {
+		if _, err := io.WriteString(out, cm.View()); err != nil {
 			return fmt.Errorf("write output: %w", err)
 		}
 
 		return nil
 	case FormatJSON:
-		enc := json.NewEncoder(r.out)
+		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 
 		if err := enc.Encode(cm.Payload()); err != nil {
-			return fmt.Errorf("encode json: %w", err)
+			return fmt.Errorf("encode json: %w", out.cause(err))
 		}
 
 		return nil
@@ -164,8 +174,8 @@ func (r Runner) write(cm CommandModel) error {
 		// That is a programmer error in the command, caught by CheckPayload in
 		// the command's own test and, in the last resort, by the panic barrier
 		// in main. It is deliberately not recovered here.
-		if err := yaml.NewEncoder(r.out).Encode(cm.Payload()); err != nil {
-			return fmt.Errorf("encode yaml: %w", err)
+		if err := yaml.NewEncoder(out).Encode(cm.Payload()); err != nil {
+			return fmt.Errorf("encode yaml: %w", out.cause(err))
 		}
 
 		return nil

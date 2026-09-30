@@ -48,6 +48,37 @@ func TestNewCLIDeps_EnsureDaemonSucceedsWhenLive(t *testing.T) {
 	assert.NoError(t, newCLIDeps().EnsureDaemon(context.Background()))
 }
 
+// /dev/null is a character device but no terminal: a command redirected to
+// it must render as piped output, never start the interactive renderer.
+func TestFileIsTTY_NonTerminalsAreNot(t *testing.T) {
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = devNull.Close() })
+
+	regular, err := os.CreateTemp(t.TempDir(), "out")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = regular.Close() })
+
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+
+	testCases := []struct {
+		name string
+		file *os.File
+	}{
+		{name: "null device", file: devNull},
+		{name: "regular file", file: regular},
+		{name: "pipe", file: writer},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.False(t, fileIsTTY(tc.file))
+		})
+	}
+}
+
 func TestShouldManageDaemon(t *testing.T) {
 	testCases := []struct {
 		name string

@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
@@ -25,11 +27,14 @@ func newCLIDeps() commands.Deps {
 }
 
 func stdoutIsTTY() bool {
-	info, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return fileIsTTY(os.Stdout)
+}
+
+// fileIsTTY asks the terminal itself: a character device such as /dev/null
+// is no terminal, and handing it to the interactive renderer fails the
+// command.
+func fileIsTTY(f *os.File) bool {
+	return term.IsTerminal(f.Fd())
 }
 
 // shouldManageDaemon reports whether the invocation may stop an idle local

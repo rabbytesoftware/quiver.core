@@ -238,6 +238,8 @@ Available on every command:
 | `--no-color` | | Plain output without ANSI colors |
 | `--config <file>` | `-c` | Use an alternate config file |
 
+Anything that is not a terminal counts as piped: a file, a pipe, or `/dev/null`. A command's exit code reports the command itself; output nobody reads, such as a pipe whose reader already quit, never turns a success into a failure.
+
 ---
 
 ## Troubleshooting
