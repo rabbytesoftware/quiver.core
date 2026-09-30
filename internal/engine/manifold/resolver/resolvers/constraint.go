@@ -196,11 +196,11 @@ func IsStableSemver(tag string) bool {
 	return true
 }
 
-func semverParts(tag string) [3]int {
+func semverParts(tag string) [4]int {
 	s := strings.TrimPrefix(tag, "v")
 	parts := strings.Split(s, ".")
-	var out [3]int
-	for i := 0; i < 3 && i < len(parts); i++ {
+	var out [4]int
+	for i := 0; i < len(out) && i < len(parts); i++ {
 		out[i], _ = strconv.Atoi(parts[i])
 	}
 	return out

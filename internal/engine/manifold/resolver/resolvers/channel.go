@@ -23,8 +23,10 @@ const StableChannel = "stable"
 var tagPatternWithOrdinalSuffix = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
 // tagPatternWithDateCore locates a YYYY-MM-DD date standing where a version
-// core would, as in "beta-2026-09-27" or "stable-2026-09-27-1".
-var tagPatternWithDateCore = regexp.MustCompile(`^(.*?)(\d{4})-(\d{1,2})-(\d{1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
+// core would, with an optional .N patch after it, as the release workflows
+// name a dated series: "stable-2026-09-27", "stable-2026-09-27.1",
+// "hotfix-2026-09-27.1-1" (a rebuild), "beta-2026-09-27-1".
+var tagPatternWithDateCore = regexp.MustCompile(`^(.*?)(\d{4})-(\d{1,2})-(\d{1,2})(?:\.(\d+))?([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
 // dateEpoch is subtracted from a date core's year so a date orders among
 // calendar-versioned YY.M cores by its release month: 2026-09-27 ranks as
@@ -32,23 +34,28 @@ var tagPatternWithDateCore = regexp.MustCompile(`^(.*?)(\d{4})-(\d{1,2})-(\d{1,2
 const dateEpoch = 2000
 
 // parseTagFull splits a tag into its prefix, version core and channel suffix.
-// A date core is rewritten as YY.MM.DD. ok is false when the tag has neither
-// a numeric-dot run nor a date — a pointer-channel candidate instead.
+// A date is tried first, so its dashes never make a dotted core of its day
+// and patch; its core is rewritten as YY.MM.DD.patch. ok is false when the
+// tag has neither a date nor a numeric-dot run — a pointer-channel candidate
+// instead.
 func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
+	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil {
+		year, _ := strconv.Atoi(m[2])
+		if year >= dateEpoch {
+			year -= dateEpoch
+		}
+		patch := m[5]
+		if patch == "" {
+			patch = "0"
+		}
+		return m[1], strconv.Itoa(year) + "." + m[3] + "." + m[4] + "." + patch, strings.TrimLeft(m[6], "-_."), true
+	}
 	if m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag); m != nil {
 		return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
 	}
-	m := tagPatternWithDateCore.FindStringSubmatch(tag)
-	if m == nil {
-		return "", "", "", false
-	}
-	year, _ := strconv.Atoi(m[2])
-	if year >= dateEpoch {
-		year -= dateEpoch
-	}
-	return m[1], strconv.Itoa(year) + "." + m[3] + "." + m[4], strings.TrimLeft(m[5], "-_."), true
+	return "", "", "", false
 }
 
 // knownChannels are prefixes that name a release channel whatever else the
@@ -110,7 +117,7 @@ func normalizeVersionPrefix(
 type classifiedTag struct {
 	tag     string
 	channel string
-	core    [3]int
+	core    [4]int
 	ordinal int
 }
 
@@ -286,7 +293,7 @@ func compareClassified(
 }
 
 func compareCores(
-	a, b [3]int,
+	a, b [4]int,
 ) int {
 	for i := range a {
 		if c := cmp.Compare(a[i], b[i]); c != 0 {

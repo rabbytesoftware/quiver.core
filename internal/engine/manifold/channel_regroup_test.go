@@ -143,3 +143,64 @@ func TestDrift_OrderedChannelRegroupedByLaterTags_FollowsItsInstalledTag(t *test
 		})
 	}
 }
+
+// The names release-tag.sh publishes for a dated series (pinned by
+// tests/releasetags): patches count .1, .2 after the date, rebuilds -1, -2.
+func TestChannelsOf_DatedSeriesAsTheWorkflowsNameIt(t *testing.T) {
+	snap := coreReleaseTags("stable-2026-09-27", "stable-2026-09-27.1", "hotfix-2026-09-27.1", "hotfix-2026-09-27.1-1", "beta-2026-09-27-1")
+
+	byName := map[string]ChannelInfo{}
+	for _, c := range ChannelsOf(snap) {
+		byName[c.Name] = c
+	}
+
+	assert.ElementsMatch(t, []string{"stable", "beta", "hotfix", "nightly-latest"}, keys(byName), "no bogus channel from a date")
+	assert.Equal(t, []string{"stable-2026-09-27.1", "stable-2026-09-27", "stable-26.5.1", "stable-26.5"}, byName["stable"].Members)
+	assert.Equal(t, []string{"hotfix-2026-09-27.1-1", "hotfix-2026-09-27.1", "hotfix-26.5.2"}, byName["hotfix"].Members)
+	assert.Equal(t, "beta-2026-09-27-1", byName["beta"].Latest)
+}
+
+func keys(m map[string]ChannelInfo) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// A stable row, the core's own (channel:ordered, adopted at the build's
+// main.version) and an unrefined one alike, walks the dated series in order:
+// each release offers exactly the next one and never an earlier one.
+func TestDrift_DatedStableSeries_OfferedInOrder(t *testing.T) {
+	steps := []string{"stable-26.5.1", "stable-2026-09-27", "stable-2026-09-27.1", "stable-2026-10-01", "stable-26.11"}
+
+	for _, kind := range []domain.SelectorKind{domain.SelectorOrderedChannel, domain.SelectorChannel} {
+		t.Run(string(kind), func(t *testing.T) {
+			for i := 0; i+1 < len(steps); i++ {
+				installed, next := steps[i], steps[i+1]
+				snap := coreReleaseTags(steps[1 : i+2]...)
+				resolved := domain.Resolved{Ref: installed, Commit: snap.Tags[installed]}
+
+				target, outdated, err := Drift(kind, StableChannel, resolved, snap)
+
+				require.NoError(t, err)
+				require.True(t, outdated, "%s must be offered %s", installed, next)
+				assert.Equal(t, next, target.Ref)
+				_, again, err := Drift(kind, StableChannel, domain.Resolved{Ref: next, Commit: target.Commit}, snap)
+				require.NoError(t, err)
+				assert.False(t, again, "%s is the head", next)
+			}
+		})
+	}
+}
+
+func TestTarget_HotfixChannelOfADatedSeries(t *testing.T) {
+	snap := coreReleaseTags("stable-2026-09-27", "hotfix-2026-09-27.1")
+
+	kind, err := ClassifySelector("hotfix", snap)
+	require.NoError(t, err)
+	target, err := Target(kind, "hotfix", snap)
+
+	require.NoError(t, err)
+	assert.Equal(t, "hotfix-2026-09-27.1", target.Ref)
+}

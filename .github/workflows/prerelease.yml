@@ -34,43 +34,15 @@ jobs:
       env:
         BRANCH: ${{ github.ref_name }}
       run: |
-
-        if [[ "$BRANCH" == beta/* ]]; then
-          CHANNEL="beta"
-          SERIES="${BRANCH#beta/}"
-          COUNT=$(git tag -l "beta-${SERIES}" "beta-${SERIES}-*" | wc -l | tr -d ' ')
-          if [ "$COUNT" -eq "0" ]; then
-            TAG="beta-${SERIES}"
-          else
-            TAG="beta-${SERIES}-${COUNT}"
-          fi
-
-        elif [[ "$BRANCH" == hotfix/* ]]; then
-          CHANNEL="hotfix"
-          LATEST=$(git tag -l "stable-*" | sort -V | tail -1)
-          if [ -z "$LATEST" ]; then
-            echo "❌ No stable baseline found. A hotfix requires an existing stable release."
+        case "$BRANCH" in
+          beta/*) CHANNEL="beta" ;;
+          hotfix/*) CHANNEL="hotfix" ;;
+          *)
+            echo "❌ Unrecognized branch pattern: ${BRANCH}"
             exit 1
-          fi
-          VERSION="${LATEST#stable-}"
-          PARTS=$(echo "$VERSION" | tr '.' '\n' | wc -l | tr -d ' ')
-          if [ "$PARTS" -eq "2" ]; then
-            HOTFIX_VERSION="${VERSION}.1"
-          else
-            BASE=$(echo "$VERSION" | cut -d'.' -f1,2)
-            PATCH=$(echo "$VERSION" | cut -d'.' -f3)
-            HOTFIX_VERSION="${BASE}.$((PATCH + 1))"
-          fi
-          COUNT=$(git tag -l "hotfix-${HOTFIX_VERSION}" "hotfix-${HOTFIX_VERSION}-*" | wc -l | tr -d ' ')
-          if [ "$COUNT" -eq "0" ]; then
-            TAG="hotfix-${HOTFIX_VERSION}"
-          else
-            TAG="hotfix-${HOTFIX_VERSION}-${COUNT}"
-          fi
-        else
-          echo "❌ Unrecognized branch pattern: ${BRANCH}"
-          exit 1
-        fi
+            ;;
+        esac
+        TAG=$(git tag -l | .github/scripts/release-tag.sh prerelease "$BRANCH")
 
         echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
         echo "CHANNEL=${CHANNEL}" >> "$GITHUB_OUTPUT"

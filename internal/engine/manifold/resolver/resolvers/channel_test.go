@@ -356,3 +356,16 @@ func TestOutranks(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupChannels_DatedBuildNumbers(t *testing.T) {
+	tags := []string{"stable-2026-09-27", "stable-2026-09-27.2", "stable-2026-09-27.10", "stable-2026-09-27.1", "stable-2026-10-01", "stable-26.5.1"}
+	want := []TagChannel{{Name: StableChannel, Members: []string{
+		"stable-2026-10-01", "stable-2026-09-27.10", "stable-2026-09-27.2", "stable-2026-09-27.1", "stable-2026-09-27", "stable-26.5.1",
+	}}}
+
+	got := GroupChannels(tags)
+
+	if !equalGroups(got, want) {
+		t.Errorf("GroupChannels = %v, want %v", got, want)
+	}
+}

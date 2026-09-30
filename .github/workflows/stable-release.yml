@@ -37,36 +37,7 @@ jobs:
       env:
         HEAD_REF: ${{ github.event.pull_request.head.ref }}
       run: |
-        SOURCE="$HEAD_REF"
-
-        if [[ "$SOURCE" == beta/* ]]; then
-          BRANCH_VERSION="${SOURCE#beta/}"
-          SERIES=$(echo "$BRANCH_VERSION" | cut -d'.' -f1,2)
-        elif [[ "$SOURCE" == hotfix/* ]]; then
-          LATEST=$(git tag -l "stable-*" | sort -V | tail -1)
-          if [ -z "$LATEST" ]; then
-            echo "❌ No stable baseline found. A hotfix requires an existing stable release."
-            exit 1
-          fi
-          VERSION="${LATEST#stable-}"
-          SERIES=$(echo "$VERSION" | cut -d'.' -f1,2)
-        fi
-
-        LATEST_IN_SERIES=$(git tag -l "stable-${SERIES}" "stable-${SERIES}.*" | sort -V | tail -1)
-
-        if [ -z "$LATEST_IN_SERIES" ]; then
-          TAG="stable-${SERIES}"
-        else
-          PATCH_VERSION="${LATEST_IN_SERIES#stable-}"
-          PARTS=$(echo "$PATCH_VERSION" | tr '.' '\n' | wc -l | tr -d ' ')
-          if [ "$PARTS" -eq "2" ]; then
-            TAG="stable-${PATCH_VERSION}.1"
-          else
-            BASE=$(echo "$PATCH_VERSION" | cut -d'.' -f1,2)
-            PATCH=$(echo "$PATCH_VERSION" | cut -d'.' -f3)
-            TAG="stable-${BASE}.$((PATCH + 1))"
-          fi
-        fi
+        TAG=$(git tag -l | .github/scripts/release-tag.sh stable "$HEAD_REF")
 
         echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
         echo "Computed stable tag: ${TAG}"
