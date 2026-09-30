@@ -131,17 +131,23 @@ never share a path or nest one inside the other, so `pathsafe.go` encodes a sele
 
 A plain lower-case tag or branch name without `/` (`v1.2.0`, `nightly-latest`, `stable`)
 keeps its spelling, so its workdir and cache name are the same as before. A name longer
-than 200 bytes (a legal git ref can be far longer than the 255-byte component limit) is cut
+than 96 bytes (a legal git ref can be far longer than the 255-byte component limit) is cut
 without splitting an escape and suffixed with `~` and 32 hex characters of the SHA-256 of
-the full identity, so two long identities never share it. A capped name cannot be decoded,
+the full identity, so two long identities never share it. 96 bytes keeps a workdir under a
+typical Windows home (`C:\Users\<name>\.quiver\namespaces\<host>\<user>\<segment>`) far
+enough under `MAX_PATH` (260) for the arrow's own files. A capped name cannot be decoded,
 so the manifest meta records its `namespace` and a capped collection directory is named by
 the `collection.json` inside it.
 
-Existing data keeps working without a move. A workdir created under the earlier layout
-(the selector split on `/` into nested directories, each component escaping only what
-Windows refuses) is used when the new path does not exist and the old one does with exactly
-that spelling — the check reads directory entries, so a case-folded sibling identity is
-never mistaken for it. A manifest cache entry written under the earlier filename is read
+Existing data keeps working without a move. A workdir created under an earlier layout —
+the selector split on `/` into nested directories, each component escaping only what
+Windows refuses, or the selector not escaped at all (`repo@v1.*`, before paths were
+escaped) — is used when the new path does not exist and the old one does with exactly that
+spelling. Every existence check reads directory entries, so a case-folded sibling identity
+is never mistaken for it. When the new path exists only through case folding — on macOS or
+Windows, `repo@v1.0` landing in the directory an earlier layout gave `repo@V1.0` — it is
+another identity's workdir, and `WorkDir` refuses it (`ErrWorkDirCollision`) rather than
+let one uninstall delete the other's files. A manifest cache entry written under the earlier filename is read
 the same way and deleted with the current one.
 
 `decodeNSDir` reverses either directory form when listing namespaces; a component that does

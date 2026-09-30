@@ -750,7 +750,8 @@ The identity segment percent-encodes `/` (so `@release/1.0` is never inside `@re
 workdir, and uninstalling one never deletes the other's files), upper-case letters and
 non-ASCII bytes (so `@Nightly` and `@nightly` stay apart on case-insensitive filesystems),
 the Windows-reserved characters `<>:"|?*\`, `%`, `~`, control characters and a trailing `.`
-or space. A name over 200 bytes is cut and suffixed with a digest of the full identity.
+or space. A name over 96 bytes is cut and suffixed with a digest of the full identity, which
+keeps a workdir under a typical Windows home well under `MAX_PATH`.
 A plain lower-case tag or branch keeps its spelling, so its layout is unchanged; a workdir
 or cache entry an earlier layout created (a selector with `/` nested as directories, or one
 with upper-case letters) is still found where it is, so no installed arrow loses its files.

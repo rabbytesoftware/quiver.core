@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -395,4 +396,74 @@ func TestCollectionNamespace_UnreadableCappedFileFallsBackToTheName(t *testing.T
 
 	assert.Equal(t, decodeNSDir(rel), collectionNamespace(rel, missing))
 	assert.Equal(t, decodeNSDir(rel), collectionNamespace(rel, corrupt))
+}
+
+func caseInsensitive(t *testing.T, dir string) bool {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Probe"), nil, 0o600))
+	_, err := os.Stat(filepath.Join(dir, "probe"))
+	require.NoError(t, os.Remove(filepath.Join(dir, "Probe")))
+	return err == nil
+}
+
+// On a case-insensitive filesystem the plain v1.0 identity's path is the
+// directory an earlier layout gave V1.0; it must never be handed to v1.0,
+// where one uninstall would delete the other's files.
+func TestVault_CaseFoldedLegacyDirectory_IsNeverShared(t *testing.T) {
+	nsDir := t.TempDir()
+	if !caseInsensitive(t, nsDir) {
+		t.Skip("the filesystem tells the two spellings apart")
+	}
+	v, err := New(t.TempDir(), nsDir, time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	legacy := filepath.Join(nsDir, "github.com", "u", "r@V1.0")
+	require.NoError(t, os.MkdirAll(legacy, 0o700))
+
+	upper, err := v.WorkDir(context.Background(), "github.com/u/r@V1.0")
+	require.NoError(t, err)
+	assert.Equal(t, legacy, upper, "V1.0 keeps its own legacy workdir")
+
+	_, err = v.WorkDir(context.Background(), "github.com/u/r@v1.0")
+	require.ErrorIs(t, err, ErrWorkDirCollision)
+}
+
+// A constraint identity catalogued before paths were escaped has its
+// workdir under the raw selector.
+func TestVault_RawLegacyWorkDir_StillUsed(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("windows could never hold the raw selector")
+	}
+	nsDir := t.TempDir()
+	v, err := New(t.TempDir(), nsDir, time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	raw := filepath.Join(nsDir, "github.com", "u", "r@v1.*")
+	require.NoError(t, os.MkdirAll(raw, 0o700))
+
+	dir, err := v.WorkDir(context.Background(), "github.com/u/r@v1.*")
+
+	require.NoError(t, err)
+	assert.Equal(t, raw, dir)
+}
+
+// Every identity segment stays short enough that a workdir under a typical
+// Windows home keeps room under MAX_PATH for the arrow's own files.
+func TestVault_IdentitySegment_FitsWindowsPaths(t *testing.T) {
+	nsDir := t.TempDir()
+	v, err := New(t.TempDir(), nsDir, time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	s := v.(*store)
+
+	long := domain.Namespace("github.com/u/r@release-" + strings.Repeat("x", 120))
+	dir, err := v.WorkDir(context.Background(), long)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(filepath.Base(dir)), 96)
+	assert.LessOrEqual(t, len(filepath.Base(s.metaFilePath(long))), 96+len(metaSuffix))
+
+	short := domain.Namespace("github.com/u/r@release-2026-09-27.1")
+	dir, err = v.WorkDir(context.Background(), short)
+	require.NoError(t, err)
+	assert.Equal(t, "r@release-2026-09-27.1", filepath.Base(dir), "a plain ref keeps its spelling")
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -24,9 +25,11 @@ const windowsReserved = `<>:"|?*\%`
 const identityReserved = windowsReserved + "/~"
 
 const (
-	// maxNameLen keeps every name the vault writes under the 255-byte
-	// component limit of common filesystems, with room for an extension.
-	maxNameLen = 200
+	// maxNameLen keeps every name the vault writes well under the 255-byte
+	// component limit, and a workdir under a typical Windows home
+	// (C:\Users\<name>\.quiver\namespaces\<host>\<user>\) short enough to
+	// leave the arrow's own files room under MAX_PATH (260).
+	maxNameLen = 96
 	// maxComponentLen is the longest name those filesystems hold at all.
 	maxComponentLen = 255
 	// hashedMarker separates a truncated name from the digest that keeps it
@@ -187,22 +190,49 @@ func decodeNSDir(rel string) domain.Namespace {
 // namespacePath resolves ns to its directory under namespacesPath, refusing
 // any namespace whose bare segments would climb out of it. The identity is
 // one directory, so no identity's workdir ever lies inside another's. A
-// workdir an earlier layout created is used where it still exists, so an
-// installed arrow never loses its files to a layout change.
+// workdir an earlier layout created (the selector nested on '/', or not
+// escaped at all) is used where it still exists with exactly that spelling,
+// so an installed arrow never loses its files to a layout change. A path
+// that exists only through case folding belongs to another identity and is
+// refused.
 func (s *store) namespacePath(ns domain.Namespace) (string, error) {
 	current, err := s.underNamespaces(identityDir(ns))
 	if err != nil {
 		return "", err
 	}
-	legacyRel := legacyIdentityDir(ns)
-	if legacyRel == identityDir(ns) || exists(current) {
+	if hasExactEntry(current) {
 		return current, nil
 	}
-	legacy, err := s.underNamespaces(legacyRel)
-	if err != nil || !s.existsExactly(legacyRel) {
-		return current, nil
+	for _, rel := range legacyIdentityDirs(ns) {
+		legacy, err := s.underNamespaces(rel)
+		if err == nil && s.existsExactly(rel) {
+			return legacy, nil
+		}
 	}
-	return legacy, nil
+	if exists(current) {
+		return "", ErrWorkDirCollision
+	}
+	return current, nil
+}
+
+// legacyIdentityDirs lists the directories earlier layouts gave ns that
+// differ from its current one: escaped and nested on '/', then raw.
+func legacyIdentityDirs(ns domain.Namespace) []string {
+	current := identityDir(ns)
+	var dirs []string
+	for _, rel := range []string{legacyIdentityDir(ns), string(ns)} {
+		if rel != current && !slices.Contains(dirs, rel) {
+			dirs = append(dirs, rel)
+		}
+	}
+	return dirs
+}
+
+// hasExactEntry reports whether path's own directory entry exists under
+// exactly its spelling.
+func hasExactEntry(path string) bool {
+	entries, err := os.ReadDir(filepath.Dir(path))
+	return err == nil && hasEntry(entries, filepath.Base(path))
 }
 
 func identityDir(ns domain.Namespace) string {
