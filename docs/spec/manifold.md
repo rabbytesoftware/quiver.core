@@ -298,6 +298,18 @@ body over the cap is `resolver.ErrFetchFailed`.
   with an archive loses to it. Candidates still differing after the tiebreak refuse the
   target — Fletcher never guesses. A release shipping several unrelated products (none named
   after the repo) yields no pick at all.
+- Format follows the file name's extension, never the dots in the product name: an asset ending
+  in an archive suffix (`.zip`, `.tar.gz`, `.tgz`, `.tar.xz`, …) is an archive
+  (`GitHub.Desktop-arm64.zip`, `Some.App-darwin-arm64.tar.gz`), and only a name without a
+  recognised suffix and without a dot in its last six characters is a bare binary.
+- `domain.ReleaseAsset.Name` is always the real file name (the download URL's unescaped
+  basename). A host that also shows a human label for the file (GitHub's `expanded_assets` page:
+  `GitHub Desktop 3.6.6 macOS arm64` for `GitHub.Desktop-arm64.zip`) fills `Label` when it
+  differs; the REST-style hosts leave it empty. The picker reads the format, the skip rules, the
+  product and the stem from `Name`, and the OS family and architecture from `Name` plus `Label`,
+  so an asset whose file name names no OS can still be recognised by its label, and a label can
+  never change a file's format. A trailing `setup`/`installer` glued onto the product token
+  (`GitHubDesktopSetup`) is not part of the product.
 - A pick without a `sha256` digest, whose download URL is not `https`/`http`, or whose file
   name (taken from the download URL) is not a plain `[A-Za-z0-9._+-]` name, is dropped.
 

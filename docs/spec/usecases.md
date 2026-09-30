@@ -104,6 +104,8 @@ Registered in `internal/reactions.go`:
    - `EventKindEnded` → loop exits
 4. After the loop, `onEnd` reads `exec.Outcome()`. For `MethodInstall + Success` it calls the injected `markInstalledFn` (which sends `MarkInstalled` to `Asynx[Arrow]`). Then it sends `EndExecution{ns, outcome}` regardless of method.
 
+5. **Checksum retry.** `superviseExecution` (`internal/retry.go`) wraps the drain. A run of `_install` or `_update` whose outcome is `failed` and one of whose `step.failed` events carried `wizard.ErrChecksumMismatch` (checked with `errors.Is`, never on the message) is retried once, under the same execution, before `EndExecution` is sent: the injected `RefreshManifest` hook (`arrow.RefreshManifest` — purge the vault copy and resolve again at the namespace's own ref, never a channel upgrade — then `arrow.UpdateManifest`) refreshes the catalog's manifest, the `Reassemble` hook re-runs the assembler and `wizard.Plan`, and `RestartExecution` swaps the new steps in. The retry only starts when the re-assembled steps differ from the ones that failed: a manifest identical to the failing one describes an asset that is genuinely corrupt, so the run fails with its real error. A failed refresh or reassembly, a cancelled context or outcome, a superseded execution and every failure that is not a checksum mismatch also fail normally, and a second mismatch is never retried. The rolling-tag case this exists for: a host re-publishes an asset after the manifest pinning its digest was cached.
+
 This decouples Wizard from event sourcing: the wizard only emits events; the runtime repository converts them into commands.
 
 #### Crash recovery — `RecoverTransients`

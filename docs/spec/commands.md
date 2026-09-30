@@ -102,6 +102,7 @@ Lifecycle methods are constants in the `domain` package: `MethodInstall`, `Metho
 | `BeginUpdate` | `runtime.begun.<ns>` | yes | state is `outdated` or `ready` |
 | `EndExecution` | `runtime.ended.<ns>` | yes | `Execution != nil` |
 | `AdvanceStep` | `runtime.step_advanced.<ns>` | no | `Execution != nil` |
+| `RestartExecution` | `runtime.step_advanced.<ns>` | yes | `Execution != nil` and its id is the current one |
 | `RecordPID` | `runtime.pid_recorded.<ns>` | no | `Execution != nil` |
 | `RecordDetached` | `runtime.detached.<ns>` | yes | current state has a transition to `detached` |
 | `RecoverInterrupted` | `runtime.recovered.<ns>` | yes | current state is transient (`installing`, `uninstalling`, `updating`, `running`, `stopping`, `draining`) |
@@ -134,6 +135,10 @@ Terminates whatever execution is in progress and records its outcome (`success`,
 ### `AdvanceStep` (`runtime.step_advanced`)
 
 Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps and an optional note for completed ones. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. No snapshot — replays reapply the sequence cheaply.
+
+### `RestartExecution` (`runtime.step_advanced`)
+
+Replaces the active execution's steps with fresh ones, all `pending`, and clears its PID; the execution's id, method, variables and work directory, the state and `LastReturn` stay. Sent by the drain goroutine when an install or update failed on a checksum mismatch and the manifest, refreshed from its host, produced different steps (see [usecases.md](./usecases.md#drain-goroutine--wizard--asynx-bridge)). It carries the `runtime.step_advanced` event name so the step-progress subscribers, and through them the WebSocket hub, republish the reset snapshot. A stale execution id is rejected with `ErrExecutionSuperseded`, like every other progress command.
 
 ### `RecordPID` (`runtime.pid_recorded`)
 

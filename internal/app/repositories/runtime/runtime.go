@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -168,6 +169,7 @@ func New(
 	listArrows ListArrowsFn,
 	os domain.OS,
 	listRuntimeAggregates ListRuntimeAggregatesFn,
+	refreshManifest RefreshManifestFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
@@ -183,6 +185,8 @@ func New(
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
 		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+		RefreshManifest:       refreshManifest,
+		Reassemble:            repo.reassemble,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -192,6 +196,19 @@ func New(
 	}
 
 	return repo, nil
+}
+
+func (s *runtimeRepository) reassemble(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+	vars map[string]string,
+) ([]domainStep.Step, error) {
+	resolved, err := s.assembler.Assemble(ctx, ns, method, vars)
+	if err != nil {
+		return nil, fmt.Errorf("reassemble %s: %w", method, err)
+	}
+	return resolved.Steps, nil
 }
 
 // plannedAssembler hands every assembled run to wizard.Plan, which adds the

@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -30,6 +31,21 @@ type FakeHost interface {
 	) (hosts.Host, bool)
 	Calls() int64
 	MetadataCalls() int64
+	// Downloads counts the asset bodies the host has served; a HEAD probe is not one.
+	Downloads() int64
+	// Republish replaces a release's archives with different bytes and reports
+	// their new digests, the way a rolling tag is re-published.
+	Republish(
+		t *testing.T,
+		ns domain.Namespace,
+		tag string,
+	)
+	// Corrupt changes the bytes a release serves without changing the digests
+	// it reports, so no manifest can ever match what gets downloaded.
+	Corrupt(
+		ns domain.Namespace,
+		tag string,
+	)
 }
 
 var (
@@ -38,12 +54,15 @@ var (
 )
 
 type fakeHost struct {
-	repos  map[domain.Namespace]HostRepo
-	files  map[string][]byte
-	assets map[string][]domain.ReleaseAsset
-	server *httptest.Server
-	calls  atomic.Int64
-	meta   atomic.Int64
+	repos     map[domain.Namespace]HostRepo
+	mu        sync.RWMutex
+	files     map[string][]byte
+	assets    map[string][]domain.ReleaseAsset
+	revisions map[string]int
+	server    *httptest.Server
+	calls     atomic.Int64
+	meta      atomic.Int64
+	downloads atomic.Int64
 }
 
 func NewFakeHost(
@@ -55,6 +74,8 @@ func NewFakeHost(
 		repos:  map[domain.Namespace]HostRepo{},
 		files:  map[string][]byte{},
 		assets: map[string][]domain.ReleaseAsset{},
+
+		revisions: map[string]int{},
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.server.Close)
@@ -80,6 +101,34 @@ func (f *fakeHost) Calls() int64 {
 
 func (f *fakeHost) MetadataCalls() int64 {
 	return f.meta.Load()
+}
+
+func (f *fakeHost) Downloads() int64 {
+	return f.downloads.Load()
+}
+
+func (f *fakeHost) Republish(
+	t *testing.T,
+	ns domain.Namespace,
+	tag string,
+) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := releaseKey(ns, tag)
+	f.revisions[key]++
+	f.assets[key] = f.release(t, f.repos[ns.BareNamespace()], tag, f.revisions[key])
+}
+
+func (f *fakeHost) Corrupt(
+	ns domain.Namespace,
+	tag string,
+) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, asset := range f.assets[releaseKey(ns, tag)] {
+		f.files["/download/"+tag+"/"+asset.Name] = []byte("corrupted in transit")
+	}
 }
 
 func (f *fakeHost) RepoMetadata(
@@ -151,6 +200,8 @@ func (f *fakeHost) ReleaseAssets(
 	tag string,
 ) ([]domain.ReleaseAsset, error) {
 	f.calls.Add(1)
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return slices.Clone(f.assets[releaseKey(ns, tag)]), nil
 }
 
@@ -171,7 +222,7 @@ func (f *fakeHost) register(
 		}
 	}
 	for _, tag := range repo.Tags {
-		f.assets[releaseKey(ns, tag)] = f.release(t, repo, tag)
+		f.assets[releaseKey(ns, tag)] = f.release(t, repo, tag, 0)
 		f.files["/raw/"+string(ns)+"/"+tag+"/README.md"] = []byte(repo.Readme)
 	}
 }
@@ -180,11 +231,12 @@ func (f *fakeHost) release(
 	t *testing.T,
 	repo HostRepo,
 	tag string,
+	revision int,
 ) []domain.ReleaseAsset {
 	t.Helper()
 	assets := make([]domain.ReleaseAsset, 0, len(domain.AllOS()))
 	for _, platform := range domain.AllOS() {
-		archive := tarball(t, repo.Binary, repo.script(tag))
+		archive := tarball(t, repo.Binary, repo.script(tag, revision))
 		sum := sha256.Sum256(archive)
 		name := repo.assetName(tag, platform)
 		f.files["/download/"+tag+"/"+name] = archive
@@ -201,10 +253,16 @@ func (f *fakeHost) serve(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if !strings.HasPrefix(r.URL.Path, "/download/") {
+	if strings.HasPrefix(r.URL.Path, "/download/") {
+		if r.Method == http.MethodGet {
+			f.downloads.Add(1)
+		}
+	} else {
 		f.calls.Add(1)
 	}
+	f.mu.RLock()
 	body, ok := f.files[r.URL.Path]
+	f.mu.RUnlock()
 	if !ok {
 		http.NotFound(w, r)
 		return

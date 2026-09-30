@@ -133,6 +133,8 @@ The app layer subscribes to these via `drainExecution` in `internal/app/reposito
 
 The Wizard does not call asynx, never knows about step indexing offsets, and never edits aggregate state — the hook layer owns that translation.
 
+A `fetch` step whose download does not match its declared `sha256` fails with `download.ErrChecksumMismatch`, re-exported as `wizard.ErrChecksumMismatch`; the `step.failed` event's `Err` keeps that chain, so the runtime repository detects it with `errors.Is` and retries the run once against a refreshed manifest (see [usecases.md](./usecases.md#drain-goroutine--wizard--asynx-bridge)). The wizard itself neither retries nor refreshes anything.
+
 ---
 
 ## Step Types

@@ -83,3 +83,10 @@ func PreinstalledProbe(
 ) repoarrow.PreinstalledProbeFn {
 	return preinstalledProbe(w)
 }
+
+// ManifestRefresher exposes manifestRefresher for unit tests.
+func ManifestRefresher(
+	cat repoarrow.Arrow,
+) runtime.RefreshManifestFn {
+	return manifestRefresher(cat)
+}

@@ -891,3 +891,29 @@ func TestDrafter_Draft_VersionedReleaseStillRequiresADigest(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, models.ReasonNoDigest, notFletchableReason(t, err))
 }
+
+func TestDrafter_Draft_LabelledAssetsResolveTheOSFromTheLabelAndTheFormatFromTheFileName(t *testing.T) {
+	release := func(name, label string) domain.ReleaseAsset {
+		return domain.ReleaseAsset{Name: name, Label: label, URL: "https://example.com/" + name, Digest: digestA}
+	}
+	host := &stubHost{assets: []domain.ReleaseAsset{
+		release("GitHub.Desktop-3.6.6-checksums.txt", "GitHub Desktop 3.6.6 checksums"),
+		release("GitHub.Desktop-arm64.zip", "GitHub Desktop 3.6.6 macOS arm64"),
+		release("GitHub.Desktop-x64.zip", "GitHub Desktop 3.6.6 macOS x64"),
+		release("GitHubDesktopSetup-x64.msi", "GitHub Desktop 3.6.6 Windows x64 MSI Installer"),
+	}}
+	f := newDrafter(t, host, picker.New())
+
+	manifest, err := f.Draft(context.Background(), domain.Namespace("github.com/desktop/desktop@release-3.6.6"), "release-3.6.6")
+	require.NoError(t, err)
+
+	arrow := parse(t, manifest)
+	for os, file := range map[domain.OS]string{domain.OSDarwinARM64: "GitHub.Desktop-arm64.zip", domain.OSDarwinAMD64: "GitHub.Desktop-x64.zip"} {
+		target, ok := arrow.Targets[os]
+		require.True(t, ok, os)
+		assert.Equal(t, "Download "+file, target.Lifecycle.Install[0].Title(), os)
+		want := []domain.ExposeEntry{{Name: "desktop", Path: domain.ExposeAuto}}
+		assert.Equal(t, want, target.Expose.CLI, os)
+		assert.Equal(t, want, target.Expose.Desktop, os)
+	}
+}

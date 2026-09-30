@@ -3,6 +3,7 @@
 package kit
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -38,6 +39,7 @@ func expandAsset(
 
 func (r HostRepo) script(
 	tag string,
+	revision int,
 ) []byte {
-	return []byte("#!/bin/sh\necho " + r.Binary + " " + tag + "\n")
+	return []byte("#!/bin/sh\necho " + r.Binary + " " + tag + "\n# revision " + strconv.Itoa(revision) + "\n")
 }

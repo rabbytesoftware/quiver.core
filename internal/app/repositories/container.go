@@ -117,20 +117,7 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	rt, err := runtime.New(
-		arrowGetter(axArrow),
-		cat.Get,
-		axRuntime,
-		w,
-		v,
-		cat.MarkInstalled,
-		cat.MarkUninstalled,
-		cat.MarkLastUsed,
-		dependentsChecker(g),
-		catalogLister(cat),
-		os,
-		listRuntimeAggregates,
-	)
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -185,6 +172,48 @@ func New(
 	}
 
 	return c, nil
+}
+
+func newRuntime(
+	cat repoarrow.Arrow,
+	axArrow asynx.Asynx[domain.Arrow],
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	w wizardPkg.Wizard,
+	v vault.Vault,
+	g graph.Graph,
+	os domain.OS,
+	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
+) (runtime.Runtime, error) {
+	return runtime.New(
+		arrowGetter(axArrow),
+		cat.Get,
+		axRuntime,
+		w,
+		v,
+		cat.MarkInstalled,
+		cat.MarkUninstalled,
+		cat.MarkLastUsed,
+		dependentsChecker(g),
+		catalogLister(cat),
+		os,
+		listRuntimeAggregates,
+		manifestRefresher(cat),
+	)
+}
+
+func manifestRefresher(
+	cat repoarrow.Arrow,
+) runtime.RefreshManifestFn {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		arrow, err := cat.RefreshManifest(ctx, ns)
+		if err != nil {
+			return fmt.Errorf("refresh manifest %s: %w", ns, err)
+		}
+		if err := cat.UpdateManifest(ctx, ns, arrow); err != nil {
+			return fmt.Errorf("apply refreshed manifest %s: %w", ns, err)
+		}
+		return nil
+	}
 }
 
 // arrowOptions assembles what the arrow repository needs from the runtime

@@ -371,7 +371,7 @@ RuntimeUsecase.Install → dependency graph resolves topological order → for e
 
 ### Runtime reaction flow
 
-The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled.
+The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the arrow's cached manifest is dropped and resolved again at its own ref (`arrow.RefreshManifest` + `UpdateManifest`), the steps are re-assembled, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
 
 ### WebSocket broadcast
 

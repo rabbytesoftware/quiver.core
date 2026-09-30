@@ -56,6 +56,10 @@ var (
 	ErrUnknownStepType = models.ErrUnknownStepType
 	ErrShuttingDown    = models.ErrShuttingDown
 	ErrVacuousProbe    = models.ErrVacuousProbe
+
+	// ErrChecksumMismatch is what a failed fetch step's event carries when the
+	// downloaded content did not match the checksum its manifest declares.
+	ErrChecksumMismatch = stepdownload.ErrChecksumMismatch
 )
 
 type Wizard interface {
