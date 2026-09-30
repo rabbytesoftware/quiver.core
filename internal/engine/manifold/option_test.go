@@ -211,7 +211,9 @@ func TestResolveArrow_FletcherEnabled_ForgedBytesThatDoNotParse(t *testing.T) {
 
 type refFletcher struct {
 	draftable string
-	asked     []domain.Namespace
+	// draftedFrom, when set, is the release the draft really came from.
+	draftedFrom string
+	asked       []domain.Namespace
 }
 
 func (f *refFletcher) Recover(
@@ -223,7 +225,29 @@ func (f *refFletcher) Recover(
 	if ns.Ref() != f.draftable {
 		return nil, "", "", cause
 	}
+	if f.draftedFrom != "" {
+		return []byte(inferredArrow), "ARROW.md", f.draftedFrom, nil
+	}
 	return []byte(inferredArrow), "ARROW.md", ns.Ref(), nil
+}
+
+// A branch of a repository with no manifest has no release of its own: a
+// draft of the latest release is not what the branch holds, so a row
+// following the branch cannot be built from it.
+func TestResolveArrowAtCommit_DraftOfAnotherReleaseIsNoManifestAtTheRef(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	identity := domain.Namespace("github.com/acme/tool@main")
+	fl := &refFletcher{draftable: "main", draftedFrom: "v1.2.0"}
+	m, ok := NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil).(*manifold)
+	require.True(t, ok)
+	m.fl = fl
+
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), identity, "main", commit)
+
+	require.ErrorIs(t, err, resolver.ErrManifestNotFound)
+	var nf fletcher.NotFletchableError
+	require.ErrorAs(t, err, &nf)
+	assert.Equal(t, fletcher.ReasonNotARelease, nf.Reason)
 }
 
 // A release is published under its tag, never under the commit the tag

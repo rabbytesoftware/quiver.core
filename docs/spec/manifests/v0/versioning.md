@@ -369,6 +369,19 @@ update committed in between). A refused or conflicting write is re-read and re-j
 three attempts, so an answer about a version the row has already left is never recorded.
 The runtime badge is then reconciled from the row (§3).
 
+A check reads refs only: whether a target's manifest can be fetched is learned when someone acts
+on it (an update stages it, an install of an absent row or a catalog advance reads it). A fetch
+that definitively finds no manifest at the target records so in the vault — a not-found marker at
+the target's ref, for its commit — and a check does not offer a target so marked; the update
+bracket judges the row again when it cannot stage its target, so a target no update can install
+stops being offered right after the first attempt. A tag that moves names another commit and is
+judged afresh.
+
+A branch of a repository that ships no manifest has no release of its own, so a selector naming
+it (a branch pin) is not found at add: the draft Fletcher would build for it comes from a release
+tag, which is not what the branch holds (see [manifold.md §4.1](../../manifold.md)). The release
+itself stays addressable by its tag, by a channel, or by a pointer tag.
+
 ---
 
 ## 6. Refless resolution

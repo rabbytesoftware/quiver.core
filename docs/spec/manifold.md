@@ -213,6 +213,16 @@ If no draft was produced and any of those lookups failed with anything other tha
 is returned rather than `no_release_assets`, even when the other lookup did yield a tag that was
 tried: a failed lookup means a release may exist that was never seen.
 
+**A branch has no release of its own.** Drafting from releases when asked for a branch is what
+lets discovery build an arrow at the default branch a search named and file it under the tag it
+drafted from. A catalog row, though, is what it follows: a draft built from another release is
+not what the branch holds. `ResolveArrowAtCommit`, and the arrow store's resolver for a preview
+at an explicit ref, therefore treat a draft whose ref differs from the one asked
+(`manifold.DraftedElsewhere`) as no manifest: `resolver.ErrManifestNotFound` wrapping
+`NotFletchableError{Reason: not_a_release}` (`manifold.NotARelease`), which the API answers with
+404. So `repo@main` on a repository without an `ARROW.md` is not found, while `repo@v1.2.0`,
+`repo@stable` and a pointer channel such as `repo@tip` install the release they name.
+
 **Host sources.** Fletcher reaches the host only through `hosts.Host`, the same contract the
 declared-manifest lookup uses: `ReleaseAssets`, `RawFileURL`, `BlobFileURL`, `RepoPageURL`,
 `OwnerAvatarURL` and `RepoMetadata`. Everything else it fetches itself through `core/fns` (see **Fetch bounds**). On

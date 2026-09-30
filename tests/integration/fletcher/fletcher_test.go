@@ -282,6 +282,25 @@ func (s *FletcherSuite) TestFletcher_ReusedBuildOfAMovedTagIsBuiltAgain() {
 	s.Greater(host.Calls(), callsBeforeMove, "the moved tag's release is read from the host again")
 }
 
+// A branch of a repository with no manifest publishes no release, so there
+// is nothing to install that follows it: the add answers not found and
+// catalogues nothing, while its release tags stay installable.
+func (s *FletcherSuite) TestFletcher_BranchOfAManifestlessRepoIsNotFound() {
+	s.releasedFixture(releasingFixture, "v1.0.0")
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
+	tc := env.TypedClient(s.T())
+
+	s.Equal(http.StatusNotFound, tc.Add(kit.NSFor(releasingFixture, "master")))
+	_, detailStatus := tc.GetDetail(kit.NSFor(releasingFixture, "master"))
+	s.Equal(http.StatusNotFound, detailStatus)
+	arrows, status := tc.List()
+	s.Require().Equal(http.StatusOK, status)
+	s.Empty(arrows)
+
+	s.Equal(http.StatusCreated, tc.Add(kit.NSFor(releasingFixture, "v1.0.0")))
+}
+
 func (s *FletcherSuite) targetsOf(
 	body []byte,
 ) any {

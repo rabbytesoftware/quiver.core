@@ -74,7 +74,7 @@ func resolveStale(
 		return nil, fmt.Errorf("resolver: stale and no manifold configured")
 	}
 
-	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
+	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		return parseManifest(m, staleContent, "stale")
 	}
@@ -95,7 +95,7 @@ func fetchAndCache(
 		return nil, fmt.Errorf("resolver: not cached and no manifold configured")
 	}
 
-	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
+	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		cacheConfirmedAbsent(ctx, ns, v, err)
 		return nil, wrapManifoldErr("fetch from manifold", err)
@@ -165,11 +165,29 @@ func fetchFromManifold(
 	ns domain.Namespace,
 	m manifold.Manifold,
 ) (*domain.Arrow, error) {
-	fresh, _, _, err := m.ResolveArrow(ctx, ns)
+	fresh, _, _, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 	return fresh, nil
+}
+
+// resolveAt resolves ns's manifest at its own ref. A draft Fletcher built from
+// another release — what it does for a branch of a repository with no
+// manifest — is not what that ref holds, so it answers as no manifest.
+func resolveAt(
+	ctx context.Context,
+	m manifold.Manifold,
+	ns domain.Namespace,
+) (*domain.Arrow, []byte, string, error) {
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if manifold.DraftedElsewhere(arrow, ns.Ref()) {
+		return nil, nil, "", fmt.Errorf("%s: %w", ns, manifold.NotARelease(arrow))
+	}
+	return arrow, raw, filename, nil
 }
 
 func parseManifest(

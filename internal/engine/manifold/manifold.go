@@ -431,9 +431,35 @@ func (m *manifold) ResolveArrowAtCommit(
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at %s (commit %s): %w", ns, ref, commit, err)
 	}
+	if DraftedElsewhere(arrow, ref) {
+		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at %s (commit %s): %w", ns, ref, commit, NotARelease(arrow))
+	}
 
 	arrow.Namespace = ns
 	return arrow, raw, filename, nil
+}
+
+// NotARelease is the error for a draft DraftedElsewhere reports: to every
+// caller, the ref holds no manifest.
+func NotARelease(
+	arrow *domain.Arrow,
+) error {
+	return fmt.Errorf("drafted from %s: %w: %w",
+		arrow.Namespace.Ref(), resolver.ErrManifestNotFound, fletcher.NotFletchableError{Reason: fletcher.ReasonNotARelease})
+}
+
+// DraftedElsewhere reports whether arrow is a draft Fletcher built from a
+// release other than the one at ref — what it does for a branch of a
+// repository with no manifest, which publishes no release of its own. Such
+// a draft is not what ref holds, so no row following ref is built from it.
+func DraftedElsewhere(
+	arrow *domain.Arrow,
+	ref string,
+) bool {
+	if arrow.Namespace == "" || ref == "" || arrow.Origin() != domain.ArrowOriginInferred {
+		return false
+	}
+	return arrow.Namespace.Ref() != ref && !strings.EqualFold(arrow.Namespace.Ref(), ref)
 }
 
 func (m *manifold) ResolveCollection(
