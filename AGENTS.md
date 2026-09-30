@@ -377,7 +377,7 @@ These describe the general call chain for major operations. Read the actual code
 
 ### Add arrow (POST /v0/arrow/:ns)
 
-Handler validates namespace → ArrowUsecase.Add → arrow repository adds: reads a ref snapshot, classifies the selector (refless → default channel), fetches the manifest at the target commit via manifold, caches it to vault under the identity, sends `AddArrow` (selector kind + `Resolved`) → the single arrow-topic subscriber runs the callbacks (dependency graph sync), writes the read model, then broadcasts to WS clients.
+Handler validates namespace → ArrowUsecase.Add → arrow repository adds: reads a ref snapshot, classifies the selector (refless → default channel), fetches the manifest at the target commit via manifold — or reuses the vault copy recorded for that exact ref and commit, such as discovery's Fletcher build filed at its release tag, so a discovered arrow is never drafted again — caches it to vault under the identity, sends `AddArrow` (selector kind + `Resolved`) → the single arrow-topic subscriber runs the callbacks (dependency graph sync), writes the read model, then broadcasts to WS clients.
 
 ### Adopt installed arrow (POST /v0/arrow/:ns/adopt)
 
@@ -385,7 +385,7 @@ Handler validates namespace + `{"resolved_ref"}` → ArrowUsecase.AdoptInstalled
 
 ### Install arrow (POST /v0/runtime/:ns/install)
 
-RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → an absent target row with a release ahead is re-checked and advanced to the freshest target first → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
 
 ### Update arrow (advance)
 
@@ -393,7 +393,7 @@ RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topologi
 
 ### Runtime reaction flow
 
-The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the manifest of the release the run builds (the row's `Resolved` for an install, the `Available` target the bracket staged for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
+The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the manifest of the release the run builds (the row's `Resolved` for an install, the target the update began toward, `Lifecycle.UpdateTarget`, remembered for every row including quiver.core's own, for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
 
 ### WebSocket broadcast
 
