@@ -80,6 +80,16 @@ const staleAge = 24 * time.Hour
 // of a download that never finished, and old targets moved aside. One still
 // in use cannot be removed yet and is left for a later fetch.
 func sweepStale(dst string) {
+	sweepStaleWith(dst, os.Remove)
+}
+
+// sweepStaleWith clears a leftover's read-only bit before removing it: an
+// aside file keeps the mode of the destination it was, and Windows refuses
+// to remove a read-only file.
+func sweepStaleWith(
+	dst string,
+	remove func(path string) error,
+) {
 	dir, base := filepath.Split(dst)
 	entries, err := os.ReadDir(filepath.Clean(dir))
 	if err != nil {
@@ -92,7 +102,9 @@ func sweepStale(dst string) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(dir, name))
+			path := filepath.Join(dir, name)
+			_ = os.Chmod(path, info.Mode().Perm()|0o200)
+			_ = remove(path)
 		}
 	}
 }

@@ -129,3 +129,28 @@ func TestStagingPath_DirectoryDestinationIsRefused(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrDestinationIsDirectory)
 }
+
+// Windows refuses to remove a read-only file, and an aside file keeps the
+// mode of the destination it was: the sweep clears read-only first.
+func TestSweepStale_ReadOnlyLeftoverIsRemoved(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "tool.exe")
+	aside := filepath.Join(dir, "tool.exe"+asideMarker+"old")
+	require.NoError(t, os.WriteFile(aside, nil, 0o400))
+	old := time.Now().Add(-2 * staleAge)
+	require.NoError(t, os.Chtimes(aside, old, old))
+	refuseReadOnly := func(path string) error {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o200 == 0 {
+			return errors.New("access denied")
+		}
+		return os.Remove(path)
+	}
+
+	sweepStaleWith(dst, refuseReadOnly)
+
+	assert.NoFileExists(t, aside)
+}
