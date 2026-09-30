@@ -73,7 +73,7 @@ func (s *CrashSuite) TestCrash_MidUninstall_Recovery() {
 // something is ahead of the row, so the fixture's tag is force-moved first.
 // Expected recovery: absent (partial update = unsafe; needs reinstall), and the
 // update target the crashed daemon held in memory must not wedge the row: once
-// reinstalled, it updates to the moved commit.
+// reinstalled, it installs the moved commit.
 func (s *CrashSuite) TestCrash_MidUpdate_Recovery() {
 	key := "quiver-test/tool-with-update-crash"
 	storer := kit.BuildUpgradeRepo(s.T(), kit.ReadFixture(s.T(), "tool-with-update/arrow.yaml"))
@@ -102,11 +102,10 @@ func (s *CrashSuite) TestCrash_MidUpdate_Recovery() {
 	// and no WS event would arrive, causing a timeout here.
 	env2.WaitForState(s.T(), ns, domain.ArrowStateAbsent, 120*time.Second)
 
+	// The crashed update stamped nothing, so the row still names the moved
+	// commit as ahead of it; with nothing installed, the install lands it.
 	s.Equal(http.StatusAccepted, tc2.Install(ns, nil))
-	// The crashed update stamped nothing, so the reinstalled row is still behind.
-	env2.WaitForState(s.T(), ns, domain.ArrowStateOutdated, 120*time.Second)
-	s.Equal(http.StatusAccepted, tc2.Execute(ns, "_update", nil))
-	kit.WaitForDetail(s.T(), tc2, ns, "the reinstalled row updated to the moved commit", 120*time.Second,
+	kit.WaitForDetail(s.T(), tc2, ns, "the reinstalled row installed the moved commit", 120*time.Second,
 		func(d dto.ArrowDetailDTO, status int) bool {
 			return status == http.StatusOK &&
 				d.InstalledCommit == moved &&
