@@ -67,6 +67,22 @@ core and no suffix belongs to `stable`; a suffix names the channel (`v2.0.0-beta
 itself (`nightly`, `nightly-latest`). A repository with no tags at all lists its default
 branch as a single pointer channel.
 
+A prefix before the core names the channel too (`beta-26.5-4` is `beta`) when it is a known
+channel word — `alpha`, `beta`, `canary`, `dev`, `edge`, `hotfix`, `insiders`, `next`,
+`nightly`, `preview`, `rc`, `stable` — or, for any other prefix, when the repository's
+unknown prefixes differ from tag to tag (a prefix every tag shares, such as `v` or a
+project name, is noise). A `YYYY-MM-DD` date stands in for a version core
+(`beta-2026-09-27`, `stable-2026-09-27-1`), so a dated release groups under its channel
+instead of becoming a pointer channel of its own.
+
+Within a channel, members are ranked by core, then by the numeric ordinal of a suffix
+(`beta-26.5-4` above `beta-26.5-3`), then by tag name, so two equal-rank spellings (`v1.2`
+and `v1.2.0`) always settle the same way. A date core ranks as `YY.MM.DD` — its year within
+the century — so it orders among calendar-versioned `YY.M` tags by release month:
+`stable-26.5.1` < `stable-2026-09-27` < `stable-26.10`. Cores are compared numerically,
+component by component, so a repository that mixes a date with a semantic version such as
+`1.4.0` ranks the date higher; a release pipeline should keep one scheme per channel.
+
 ### 2.2 Parse rule
 
 `manifold.ClassifySelector(selector, snapshot)` decides the kind against the repository's
@@ -285,6 +301,16 @@ pure functions (`internal/engine/manifold/drift.go`):
   unrefined `channel` row does the same only for the `HEAD` branch it itself resolved to,
   so an ordered channel or a deleted pointer tag never turns into a same-name branch.
 - A selector never crosses its own bounds: `v1.*` never drifts to `v2.0.0`.
+- An ordered selector (a channel of classified members, or a constraint) never offers a
+  downgrade: a target its own ranking (§2.1) puts below the installed `Resolved.Ref` is
+  not an update, even when the installed tag is no longer a member (deleted, or not
+  published yet, as when a build adopts its own release before the tag is visible). A tag
+  that moved under the same name, a pointer channel and a pin follow their ref whichever
+  way it moved.
+- A row whose ordered channel is no longer listed under its name — a later tag made the
+  classifier regroup the repository's tags, as `beta-2.0` could once turn `release-1.x` from
+  `stable` into a `release` channel — follows the ordered channel that holds its installed
+  tag today, instead of failing every check. Only if no channel holds it is there no answer.
 - Any resolution error produces no answer, and nothing is written.
 
 ### 5.3 Stable semver and constraint ranking
@@ -295,7 +321,8 @@ an optional leading `v` — `1.2`, `v1.2.3`. Anything carrying a prerelease comp
 
 A constraint's matches are ranked by `resolvers.HighestMatch`: stable-semver matches sort
 numerically descending and always rank ahead of the rest, which sort lexicographically
-descending. Partitioning rather than degrading the whole set to string order is what keeps
+descending. Equal-rank matches (`v1.2`, `v1.2.0`, `1.2.0`) are ordered by tag name,
+descending, so the answer never depends on what else the repository holds. Partitioning rather than degrading the whole set to string order is what keeps
 `v1.10.0` above `v1.9.0` when an unrelated `nightly` tag also matches. Branches are never
 searched, and a constraint no tag matches is rejected.
 

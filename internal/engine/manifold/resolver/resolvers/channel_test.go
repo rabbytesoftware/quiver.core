@@ -294,3 +294,65 @@ func equalGroups(a, b []TagChannel) bool {
 	}
 	return true
 }
+
+func TestGroupChannels_ChannelNamedPrefixesAndDates(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "a uniform known prefix still names its channel",
+			tags: []string{"beta-1.0", "beta-1.1"},
+			want: []TagChannel{{Name: "beta", Members: []string{"beta-1.1", "beta-1.0"}}},
+		},
+		{
+			name: "a known prefix does not make an unknown uniform prefix count",
+			tags: []string{"release-1.0", "release-1.1", "beta-2.0"},
+			want: []TagChannel{
+				{Name: "beta", Members: []string{"beta-2.0"}},
+				{Name: StableChannel, Members: []string{"release-1.1", "release-1.0"}},
+			},
+		},
+		{
+			name: "a date core ranks by year within the century, then month and day",
+			tags: []string{"beta-26.5-4", "beta-2026-09-27", "beta-26.10", "beta-2026-09-27-1"},
+			want: []TagChannel{{Name: "beta", Members: []string{"beta-26.10", "beta-2026-09-27-1", "beta-2026-09-27", "beta-26.5-4"}}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := GroupChannels(tc.tags)
+			if !equalGroups(got, tc.want) {
+				t.Errorf("GroupChannels(%v) = %v, want %v", tc.tags, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOutranks(t *testing.T) {
+	testCases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "higher core", a: "v1.3.0", b: "v1.2.0", want: true},
+		{name: "lower core", a: "v1.2.0", b: "v1.3.0", want: false},
+		{name: "date after calendar month", a: "stable-2026-09-27", b: "stable-26.5.1", want: true},
+		{name: "calendar month after date", a: "stable-26.10", b: "stable-2026-09-27", want: true},
+		{name: "higher ordinal on one core", a: "beta-26.5-4", b: "beta-26.5-3", want: true},
+		{name: "equal rank", a: "v1.2", b: "v1.2.0", want: false},
+		{name: "no core on a", a: "nightly", b: "v1.0.0", want: false},
+		{name: "no core on b", a: "v1.0.0", b: "nightly", want: false},
+		{name: "a pre-2000 year is kept whole", a: "1999-01-01", b: "v26.0", want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Outranks(tc.a, tc.b); got != tc.want {
+				t.Errorf("Outranks(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}

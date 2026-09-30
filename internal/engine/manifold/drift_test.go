@@ -150,7 +150,7 @@ func TestDrift(t *testing.T) {
 		},
 		{
 			name: "channel absent from snapshot", kind: domain.SelectorChannel, selector: "beta",
-			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v2.0.0-beta.1", Commit: "cb1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
 		},
 		{
 			name: "constraint matching nothing", kind: domain.SelectorConstraint, selector: "v9.*",
