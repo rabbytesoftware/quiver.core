@@ -181,7 +181,7 @@ The stale-but-still-returned shape is deliberate: callers (resolver, collection 
 
 ### 6.2 Cache-first resolution sequence
 
-The arrow store resolver lives at `internal/app/repositories/arrow/internal/store/resolver.go`. It is the canonical Vault + Manifold composition site for arrows.
+The arrow store resolver lives at `internal/app/repositories/arrow/internal/store/resolver.go`. It is the canonical Vault + Manifold composition site for arrows. It serves namespaces the catalog has no row for (previews); a catalogued identity is answered from its row, so an expired entry is never refetched at a moving selector's current head.
 
 ```mermaid
 sequenceDiagram

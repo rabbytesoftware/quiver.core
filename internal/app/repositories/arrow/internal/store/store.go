@@ -375,32 +375,60 @@ func (r *storeService) GetManifest(
 	return nil, apperrors.ErrNotFound
 }
 
-// ResolveManifest resolves a namespace's manifest, live if the vault has
-// never cached it or the cache has gone stale. A ref-less namespace resolves
-// to whatever this arrow is already catalogued at, so repeated calls agree
-// with the version Add committed to. An arrow not yet catalogued resolves the
-// way Add would install it. The
-// returned arrow's Namespace is stamped with whichever ref was actually
-// resolved: a manifest declares no version of its own, so manifold parsing
-// never sets it.
+// ResolveManifest answers a catalogued identity from its row: the manifest
+// the row installed, never one fetched at wherever its selector points now.
+// A ref-less namespace answers from the row it is catalogued at. Only a
+// namespace with no row is resolved live, through the vault cache, the way
+// Add would install it. A manifest declares no version of its own, so the
+// returned arrow's Namespace is stamped with the identity it resolved.
 func (r *storeService) ResolveManifest(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	if ns.Ref() != "" {
-		arrow, err := r.resolveAtRef(ctx, ns)
+	vm, err := r.db.FindByKey(ctx, ns.BareNamespace().String())
+	if err != nil {
+		return nil, fmt.Errorf("reader resolve manifest: catalog lookup: %w", err)
+	}
+	if row, ok := cataloguedRow(vm, ns); ok {
+		return row, nil
+	}
+
+	if ns.Ref() == "" {
+		identity, arrow, err := r.ResolveInstall(ctx, ns)
 		if err != nil {
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
-		arrow.Namespace = ns
+		arrow.Namespace = identity
 		return arrow, nil
 	}
 
-	arrow, err := r.resolveCatalogedOrLatest(ctx, ns)
+	arrow, err := r.resolveAtRef(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("reader resolve manifest: %w", err)
 	}
+	arrow.Namespace = ns
 	return arrow, nil
+}
+
+// cataloguedRow is the row ns names: its preferred row when ns has no ref.
+func cataloguedRow(
+	vm *storage.ViewModel,
+	ns domain.Namespace,
+) (*domain.Arrow, bool) {
+	if vm == nil || len(vm.Versions) == 0 {
+		return nil, false
+	}
+	if ns.Ref() == "" {
+		row := vm.Metadata
+		return &row, true
+	}
+	vr, ok := findVersionRef(vm.Versions, ns)
+	if !ok {
+		return nil, false
+	}
+	row := vr.Metadata
+	row.Namespace = ns
+	return &row, true
 }
 
 // resolveAtRef falls back to reading a selector identity (pkg@v1.*,
@@ -456,31 +484,6 @@ func (r *storeService) ResolveCatalogued(
 	}
 
 	return "", fmt.Errorf("reader resolve catalogued %s: %w", ns, apperrors.ErrNotFound)
-}
-
-func (r *storeService) resolveCatalogedOrLatest(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, error) {
-	vm, err := r.db.FindByKey(ctx, ns.BareNamespace().String())
-	if err != nil {
-		return nil, fmt.Errorf("catalog lookup: %w", err)
-	}
-	if vm == nil {
-		identity, arrow, err := r.ResolveInstall(ctx, ns)
-		if err != nil {
-			return nil, err
-		}
-		arrow.Namespace = identity
-		return arrow, nil
-	}
-
-	arrow, err := r.resolveManifest(ctx, vm.Metadata.Namespace)
-	if err != nil {
-		return nil, err
-	}
-	arrow.Namespace = vm.Metadata.Namespace
-	return arrow, nil
 }
 
 // Search translates the storage result into the app-layer contract: the
