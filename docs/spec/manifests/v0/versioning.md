@@ -499,7 +499,13 @@ anything (see [manifold.md §2](../../manifold.md#2-public-api)). An add or an a
 a host has no re-check: the row records the snapshot's commit, so a moving tag that advanced in
 between is offered as an update by the next check.
 
-Two entry points reach it.
+Three entry points reach it: the two below, and an install of a row nothing is installed from
+whose `Available` is set (an installed row that recorded a release ahead and was then
+uninstalled). Under the row's bracket, before its dependencies are resolved, the install
+advances the row in place to `Available`, so `${REF}` and, after the install, `Resolved` name
+that release: an install acts on the freshest target of its selector. A target whose manifest
+cannot be read (not found, unreachable) never blocks the install; the row installs what it
+records and the failure is logged.
 
 ### 8.1 `PATCH /v0/arrow/{ns}` — check, and advance only what is not installed
 

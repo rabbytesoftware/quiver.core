@@ -35,6 +35,41 @@ func needsInstall(
 		state == domain.ArrowStateRemoved
 }
 
+// advanceToAvailable moves a row nothing is installed from onto the release a
+// check found ahead of it, so an install acts on the freshest target of its
+// selector and ${REF} names that release. A target whose manifest cannot be
+// read never blocks the install of what the row records.
+func (d *deps) advanceToAvailable(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	state, err := d.runtime.GetState(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("get state: %w", err)
+	}
+	if state != "" && state != domain.ArrowStateAbsent && state != domain.ArrowStateRemoved {
+		return nil
+	}
+	row, err := d.arrow.Get(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("get row: %w", err)
+	}
+	if row == nil || row.Available == nil {
+		return nil
+	}
+
+	err = d.arrow.Advance(ctx, ns, *row.Available)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) && !errors.Is(err, apperrors.ErrFetchFailed) {
+		return fmt.Errorf("advance to %s: %w", row.Available.Ref, err)
+	}
+	slog.WarnContext(ctx, "install: the release ahead cannot be read, installing the recorded one",
+		"ns", ns, "ahead", row.Available.Ref, "err", err)
+	return nil
+}
+
 // beginInstall begins ns's install unless its runtime already has one, and
 // reports whether it tried. Only a row that still needs an install takes its
 // bracket, so an update installing its dependencies never waits on the

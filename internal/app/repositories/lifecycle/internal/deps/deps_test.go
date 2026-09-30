@@ -1855,17 +1855,21 @@ func TestRuntimeInstall_UnknownNamespaceStillNotFound(t *testing.T) {
 
 // An install never swaps identity: a row that is behind installs what it
 // resolved to, and catches up through an update.
+// An install of a row nothing is installed from advances it to the release
+// ahead in place: the identity it begins on is the row's own.
 func TestRuntimeInstall_OutdatedRow_InstallsItsOwnIdentity(t *testing.T) {
 	ns := domain.Namespace("github.com/char2cs/crowbar@nightly")
 	var begunOn domain.Namespace
+	var advancedTo []domain.Available
 
 	a := &mocks.MockArrow{
 		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
 		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
 			return &domain.Arrow{Namespace: ns, Available: &domain.Available{Ref: "nightly", Commit: "c2"}}, nil
 		},
-		AdvanceFn: func(context.Context, domain.Namespace, domain.Available) error {
-			t.Error("install must not advance the row")
+		AdvanceFn: func(_ context.Context, advanced domain.Namespace, target domain.Available) error {
+			assert.Equal(t, ns, advanced)
+			advancedTo = append(advancedTo, target)
 			return nil
 		},
 	}
@@ -1888,6 +1892,7 @@ func TestRuntimeInstall_OutdatedRow_InstallsItsOwnIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, started)
 	assert.Equal(t, ns, begunOn)
+	assert.Equal(t, []domain.Available{{Ref: "nightly", Commit: "c2"}}, advancedTo)
 }
 
 func TestRuntimeStop_ResolvesBareNamespace(t *testing.T) {

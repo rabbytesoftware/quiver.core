@@ -102,6 +102,9 @@ func (d *deps) Install(
 		return false, fmt.Errorf("install: %w", err)
 	}
 	defer closeBracket()
+	if err := d.advanceToAvailable(ctx, ns); err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
 	if err := d.installDeps(ctx, ns); err != nil {
 		return false, err
 	}

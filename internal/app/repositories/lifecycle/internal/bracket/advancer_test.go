@@ -407,7 +407,9 @@ func TestRuntimeInstall_StateReadFailsUnderTheBracket(t *testing.T) {
 	reads := 0
 	f.patch.runtime.GetStateFn = func(context.Context, domain.Namespace) (domain.ArrowState, error) {
 		reads++
-		if reads > 1 {
+		// The first read under the bracket decides whether the row advances
+		// to a release ahead; the second is the one that begins the install.
+		if reads > 2 {
 			return "", assert.AnError
 		}
 		return domain.ArrowStateAbsent, nil

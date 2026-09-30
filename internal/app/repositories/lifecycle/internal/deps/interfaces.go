@@ -25,6 +25,11 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.Namespace, error)
+	Advance(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) error
 }
 
 type Runtime interface {

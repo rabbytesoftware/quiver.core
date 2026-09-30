@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -142,4 +143,72 @@ func TestRuntimeOnEnded_Update_HandsOverToTheSettling(t *testing.T) {
 	uc.onRuntimeEnded(context.Background(), ended)
 
 	assert.Equal(t, []domainRuntime.ArrowRuntime{ended}, uc.updatesEnded)
+}
+
+// An install acts on the freshest target of the row's selector: a row nothing
+// is installed from, with a release a check found ahead of it, is advanced to
+// that release first, so ${REF} and Resolved name it. A target that cannot be
+// read never blocks the install of what the row records.
+func TestRuntimeInstall_AbsentRowWithAvailable_InstallsTheTarget(t *testing.T) {
+	ahead := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+	boom := errors.New("boom")
+	testCases := []struct {
+		name        string
+		state       domain.ArrowState
+		available   *domain.Available
+		advanceErr  error
+		getErr      error
+		wantAdvance bool
+		wantBegin   bool
+		wantErr     error
+	}{
+		{name: "absent with a release ahead", state: domain.ArrowStateAbsent, available: ahead, wantAdvance: true, wantBegin: true},
+		{name: "never installed with a release ahead", available: ahead, wantAdvance: true, wantBegin: true},
+		{name: "nothing ahead", state: domain.ArrowStateAbsent, wantBegin: true},
+		{name: "target has no manifest", state: domain.ArrowStateAbsent, available: ahead, advanceErr: apperrors.ErrNotFound, wantAdvance: true, wantBegin: true},
+		{name: "target unreachable", state: domain.ArrowStateAbsent, available: ahead, advanceErr: apperrors.ErrFetchFailed, wantAdvance: true, wantBegin: true},
+		{name: "advance refused", state: domain.ArrowStateAbsent, available: ahead, advanceErr: boom, wantAdvance: true, wantErr: boom},
+		{name: "row unreadable", state: domain.ArrowStateAbsent, getErr: boom, wantErr: boom},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			a := &mocks.MockArrow{
+				ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+				GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+					return &domain.Arrow{Namespace: ns, Available: tc.available}, tc.getErr
+				},
+				AdvanceFn: func(_ context.Context, _ domain.Namespace, target domain.Available) error {
+					calls = append(calls, "advance to "+target.Ref)
+					return tc.advanceErr
+				},
+			}
+			rt := &mocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return tc.state, nil },
+				BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+					calls = append(calls, "begin install")
+					return nil
+				},
+			}
+			g := &mocks.MockGraph{ResolveFn: func(context.Context, domain.Namespace) (models.Plan, error) {
+				calls = append(calls, "resolve deps")
+				return nil, nil
+			}}
+
+			began, err := newUC(a, rt, g).Install(context.Background(), rollingRow, nil)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.NotContains(t, calls, "begin install")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantBegin, began)
+			want := []string{"resolve deps", "begin install"}
+			if tc.wantAdvance {
+				want = append([]string{"advance to v1.1.0"}, want...)
+			}
+			assert.Equal(t, want, calls)
+		})
+	}
 }
