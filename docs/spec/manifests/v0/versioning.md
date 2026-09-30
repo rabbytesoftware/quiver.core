@@ -394,6 +394,12 @@ Two entry points reach it.
 | Installed (runtime in any state but absent/removed) | The row stays where it is; the result carries `available` |
 | Not installed | The row is advanced at once — there are no update steps to run for bits nobody installed — and the result reports the dependency diff (`added_deps`, `removed_from_manifest`, `constrained_deps`) |
 
+The advance of a row that is not installed takes the row's bracket (the one §8.2 serializes
+updates with) and reads the runtime state again inside it; an install takes the same bracket
+from its state read to `BeginInstall`. An install that starts during the advance therefore
+assembles the advanced manifest, and an advance that reaches a row whose install is being
+begun finds it installed and moves nothing.
+
 The request takes no body. It never runs update steps.
 
 ### 8.2 `POST /v0/runtime/{ns}/update` — the update bracket
@@ -432,7 +438,8 @@ sequenceDiagram
     end
 ```
 
-1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`; a bracket whose
+1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`, and with the
+   installs and catalog advances of that row (§8.1); a bracket whose
    predecessor began but has not been closed yet is refused with a state violation (422).
 2. **Re-resolve.** The last check may be an hour old, so the target is resolved again
    against a fresh snapshot and recorded as `Available`. Nothing ahead: nothing to do, and

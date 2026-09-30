@@ -158,9 +158,31 @@ func (u *runtimeUsecase) Install(
 		return false, fmt.Errorf("install: %w", err)
 	}
 
+	began, err := u.beginInstall(ctx, ns, userVars)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+	return began, nil
+}
+
+// beginInstall begins ns's install unless its runtime already has one, and
+// reports whether it tried. It holds ns's bracket from the state read to
+// the begin, so a catalog advance of ns cannot land while the install is
+// assembled from the row it is leaving.
+func (u *runtimeUsecase) beginInstall(
+	ctx context.Context,
+	ns domain.Namespace,
+	vars map[string]string,
+) (bool, error) {
+	closeBracket, err := u.targets.open(ctx, ns)
+	if err != nil {
+		return false, err
+	}
+	defer closeBracket()
+
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
-		return false, fmt.Errorf("install: get state: %w", err)
+		return false, fmt.Errorf("get state: %w", err)
 	}
 	if state != "" &&
 		state != domain.ArrowStateAbsent &&
@@ -168,11 +190,7 @@ func (u *runtimeUsecase) Install(
 		state != domain.ArrowStateRemoved {
 		return false, nil
 	}
-
-	if err := u.runtime.BeginInstall(ctx, ns, userVars); err != nil {
-		return false, err
-	}
-	return true, nil
+	return true, u.runtime.BeginInstall(ctx, ns, vars)
 }
 
 // installPlan catalogues every dependency in plan before installing any, so
@@ -236,22 +254,12 @@ func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespa
 	}
 	defer unsub()
 
-	state, stateErr := u.runtime.GetState(ctx, depNs)
-	if stateErr != nil {
-		return fmt.Errorf("install dep %s: get state: %w", depNs, stateErr)
+	tried, beErr := u.beginInstall(ctx, depNs, nil)
+	if beErr != nil && !errors.Is(beErr, apperrors.ErrStateViolation) {
+		return fmt.Errorf("install dep %s: %w", depNs, beErr)
 	}
-
-	if state != "" &&
-		state != domain.ArrowStateAbsent &&
-		state != domain.ArrowStateInstalling &&
-		state != domain.ArrowStateRemoved {
+	if !tried {
 		return nil
-	}
-
-	if beErr := u.runtime.BeginInstall(ctx, depNs, nil); beErr != nil {
-		if !errors.Is(beErr, apperrors.ErrStateViolation) {
-			return beErr
-		}
 	}
 
 	select {

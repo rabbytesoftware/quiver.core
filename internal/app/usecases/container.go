@@ -29,15 +29,16 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 	if err != nil {
 		return nil, fmt.Errorf("usecases: parse auth.pairing_code_ttl: %w", err)
 	}
-	arrowUC := NewArrowUsecase(
-		repos.Arrow,
-		repos.Graph,
-		repos.Runtime,
-	)
 	runtimeUC := newRuntimeUsecase(
 		repos.Arrow,
 		repos.Runtime,
 		repos.Graph,
+	)
+	arrowUC := newArrowUsecase(
+		repos.Arrow,
+		repos.Graph,
+		repos.Runtime,
+		runtimeUC.targets,
 	)
 	quiverUC := NewCollectionUsecase(
 		repos.Collection,

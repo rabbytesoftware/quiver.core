@@ -34,8 +34,9 @@ func newUpdateTargets() *updateTargets {
 	}
 }
 
-// open serializes update brackets of one row and returns the call that
-// closes this one. A caller whose ctx ends while it waits gives up.
+// open serializes what moves or begins one row (update brackets, installs,
+// catalog advances) and returns the call that closes this one. A caller
+// whose ctx ends while it waits gives up.
 func (t *updateTargets) open(
 	ctx context.Context,
 	ns domain.Namespace,

@@ -104,6 +104,9 @@ type arrowUsecase struct {
 	arrow   arrowrepo.Arrow
 	graph   graph.Graph
 	runtime runtimerepo.Runtime
+	// targets is shared with the runtime usecase, so a catalog advance and
+	// an install or update of the same row never interleave.
+	targets *updateTargets
 }
 
 // NewArrowUsecase wires arrow, graph, and runtime repositories into an ArrowUsecase.
@@ -112,10 +115,20 @@ func NewArrowUsecase(
 	graph graph.Graph,
 	runtime runtimerepo.Runtime,
 ) ArrowUsecase {
+	return newArrowUsecase(arrow, graph, runtime, newUpdateTargets())
+}
+
+func newArrowUsecase(
+	arrow arrowrepo.Arrow,
+	graph graph.Graph,
+	runtime runtimerepo.Runtime,
+	targets *updateTargets,
+) *arrowUsecase {
 	return &arrowUsecase{
 		arrow:   arrow,
 		graph:   graph,
 		runtime: runtime,
+		targets: targets,
 	}
 }
 
@@ -184,25 +197,45 @@ func (u *arrowUsecase) Update(
 		return models.UpdateResult{}, nil
 	}
 
-	state, err := u.runtime.GetState(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: get state: %w", err)
-	}
-	if isInstalled(state) {
-		return models.UpdateResult{Available: available}, nil
+	installed, err := u.installed(ctx, ns)
+	if err != nil || installed {
+		return models.UpdateResult{Available: available}, err
 	}
 
 	return u.advanceCatalogued(ctx, ns, current, *available)
 }
 
+func (u *arrowUsecase) installed(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("update: get state: %w", err)
+	}
+	return isInstalled(state), nil
+}
+
 // advanceCatalogued moves a row nothing is installed from straight to
-// target: there are no update steps to run for it.
+// target: there are no update steps to run for it. It holds the row's
+// bracket and reads the state again inside it, so an install that began in
+// the meantime is never handed the manifest the row is leaving.
 func (u *arrowUsecase) advanceCatalogued(
 	ctx context.Context,
 	ns domain.Namespace,
 	current *domain.Arrow,
 	target domain.Available,
 ) (models.UpdateResult, error) {
+	closeBracket, err := u.targets.open(ctx, ns)
+	if err != nil {
+		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
+	}
+	defer closeBracket()
+	installed, err := u.installed(ctx, ns)
+	if err != nil || installed {
+		return models.UpdateResult{Available: &target}, err
+	}
+
 	if err := u.arrow.Advance(ctx, ns, target); err != nil {
 		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
 	}
