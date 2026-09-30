@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -18,6 +16,7 @@ import (
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning"
 )
 
 // Manifold resolves arrow and quiver manifests from remote git repositories.
@@ -144,33 +143,14 @@ type ChannelInfo = models.ChannelInfo
 const defaultManifoldCacheTTL = time.Hour
 
 type manifold struct {
-	rsv        resolver.Resolver
-	trs        translator.Translator
-	cmp        compiler.Compiler
-	rls        ruleset.Ruleset
-	constraint resolvers.ConstraintResolver
-	hosts      HostLookup
-	clock      func() time.Time
-	timeout    time.Duration
-	fl         fletcher.Fletcher
-
-	// cacheTTL bounds how long a cached remote lookup — Snapshot, and so
-	// ListChannels — is reused before asking the remote again. Set at construction time (see New), not a
-	// package constant, specifically so production wiring can tie it to
-	// config.GetArrows().VersionCheckTTL — the same value the arrow store's
-	// drift-check throttle already uses — rather than an independently
-	// chosen constant that could silently drift out of step with it.
-	cacheTTL time.Duration
-
-	// snapshotCache holds one entry per bare domain.Namespace queried
-	// through Snapshot (ListChannels included). It is a sync.Map, not a
-	// mutex-guarded map, since entries are independent of each other and
-	// never iterated as a whole — a process-lifetime, unbounded cache (no
-	// eviction beyond TTL-on-read); a long-running daemon queried for many
-	// distinct namespaces will grow it accordingly, which is accepted for
-	// this simple, restart-safe-to-lose optimization rather than an LRU or
-	// similar bound.
-	snapshotCache sync.Map
+	rsv       resolver.Resolver
+	trs       translator.Translator
+	cmp       compiler.Compiler
+	rls       ruleset.Ruleset
+	hosts     HostLookup
+	timeout   time.Duration
+	fl        fletcher.Fletcher
+	snapshots versioning.Snapshots
 }
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
@@ -185,7 +165,7 @@ func New(
 	cacheTTL time.Duration,
 	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now, opts)
+	return newManifold(fetchTimeout, lookup, resolvers.NewConstraintResolver(fetchTimeout), cacheTTL, time.Now, opts)
 }
 
 // NewWithClock is New with an injectable clock, so a test can advance time
@@ -199,12 +179,13 @@ func NewWithClock(
 	clock func() time.Time,
 	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, clock, opts)
+	return newManifold(fetchTimeout, lookup, resolvers.NewConstraintResolver(fetchTimeout), cacheTTL, clock, opts)
 }
 
 func newManifold(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
+	crs resolvers.ConstraintResolver,
 	cacheTTL time.Duration,
 	clock func() time.Time,
 	opts []Option,
@@ -215,15 +196,13 @@ func newManifold(
 	}
 
 	return withOptions(&manifold{
-		rsv:        resolver.New(fetchTimeout, lookup),
-		trs:        translator.NewTranslator(),
-		cmp:        compiler.New(),
-		rls:        ruleset.New(),
-		constraint: resolvers.NewConstraintResolver(fetchTimeout),
-		hosts:      lookup,
-		clock:      clock,
-		timeout:    fetchTimeout,
-		cacheTTL:   cacheTTL,
+		rsv:       resolver.New(fetchTimeout, lookup),
+		trs:       translator.NewTranslator(),
+		cmp:       compiler.New(),
+		rls:       ruleset.New(),
+		hosts:     lookup,
+		timeout:   fetchTimeout,
+		snapshots: versioning.New(crs, clock, cacheTTL),
 	}, opts)
 }
 
@@ -254,14 +233,12 @@ func NewWithResolversAndClock(
 	opts ...Option,
 ) Manifold {
 	return withOptions(&manifold{
-		rsv:        rsv,
-		trs:        translator.NewTranslator(),
-		cmp:        compiler.New(),
-		rls:        ruleset.New(),
-		constraint: crs,
-		hosts:      hosts.Or(lookup),
-		clock:      clock,
-		cacheTTL:   defaultManifoldCacheTTL,
+		rsv:       rsv,
+		trs:       translator.NewTranslator(),
+		cmp:       compiler.New(),
+		rls:       ruleset.New(),
+		hosts:     hosts.Or(lookup),
+		snapshots: versioning.New(crs, clock, defaultManifoldCacheTTL),
 	}, opts)
 }
 
@@ -393,31 +370,51 @@ func (m *manifold) ListChannels(
 	if err != nil {
 		return nil, fmt.Errorf("manifold: list channels: %w", err)
 	}
-	return ChannelsOf(snap), nil
+	return versioning.ChannelsOf(snap), nil
 }
 
-// sortChannels orders a ListChannels result deterministically: stable first
-// (if present), then ordered channels alphabetically by name, then pointer
-// channels alphabetically by name. Map iteration order (over ListChannels's
-// internal "ordered" bucket) is otherwise randomized by Go on every call.
-func sortChannels(
-	channels []ChannelInfo,
-) {
-	sort.Slice(channels, func(i, j int) bool {
-		a, b := channels[i], channels[j]
-		aStable := a.Name == StableChannel
-		bStable := b.Name == StableChannel
-		if aStable != bStable {
-			return aStable
-		}
-		if aStable {
-			return false
-		}
-		if a.Kind != b.Kind {
-			return a.Kind == "ordered"
-		}
-		return a.Name < b.Name
-	})
+func (m *manifold) Snapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.snapshots.Snapshot(ctx, ns)
+}
+
+func (m *manifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.snapshots.FreshSnapshot(ctx, ns)
+}
+
+func (m *manifold) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	snap, err := m.Snapshot(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("manifold: latest stable: %w", err)
+	}
+	latest, ok := versioning.LatestStable(snap)
+	if !ok {
+		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, models.ErrNoLatestStable)
+	}
+	return latest, nil
+}
+
+func (m *manifold) ResolveDefaultBranch(
+	ctx context.Context,
+	ns domain.Namespace,
+) (branch, hash string, err error) {
+	snap, err := m.Snapshot(ctx, ns)
+	if err != nil {
+		return "", "", fmt.Errorf("manifold: default branch: %w", err)
+	}
+	branch, hash, ok := versioning.DefaultBranch(snap)
+	if !ok {
+		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, versioning.ErrUnknownSelector)
+	}
+	return branch, hash, nil
 }
 
 func (m *manifold) ResolveArrowAtCommit(

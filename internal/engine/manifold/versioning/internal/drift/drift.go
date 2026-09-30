@@ -1,4 +1,4 @@
-package manifold
+package drift
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
 )
 
 // Target resolves what a selector of the given kind points at in snap: a
@@ -26,15 +27,15 @@ func Target(
 		return constraintTarget(selector, snap)
 	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
 		domain.SelectorPointerChannel, domain.SelectorBranchChannel:
-		ref, commit, ok := pinnedRef(kind, selector, snap)
+		ref, commit, ok := sel.PinnedRef(kind, selector, snap)
 		if !ok {
-			return domain.Available{}, fmt.Errorf("target %s %q: %w", kind, selector, ErrUnknownSelector)
+			return domain.Available{}, fmt.Errorf("target %s %q: %w", kind, selector, sel.ErrUnknownSelector)
 		}
 		return domain.Available{Ref: ref, Commit: commit}, nil
 	case domain.SelectorCommit:
 		return domain.Available{Ref: selector, Commit: selector}, nil
 	}
-	return domain.Available{}, fmt.Errorf("target %q: kind %q: %w", selector, kind, ErrUnknownSelector)
+	return domain.Available{}, fmt.Errorf("target %q: kind %q: %w", selector, kind, sel.ErrUnknownSelector)
 }
 
 // Drift reports whether a row following selector is behind snap, and the
@@ -131,7 +132,7 @@ func formerChannelTarget(
 	if resolved.Ref == "" {
 		return domain.Available{}, notFound
 	}
-	for _, c := range ChannelsOf(snap) {
+	for _, c := range sel.ChannelsOf(snap) {
 		if c.Kind == "ordered" && slices.Contains(c.Members, resolved.Ref) {
 			return domain.Available{Ref: c.Latest, Commit: snap.Tags[c.Latest]}, nil
 		}
@@ -143,13 +144,13 @@ func channelTarget(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
-	channel, ok := findChannel(selector, snap)
+	channel, ok := sel.FindChannel(selector, snap)
 	if !ok {
-		return domain.Available{}, fmt.Errorf("target channel %q: %w", selector, ErrUnknownSelector)
+		return domain.Available{}, fmt.Errorf("target channel %q: %w", selector, sel.ErrUnknownSelector)
 	}
 	commit, ok := snap.Commit(channel.Latest)
 	if !ok {
-		return domain.Available{}, fmt.Errorf("target channel %q: latest %q has no commit: %w", selector, channel.Latest, ErrUnknownSelector)
+		return domain.Available{}, fmt.Errorf("target channel %q: latest %q has no commit: %w", selector, channel.Latest, sel.ErrUnknownSelector)
 	}
 	return domain.Available{Ref: channel.Latest, Commit: commit}, nil
 }
@@ -160,24 +161,24 @@ func orderedTarget(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
-	for _, c := range ChannelsOf(snap) {
+	for _, c := range sel.ChannelsOf(snap) {
 		if c.Name == selector && c.Kind == "ordered" {
 			return domain.Available{Ref: c.Latest, Commit: snap.Tags[c.Latest]}, nil
 		}
 	}
-	return domain.Available{}, fmt.Errorf("target ordered channel %q: %w", selector, ErrUnknownSelector)
+	return domain.Available{}, fmt.Errorf("target ordered channel %q: %w", selector, sel.ErrUnknownSelector)
 }
 
 func constraintTarget(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.Available, error) {
-	ref, ok, err := resolvers.HighestMatch(sortedTags(snap), selector)
+	ref, ok, err := resolvers.HighestMatch(sel.SortedTags(snap), selector)
 	if err != nil {
-		return domain.Available{}, fmt.Errorf("target constraint %q: %w: %w", selector, ErrUnknownSelector, err)
+		return domain.Available{}, fmt.Errorf("target constraint %q: %w: %w", selector, sel.ErrUnknownSelector, err)
 	}
 	if !ok {
-		return domain.Available{}, fmt.Errorf("target constraint %q: no tag matches: %w", selector, ErrUnknownSelector)
+		return domain.Available{}, fmt.Errorf("target constraint %q: no tag matches: %w", selector, sel.ErrUnknownSelector)
 	}
 	return domain.Available{Ref: ref, Commit: snap.Tags[ref]}, nil
 }

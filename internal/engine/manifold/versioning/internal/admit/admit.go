@@ -1,4 +1,4 @@
-package manifold
+package admit
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
 )
 
 // ErrNotAdmitted reports a ref its selector could never resolve to.
@@ -32,9 +33,9 @@ func Admit(
 		return domain.Available{Ref: selector, Commit: selector}, nil
 	}
 	if _, ok := snap.Commit(ref); !ok {
-		return domain.Available{}, fmt.Errorf("admit %q: %w", ref, ErrUnknownSelector)
+		return domain.Available{}, fmt.Errorf("admit %q: %w", ref, sel.ErrUnknownSelector)
 	}
-	commit, ok := RefCommit(kind, selector, ref, snap)
+	commit, ok := sel.RefCommit(kind, selector, ref, snap)
 	if !ok || !admits(kind, selector, ref, commit, snap) {
 		return domain.Available{}, fmt.Errorf("admit %q under %q: %w", ref, selector, ErrNotAdmitted)
 	}
@@ -52,7 +53,7 @@ func admits(
 	case domain.SelectorChannel:
 		return channelAdmits(selector, ref, snap)
 	case domain.SelectorOrderedChannel:
-		channel, ok := findChannel(selector, snap)
+		channel, ok := sel.FindChannel(selector, snap)
 		return ok && channel.Kind == "ordered" && slices.Contains(channel.Members, ref)
 	case domain.SelectorConstraint:
 		matched, err := path.Match(selector, ref)
@@ -61,7 +62,7 @@ func admits(
 		return strings.HasPrefix(strings.ToLower(commit), strings.ToLower(selector))
 	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
 		domain.SelectorPointerChannel, domain.SelectorBranchChannel:
-		name, _ := followedRef(kind, selector)
+		name, _ := sel.FollowedRef(kind, selector)
 		return name == ref
 	}
 	return false
@@ -75,7 +76,7 @@ func channelAdmits(
 	ref string,
 	snap domain.RefSnapshot,
 ) bool {
-	channel, ok := findChannel(selector, snap)
+	channel, ok := sel.FindChannel(selector, snap)
 	if !ok {
 		return selector == snap.Head && ref == selector
 	}

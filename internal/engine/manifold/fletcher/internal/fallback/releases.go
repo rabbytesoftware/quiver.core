@@ -13,7 +13,7 @@ func (f *fallback) latestStable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (string, error) {
-	tag, err := f.releases.ResolveLatestStable(ctx, ns)
+	tag, err := f.releases.LatestStable(ctx, ns)
 	return tag, lookupFailure(err)
 }
 
@@ -21,7 +21,7 @@ func (f *fallback) latestUnstable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (string, error) {
-	channels, err := f.releases.ListChannels(ctx, ns)
+	channels, err := f.releases.Channels(ctx, ns)
 	if err != nil {
 		return "", lookupFailure(err)
 	}

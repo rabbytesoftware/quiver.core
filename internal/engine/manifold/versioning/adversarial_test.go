@@ -1,4 +1,4 @@
-package manifold
+package versioning
 
 import (
 	"fmt"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
 )
 
 var adversarialTagVocab = []string{
@@ -144,7 +145,7 @@ func TestAdversarial_Target_UnrelatedTagNeverMovesTarget(t *testing.T) {
 			}
 			after, err := Target(kind, selector, later)
 			if err != nil || before != after {
-				failures = append(failures, fmt.Sprintf("%q (%s): %+v -> %+v err=%v tags=%v", selector, kind, before, after, err, sortedTags(snap)))
+				failures = append(failures, fmt.Sprintf("%q (%s): %+v -> %+v err=%v tags=%v", selector, kind, before, after, err, sel.SortedTags(snap)))
 			}
 		}
 	}
@@ -279,6 +280,6 @@ func TestAdversarial_ClassifySelector_ManyChannelsStaysFast(t *testing.T) {
 	_, _, err = Drift(kind, "nightly", domain.Resolved{}, snap)
 	require.NoError(t, err)
 	elapsed := time.Since(start)
-	t.Logf("classify+drift over %d tags / %d channels: %s", len(snap.Tags), len(resolvers.ChannelsPresent(sortedTags(snap))), elapsed)
+	t.Logf("classify+drift over %d tags / %d channels: %s", len(snap.Tags), len(resolvers.ChannelsPresent(sel.SortedTags(snap))), elapsed)
 	assert.Less(t, elapsed, 5*time.Second, "a version check must not take seconds of CPU on a busy repository")
 }

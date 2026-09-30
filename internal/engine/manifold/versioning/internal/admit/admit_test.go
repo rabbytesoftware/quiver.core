@@ -1,4 +1,4 @@
-package manifold
+package admit
 
 import (
 	"testing"
@@ -7,7 +7,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/drift"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
 )
+
+func releaseSnapshot() domain.RefSnapshot {
+	return domain.RefSnapshot{
+		Tags: map[string]string{
+			"v1.2.0":         "c1",
+			"v1.3.0":         "c2",
+			"v2.0.0":         "c3",
+			"nightly-latest": "new",
+			"v1.0-latest":    "rolled",
+		},
+		Branches: map[string]string{"main": "cm"},
+		Head:     "main",
+	}
+}
 
 func TestAdmit(t *testing.T) {
 	headOnly := domain.RefSnapshot{Branches: map[string]string{"main": "cm"}, Head: "main"}
@@ -121,7 +137,7 @@ func TestAdmit(t *testing.T) {
 		},
 		{
 			name: "a ref the snapshot does not hold is unknown", kind: domain.SelectorChannel, selector: "stable",
-			ref: "v0.0.1", snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			ref: "v0.0.1", snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "an unknown kind admits nothing", kind: domain.SelectorKind("bogus"), selector: "stable",
@@ -158,7 +174,7 @@ func TestAdmit_TheInstallTargetIsAlwaysAdmitted(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			target, err := Target(tc.kind, tc.selector, releaseSnapshot())
+			target, err := drift.Target(tc.kind, tc.selector, releaseSnapshot())
 			require.NoError(t, err)
 
 			got, err := Admit(tc.kind, tc.selector, target.Ref, releaseSnapshot())

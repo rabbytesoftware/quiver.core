@@ -1,4 +1,4 @@
-package manifold
+package selector
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
@@ -36,7 +37,7 @@ func ClassifySelector(
 	if HasEmptyComponent(selector) {
 		return domain.SelectorPin, fmt.Errorf("classify selector %q: empty ref component: %w", selector, ErrUnknownSelector)
 	}
-	if channel, ok := findChannel(selector, snap); ok {
+	if channel, ok := FindChannel(selector, snap); ok {
 		return channelKind(channel), nil
 	}
 	if kind, ok := pinKind(selector, snap); ok {
@@ -64,19 +65,19 @@ func DefaultChannel(
 	if len(channels) == 0 {
 		return "", fmt.Errorf("default channel: %w", ErrUnknownSelector)
 	}
-	if channels[0].Name == StableChannel {
-		return StableChannel, nil
+	if channels[0].Name == resolvers.StableChannel {
+		return resolvers.StableChannel, nil
 	}
 	return resolvers.NewestFirst(channels)[0].Name, nil
 }
 
-// findChannel returns the channel named selector, preferring an ordered
+// FindChannel returns the channel named selector, preferring an ordered
 // channel over a pointer tag of the same name.
-func findChannel(
+func FindChannel(
 	selector string,
 	snap domain.RefSnapshot,
-) (ChannelInfo, bool) {
-	var found ChannelInfo
+) (models.ChannelInfo, bool) {
+	var found models.ChannelInfo
 	ok := false
 	for _, c := range ChannelsOf(snap) {
 		if c.Name != selector {
@@ -91,7 +92,7 @@ func findChannel(
 }
 
 func channelKind(
-	channel ChannelInfo,
+	channel models.ChannelInfo,
 ) domain.SelectorKind {
 	if channel.Kind == "ordered" {
 		return domain.SelectorOrderedChannel
@@ -108,7 +109,7 @@ func pinKind(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.SelectorKind, bool) {
-	name, source := followedRef(domain.SelectorPin, selector)
+	name, source := FollowedRef(domain.SelectorPin, selector)
 	if source != refEither {
 		_, ok := source.lookup(name, snap)
 		return source.pinKind(), ok
@@ -153,10 +154,10 @@ func (src refSource) pinKind() domain.SelectorKind {
 	return domain.SelectorTagPin
 }
 
-// followedRef names the one ref a pin or single-ref channel follows, escape
+// FollowedRef names the one ref a pin or single-ref channel follows, escape
 // stripped, and where to look it up: an escape wins, then the stored kind;
 // an unrefined kind looks at a tag first, then a branch.
-func followedRef(
+func FollowedRef(
 	kind domain.SelectorKind,
 	selector string,
 ) (string, refSource) {
@@ -177,14 +178,14 @@ func followedRef(
 	return selector, refEither
 }
 
-// pinnedRef resolves a pin or single-ref channel to its short ref name and
+// PinnedRef resolves a pin or single-ref channel to its short ref name and
 // commit.
-func pinnedRef(
+func PinnedRef(
 	kind domain.SelectorKind,
 	selector string,
 	snap domain.RefSnapshot,
 ) (ref, commit string, ok bool) {
-	name, source := followedRef(kind, selector)
+	name, source := FollowedRef(kind, selector)
 	commit, ok = source.lookup(name, snap)
 	return name, commit, ok
 }
@@ -211,7 +212,7 @@ func RefCommit(
 	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
 		domain.SelectorPointerChannel, domain.SelectorBranchChannel, domain.SelectorChannel:
 	}
-	_, source := followedRef(kind, selector)
+	_, source := FollowedRef(kind, selector)
 	return source.lookup(ref, snap)
 }
 

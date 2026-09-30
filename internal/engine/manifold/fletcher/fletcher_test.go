@@ -24,27 +24,18 @@ const (
 	pagePath = "/acme/tool"
 )
 
-type noReleases struct{}
-
-func (noReleases) ResolveLatestStable(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", nil
-}
-
-func (noReleases) ListChannels(
-	_ context.Context,
-	_ domain.Namespace,
-) ([]manifoldModels.ChannelInfo, error) {
-	return nil, nil
-}
-
-func (noReleases) ResolveDefaultBranch(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, string, error) {
-	return "", "", errors.New("no default branch")
+func noReleases() fletcher.Releases {
+	return fletcher.Releases{
+		LatestStable: func(_ context.Context, _ domain.Namespace) (string, error) {
+			return "", nil
+		},
+		Channels: func(_ context.Context, _ domain.Namespace) ([]manifoldModels.ChannelInfo, error) {
+			return nil, nil
+		},
+		DefaultBranch: func(_ context.Context, _ domain.Namespace) (string, string, error) {
+			return "", "", errors.New("no default branch")
+		},
+	}
 }
 
 type pageHost struct {
@@ -127,7 +118,7 @@ func manifestMissing() error {
 }
 
 func TestNew_UnknownHostIsAMissingManifest(t *testing.T) {
-	fl := fletcher.New(nil, noReleases{}, time.Second)
+	fl := fletcher.New(nil, noReleases(), time.Second)
 
 	raw, _, _, err := fl.Recover(context.Background(), domain.Namespace("example.org/acme/tool@v1.0.0"), manifestMissing())
 
@@ -141,7 +132,7 @@ func TestNew_UnknownHostIsAMissingManifest(t *testing.T) {
 
 func TestNew_AnyOtherFailurePassesThrough(t *testing.T) {
 	cause := fmt.Errorf("%w: HTTP 503", resolver.ErrFetchFailed)
-	fl := fletcher.New(nil, noReleases{}, time.Second)
+	fl := fletcher.New(nil, noReleases(), time.Second)
 
 	_, _, _, err := fl.Recover(context.Background(), testNS, cause)
 
@@ -152,7 +143,7 @@ func TestNew_ExplicitTimeoutBoundsEveryFetch(t *testing.T) {
 	lookup := hostServing(t, func(_ http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	})
-	fl := fletcher.New(lookup, noReleases{}, 50*time.Millisecond)
+	fl := fletcher.New(lookup, noReleases(), 50*time.Millisecond)
 
 	raw, _, _, err := fl.Recover(context.Background(), testNS, manifestMissing())
 
@@ -165,7 +156,7 @@ func TestNew_ZeroTimeoutFallsBackToTheResolverDefault(t *testing.T) {
 	lookup := hostServing(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`<html><head><meta property="og:description" content="A tool."></head></html>`))
 	})
-	fl := fletcher.New(lookup, noReleases{}, 0)
+	fl := fletcher.New(lookup, noReleases(), 0)
 
 	raw, filename, _, err := fl.Recover(context.Background(), testNS, manifestMissing())
 
