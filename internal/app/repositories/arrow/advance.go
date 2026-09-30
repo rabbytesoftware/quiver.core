@@ -121,7 +121,9 @@ func (s *arrowService) AdoptInstalled(
 }
 
 // adoptOnto writes m and resolved onto the existing row current, replacing
-// the cache first, or writes nothing when the row already holds both.
+// the cache first, or writes nothing when the row already holds both. A
+// resolved with no commit naming the row's own ref is no advance: the row
+// keeps the commit it learned.
 func (s *arrowService) adoptOnto(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -130,6 +132,9 @@ func (s *arrowService) adoptOnto(
 	resolved domain.Resolved,
 	cache vault.ManifestFile,
 ) error {
+	if resolved.Commit == "" && resolved.Ref == current.Resolved.Ref {
+		resolved = current.Resolved
+	}
 	advance := current.Resolved != resolved
 	if !advance && sameManifest(&current, m) {
 		return nil

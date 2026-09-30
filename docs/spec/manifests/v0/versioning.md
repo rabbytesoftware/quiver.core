@@ -514,6 +514,7 @@ network. It requires a namespace with a selector and a manifest filename.
 |---|---|
 | Absent | Caches the manifest and writes a new user-installed row with `kind` and `resolved` |
 | Present, `Resolved` differs | Replaces the cache and advances the row (`arrow.advanced`) |
+| Present, `resolved` has no commit and names the row's own `Resolved.Ref` | Not an advance: the row keeps the commit it learned; only a changed manifest is refreshed |
 | Present, only the manifest differs | Replaces the cache and refreshes the manifest (`arrow.manifest_refreshed`) |
 | Present, identical | Nothing |
 
@@ -525,9 +526,11 @@ Two callers use it besides core registration:
 - `POST /v0/arrow/{ns}/manifest` (seed) adopts the posted manifest as a **pin of its own
   ref**, with `Resolved{Ref: ns.Ref()}` and no commit. Seeding the same identity again
   replaces the row's manifest. A seeded row has no commit, so its first version check
-  reports it outdated if the ref exists upstream (§5.2).
+  reports it outdated if the ref exists upstream (§5.2). Once an update has stamped the
+  ref's commit, seeding the same ref again keeps that commit: the row is not offered the
+  update it already ran.
 - Following a collection adopts each of its local arrows the same way, at the collection's
-  ref.
+  ref, and keeps a commit the row already learned the same way.
 
 **Adopting declared state.** `POST /v0/arrow/{ns}/adopt` with `{"resolved_ref": "<ref>"}`
 (`Arrow.AdoptInstalled`) lets a client that installed itself declare what it runs, so its

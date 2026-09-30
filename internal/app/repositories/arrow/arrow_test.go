@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -2720,12 +2721,54 @@ func TestAdopt_UnchangedResolved_NewManifest_RefreshesTheRow(t *testing.T) {
 	assert.Equal(t, []byte("second"), v.PutArrowFiles[len(v.PutArrowFiles)-1].Content)
 }
 
-// A row Add created carries a commit, so a seed of the same ref names a
-// different Resolved: it advances the row onto the seeded bytes.
-func TestAdopt_RowWithCommit_SeedOfTheSameRef_Advances(t *testing.T) {
+// A seed or a collection-local adopt names its ref without a commit. On a
+// row that already learned the commit of that same ref (from Add or an
+// update) it is no advance: the commit stays, so the row is not offered the
+// update it already ran, and only the manifest follows the seeded bytes.
+func TestAdopt_CommitlessSameRef_KeepsTheLearnedCommit(t *testing.T) {
+	testCases := []struct {
+		name     string
+		manifest string
+		wantName string
+		wantSent []string
+	}{
+		{name: "new bytes refresh the manifest", manifest: "Seeded", wantName: "Seeded", wantSent: []string{"arrow.manifest_refreshed."}},
+		{name: "same bytes write nothing", manifest: "Installed", wantName: "Installed"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+			learned := domain.Resolved{Ref: "v1.0.0", Commit: "c100", Fingerprint: "c100"}
+			axArrow := newTestAsynxArrow(t)
+			seed := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, failOnNetworkManifold(t, adoptedManifest("Installed")))
+			require.NoError(t, seed.Adopt(context.Background(), ns, domain.SelectorPin, learned, []byte("installed"), "ARROW.md"))
+			var sent []string
+			ax := &arrowMocks.AsynxArrow{
+				ExistsFn: func(ctx context.Context, id string) (bool, error) { return axArrow.Exists(ctx, id) },
+				GetFn:    func(ctx context.Context, id string) (domain.Arrow, error) { return axArrow.Get(ctx, id) },
+				SendWaitFn: func(ctx context.Context, cmd asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					sent = append(sent, strings.TrimSuffix(cmd.EventName(), ns.String()))
+					return axArrow.SendWait(ctx, cmd)
+				},
+			}
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, failOnNetworkManifold(t, adoptedManifest(tc.manifest)))
+
+			require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorPin, domain.Resolved{Ref: "v1.0.0"}, []byte(tc.manifest), "ARROW.md"))
+
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantName, got.Name)
+			assert.Equal(t, learned, got.Resolved)
+			assert.Equal(t, tc.wantSent, sent)
+		})
+	}
+}
+
+// A commit-less adopt of a different ref is still an advance.
+func TestAdopt_CommitlessOtherRef_Advances(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 	axArrow := newTestAsynxArrow(t)
-	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "v1.0.0", Commit: "c100", Fingerprint: "c100"})
+	seedSelectorRow(t, axArrow, ns, domain.SelectorPin, domain.Resolved{Ref: "v0.9.0", Commit: "c090", Fingerprint: "c090"})
 	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, failOnNetworkManifold(t, adoptedManifest("Seeded")))
 
 	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorPin, domain.Resolved{Ref: "v1.0.0"}, []byte("seeded"), "ARROW.md"))
