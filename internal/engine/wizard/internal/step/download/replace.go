@@ -57,6 +57,19 @@ func replaceFile(
 	return nil
 }
 
+// keepMode gives the staged download the mode of the file it replaces, as
+// writing into that file did: an executable fetched again stays executable.
+func keepMode(
+	staged string,
+	dst string,
+) {
+	info, err := os.Stat(dst)
+	if err != nil {
+		return
+	}
+	_ = os.Chmod(staged, info.Mode().Perm())
+}
+
 // sweepStale removes what earlier fetches of dst left behind: a staging file
 // of a download that never finished, and old targets moved aside. One still
 // in use cannot be removed yet and is left for the next fetch.

@@ -937,7 +937,8 @@ mismatch. The download timeout is governed by the step's `timeout` and applied a
 resolver layer.
 
 The download is written to a uniquely named file beside `to`, verified there, and only then
-renamed over `to` in one step. A download that fails (transport, timeout, checksum) never
+renamed over `to` in one step, taking the mode of the file it replaces (an executable
+fetched again stays executable). A download that fails (transport, timeout, checksum) never
 touches `to`, so whatever it held before stays. Renaming, rather than writing into `to`,
 also replaces a file that is being executed: a process running the old file keeps its own
 image (writing into a running executable fails on Linux with "text file busy" — quiver.core's

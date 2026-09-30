@@ -88,6 +88,7 @@ func (h *handler) Execute(
 	if err := h.verify(stepCtx, req, s, staged); err != nil {
 		return err
 	}
+	keepMode(staged, dst)
 	if err := replaceFile(staged, dst, os.Rename); err != nil {
 		return err
 	}

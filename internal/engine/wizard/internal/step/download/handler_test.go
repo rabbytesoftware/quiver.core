@@ -457,3 +457,24 @@ func TestHandler_Execute_DirectoryDestination_IsRefused(t *testing.T) {
 
 	require.ErrorIs(t, err, stepdownload.ErrDestinationIsDirectory)
 }
+
+// An arrow that made its binary executable at install and fetches it again at
+// update keeps it executable: the replacement takes the old file's mode.
+func TestHandler_Execute_RefetchKeepsTheDestinationsMode(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("windows has no executable bit")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("next"))
+	}))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "tool")
+	require.NoError(t, os.WriteFile(dst, []byte("previous"), 0o700)) // #nosec G306 -- an executable this test owns
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, "", "10s", true)
+
+	require.NoError(t, newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s))
+
+	info, err := os.Stat(dst)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
