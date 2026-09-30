@@ -71,9 +71,11 @@ A prefix before the core names the channel too (`beta-26.5-4` is `beta`) when it
 channel word — `alpha`, `beta`, `canary`, `dev`, `edge`, `hotfix`, `insiders`, `next`,
 `nightly`, `preview`, `rc`, `stable` — or, for any other prefix, when the repository's
 unknown prefixes differ from tag to tag (a prefix every tag shares, such as `v` or a
-project name, is noise). A `YYYY-MM-DD` date stands in for a version core, with an
-optional `.N` patch after it, so a dated release groups under its channel instead of
-becoming a pointer channel of its own. The date is recognised before a dotted core, so the
+project name, is noise). Behind a channel word, a `YYYY-MM-DD` date stands in for a
+version core, with an optional `.N` patch after it, so a dated release groups under its
+channel instead of becoming a pointer channel of its own. A date with no channel word in
+front (`2026-01-02`, `snapshot-2026-01-02`) is not a version: it stays a standalone pointer
+channel and is never ranked against a repository's semver releases. The date is recognised before a dotted core, so the
 names quiver.core's own release workflows publish for a dated series
 (`.github/scripts/release-tag.sh`, pinned by `tests/releasetags`) all group correctly:
 `beta-2026-09-27`, `beta-2026-09-27-1` (a rebuild), `stable-2026-09-27`,
@@ -85,9 +87,7 @@ and `v1.2.0`) always settle the same way. A date core ranks as `YY.MM.DD.patch` 
 within the century — so it orders among calendar-versioned `YY.M` tags by release month,
 and a later date outranks every patch of an earlier one:
 `stable-26.5.1` < `stable-2026-09-27` < `stable-2026-09-27.1` < `stable-2026-10-01` <
-`stable-26.11`. Cores are compared numerically,
-component by component, so a repository that mixes a date with a semantic version such as
-`1.4.0` ranks the date higher; a release pipeline should keep one scheme per channel.
+`stable-26.11`.
 
 ### 2.2 Parse rule
 

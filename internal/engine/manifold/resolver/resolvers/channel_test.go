@@ -345,7 +345,8 @@ func TestOutranks(t *testing.T) {
 		{name: "equal rank", a: "v1.2", b: "v1.2.0", want: false},
 		{name: "no core on a", a: "nightly", b: "v1.0.0", want: false},
 		{name: "no core on b", a: "v1.0.0", b: "nightly", want: false},
-		{name: "a pre-2000 year is kept whole", a: "1999-01-01", b: "v26.0", want: true},
+		{name: "a pre-2000 year is kept whole", a: "stable-1999-01-01", b: "stable-26.0", want: true},
+		{name: "a bare date carries no core", a: "2026-01-02", b: "v1.4.0", want: false},
 	}
 
 	for _, tc := range testCases {

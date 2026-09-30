@@ -35,13 +35,15 @@ const dateEpoch = 2000
 
 // parseTagFull splits a tag into its prefix, version core and channel suffix.
 // A date is tried first, so its dashes never make a dotted core of its day
-// and patch; its core is rewritten as YY.MM.DD.patch. ok is false when the
-// tag has neither a date nor a numeric-dot run — a pointer-channel candidate
-// instead.
+// and patch; its core is rewritten as YY.MM.DD.patch. A date counts only
+// behind a channel word (stable-, beta-, hotfix-, ...): a bare dated
+// snapshot tag in a repository that releases v1.4.0 is never ranked against
+// its versions. ok is false when the tag has neither a date nor a
+// numeric-dot run — a pointer-channel candidate instead.
 func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
-	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil {
+	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil && isKnownChannel(normalizeVersionPrefix(m[1])) {
 		year, _ := strconv.Atoi(m[2])
 		if year >= dateEpoch {
 			year -= dateEpoch

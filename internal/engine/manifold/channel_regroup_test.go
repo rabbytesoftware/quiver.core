@@ -1,6 +1,7 @@
 package manifold
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -203,4 +204,39 @@ func TestTarget_HotfixChannelOfADatedSeries(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "hotfix-2026-09-27.1", target.Ref)
+}
+
+// A third-party repository that once pushed a dated snapshot tag keeps its
+// semver releases on stable: a date without a channel word is a standalone
+// pointer, never ranked against a version.
+func TestChannelsOf_BareDateStaysAStandalonePointer(t *testing.T) {
+	testCases := []struct {
+		name       string
+		tags       map[string]string
+		wantStable string
+	}{
+		{name: "a dated snapshot next to a release", tags: map[string]string{"v1.4.0": "c14", "2026-01-02": "snap"}, wantStable: "v1.4.0"},
+		{name: "a later major still becomes the head", tags: map[string]string{"v1.4.0": "c14", "2023-05-01": "snap", "v2.0": "c20"}, wantStable: "v2.0"},
+		{name: "an unknown prefix does not make a date a version", tags: map[string]string{"v1.4.0": "c14", "snapshot-2026-01-02": "snap"}, wantStable: "v1.4.0"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := domain.RefSnapshot{Tags: tc.tags}
+			byName := map[string]ChannelInfo{}
+			for _, c := range ChannelsOf(snap) {
+				byName[c.Name] = c
+			}
+			assert.Equal(t, tc.wantStable, byName[StableChannel].Latest)
+			for tag := range tc.tags {
+				if tag != tc.wantStable && !strings.HasPrefix(tag, "v") {
+					assert.Equal(t, "pointer", byName[tag].Kind, "%s is a standalone pointer", tag)
+				}
+			}
+			_, outdated, err := Drift(domain.SelectorOrderedChannel, StableChannel,
+				domain.Resolved{Ref: tc.wantStable, Commit: tc.tags[tc.wantStable]}, snap)
+			require.NoError(t, err)
+			assert.False(t, outdated, "the release head is never offered a dated snapshot")
+		})
+	}
 }
