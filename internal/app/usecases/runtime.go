@@ -471,20 +471,50 @@ func (u *runtimeUsecase) executeUpdate(
 	if err := stopIfRunning(ctx, u.runtime, ns); err != nil {
 		return false, fmt.Errorf("update: stop: %w", err)
 	}
-	target, err := u.arrow.RefreshToTarget(ctx, ns, *available)
-	if err != nil {
-		return false, fmt.Errorf("update: %w", err)
-	}
-	if err := u.syncTargetDeps(ctx, ns, current, target); err != nil {
-		return false, fmt.Errorf("update: %w", err)
-	}
-
-	undo := u.remember(ns, *available)
-	if err := u.runtime.BeginUpdate(ctx, ns, userVars, available.Ref); err != nil {
-		undo()
+	if err := u.stageAndBegin(ctx, ns, current, *available, userVars); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// restoreTimeout bounds putting the installed manifest back after a bracket
+// failed, which must happen even when the caller gave up.
+const restoreTimeout = 30 * time.Second
+
+// stageAndBegin stages the target's manifest, syncs the dependencies it
+// changes and begins its update. Anything that fails once the target is
+// staged restores the installed release's manifest before returning: no run
+// began, so nothing would ever end to restore it, and the next install would
+// run the target's recipe for the installed ${REF}.
+func (u *runtimeUsecase) stageAndBegin(
+	ctx context.Context,
+	ns domain.Namespace,
+	current *domain.Arrow,
+	available domain.Available,
+	userVars map[string]string,
+) (err error) {
+	target, err := u.arrow.RefreshToTarget(ctx, ns, available)
+	if err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+		defer cancel()
+		u.restoreInstalled(restoreCtx, ns)
+	}()
+
+	if err := u.syncTargetDeps(ctx, ns, current, target); err != nil {
+		return fmt.Errorf("update: %w", err)
+	}
+	undo := u.remember(ns, available)
+	if err := u.runtime.BeginUpdate(ctx, ns, userVars, available.Ref); err != nil {
+		undo()
+		return err
+	}
+	return nil
 }
 
 // remember records the target an update begins toward, except for

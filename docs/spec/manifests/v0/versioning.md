@@ -573,7 +573,10 @@ sequenceDiagram
    same restore follows a commit that stamps nothing because the target moved (step 7). A
    row with no recorded commit, or a restore whose fetch fails, keeps the staged manifest
    until the next update restages it. The badge is then re-derived from the row, as in
-   step 7.
+   step 7. A bracket that fails after step 4 but before its update began (a dependency the
+   target gained fails to sync, `BeginUpdate` is refused, the caller gives up) restores the
+   installed manifest the same way before it answers, inside the bracket and under a
+   context of its own: no run began, so nothing would end to restore it.
 
 The commit runs detached from the event handler that observes `runtime.ended`, because
 clearing the badge waits on the same runtime event queue the handler is delivered on.

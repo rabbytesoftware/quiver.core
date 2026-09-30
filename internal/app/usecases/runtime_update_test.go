@@ -463,6 +463,114 @@ func TestRuntimeExecute_Update_Failures(t *testing.T) {
 	}
 }
 
+// Once the target manifest is staged, a bracket that fails before its update
+// begins must put the installed release's manifest back: nothing will end
+// to restore it, and the next install would run the target's recipe for the
+// installed ${REF}.
+func TestRuntimeExecute_Update_FailureAfterStaging_RestoresTheInstalledManifest(t *testing.T) {
+	boom := errors.New("boom")
+
+	testCases := []struct {
+		name        string
+		arrange     func(f *bracketFixture, cancel context.CancelFunc)
+		wantErr     error
+		wantRestore bool
+	}{
+		{
+			name: "stop fails before anything is staged",
+			arrange: func(f *bracketFixture, _ context.CancelFunc) {
+				f.setState(domain.ArrowStateRunning)
+				f.runtime.BeginStopFn = func(context.Context, domain.Namespace) error { return boom }
+			},
+			wantErr: boom,
+		},
+		{
+			name: "staging itself fails",
+			arrange: func(f *bracketFixture, _ context.CancelFunc) {
+				f.arrow.RefreshToTargetFn = func(context.Context, domain.Namespace, domain.Available) (*domain.Arrow, error) {
+					return nil, boom
+				}
+			},
+			wantErr: boom,
+		},
+		{
+			name: "a dependency change cannot be recorded",
+			arrange: func(f *bracketFixture, _ context.CancelFunc) {
+				f.graph.DiffDepsFn = func(_, _ *domain.Arrow) graph.DepDiff {
+					return graph.DepDiff{Added: []domain.DependencyEdge{{Namespace: "github.com/user/new@v1"}}}
+				}
+				f.runtime.MarkOutdatedFn = func(context.Context, domain.Namespace, []domain.Namespace, []domain.Namespace) error {
+					return boom
+				}
+			},
+			wantErr:     boom,
+			wantRestore: true,
+		},
+		{
+			name: "a gained dependency fails to sync",
+			arrange: func(f *bracketFixture, _ context.CancelFunc) {
+				f.setState(domain.ArrowStateOutdated)
+				f.runtime.GetRuntimeFn = func(context.Context, domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+					return nil, boom
+				}
+			},
+			wantErr:     boom,
+			wantRestore: true,
+		},
+		{
+			name: "the update cannot begin",
+			arrange: func(f *bracketFixture, _ context.CancelFunc) {
+				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
+					return boom
+				}
+			},
+			wantErr:     boom,
+			wantRestore: true,
+		},
+		{
+			name: "the caller gives up after staging",
+			arrange: func(f *bracketFixture, cancel context.CancelFunc) {
+				f.runtime.BeginUpdateFn = func(ctx context.Context, _ domain.Namespace, _ map[string]string, _ string) error {
+					cancel()
+					return ctx.Err()
+				}
+			},
+			wantErr:     context.Canceled,
+			wantRestore: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := rollingTarget()
+			f := newBracketFixture(domain.ArrowStateReady, &target)
+			f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+				return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+			}
+			var restoredWithLiveCtx []bool
+			refresh := f.arrow.RefreshToTargetFn
+			f.arrow.RefreshToTargetFn = func(ctx context.Context, ns domain.Namespace, a domain.Available) (*domain.Arrow, error) {
+				if a.Commit == "c1" {
+					restoredWithLiveCtx = append(restoredWithLiveCtx, ctx.Err() == nil)
+				}
+				return refresh(ctx, ns, a)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			tc.arrange(f, cancel)
+
+			err := f.usecase().Execute(ctx, rollingRow, domain.MethodUpdate, nil)
+
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantRestore {
+				assert.Equal(t, []bool{true}, restoredWithLiveCtx, "the installed manifest is restored once, under a context that still runs")
+			} else {
+				assert.Empty(t, restoredWithLiveCtx)
+			}
+		})
+	}
+}
+
 // ─── stopIfRunning ───────────────────────────────────────────────────────────
 
 func TestStopIfRunning(t *testing.T) {
