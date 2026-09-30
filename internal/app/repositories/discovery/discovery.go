@@ -29,6 +29,20 @@ type Discovery interface {
 		text string,
 		emit func(Result),
 	) (Outcome, error)
+
+	// Browse streams the best repositories of req's sources without any query
+	// text, reusing the verification, indexing and concurrency of Discover.
+	// Candidates the vault already holds are emitted without a host request and
+	// candidates it knows to hold nothing installable are dropped; at most
+	// req.Budget others are resolved, and none is dispatched once req.Want
+	// results are in hand. Outcome.Order lists the surviving
+	// candidates in search order, which is the ranking and which the emitted
+	// results, arriving as they verify, do not preserve.
+	Browse(
+		ctx context.Context,
+		req BrowseRequest,
+		emit func(Result),
+	) (Outcome, error)
 }
 
 // KnownFn reports whether the catalog already holds a bare namespace. An error
@@ -212,11 +226,20 @@ func (d *discovery) runSearch(
 	req provider.SearchRequest,
 	pass string,
 ) ([]provider.Candidate, []ProviderOutcome) {
-	found := make([][]provider.Candidate, len(d.providers))
-	outcomes := make([]ProviderOutcome, len(d.providers))
+	return d.searchOn(ctx, d.providers, req, pass)
+}
+
+func (d *discovery) searchOn(
+	ctx context.Context,
+	providers []provider.Provider,
+	req provider.SearchRequest,
+	pass string,
+) ([]provider.Candidate, []ProviderOutcome) {
+	found := make([][]provider.Candidate, len(providers))
+	outcomes := make([]ProviderOutcome, len(providers))
 
 	var wg sync.WaitGroup
-	for i, p := range d.providers {
+	for i, p := range providers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -274,6 +297,17 @@ func (c *counters) add(
 	c.tally.skipped++
 }
 
+func (c *counters) reached(
+	goal int,
+) bool {
+	if goal <= 0 {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tally.verified >= goal
+}
+
 func (c *counters) read() tally {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -287,6 +321,18 @@ func (d *discovery) verify(
 	candidates []provider.Candidate,
 	emit func(Result),
 ) tally {
+	return d.verifyUntil(ctx, candidates, emit, 0)
+}
+
+// verifyUntil is verify that stops dispatching once goal candidates have proven
+// to be arrows; goal zero or less means no target. Candidates already in
+// flight finish, so the count can overshoot the goal by up to concurrency-1.
+func (d *discovery) verifyUntil(
+	ctx context.Context,
+	candidates []provider.Candidate,
+	emit func(Result),
+	goal int,
+) tally {
 	slots := make(chan struct{}, d.concurrency)
 	stream := newStream(emit)
 
@@ -294,7 +340,11 @@ func (d *discovery) verify(
 	var wg sync.WaitGroup
 
 	for _, candidate := range candidates {
-		if !acquire(ctx, slots) {
+		if counted.reached(goal) || !acquire(ctx, slots) {
+			break
+		}
+		if counted.reached(goal) {
+			<-slots
 			break
 		}
 
@@ -342,6 +392,7 @@ func (d *discovery) verifyOne(
 
 	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, resolvedNs)
 	if err != nil {
+		d.recordAbsent(ctx, resolvedNs, err)
 		return false
 	}
 

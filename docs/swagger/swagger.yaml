@@ -347,6 +347,28 @@ definitions:
           PLATFORM and REF are computed by Quiver and rejected with 400 if set.
         type: object
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeDTO:
+    properties:
+      refreshing:
+        type: boolean
+      shelves:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeShelfDTO'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeShelfDTO:
+    properties:
+      arrows:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO'
+        type: array
+      id:
+        type: string
+      refreshed_at:
+        type: string
+      title:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO:
     properties:
       confidence:
@@ -549,6 +571,8 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
       netbridge:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      recommendation:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation'
       search:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
       vault:
@@ -582,6 +606,8 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Manifold'
       netbridge:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge'
+      recommendation:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation'
       search:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search'
       vault:
@@ -653,6 +679,49 @@ definitions:
         maximum: 65535
         minimum: 1
         type: integer
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation:
+    properties:
+      candidate_budget:
+        minimum: 1
+        type: integer
+      enabled:
+        type: boolean
+      min_entries:
+        minimum: 0
+        type: integer
+      refresh_interval:
+        type: string
+      shelves:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationShelf'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationShelf:
+    properties:
+      id:
+        type: string
+      limit:
+        type: integer
+      sources:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationSource'
+        type: array
+      title:
+        type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationSource:
+    properties:
+      host:
+        type: string
+      max_stars:
+        type: integer
+      min_stars:
+        type: integer
+      pushed_within:
+        type: string
+      sort:
+        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Search:
     properties:
@@ -1880,6 +1949,53 @@ paths:
       summary: Health check
       tags:
       - system
+  /home:
+    get:
+      description: |-
+        Returns the shelves the home screen shows, each a named, ranked list of arrows that are installable without any query. Every arrow has the shape GET /v0/search returns.
+
+        The answer comes from a local snapshot and the vault index. It never reaches a git host, so it is instant and works offline. A shelf that has never been filled has a null refreshed_at and no arrows; the snapshot fills in the background, so a client that sees refreshing set should ask again shortly.
+
+        Shelves are titled for people: show title and nothing that names where an arrow was found. When recommendations are disabled the list of shelves is empty.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeDTO'
+              type: object
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "503":
+          description: Recommendations are not configured on this daemon
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Read the home shelves
+      tags:
+      - home
+  /home/refresh:
+    post:
+      description: |-
+        Starts a refresh of the home shelves in the background and returns at once with no body. A refresh already running is joined rather than restarted, so calling this repeatedly is harmless. Read GET /v0/home to see the shelves fill; its refreshing field says when the work is done.
+
+        A refresh that fails or is cancelled leaves the previous shelves in place.
+      responses:
+        "202":
+          description: Refresh started, or already running
+        "503":
+          description: Recommendations are not configured on this daemon
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Refresh the home shelves
+      tags:
+      - home
   /runtime:
     get:
       description: Returns the current runtime state of every arrow in the catalog.

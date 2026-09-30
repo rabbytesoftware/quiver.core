@@ -6,6 +6,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -1191,5 +1192,50 @@ func (m *MockDevice) Shutdown(ctx context.Context) error {
 	if m.ShutdownFn != nil {
 		return m.ShutdownFn(ctx)
 	}
+	return nil
+}
+
+type MockRecommendation struct {
+	HomeResult     []recommendation.Shelf
+	HomeErr        error
+	RefreshingFlag bool
+	RefreshCalls   int
+	StartCalls     int
+	ShutdownErr    error
+	ShutdownCalls  int
+}
+
+func (m *MockRecommendation) Home(
+	_ context.Context,
+) ([]recommendation.Shelf, error) {
+	return m.HomeResult, m.HomeErr
+}
+
+func (m *MockRecommendation) Refresh(
+	_ context.Context,
+) {
+	m.RefreshCalls++
+}
+
+func (m *MockRecommendation) Refreshing() bool {
+	return m.RefreshingFlag
+}
+
+func (m *MockRecommendation) Start(
+	_ context.Context,
+) {
+	m.StartCalls++
+}
+
+func (m *MockRecommendation) Shutdown(
+	_ context.Context,
+) error {
+	m.ShutdownCalls++
+	return m.ShutdownErr
+}
+
+func (m *MockRecommendation) OnHomeRefreshed(
+	_ func(ctx context.Context),
+) error {
 	return nil
 }

@@ -240,6 +240,22 @@ func TestGetSearch_ReturnsUnmarkedSection(t *testing.T) {
 	assert.Positive(t, GetSearch().Unmarked.ProbeLimit)
 }
 
+func TestGetRecommendation_Defaults(t *testing.T) {
+	resetForTesting()
+	r := GetRecommendation()
+	assert.True(t, r.Enabled)
+	assert.Equal(t, "24h", r.RefreshInterval)
+	assert.Equal(t, 30, r.CandidateBudget)
+	assert.Equal(t, 6, r.MinEntries)
+	require.Len(t, r.Shelves, 2)
+	assert.Equal(t, "popular", r.Shelves[0].ID)
+	assert.Equal(t, 12, r.Shelves[0].Limit)
+	assert.Equal(t, RecommendationSource{Host: "github", Sort: "stars", MinStars: 500, MaxStars: 20000, PushedWithin: "90d"}, r.Shelves[0].Sources[0])
+	assert.Equal(t, "fresh", r.Shelves[1].ID)
+	assert.Equal(t, 6, r.Shelves[1].Limit)
+	assert.Equal(t, RecommendationSource{Host: "github", Sort: "updated", MinStars: 100, PushedWithin: "30d"}, r.Shelves[1].Sources[0])
+}
+
 func TestGetAuth_Defaults(t *testing.T) {
 	resetForTesting()
 	a := GetAuth()

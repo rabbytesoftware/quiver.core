@@ -41,7 +41,9 @@ type Container struct {
 	Config    usecases.ConfigUsecase
 	Auth      usecases.AuthUsecase
 	Path      usecases.PathUsecase
-	Hub       *hub.Hub
+	// Home is nil when the container was built without discovery.
+	Home usecases.HomeUsecase
+	Hub  *hub.Hub
 
 	repos    *repositories.Container
 	arrowsDB *gormdb.DB
@@ -67,6 +69,15 @@ func (c *Container) Start(ctx context.Context) {
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
+}
+
+// StartRecommendation launches the home refresh loop: it refreshes once at once
+// if any shelf is missing or stale, then on its interval, until ctx is
+// cancelled. It is separate from Start because only the daemon wants a
+// background refresh; a container built for a test or a command must not reach a
+// git host on its own.
+func (c *Container) StartRecommendation(ctx context.Context) {
+	c.repos.StartRecommendation(ctx)
 }
 
 func (c *Container) promoteRunningBinary(ctx context.Context) {
@@ -271,6 +282,7 @@ func New(
 		Config:     uc.Config,
 		Auth:       uc.Auth,
 		Path:       uc.Path,
+		Home:       uc.Home,
 		Hub:        h,
 		repos:      repos,
 		arrowsDB:   db,

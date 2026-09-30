@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -59,22 +60,23 @@ func (p *githubProvider) Search(
 		return p.host.Search(ctx, req)
 	}
 	if req.Unmarked {
-		return p.searchOne(ctx, unmarkedGithubQuery(req.Text, req.MinStars), "", req.Limit)
+		query := unmarkedGithubQuery(req.Text, req.MinStars, req.MaxStars, pushedSince(p.transport.now(), req.PushedWithin))
+		return p.searchOne(ctx, query, req.Sort, req.Limit)
 	}
 
 	return searchEachTopic(ctx, req.Topics, req.Limit,
 		func(ctx context.Context, topic string) ([]Candidate, error) {
-			return p.searchOne(ctx, req.Text, topic, req.Limit)
+			return p.searchOne(ctx, githubQuery(req.Text, topic), "", req.Limit)
 		})
 }
 
 func (p *githubProvider) searchOne(
 	ctx context.Context,
-	text string,
-	topic string,
+	query string,
+	sort string,
 	limit int,
 ) ([]Candidate, error) {
-	rawURL := withLimit(buildSearchURL(p.searchURL, githubQuery(text, topic), ""), limit)
+	rawURL := withLimit(withSort(buildSearchURL(p.searchURL, query, ""), sort), limit)
 
 	body, err := p.transport.get(ctx, rawURL, p.headers())
 	if err != nil {
@@ -127,16 +129,44 @@ func githubQuery(
 	return strings.Join(parts, " ")
 }
 
+// unmarkedGithubQuery builds the query for repositories that carry no discovery
+// topic. Text may be empty, in which case the qualifiers alone select the set;
+// pushedSince is the zero time when no recency window was asked for.
 func unmarkedGithubQuery(
 	text string,
 	minStars int,
+	maxStars int,
+	pushedSince time.Time,
 ) string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 5)
 	if text != "" {
 		parts = append(parts, text)
 	}
-	parts = append(parts, "fork:false", "archived:false", fmt.Sprintf("stars:>=%d", minStars))
+	parts = append(parts, "fork:false", "archived:false", starsQualifier(minStars, maxStars))
+	if !pushedSince.IsZero() {
+		parts = append(parts, "pushed:>="+pushedSince.UTC().Format(time.DateOnly))
+	}
 	return strings.Join(parts, " ")
+}
+
+func starsQualifier(
+	minStars int,
+	maxStars int,
+) string {
+	if maxStars <= 0 {
+		return fmt.Sprintf("stars:>=%d", minStars)
+	}
+	return fmt.Sprintf("stars:%d..%d", minStars, maxStars)
+}
+
+func pushedSince(
+	now time.Time,
+	within time.Duration,
+) time.Time {
+	if within <= 0 {
+		return time.Time{}
+	}
+	return now.Add(-within)
 }
 
 func (p *githubProvider) ReleaseAssets(

@@ -46,6 +46,7 @@ Each repository owns exactly one Asynx aggregate (or in `Graph`'s case, a derive
 | `repositories/runtime.Runtime` | `Asynx[domainRuntime.ArrowRuntime]` | `wizard`, `vault`, `netbridge` (via assembler) | Begin* commands, drain goroutine that consumes wizard events, crash recovery, drain-tracking shutdown. |
 | `repositories/collection.Collection` | `Asynx[domain.Collection]` + Bolt store at `collections.db` | `vault`, `manifold` | Follow / Unfollow lifecycle, vault fallback for unfollowed-but-cached collections. |
 | `repositories/graph.Graph` | Derived dep-edge table on the shared GORM DB | `manifold`, `deptree` | Topological resolution, reverse-dependency lookup, dep diffing, glob constraint resolution. Listens to `arrow.added.*`, `arrow.updated.*`, `arrow.upgraded.*`, and `OnForget` to keep edges in sync. |
+| `repositories/recommendation.Recommendation` | Derived snapshot tables on the shared GORM DB (`recommendation_shelves`, `recommendation_entries`); no aggregate | `discovery` (and through it `manifold`, `vault`, the providers), `vault` index | The query-less shelves the desktop home shows: refresh through `discovery.Browse`, atomic per-shelf swap, single-flight scheduler, snapshot reads. Exists only when discovery does. |
 
 ### 2.1 Arrow repository
 
@@ -155,6 +156,20 @@ The result is a `Plan = []PlanEntry{Namespace, Type}` in topological order with 
 
 `HasDependents` performs a single SQL query against `dep_edges`, optionally excluding one namespace. `Orphans` re-runs `Resolve` and filters to entries with no other dependents. `DiffDeps` compares two manifests' edge sets and returns added / removed / constraint-changed lists.
 
+### 2.5 Recommendation repository
+
+`repositories/recommendation` keeps the home screen populated without a query. Layout follows §1: `recommendation.go` is the public interface (`Home`, `Refresh`, `Refreshing`, `Start`, `Shutdown`, `OnHomeRefreshed`) and `internal/` holds `store/` (snapshot read model), `refresher.go`, `scheduler.go` and `hooks.go`. It is not an Asynx aggregate: a snapshot is a derived read model, so there are no commands and no events.
+
+**Configuration** (`recommendation.*`, read once at construction through `config.GetRecommendation()`): `enabled`, `refresh_interval`, `candidate_budget`, `min_entries`, and a list of `shelves`, each a `title`, a `limit` and a list of `sources` (`host`, `sort`, `min_stars`, `max_stars`, `pushed_within`; `max_stars` of 0 is unbounded and, when set, must be at least `min_stars`; GitHub turns the pair into a `stars:MIN..MAX` range, GitLab ignores `max_stars`). Hosts live only here, never in the API. A shelf that fails validation is skipped with a warning; it never stops the daemon starting. Shelves are edited in the configuration file: the settings API addresses scalar fields only, and saving the file preserves shelves that differ from the defaults.
+
+**Refresh, per shelf.** One `discovery.Browse` call carries the shelf's sources (each asking its host for a full page of 100 candidates, whatever the shelf limit), `candidate_budget` and a `Want` equal to the shelf `limit`. Browse searches every source in parallel, merges and dedupes by bare namespace, drops candidates the vault records as confirmed-absent, answers vault-fresh candidates from the cached manifest without a host request, resolves the rest in search order, at most `candidate_budget` of them (default 30, a hard cap) and none once vault-fresh hits plus newly verified arrows reach `Want` (resolves already in flight finish, so the count can overshoot slightly; a `Want` of 0 resolves up to the budget), and reports the surviving candidates in search order in `Outcome.Order`. The refresher keeps those that verified or were vault-fresh, truncates to the shelf `limit`, pads from the shelf's previous snapshot up to `min_entries`, and replaces the shelf in one transaction. A pass that fails, is cancelled, or in which no provider answered leaves the previous snapshot in place; a pass that finds nothing for a shelf that already has a snapshot leaves it untouched.
+
+**Negative cache.** Discovery's `verifyOne` records a definitive not-found (`resolver.ErrNotFound`, which is also what a repository Fletcher refuses to build leaves `ResolveArrow` as) through `vault.PutArrowNotFound`, the same confirmed-absent marker the arrow store's resolver already writes. The marker lives for the vault TTL (24h by default), shorter than the 30-day index TTL, so a repository that later ships a release is retried. Nothing new is stored. Transient failures are never recorded.
+
+**Scheduler.** `Start(ctx)` is called from `internal.Container.Start` through `app.Container.StartRecommendation`, and only when the container was built with `internal.WithRecommendations()`, which `cmd/quiver`'s daemon command passes. It is deliberately neither part of `app.Container.Start` nor on by default, so a container built for a test or a command never reaches a git host on its own. It refreshes once at start when any shelf is missing or older than `refresh_interval`, then every interval, until `ctx` is cancelled. One refresh runs at a time; a manual `Refresh` during a running one joins it. `Shutdown` cancels a refresh in flight and is the first phase of `repositories.Container.Shutdown`, since the refresh reads through discovery and the vault.
+
+**Reads.** `Home` reads the snapshot and the vault index, never a host. Arrow metadata comes from the index (30-day sliding TTL, re-saved on every refresh), not from manifest bytes, which the vault sweep deletes after 24h; an entry whose index row is gone is skipped. The catalog flag is computed at read time.
+
 ---
 
 ## 3. Use cases
@@ -210,6 +225,15 @@ Lightweight catalog of curated arrow lists. Composes `collection` repository, `a
 | `Seed(ctx, ns, data)` | Parses the collection manifest with `manifold.ParseCollection` and writes to Vault. | `ErrInvalidManifest`. |
 | `GetManifest(ctx, ns)` | Returns a JSON-serialised view of namespace + meta + arrow namespaces. | `ErrNotFound`. |
 | `ValidateManifest(ctx, data)` | Calls `manifold.ParseCollection` and returns a `ValidationResult` with field-level errors when ruleset validation fails. | — |
+
+### 3.4 HomeUsecase — `usecases/home.go`
+
+Composes the `recommendation` repository. Present only when discovery is (`usecases.Container.Home` is nil otherwise and the routes answer 503).
+
+| Method | Behaviour |
+|--------|-----------|
+| `Home(ctx)` | Returns every configured shelf from the snapshot as `models.Home{Shelves, Refreshing}`. Each arrow is a `models.SearchResult` built the way a vault-sourced search result is, with the snapshot's stars and source; an arrow the catalog holds is `Installed` with no provenance. Offline; never reaches a host. |
+| `Refresh(ctx)` | Asks the repository to refresh in the background and returns at once, joining a refresh already running. |
 
 ---
 

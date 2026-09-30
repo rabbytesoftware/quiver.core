@@ -382,7 +382,10 @@ touches the vault: caching is the app layer's job. The arrow store's resolver
 search response named and `PutArrow`s the manifest with the index metadata before streaming it,
 so every streamed result is returned by the `GET /v0/search` that follows. A candidate that fails to resolve is skipped, not streamed. A
 repository Fletcher cannot build is recorded as confirmed-absent, like any repository without a
-manifest. Discovery's unmarked pass (repositories with no discovery topic) always runs; it is tuned by
+manifest, by the arrow store's resolver and by discovery alike (`verifyOne` calls `PutArrowNotFound`
+on a definitive not-found). `discovery.Browse`, the query-less pass behind `GET /v0/home`, reads
+those markers: it drops a confirmed-absent candidate and answers a vault-fresh one from the cached
+manifest, so a repeat pass spends no metered request on either. Discovery's unmarked pass (repositories with no discovery topic) always runs; it is tuned by
 `search.unmarked` (`min_stars`, `probe_limit`) and, unlike Fletcher, has no on/off switch
 (`manifold.fletcher.enabled` gates only Fletcher). **Caveat:** a confirmed-absent entry persists until the vault TTL
 expires, so each of these keeps answering 404 for up to one TTL: a namespace resolved while

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,50 @@ func TestGitHub_Search_Unmarked_SendsStarsQueryWithNoTopicInOneRequest(t *testin
 		[]string{"https://api.github.com/search/repositories?q=browser+fork%3Afalse+archived%3Afalse+stars%3A%3E%3D50&per_page=20"},
 		stub.urls(t),
 	)
+}
+
+func TestGitHub_Search_Unmarked_BrowseQuery(t *testing.T) {
+	testCases := []struct {
+		name string
+		req  SearchRequest
+		want string
+	}{
+		{
+			name: "empty text with sort and window",
+			req:  SearchRequest{Unmarked: true, MinStars: 500, Sort: "stars", PushedWithin: 90 * 24 * time.Hour, Limit: 72},
+			want: "https://api.github.com/search/repositories?q=fork%3Afalse+archived%3Afalse+stars%3A%3E%3D500+pushed%3A%3E%3D2026-04-27&sort=stars&order=desc&per_page=72",
+		},
+		{
+			name: "sorted by updated",
+			req:  SearchRequest{Unmarked: true, MinStars: 100, Sort: "updated", PushedWithin: 30 * 24 * time.Hour},
+			want: "https://api.github.com/search/repositories?q=fork%3Afalse+archived%3Afalse+stars%3A%3E%3D100+pushed%3A%3E%3D2026-06-26&sort=updated&order=desc",
+		},
+		{
+			name: "unknown sort is dropped",
+			req:  SearchRequest{Unmarked: true, MinStars: 1, Sort: "forks"},
+			want: "https://api.github.com/search/repositories?q=fork%3Afalse+archived%3Afalse+stars%3A%3E%3D1",
+		},
+		{
+			name: "star band uses a range",
+			req:  SearchRequest{Unmarked: true, MinStars: 500, MaxStars: 20000, Sort: "stars"},
+			want: "https://api.github.com/search/repositories?q=fork%3Afalse+archived%3Afalse+stars%3A500..20000&sort=stars&order=desc",
+		},
+		{
+			name: "no window omits pushed",
+			req:  SearchRequest{Unmarked: true, MinStars: 1, Sort: "stars", Limit: 5},
+			want: "https://api.github.com/search/repositories?q=fork%3Afalse+archived%3Afalse+stars%3A%3E%3D1&sort=stars&order=desc&per_page=5",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &stubDoer{response: okBody(githubPayload)}
+
+			_, err := newGitHub(stub).Search(context.Background(), tc.req)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, stub.lastURL(t))
+		})
+	}
 }
 
 func TestGitHub_Search_ZeroLimit_OmitsPerPage(t *testing.T) {

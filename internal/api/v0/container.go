@@ -18,6 +18,7 @@ type Container struct {
 	collectionSvc usecases.CollectionUsecase
 	searchSvc     usecases.SearchUsecase
 	discoverySvc  usecases.DiscoveryUsecase
+	homeSvc       usecases.HomeUsecase
 	configSvc     usecases.ConfigUsecase
 	authSvc       usecases.AuthUsecase
 	pathSvc       usecases.PathUsecase
@@ -64,6 +65,7 @@ func New(
 		collectionSvc: appContainer.Collection,
 		searchSvc:     appContainer.Search,
 		discoverySvc:  appContainer.Discovery,
+		homeSvc:       appContainer.Home,
 		configSvc:     appContainer.Config,
 		authSvc:       appContainer.Auth,
 		pathSvc:       appContainer.Path,

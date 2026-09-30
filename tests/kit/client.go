@@ -321,6 +321,26 @@ func (c *Client) DiscoveryJob(jobID string) *http.Response {
 	return resp
 }
 
+// Home issues GET /v0/home.
+func (c *Client) Home() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/home"))
+	if err != nil {
+		c.t.Fatalf("Client.Home: do request: %v", err)
+	}
+	return resp
+}
+
+// RefreshHome issues POST /v0/home/refresh.
+func (c *Client) RefreshHome() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Post(c.url("/v0/home/refresh"), "application/json", nil)
+	if err != nil {
+		c.t.Fatalf("Client.RefreshHome: do request: %v", err)
+	}
+	return resp
+}
+
 // DialDiscovery opens the WebSocket result stream of a discovery job.
 func (c *Client) DialDiscovery(jobID string) (*websocket.Conn, error) {
 	c.t.Helper()

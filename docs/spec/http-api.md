@@ -302,6 +302,36 @@ Registered from `internal/api/v0/endpoints/search/routes.go`.
 
 **Stream vs. re-query.** Every result a discovery pass streams has been written to the vault index before it is emitted, so the re-query for the same text (same `os`, `limit` large enough for the result set) returns it, keyed by the same bare `namespace`. The stream is unranked and its rows describe only what the pass knew; clients replace it with the re-query once the stream closes. A contract test (`internal/api/v0/dto/search_contract_test.go`) pins the shared key.
 
+#### 6.4.1 Home
+
+Registered from `internal/api/v0/endpoints/home/routes.go`. Query-less recommendations for the desktop home, served from a local snapshot.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/home` | The shelves and whether a refresh is running |
+| POST | `/home/refresh` | Start a refresh; **202** with no body |
+
+`GET /home` answers from the local snapshot and the vault index and never reaches a git host, so it is instant and works offline. Body, wrapped like every query:
+
+```json
+{
+  "success": true,
+  "data": {
+    "shelves": [
+      {
+        "id": "popular",
+        "title": "Popular",
+        "refreshed_at": "2026-09-30T12:00:00Z",
+        "arrows": []
+      }
+    ],
+    "refreshing": false
+  }
+}
+```
+
+`arrows` holds one `SearchResultDTO` each, the same shape `GET /search` returns (`installed` says the catalog holds the arrow; `source` is provenance data, not a label). `refreshed_at` is `null` for a shelf that has never been filled. `shelves` is `[]` when `recommendation.enabled` is false. A client titles a shelf by `title` only and never names a host. `POST /home/refresh` joins a refresh already running; progress is read by polling `GET /home` while `refreshing` is true. Both answer **503** when the daemon was built without discovery. Configuration and refresh algorithm: [usecases.md § 2.5](usecases.md).
+
 ### 6.5 Health
 
 A single liveness probe with no envelope. Used by container orchestrators and the Quiver electron client to verify the daemon is running.

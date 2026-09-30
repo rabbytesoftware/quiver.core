@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -9,12 +10,21 @@ import (
 // SearchRequest is one query against one host. Topics are the discovery
 // markers a repository must carry; hosts intersect them rather than union
 // them. Limit caps the number of candidates returned.
+//
+// Sort and PushedWithin apply to an Unmarked search: Sort orders the host's
+// answer by "stars" or "updated" (empty keeps the host's default ordering) and
+// PushedWithin keeps only repositories pushed within that window, zero meaning
+// no window. An Unmarked search may carry empty Text, which asks the host for
+// its best repositories rather than for a match.
 type SearchRequest struct {
-	Text     string
-	Topics   []string
-	Limit    int
-	Unmarked bool
-	MinStars int
+	Text         string
+	Topics       []string
+	Limit        int
+	Unmarked     bool
+	MinStars     int
+	MaxStars     int
+	Sort         string
+	PushedWithin time.Duration
 }
 
 // searchEachTopic runs one request per marker and unions the results.

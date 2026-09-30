@@ -207,6 +207,29 @@ func (tc *TypedClient) Discover(query string) (dto.DiscoveryJobStartedDTO, int) 
 	return env.Data, resp.StatusCode
 }
 
+// Home returns the home shelves and the HTTP status code.
+func (tc *TypedClient) Home() (dto.HomeDTO, int) {
+	resp := tc.raw.Home()
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.HomeDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Home: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// RefreshHome asks for the home shelves to be rebuilt and returns the HTTP
+// status code and the response body, which is empty on success.
+func (tc *TypedClient) RefreshHome() (int, []byte) {
+	resp := tc.raw.RefreshHome()
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		tc.t.Fatalf("TypedClient.RefreshHome: read body: %v", err)
+	}
+	return resp.StatusCode, body
+}
+
 // DiscoveryJob returns the job summary and the HTTP status code.
 func (tc *TypedClient) DiscoveryJob(jobID string) (dto.DiscoveryJobDTO, int) {
 	resp := tc.raw.DiscoveryJob(jobID)

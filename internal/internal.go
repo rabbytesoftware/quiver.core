@@ -55,6 +55,11 @@ type Container struct {
 	// it always has.
 	listener net.Listener
 
+	// recommendations is set only via WithRecommendations: Start then launches
+	// the home refresh loop, which searches real git hosts. It is opt-in so a
+	// container built for a test or a command never reaches one on its own.
+	recommendations bool
+
 	// loggerShutdown closes core.New/NewAt's log file handle. Closed last,
 	// after every other phase, so logging from their own shutdown still
 	// reaches the file.
@@ -164,6 +169,9 @@ func (c *Container) Start(
 
 	c.Engines.Start(ctx)
 	c.App.Start(ctx)
+	if c.recommendations {
+		c.App.StartRecommendation(ctx)
+	}
 
 	runErr := make(chan error, 1)
 	go func() { runErr <- c.API.Run(listener) }()
@@ -212,6 +220,7 @@ type internalOpts struct {
 	selfUpdateTrigger *selfupdate.Trigger
 	listener          net.Listener
 	scheme            string
+	recommendations   bool
 }
 
 // Option configures internal.New.
@@ -246,6 +255,13 @@ func WithGateway(listener net.Listener, scheme string) Option {
 		o.listener = listener
 		o.scheme = scheme
 	}
+}
+
+// WithRecommendations makes Start launch the home refresh loop: it fills the
+// recommended shelves in the background, which means searching the configured
+// git hosts. The daemon passes it; nothing else should.
+func WithRecommendations() Option {
+	return func(o *internalOpts) { o.recommendations = true }
 }
 
 // New wires all internal modules together: engine + adapter → app → api.
@@ -314,12 +330,13 @@ func New(
 	}
 
 	return &Container{
-		Engines:        engines,
-		Adapters:       adapters,
-		App:            appContainer,
-		API:            apiContainer,
-		authGate:       v0Container.AuthGate,
-		listener:       cfg.listener,
-		loggerShutdown: loggerShutdown,
+		Engines:         engines,
+		Adapters:        adapters,
+		App:             appContainer,
+		API:             apiContainer,
+		authGate:        v0Container.AuthGate,
+		listener:        cfg.listener,
+		recommendations: cfg.recommendations,
+		loggerShutdown:  loggerShutdown,
 	}, nil
 }

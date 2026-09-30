@@ -118,6 +118,7 @@ type stubManifold struct {
 	mu        sync.Mutex
 	requested []domain.Namespace
 	resolve   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error)
+	parse     func(raw []byte) (*domain.Arrow, error)
 }
 
 func (s *stubManifold) ResolveArrow(
@@ -159,9 +160,12 @@ func (s *stubManifold) ParseCollection(
 }
 
 func (s *stubManifold) ParseArrow(
-	_ []byte,
+	raw []byte,
 ) (*domain.Arrow, error) {
-	return nil, errors.New("not used")
+	if s.parse == nil {
+		return nil, errors.New("not used")
+	}
+	return s.parse(raw)
 }
 
 func (s *stubManifold) ResolveConstraint(

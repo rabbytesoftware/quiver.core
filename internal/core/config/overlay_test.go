@@ -158,6 +158,13 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 			Unmarked:         SearchUnmarked{MinStars: 5, ProbeLimit: 3},
 		},
 		Auth: Auth{PairingCodeTTL: "5m", RedeemRateLimit: 5, RedeemRateWindow: "1m"},
+		Recommendation: Recommendation{
+			Enabled:         false,
+			RefreshInterval: "12h",
+			CandidateBudget: 10,
+			MinEntries:      2,
+			Shelves:         Defaults().Recommendation.Shelves,
+		},
 	}
 
 	require.NoError(t, SaveAt(path, want))
@@ -166,6 +173,40 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, corrected)
 	assert.Equal(t, want, got)
+}
+
+func TestSaveAt_CustomShelvesSurviveAnUnrelatedSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := Defaults()
+	data.Recommendation.Shelves = []RecommendationShelf{{
+		ID:    "mine",
+		Title: "Mine",
+		Limit: 5,
+		Sources: []RecommendationSource{
+			{Host: "github", Sort: "stars", MinStars: 10, MaxStars: 50, PushedWithin: "7d"},
+		},
+	}}
+	require.NoError(t, SaveAt(path, data))
+
+	loaded, _, err := ConfiguredAt(path)
+	require.NoError(t, err)
+	loaded.Logger.Level = "debug"
+	require.NoError(t, SaveAt(path, loaded))
+
+	got, _, err := ConfiguredAt(path)
+	require.NoError(t, err)
+	assert.Equal(t, data.Recommendation.Shelves, got.Recommendation.Shelves)
+	assert.Equal(t, "debug", got.Logger.Level)
+}
+
+func TestSaveAt_DefaultShelves_AreNotWritten(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	require.NoError(t, SaveAt(path, Defaults()))
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(content), "shelves")
 }
 
 func TestSaveAt_UnwritablePath_ReturnsError(t *testing.T) {

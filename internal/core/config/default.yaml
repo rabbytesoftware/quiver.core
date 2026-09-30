@@ -73,3 +73,32 @@ config:
     unmarked:
       min_stars: 50
       probe_limit: 10
+
+  # ? recommendation fills the home screen without a query. A refresh searches
+  # ? each shelf's sources, resolves at most candidate_budget repositories the
+  # ? vault has not seen (it stops early once a shelf's limit is met), and swaps the shelf in whole. A shelf that comes back
+  # ? with fewer than min_entries is padded from its previous snapshot. Reading
+  # ? home never calls a git host.
+  recommendation:
+    enabled: true
+    refresh_interval: 24h
+    candidate_budget: 30
+    min_entries: 6
+    shelves:
+      - id: popular
+        title: Popular
+        limit: 12
+        sources:
+          - host: github
+            sort: stars
+            min_stars: 500
+            max_stars: 20000
+            pushed_within: 90d
+      - id: fresh
+        title: Recently updated
+        limit: 6
+        sources:
+          - host: github
+            sort: updated
+            min_stars: 100
+            pushed_within: 30d

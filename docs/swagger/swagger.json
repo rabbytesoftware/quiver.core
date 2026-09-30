@@ -1360,6 +1360,70 @@
                 }
             }
         },
+        "/home": {
+            "get": {
+                "description": "Returns the shelves the home screen shows, each a named, ranked list of arrows that are installable without any query. Every arrow has the shape GET /v0/search returns.\n\nThe answer comes from a local snapshot and the vault index. It never reaches a git host, so it is instant and works offline. A shelf that has never been filled has a null refreshed_at and no arrows; the snapshot fills in the background, so a client that sees refreshing set should ask again shortly.\n\nShelves are titled for people: show title and nothing that names where an arrow was found. When recommendations are disabled the list of shelves is empty.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "home"
+                ],
+                "summary": "Read the home shelves",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Recommendations are not configured on this daemon",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/home/refresh": {
+            "post": {
+                "description": "Starts a refresh of the home shelves in the background and returns at once with no body. A refresh already running is joined rather than restarted, so calling this repeatedly is harmless. Read GET /v0/home to see the shelves fill; its refreshing field says when the work is done.\n\nA refresh that fails or is cancelled leaves the previous shelves in place.",
+                "tags": [
+                    "home"
+                ],
+                "summary": "Refresh the home shelves",
+                "responses": {
+                    "202": {
+                        "description": "Refresh started, or already running"
+                    },
+                    "503": {
+                        "description": "Recommendations are not configured on this daemon",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/runtime": {
             "get": {
                 "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". Use the WebSocket upgrade on the same route to stream updates instead.",
@@ -2309,6 +2373,40 @@
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeDTO": {
+            "type": "object",
+            "properties": {
+                "refreshing": {
+                    "type": "boolean"
+                },
+                "shelves": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeShelfDTO"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.HomeShelfDTO": {
+            "type": "object",
+            "properties": {
+                "arrows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.SearchResultDTO"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "refreshed_at": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO": {
             "type": "object",
             "properties": {
@@ -2595,6 +2693,9 @@
                 "netbridge": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge"
                 },
+                "recommendation": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation"
+                },
                 "search": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search"
                 },
@@ -2645,6 +2746,9 @@
                 },
                 "netbridge": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge"
+                },
+                "recommendation": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation"
                 },
                 "search": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.Search"
@@ -2752,6 +2856,71 @@
                     "type": "integer",
                     "maximum": 65535,
                     "minimum": 1
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.Recommendation": {
+            "type": "object",
+            "properties": {
+                "candidate_budget": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "min_entries": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "refresh_interval": {
+                    "type": "string"
+                },
+                "shelves": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationShelf"
+                    }
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationShelf": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationSource"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_core_config.RecommendationSource": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "max_stars": {
+                    "type": "integer"
+                },
+                "min_stars": {
+                    "type": "integer"
+                },
+                "pushed_within": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "string"
                 }
             }
         },
