@@ -77,20 +77,38 @@ func TestIsSquareDim_Tolerance(
 	assert.False(t, isSquareDim(dimensions{Width: 100, Height: 110}))
 }
 
-func TestProbeIcon_AHitStopsTheLowerRankedFetches(
+func TestProbeRankedOne_SkipsARankBelowTheBest(
 	t *testing.T,
 ) {
-	host := &stubHost{tagged: map[string][]byte{"src-tauri/icons/icon.png": encodePNG(t, 256, 256)}}
 	var fetched atomic.Int64
-	fetch := func(ctx context.Context, url string) ([]byte, error) {
+	fetch := func(context.Context, string) ([]byte, error) {
 		fetched.Add(1)
-		return host.fetch(ctx, url)
+		return encodePNG(t, 256, 256), nil
 	}
+	var best atomic.Int64
+	best.Store(3)
 
-	got := ProbeIcon(context.Background(), fetch, host, testNS, testRef)
+	probeRankedOne(context.Background(), fetch, "https://example.test/icon.png", 5, &best)
 
-	assert.Equal(t, githubRawPrefix+"src-tauri/icons/icon.png", got)
-	assert.Less(t, fetched.Load(), int64(len(iconProbePaths())))
+	assert.Zero(t, fetched.Load())
+	assert.Equal(t, int64(3), best.Load())
+}
+
+func TestProbeRankedOne_AHigherRankedHitReplacesTheBest(
+	t *testing.T,
+) {
+	var fetched atomic.Int64
+	fetch := func(context.Context, string) ([]byte, error) {
+		fetched.Add(1)
+		return encodePNG(t, 256, 256), nil
+	}
+	var best atomic.Int64
+	best.Store(3)
+
+	probeRankedOne(context.Background(), fetch, "https://example.test/icon.png", 1, &best)
+
+	assert.Equal(t, int64(1), fetched.Load())
+	assert.Equal(t, int64(1), best.Load())
 }
 
 func TestProbeIcon_RefEqualToADefaultBranchIsProbedOnce(
