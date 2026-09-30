@@ -16,9 +16,15 @@
 #            stable to its newest stable-* tag, an update across a new tag
 #            keeps the identity, and adopting an older member offers the
 #            newest.
+#   Phase E  quiver.core's own nightly-latest row, served by the git host
+#            standing in for github.com: a build stamped exactly as the
+#            release workflows stamp one registers itself, notices the rolling
+#            tag moved, downloads the next build through its own ARROW.md and
+#            execs it; the successor adopts the new commit on the same identity.
+#   Phase F  the same for the stable channel, across a new stable-* tag.
 #
 # Environment:
-#   E2E_PHASES         phases to run, default "A B C D"
+#   E2E_PHASES         phases to run, default "A B C D E F"
 #   E2E_WAIT_SECONDS   deadline for any single wait, default 1500
 #   E2E_HOST_ARCH      the Docker host's architecture (amd64|arm64), set by
 #                      `make test-e2e-docker`; evidence that the container is
@@ -33,7 +39,7 @@ readonly GIT_ROOT=/srv/git
 readonly SOCK="$HOME/.quiver/quiver.sock"
 readonly PID_FILE="$HOME/.quiver/quiver.pid"
 WAIT_SECONDS="${E2E_WAIT_SECONDS:-1500}"
-PHASES="${E2E_PHASES:-A B C D}"
+PHASES="${E2E_PHASES:-A B C D E F}"
 
 SUITE_START=$SECONDS
 PHASE_START=$SECONDS
@@ -43,6 +49,7 @@ DAEMON_PID=""
 GITHOST_PID=""
 POLLER_PID=""
 EMULATED=0
+HOSTS_REDIRECTED=0
 
 # ─── reporting ────────────────────────────────────────────────────────────────
 
@@ -107,6 +114,9 @@ cleanup() {
 			kill "$pid" 2>/dev/null || true
 		fi
 	done
+	if ((HOSTS_REDIRECTED)); then
+		sudo -n /usr/local/sbin/e2e-hosts off || true
+	fi
 }
 trap cleanup EXIT
 
@@ -194,8 +204,10 @@ peeled_commit() {
 	echo "$peeled"
 }
 
+# start_daemon [BINARY] runs BINARY (default: the quiver on PATH) as the
+# daemon and waits until it answers.
 start_daemon() {
-	quiver daemon >"$HOME/daemon.out" 2>&1 &
+	"${1:-quiver}" daemon >"$HOME/daemon.out" 2>&1 &
 	DAEMON_PID=$!
 	local deadline=$((SECONDS + 60))
 	until curl -sf --unix-socket "$SOCK" http://quiver/v0/health >/dev/null 2>&1; do
@@ -848,6 +860,262 @@ phase_d_adopt() {
 	ok "$ns no longer listed"
 }
 
+# ─── Phases E and F: quiver.core updates itself ──────────────────────────────
+
+readonly SELF=github.com/rabbytesoftware/quiver.core
+readonly SELF_URL=https://github.com/rabbytesoftware/quiver.core
+readonly SELF_DIR=/opt/e2e/self
+readonly SELF_BARE=$GIT_ROOT/rabbytesoftware/quiver.core
+readonly SELF_RELEASES=/srv/releases/rabbytesoftware/quiver.core
+
+# self_hosts on|off points github.com and raw.githubusercontent.com at the
+# githost, or back at the real hosts.
+self_hosts() {
+	sudo -n /usr/local/sbin/e2e-hosts "$1"
+	if [[ "$1" == on ]]; then
+		HOSTS_REDIRECTED=1
+		ok "github.com and raw.githubusercontent.com resolve to this container"
+	else
+		HOSTS_REDIRECTED=0
+	fi
+}
+
+# self_build BUILD prints the path of BUILD's daemon binary.
+self_build() {
+	echo "$SELF_DIR/$1/quiver-linux-$(container_goarch)"
+}
+
+# publish_self_release TAG BUILD serves BUILD's assets as release TAG,
+# replacing whatever TAG served before, as the nightly workflow's
+# delete-and-recreate does.
+publish_self_release() {
+	rm -rf "${SELF_RELEASES:?}/$1"
+	mkdir -p "$SELF_RELEASES/$1"
+	cp "$SELF_DIR/$2"/* "$SELF_RELEASES/$1/"
+}
+
+# serve_self publishes the stand-in quiver.core repository at $SELF_URL, as
+# the release workflows leave it before either phase moves anything:
+# nightly-latest at N1, stable-26.5 (and beta-26.5-1) at S1.
+serve_self() {
+	# shellcheck source=/dev/null
+	source "$SELF_DIR/shas.env"
+	if [[ -d "$SELF_BARE" ]]; then
+		return 0
+	fi
+	mkdir -p "$(dirname "$SELF_BARE")"
+	git init -q --bare "$SELF_BARE"
+	git -C "$SELF_DIR/repo" push -q "$SELF_BARE" \
+		"$N1:refs/heads/develop" "$S1:refs/heads/master" \
+		"$N1:refs/tags/nightly-latest" "$S1:refs/tags/stable-26.5" "$S1:refs/tags/beta-26.5-1"
+	git -C "$SELF_BARE" symbolic-ref HEAD refs/heads/develop
+	publish_self_release nightly-latest nightly-1
+	publish_self_release stable-26.5 stable-1
+	wait_served "$SELF_URL"
+}
+
+# fresh_self_home stops whatever daemon serves the socket and starts BUILD on
+# an empty home: a first boot of that release.
+fresh_self_home() {
+	ensure_daemon
+	stop_daemon
+	rm -rf "$HOME/.quiver"
+	start_daemon "$(self_build "$1")"
+}
+
+# self_get NS prints GET /v0/arrow/NS's data. The CLI is never used here: a
+# CLI that finds no daemon boots its own, which during a handover would take
+# the socket from the successor.
+self_get() {
+	api GET "$1" >/dev/null
+	jq -c .data "$HOME/api.body"
+}
+
+# wait_self NS JQ_PREDICATE DESCRIPTION polls self_get until the predicate
+# holds, tolerating a daemon that is between processes.
+wait_self() {
+	local ns=$1 predicate=$2 what=$3 deadline=$((SECONDS + WAIT_SECONDS)) detail=""
+	while ((SECONDS < deadline)); do
+		if [[ "$(api GET "$ns" 2>/dev/null)" == 200 ]] &&
+			detail=$(jq -c .data "$HOME/api.body") && jq -e "$predicate" <<<"$detail" >/dev/null 2>&1; then
+			ok "$what (after $((SECONDS - deadline + WAIT_SECONDS))s)"
+			return 0
+		fi
+		sleep 1
+	done
+	echo "last detail: $detail" >&2
+	fail "timed out after ${WAIT_SECONDS}s waiting for: $what"
+}
+
+# versions prints the daemon's GET /versions data, empty while nothing answers.
+versions() {
+	curl -sf --unix-socket "$SOCK" http://quiver/versions 2>/dev/null | jq -c .data || true
+}
+
+# self_rows prints every quiver.core row the catalog lists, as ref=resolved
+# pairs; library_rows the same for GET /v0/arrow?user_installed=true.
+self_rows() {
+	curl -sf --unix-socket "$SOCK" "http://quiver/v0/arrow${1:-}" |
+		jq -r --arg n "$SELF" '[.data[] | select(.namespace == $n) | .versions[] | "\(.ref)=\(.resolved_ref)"] | join(",")'
+}
+
+library_rows() {
+	self_rows "?user_installed=true"
+}
+
+# runtime_post NS METHOD [BODY] calls POST /v0/runtime/NS/METHOD and prints
+# the HTTP status; the response body lands in $HOME/api.body.
+runtime_post() {
+	local path body=${3:-'{}'}
+	path="/v0/runtime/$(jq -rn --arg ns "$1" '$ns | @uri')/$2"
+	curl -s -o "$HOME/api.body" -w '%{http_code}' --unix-socket "$SOCK" -X POST \
+		-H 'Content-Type: application/json' --data "$body" "http://quiver$path"
+}
+
+# self_update NS TAG BUILD_ID runs quiver.core's own update the way a client
+# does: the asset URL and checksum of release TAG for this platform, from the
+# release's own checksums.txt. It then waits for the handover: the same PID
+# answering as build BUILD_ID, its image the downloaded binary.
+self_update() {
+	local ns=$1 tag=$2 build_id=$3 asset url sum
+	asset="quiver-linux-$(container_goarch)"
+	url="$SELF_URL/releases/download/$tag/$asset"
+	sum=$(curl -sf "$SELF_URL/releases/download/$tag/checksums.txt" | awk -v a="./$asset" '$2 == a { print $1 }')
+	[[ -n "$sum" ]] || fail "no checksum for $asset in release $tag"
+	expect_eq "POST /v0/runtime/$ns/update ($url)" \
+		"$(runtime_post "$ns" update "$(jq -nc --arg u "$url" --arg c "$sum" '{variables: {QUIVER_RELEASE_ASSET_URL: $u, QUIVER_RELEASE_CHECKSUM: $c}}')")" 202
+
+	local deadline=$((SECONDS + WAIT_SECONDS))
+	until [[ "$(versions | jq -r '.build_id // empty' 2>/dev/null)" == "$build_id" ]]; do
+		kill -0 "$DAEMON_PID" 2>/dev/null || fail "the daemon (pid $DAEMON_PID) exited instead of handing over"
+		((SECONDS < deadline)) || fail "the daemon never answered as build $build_id: $(versions)"
+		sleep 0.5
+	done
+	ok "pid $DAEMON_PID now answers as build $build_id"
+	expect_eq "the process image" "$(readlink "/proc/$DAEMON_PID/exe")" "$HOME/.quiver/namespaces/$ns/quiver-new"
+}
+
+phase_e() {
+	banner "Phase E — quiver.core@nightly-latest updates itself"
+	PHASE_START=$SECONDS
+	local ns="$SELF@nightly-latest" detail
+
+	step "serve quiver.core from a git host standing in for github.com"
+	self_hosts on
+	serve_self
+	expect_eq "nightly-latest on $SELF_URL" "$(peeled_commit "$SELF_URL" nightly-latest)" "$N1"
+
+	step "first boot of the nightly-latest build at $N1"
+	fresh_self_home nightly-1
+	expect_eq "GET /versions" "$(versions | jq -c '{version, build_id}')" '{"version":"nightly-latest","build_id":"170"}'
+	wait_self "$ns" ".installed_commit == \"$N1\"" "core registered itself as $ns"
+	detail=$(self_get "$ns")
+	expect_eq "identity" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" nightly-latest
+	expect_eq "user_installed" "$(jq -r .user_installed <<<"$detail")" true
+	expect_eq "state" "$(jq -r .state <<<"$detail")" ready
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	detail=$(self_get "$ns")
+	expect_eq "available after a check" "$(jq -c '.available // "absent"' <<<"$detail")" '"absent"'
+	expect_eq "outdated" "$(jq -r .outdated <<<"$detail")" false
+	expect_eq "catalog rows for $SELF" "$(self_rows)" nightly-latest=nightly-latest
+	expect_eq "library rows for $SELF" "$(library_rows)" nightly-latest=nightly-latest
+
+	step "the nightly workflow publishes $N2: nightly-latest force-moved, assets replaced"
+	git -C "$SELF_DIR/repo" push -q --force "$SELF_BARE" "$N2:refs/heads/develop" "$N2:refs/tags/nightly-latest"
+	publish_self_release nightly-latest nightly-2
+	expect_eq "nightly-latest on $SELF_URL" "$(peeled_commit "$SELF_URL" nightly-latest)" "$N2"
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	detail=$(self_get "$ns")
+	expect_eq "available" "$(jq -c .available <<<"$detail")" "{\"ref\":\"nightly-latest\",\"commit\":\"$N2\"}"
+	expect_eq "outdated" "$(jq -r .outdated <<<"$detail")" true
+	expect_eq "state (the runtime badge)" "$(jq -r .state <<<"$detail")" outdated
+	expect_eq "installed_commit (not yet updated)" "$(jq -r .installed_commit <<<"$detail")" "$N1"
+
+	step "self-update: download nightly-latest through ARROW.md, exec it"
+	local pid=$DAEMON_PID
+	self_update "$ns" nightly-latest 171
+	expect_eq "same pid" "$DAEMON_PID" "$pid"
+	wait_self "$ns" ".installed_commit == \"$N2\" and .available == null and .state == \"ready\"" \
+		"the successor adopted $N2 with nothing ahead"
+	detail=$(self_get "$ns")
+	expect_eq "identity unchanged" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" nightly-latest
+	expect_eq "user_installed preserved" "$(jq -r .user_installed <<<"$detail")" true
+	expect_eq "outdated" "$(jq -r .outdated <<<"$detail")" false
+	expect_eq "the update's \${REF}" "$(jq -r .last_return.variables.REF <<<"$detail")" nightly-latest
+	expect_eq "catalog rows for $SELF" "$(self_rows)" nightly-latest=nightly-latest
+	expect_eq "library rows for $SELF" "$(library_rows)" nightly-latest=nightly-latest
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	expect_eq "available after a fresh check" "$(self_get "$ns" | jq -c '.available // "absent"')" '"absent"'
+	expect_eq "update with nothing newer (idempotent no-op)" "$(runtime_post "$ns" update)" 200
+	cmp -s "$HOME/.quiver/self/quiver" "$(self_build nightly-2)" || fail "the running build was not promoted to ~/.quiver/self/quiver"
+	ok "the running build is promoted to ~/.quiver/self/quiver"
+
+	step "a reboot starts the promoted build: nothing moves"
+	stop_daemon
+	start_daemon "$HOME/.quiver/self/quiver"
+	expect_eq "GET /versions" "$(versions | jq -c '{version, build_id}')" '{"version":"nightly-latest","build_id":"171"}'
+	wait_self "$ns" ".installed_commit == \"$N2\" and .state == \"ready\"" "row still at $N2 after a reboot"
+	expect_eq "available" "$(self_get "$ns" | jq -c '.available // "absent"')" '"absent"'
+	expect_eq "catalog rows for $SELF" "$(self_rows)" nightly-latest=nightly-latest
+
+	stop_daemon
+	self_hosts off
+	phase_done E "quiver.core@nightly-latest: $N1 -> $N2 by its own update, same pid, same identity, one row"
+}
+
+phase_f() {
+	banner "Phase F — quiver.core@stable updates itself across a new tag"
+	PHASE_START=$SECONDS
+	local ns="$SELF@stable" detail
+
+	step "serve quiver.core from a git host standing in for github.com"
+	self_hosts on
+	serve_self
+	expect_eq "stable-26.5 on $SELF_URL" "$(peeled_commit "$SELF_URL" stable-26.5)" "$S1"
+
+	step "first boot of the stable-26.5 build"
+	fresh_self_home stable-1
+	expect_eq "GET /versions" "$(versions | jq -c '{version, build_id}')" '{"version":"stable-26.5","build_id":"170"}'
+	wait_self "$ns" ".installed_commit == \"$S1\"" "core registered itself as $ns"
+	detail=$(self_get "$ns")
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" stable-26.5
+	expect_eq "user_installed" "$(jq -r .user_installed <<<"$detail")" true
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	expect_eq "available after a check" "$(self_get "$ns" | jq -c '.available // "absent"')" '"absent"'
+	expect_eq "catalog rows for $SELF" "$(self_rows)" stable=stable-26.5
+
+	step "the stable workflow tags stable-26.5.1 at $S2"
+	git -C "$SELF_DIR/repo" push -q "$SELF_BARE" "$S2:refs/heads/master" "$S2:refs/tags/stable-26.5.1"
+	publish_self_release stable-26.5.1 stable-2
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	detail=$(self_get "$ns")
+	expect_eq "available" "$(jq -c .available <<<"$detail")" "{\"ref\":\"stable-26.5.1\",\"commit\":\"$S2\"}"
+	expect_eq "state (the runtime badge)" "$(jq -r .state <<<"$detail")" outdated
+
+	step "self-update to stable-26.5.1"
+	self_update "$ns" stable-26.5.1 172
+	wait_self "$ns" ".installed_commit == \"$S2\" and .available == null and .state == \"ready\"" \
+		"the successor adopted stable-26.5.1 with nothing ahead"
+	detail=$(self_get "$ns")
+	expect_eq "identity unchanged" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" stable-26.5.1
+	expect_eq "user_installed preserved" "$(jq -r .user_installed <<<"$detail")" true
+	expect_eq "the update's \${REF}" "$(jq -r .last_return.variables.REF <<<"$detail")" stable-26.5.1
+	expect_eq "catalog rows for $SELF" "$(self_rows)" stable=stable-26.5.1
+	expect_eq "library rows for $SELF" "$(library_rows)" stable=stable-26.5.1
+	expect_eq "PATCH /v0/arrow/$ns" "$(api PATCH "$ns")" 200
+	expect_eq "available after a fresh check" "$(self_get "$ns" | jq -c '.available // "absent"')" '"absent"'
+
+	stop_daemon
+	self_hosts off
+	phase_done F "quiver.core@stable: stable-26.5 -> stable-26.5.1 by its own update, same identity, one row"
+}
+
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 banner "quiver e2e on $(uname -m)"
@@ -865,6 +1133,8 @@ for phase in $PHASES; do
 	B) phase_b ;;
 	C) phase_c ;;
 	D) phase_d ;;
+	E) phase_e ;;
+	F) phase_f ;;
 	*) fail "unknown phase $phase" ;;
 	esac
 done
