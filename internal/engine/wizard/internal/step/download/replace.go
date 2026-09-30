@@ -85,7 +85,8 @@ func sweepStale(dst string) {
 
 // sweepStaleWith clears a leftover's read-only bit before removing it: an
 // aside file keeps the mode of the destination it was, and Windows refuses
-// to remove a read-only file.
+// to remove a read-only file. A symlink leftover is removed as a link, and
+// its target's mode is never touched.
 func sweepStaleWith(
 	dst string,
 	remove func(path string) error,
@@ -103,7 +104,9 @@ func sweepStaleWith(
 		}
 		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
 			path := filepath.Join(dir, name)
-			_ = os.Chmod(path, info.Mode().Perm()|0o200)
+			if info.Mode()&os.ModeSymlink == 0 {
+				_ = os.Chmod(path, info.Mode().Perm()|0o200)
+			}
 			_ = remove(path)
 		}
 	}
