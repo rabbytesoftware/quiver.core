@@ -41,7 +41,7 @@ func New(
 		repos.Runtime,
 		repos.Graph,
 	)
-	repos.Arrow.HoldBadgeWhile(runtimeUC.Settling)
+	repos.Arrow.HoldBadgeWhile(runtimeUC.HoldBadge)
 	arrowUC := newArrowUsecase(
 		repos.Arrow,
 		repos.Graph,

@@ -209,7 +209,9 @@ as it stands at that moment, never the answer the check computed. The end of any
 re-derives it the same way, except the end of `_update`, whose badge the update bracket
 re-derives once its commit has landed (§8.2 step 7). While a row is settling, a check that
 lands (a detail read's passive check, a `PATCH`) records what it found but leaves the badge
-alone for the same reason: the row still names the target about to be stamped.
+alone for the same reason: the row still names the target about to be stamped. The update
+re-derives the badge once more before it lets the row go for every check it held in the
+meantime, so a newer release recorded during the settle is never left with a stale badge.
 
 ---
 

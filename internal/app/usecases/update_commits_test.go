@@ -315,3 +315,26 @@ func TestRuntimeDrain_Begun_BracketRestoreIsRefused(t *testing.T) {
 
 	assert.NotContains(t, f.log.all(), "refresh to c1")
 }
+
+// A check held while the row settled may record a newer Available after the
+// settle's own reconcile read the row: the settle re-derives the badge again
+// before it lets the row go, and checks after that sync it themselves.
+func TestRuntimeOnUpdateEnded_CheckHeldDuringTheReconcile_ReconcilesAgain(t *testing.T) {
+	a, rt, log := commitFixture(true, nil)
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+	calls := 0
+	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
+		calls++
+		log.add("reconcile badge")
+		if calls == 1 {
+			assert.True(t, uc.HoldBadge(rollingRow), "a check landing now is held")
+		}
+		return nil
+	}
+	uc.targets.put(rollingRow, rollingTarget())
+
+	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge", "reconcile badge"}, log.all())
+	assert.False(t, uc.HoldBadge(rollingRow), "once settled, a check syncs the badge itself")
+}

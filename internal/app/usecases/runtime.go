@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -85,6 +86,7 @@ type runtimeUsecase struct {
 	graph   graph.Graph
 	targets *updateTargets
 	commits *updateCommits
+	holds   *badgeHolds
 	detach  func(fn func())
 	// commitTimeout bounds a detached update commit, which has no caller
 	// whose context would end it.
@@ -110,6 +112,7 @@ func newRuntimeUsecase(
 		graph:         graph,
 		targets:       newUpdateTargets(),
 		commits:       newUpdateCommits(),
+		holds:         &badgeHolds{dirty: map[domain.Namespace]bool{}},
 		detach:        func(fn func()) { go fn() },
 		commitTimeout: updateCommitTimeout,
 	}
@@ -816,11 +819,52 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 	}
 
 	u.detach(func() {
-		defer u.commits.done(rt.Ref)
 		settleCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), u.commitTimeout)
 		defer cancel()
+		defer u.releaseSettled(settleCtx, rt.Ref)
 		u.settleUpdate(settleCtx, rt, target, recorded)
 	})
+}
+
+// badgeHolds records the rows whose version check was held while they
+// settled, so the settle re-derives their badge before it lets them go.
+type badgeHolds struct {
+	mu    sync.Mutex
+	dirty map[domain.Namespace]bool
+}
+
+// HoldBadge tells a version check whether to leave ns's badge alone: while
+// ns settles, the row still names the target about to be stamped. A held
+// check is remembered, and releaseSettled re-derives the badge for it.
+func (u *runtimeUsecase) HoldBadge(ns domain.Namespace) bool {
+	u.holds.mu.Lock()
+	defer u.holds.mu.Unlock()
+	if !u.Settling(ns) {
+		return false
+	}
+	u.holds.dirty[ns] = true
+	return true
+}
+
+// releaseSettled re-derives ns's badge from the row and lets the row go,
+// again for as long as a check was held in the meantime: a check that
+// recorded a newer Available after the reconcile read the row is never left
+// with a stale badge. Once the row is released, checks sync it themselves.
+func (u *runtimeUsecase) releaseSettled(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	for {
+		u.reconcileBadge(ctx, ns)
+		u.holds.mu.Lock()
+		if !u.holds.dirty[ns] {
+			u.commits.done(ns)
+			u.holds.mu.Unlock()
+			return
+		}
+		delete(u.holds.dirty, ns)
+		u.holds.mu.Unlock()
+	}
 }
 
 // settleUpdate commits a succeeded update, or restores the installed
@@ -833,7 +877,6 @@ func (u *runtimeUsecase) settleUpdate(
 	target domain.Available,
 	recorded bool,
 ) {
-	defer u.reconcileBadge(ctx, rt.Ref)
 	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
 	if isSelfNamespace(rt.Ref) {
 		if !succeeded {
