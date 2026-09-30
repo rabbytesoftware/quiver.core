@@ -403,7 +403,7 @@ func (u *runtimeUsecase) executeUpdate(
 	}
 
 	undo := u.remember(ns, *available)
-	if err := u.runtime.BeginUpdate(ctx, ns, userVars); err != nil {
+	if err := u.runtime.BeginUpdate(ctx, ns, userVars, available.Ref); err != nil {
 		undo()
 		return false, err
 	}

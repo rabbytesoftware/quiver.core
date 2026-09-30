@@ -85,7 +85,7 @@ func newBracketFixture(state domain.ArrowState, available *domain.Available) *br
 			f.setState(domain.ArrowStateReady)
 			return nil
 		},
-		BeginUpdateFn: func(context.Context, domain.Namespace, map[string]string) error {
+		BeginUpdateFn: func(context.Context, domain.Namespace, map[string]string, string) error {
 			f.log.add("begin update")
 			return nil
 		},
@@ -128,7 +128,7 @@ func TestRuntimeExecute_Update_OutdatedRow_RunsTheBracketInOrder(t *testing.T) {
 			target := rollingTarget()
 			f := newBracketFixture(tc.state, &target)
 			var vars map[string]string
-			f.runtime.BeginUpdateFn = func(_ context.Context, _ domain.Namespace, got map[string]string) error {
+			f.runtime.BeginUpdateFn = func(_ context.Context, _ domain.Namespace, got map[string]string, _ string) error {
 				f.log.add("begin update")
 				vars = got
 				return nil
@@ -145,6 +145,36 @@ func TestRuntimeExecute_Update_OutdatedRow_RunsTheBracketInOrder(t *testing.T) {
 			assert.Equal(t, target, recorded)
 		})
 	}
+}
+
+// A check that records a newer Available while the target is being staged
+// does not change what the update runs toward: ${REF} names the target the
+// bracket staged and remembered.
+func TestRuntimeExecute_Update_NewerAvailableDuringStaging_KeepsTheStagedTarget(t *testing.T) {
+	staged := rollingTarget()
+	newer := domain.Available{Ref: "nightly-latest", Commit: "c3"}
+	f := newBracketFixture(domain.ArrowStateReady, &staged)
+	refresh := f.arrow.RefreshToTargetFn
+	f.arrow.RefreshToTargetFn = func(ctx context.Context, ns domain.Namespace, target domain.Available) (*domain.Arrow, error) {
+		f.available = &newer
+		f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Available: &newer}, nil
+		}
+		return refresh(ctx, ns, target)
+	}
+	var targetRef string
+	f.runtime.BeginUpdateFn = func(_ context.Context, _ domain.Namespace, _ map[string]string, ref string) error {
+		targetRef = ref
+		return nil
+	}
+	uc := f.usecase()
+
+	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+
+	assert.Equal(t, staged.Ref, targetRef)
+	remembered, ok := uc.targets.take(rollingRow)
+	require.True(t, ok)
+	assert.Equal(t, staged, remembered)
 }
 
 func TestRuntimeExecute_Update_CurrentRow_DoesNothing(t *testing.T) {
@@ -221,7 +251,7 @@ func TestRuntimeUpdate_Failures_StartNothing(t *testing.T) {
 		{
 			name: "a rejected bracket keeps its state violation",
 			prepare: func(f *bracketFixture) {
-				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
 					return apperrors.ErrStateViolation
 				}
 			},
@@ -403,7 +433,7 @@ func TestRuntimeExecute_Update_Failures(t *testing.T) {
 		{
 			name: "update cannot begin",
 			arrange: func(f *bracketFixture) {
-				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
 					f.log.add("begin update")
 					return boom
 				}
@@ -786,7 +816,7 @@ func holdFirstBracket(t *testing.T, f *bracketFixture, uc *runtimeUsecase) (wait
 func TestRuntimeExecute_Update_SecondBracketWaitsForTheFirst(t *testing.T) {
 	first := domain.Available{Ref: "nightly-latest", Commit: "c2"}
 	f := newBracketFixture(domain.ArrowStateReady, &first)
-	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string) error {
+	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
 		f.log.add("begin update")
 		f.setState(domain.ArrowStateUpdating)
 		return nil

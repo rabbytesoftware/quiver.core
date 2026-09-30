@@ -30,16 +30,19 @@ func updatableArrow(ns domain.Namespace, available *domain.Available) *domain.Ar
 	}
 }
 
-// ${REF} during an update names the target the update is moving to, not the
-// installed ref and never the channel selector in the identity.
+// ${REF} during an update names the target the update began toward, not the
+// row's Available, which a check may have moved past it since, nor the
+// installed ref, and never the channel selector in the identity.
 func TestBeginUpdate_RefVariable(t *testing.T) {
 	testCases := []struct {
 		name      string
 		available *domain.Available
+		target    string
 		wantRef   string
 	}{
-		{name: "target ref from available", available: &domain.Available{Ref: "v1.3.0", Commit: "new"}, wantRef: "v1.3.0"},
-		{name: "no available falls back to resolved", available: nil, wantRef: "v1.2.0"},
+		{name: "target ref", available: &domain.Available{Ref: "v1.3.0", Commit: "new"}, target: "v1.3.0", wantRef: "v1.3.0"},
+		{name: "a newer available does not replace the target", available: &domain.Available{Ref: "v1.4.0", Commit: "newer"}, target: "v1.3.0", wantRef: "v1.3.0"},
+		{name: "no target falls back to resolved", available: &domain.Available{Ref: "v1.4.0", Commit: "newer"}, target: "", wantRef: "v1.2.0"},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,7 +55,7 @@ func TestBeginUpdate_RefVariable(t *testing.T) {
 			require.NoError(t, err)
 			seedReadyRuntime(t, ax, ns)
 
-			require.NoError(t, repo.BeginUpdate(context.Background(), ns, nil))
+			require.NoError(t, repo.BeginUpdate(context.Background(), ns, nil, tc.target))
 
 			got, err := ax.Get(context.Background(), ns.String())
 			require.NoError(t, err)
@@ -73,5 +76,5 @@ func TestBeginUpdate_CatalogReadFails_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	seedReadyRuntime(t, ax, ns)
 
-	require.ErrorIs(t, repo.BeginUpdate(context.Background(), ns, nil), assert.AnError)
+	require.ErrorIs(t, repo.BeginUpdate(context.Background(), ns, nil, "v1.3.0"), assert.AnError)
 }

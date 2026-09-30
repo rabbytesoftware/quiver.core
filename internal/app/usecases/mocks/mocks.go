@@ -446,6 +446,7 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		vars map[string]string,
+		targetRef string,
 	) error
 	RuntimeExistsFn func(
 		ctx context.Context,
@@ -556,9 +557,9 @@ func (m *MockRuntime) BeginUninstall(ctx context.Context, ns domain.Namespace, v
 	return nil
 }
 
-func (m *MockRuntime) BeginUpdate(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+func (m *MockRuntime) BeginUpdate(ctx context.Context, ns domain.Namespace, vars map[string]string, targetRef string) error {
 	if m.BeginUpdateFn != nil {
-		return m.BeginUpdateFn(ctx, ns, vars)
+		return m.BeginUpdateFn(ctx, ns, vars, targetRef)
 	}
 	return nil
 }

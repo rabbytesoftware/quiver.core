@@ -355,7 +355,7 @@ no ref-to-version transform. The assembler picks, in order:
 
 | Situation | `${REF}` |
 |---|---|
-| During `_update` | The target ref the update is moving to (`Available.Ref`) |
+| During `_update` | The target ref the update began toward: the `Available.Ref` the bracket staged, even when a later check has recorded a newer `Available` |
 | Otherwise, when the row has a `Resolved.Ref` | `Resolved.Ref` |
 | Otherwise (a row with nothing resolved, such as a seed without a commit) | The identity's own ref, `ns.Ref()` |
 
@@ -448,7 +448,8 @@ sequenceDiagram
 5. **Dependencies.** Dependencies the target gained or lost are marked on the runtime
    (`MarkOutdated`) and synced before the update begins.
 6. **Begin.** The target is remembered in memory for this row and `BeginUpdate` runs the
-   target manifest's `update:` steps with `${REF}` set to the target ref (§7.1).
+   target manifest's `update:` steps with `${REF}` set to that remembered target's ref
+   (§7.1), never to an `Available` a check recorded while the bracket was staging.
 7. **Commit on success.** When `_update` ends successfully, the target is re-resolved
    against a fresh snapshot. Only if the target ref still stands at the target commit is
    the row advanced and the runtime's version badge cleared. If it moved while the steps

@@ -1464,7 +1464,7 @@ func TestBeginUpdate_Success(t *testing.T) {
 	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
 	seedReadyRuntime(t, axRuntime, ns)
 
-	require.NoError(t, repo.BeginUpdate(context.Background(), ns, nil))
+	require.NoError(t, repo.BeginUpdate(context.Background(), ns, nil, ""))
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -1499,7 +1499,7 @@ func TestBeginUpdate_StoresResolvedVariables(t *testing.T) {
 
 	require.NoError(t, repo.BeginUpdate(context.Background(), ns, map[string]string{
 		"QUIVER_RELEASE_ASSET_URL": "http://example.invalid/asset",
-	}))
+	}, ""))
 
 	got, err := axRuntime.Get(context.Background(), ns.String())
 	require.NoError(t, err)
@@ -1512,7 +1512,7 @@ func TestBeginUpdate_AssemblerError(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	repo := newRepoWithAssembler(t, axRuntime, errorAssembler(apperrors.ErrMethodNotFound))
 
-	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	err := repo.BeginUpdate(context.Background(), testNs(), nil, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrMethodNotFound)
 }
@@ -1521,7 +1521,7 @@ func TestBeginUpdate_Absent_StateViolation(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 	repo := newRepoWithAssembler(t, axRuntime, successAssembler())
 
-	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	err := repo.BeginUpdate(context.Background(), testNs(), nil, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrStateViolation)
 }
@@ -1535,7 +1535,7 @@ func TestBeginUpdate_SendError_Generic(t *testing.T) {
 	}
 	repo := newRepoWithAssembler(t, ax, successAssembler())
 
-	err := repo.BeginUpdate(context.Background(), testNs(), nil)
+	err := repo.BeginUpdate(context.Background(), testNs(), nil, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, sendErr)
 }

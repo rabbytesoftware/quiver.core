@@ -43,10 +43,14 @@ type Runtime interface {
 		ns domain.Namespace,
 		vars map[string]string,
 	) error
+	// BeginUpdate begins ns's update steps with ${REF} set to targetRef, the
+	// ref the update began toward; an empty one leaves ${REF} at the
+	// installed ref.
 	BeginUpdate(
 		ctx context.Context,
 		ns domain.Namespace,
 		vars map[string]string,
+		targetRef string,
 	) error
 
 	RuntimeExists(
@@ -146,7 +150,6 @@ type Runtime interface {
 }
 
 type runtimeRepository struct {
-	getArrow              GetArrowFn
 	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
 	wizard                wizardPkg.Wizard
 	assembler             assembler.Assembler
@@ -173,7 +176,6 @@ func New(
 	listRuntimeAggregates ListRuntimeAggregatesFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
-		getArrow:              getArrow,
 		axRuntime:             axRuntime,
 		wizard:                w,
 		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
@@ -399,8 +401,9 @@ func (s *runtimeRepository) BeginUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
 	vars map[string]string,
+	targetRef string,
 ) error {
-	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars, s.updateTarget(ctx, ns)...)
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars, assembler.WithTargetRef(targetRef))
 	if err != nil {
 		return fmt.Errorf("begin update: %w", err)
 	}
@@ -418,23 +421,6 @@ func (s *runtimeRepository) BeginUpdate(
 		return fmt.Errorf("begin update: %w", err)
 	}
 	return nil
-}
-
-// updateTarget names the ref an update moves to: the Available the caller
-// recorded on the row before beginning it. A catalog read failure yields no
-// option, leaving the assembler's own read of the same row to report it.
-func (s *runtimeRepository) updateTarget(
-	ctx context.Context,
-	ns domain.Namespace,
-) []assembler.AssembleOption {
-	if s.getArrow == nil {
-		return nil
-	}
-	arrow, err := s.getArrow(ctx, ns)
-	if err != nil || arrow == nil || arrow.Available == nil {
-		return nil
-	}
-	return []assembler.AssembleOption{assembler.WithTargetRef(arrow.Available.Ref)}
 }
 
 func (s *runtimeRepository) RuntimeExists(
