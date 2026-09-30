@@ -992,7 +992,16 @@ self_update() {
 		sleep 0.5
 	done
 	ok "pid $DAEMON_PID now answers as build $build_id"
-	expect_eq "the process image" "$(readlink "/proc/$DAEMON_PID/exe")" "$HOME/.quiver/namespaces/$ns/quiver-new"
+	local exe
+	exe=$(readlink "/proc/$DAEMON_PID/exe")
+	case "$exe" in
+	/run/rosetta/* | */qemu-*)
+		ok "emulated: $exe hides the process image; the handover is proven by the new build id on the same pid"
+		;;
+	*)
+		expect_eq "the process image" "$exe" "$HOME/.quiver/namespaces/$ns/quiver-new"
+		;;
+	esac
 }
 
 phase_e() {
