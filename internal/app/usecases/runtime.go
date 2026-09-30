@@ -527,13 +527,14 @@ func (u *runtimeUsecase) stageAndBegin(
 
 // updateBegan reports, after the caller gave up during BeginUpdate, whether
 // the update was accepted anyway: the runtime reads updating, or the run
-// already ended and its end took the remembered target. A run that began
-// owns the outcome, and its end settles the row.
+// already ended and its end took the remembered target. quiver.core's own
+// row remembers no target, so for it only the runtime answers. A run that
+// began owns the outcome, and its end settles the row.
 func (u *runtimeUsecase) updateBegan(
 	ctx context.Context,
 	ns domain.Namespace,
 ) bool {
-	if !u.targets.pending(ns) {
+	if !isSelfNamespace(ns) && !u.targets.pending(ns) {
 		return true
 	}
 	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)

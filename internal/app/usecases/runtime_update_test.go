@@ -621,6 +621,30 @@ func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunEnded_RestoresNothing(t *
 	assert.NotContains(t, f.log.all(), "refresh to c1")
 }
 
+// quiver.core's own row remembers no target, so whether its update began is
+// read from the runtime alone: a self update the caller abandoned before it
+// was accepted restores the installed manifest like any other row's.
+func TestRuntimeExecute_Update_SelfRowAbandonedBeforeAcceptance_Restores(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	selfRow := self.WithRef("stable")
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "stable-26.5.1", Commit: "c1"}}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.runtime.BeginUpdateFn = func(ctx context.Context, _ domain.Namespace, _ map[string]string, _ string) error {
+		cancel()
+		return ctx.Err()
+	}
+
+	err := f.usecase().Execute(ctx, selfRow, domain.MethodUpdate, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, f.log.all(), "refresh to c1", "the staged target manifest is put back")
+}
+
 // ─── stopIfRunning ───────────────────────────────────────────────────────────
 
 func TestStopIfRunning(t *testing.T) {
