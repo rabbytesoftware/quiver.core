@@ -110,8 +110,11 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `Available`            | `*Available{Ref, Commit}`           | What the last version check found ahead of `Resolved`; `nil` when current. "Outdated" is derived from it. |
 
 `ArrowMeta` carries: `Name`, `Description`, `License`, `URL`,
-`Maintainers []Credit`, `Credits []Credit`, `Tags []string`, `Media`. Maximum lengths
-`MaxNameLength = 255` and `MaxDescriptionLength = 1000` apply.
+`Maintainers []Credit`, `Credits []Credit`, `Tags []string`, `Media`, and `Generator *ArrowGenerator`
+(name, confidence, warnings) on a manifest Fletcher synthesized; `Origin()` is `inferred` when
+`Generator.Name` is set, `declared` otherwise, and `Confidence()` returns the generator's
+confidence (empty when declared). Maximum lengths `MaxNameLength = 255` and
+`MaxDescriptionLength = 1000` apply.
 
 There is no version field. An arrow's version is the ref it resolved to,
 `Resolved.Ref` — never the selector in its `Namespace`, which names what is
@@ -239,6 +242,7 @@ domain time).
 | `Tools`          | `[]DependencyEdge`            | Install-time arrow dependencies.                              |
 | `Services`       | `[]DependencyEdge`            | Runtime arrow dependencies (must be running for `_execute`).  |
 | `Exports`        | `map[string]string`           | Static key/value exports made available to dependents.        |
+| `Expose`         | `Expose`                      | CLI and desktop entries to place on the host (`ExposeEntry`: `Name`, `Path`, `Icon`, `Categories`). |
 | `Lifecycle`      | `TargetLifecycle`             | The five reserved step lists.                                 |
 | `Methods`        | `map[string]Method`           | Developer-defined custom actions.                             |
 
@@ -448,8 +452,12 @@ All concrete steps embed `BasicStep` (private fields written by
 |-------------------------|-----------------|----------|----------------------------------------------------------------------|
 | `StepTypeRun`           | `run`           | yes      | Executes a shell command.                                            |
 | `StepTypeFetch`         | `fetch`         | yes      | Downloads a URL to a path with optional checksum.                    |
+| `StepTypeExtract`       | `extract`       | yes      | Unpacks an archive into a directory.                                 |
+| `StepTypePortable`      | `portable`      | yes      | Materializes an app package (AppImage, dmg, archive, binary).        |
 | `StepTypeSignal`        | `signal`        | yes      | Sends a cross-platform process signal.                               |
 | `StepTypeDependencies`  | `dependencies`  | no       | Synthetic step injected by the app layer at index 0 of `_install`.   |
+| `StepTypeExpose`        | `expose`        | no       | Synthetic step appended to `_install`/`_update`, one per `expose` entry. |
+| `StepTypeUnexpose`      | `unexpose`      | no       | Synthetic step prepended to `_uninstall` of a target with `expose` entries. |
 
 ### `RunStep`
 
@@ -468,6 +476,23 @@ All concrete steps embed `BasicStep` (private fields written by
 | `Checksum` | `Overrideable[string]` | Bare SHA-256 hex digest, no algorithm prefix.          |
 | `Timeout`  | `Overrideable[string]` | Duration string.                                       |
 
+### `ExtractStep`
+
+| Field     | Type                   | Notes                                                  |
+|-----------|------------------------|--------------------------------------------------------|
+| `From`    | `Overrideable[string]` | Archive path.                                          |
+| `To`      | `Overrideable[string]` | Destination directory.                                 |
+| `Timeout` | `Overrideable[string]` | Duration string.                                       |
+
+### `PortableStep`
+
+| Field     | Type                   | Notes                                                                          |
+|-----------|------------------------|--------------------------------------------------------------------------------|
+| `From`    | `Overrideable[string]` | Package path (AppImage, dmg, archive or bare executable).                      |
+| `To`      | `Overrideable[string]` | Destination directory.                                                         |
+| `Timeout` | `Overrideable[string]` | Duration string.                                                               |
+| `Name`    | `string`               | Optional file name for a bare executable or single-file archive payload. Not overrideable; omitted from JSON when empty. |
+
 ### `SignalStep`
 
 | Field     | Type                          | Notes                                                  |
@@ -485,6 +510,16 @@ A marker step. Its constructor pins `exitOnFailure = true`. The app layer
 injects it as Step 0 of every `_install` execution; manifests must not author
 it. The wizard never receives it directly — Step 0 progress is reported by the
 app layer.
+
+### `ExposeStep` / `UnexposeStep`
+
+Synthetic, never authored, never fatal (`exitOnFailure = false`). `wizard.Plan`
+builds one `ExposeStep` per entry of the target's `expose` block — `Kind`
+(`cli` \| `desktop`), `Name`, `Path`, `Icon`, `Categories` copied from the entry,
+plus `MediaIcon` (the arrow's `media.icon`, the desktop icon fallback) — and
+appends them to `_install` and `_update`; it prepends one `UnexposeStep` (no
+fields) to `_uninstall`. The wizard runs them; see
+[wizard.md § Exposure](wizard.md#exposure).
 
 ### `Overrideable[T]`
 

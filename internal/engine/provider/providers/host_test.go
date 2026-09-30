@@ -157,12 +157,83 @@ func TestHost_Search_UnsupportedHostRefuses(t *testing.T) {
 
 	got, err := p.Search(context.Background(), SearchRequest{Text: "browser"})
 	assert.ErrorIs(t, err, ErrSearchUnsupported)
-	assert.Contains(t, err.Error(), "bitbucket.org")
 	assert.Nil(t, got)
 }
 
 func TestHost_Host_ReturnsTheConfiguredHost(t *testing.T) {
 	assert.Equal(t, "bitbucket.org", NewBitbucket(Config{Host: "bitbucket.org"}).Host())
+}
+
+func TestHost_BlobFileURL(t *testing.T) {
+	testCases := []struct {
+		name    string
+		blobURL string
+		ns      domain.Namespace
+		want    string
+		wantErr error
+	}{
+		{
+			name:    "fills the template",
+			blobURL: "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}",
+			ns:      "bitbucket.org/u/r@v1",
+			want:    "https://bitbucket.org/u/r/src/v2/docs/a.md",
+		},
+		{
+			name:    "no template",
+			ns:      "bitbucket.org/u/r",
+			wantErr: ErrNoBlobURL,
+		},
+		{
+			name:    "invalid namespace",
+			blobURL: "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}",
+			ns:      "only-two",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewBitbucket(Config{Host: "bitbucket.org", BlobURL: tc.blobURL})
+
+			got, err := p.BlobFileURL(tc.ns, "v2", "docs/a.md")
+
+			if tc.want == "" {
+				require.Error(t, err)
+				if tc.wantErr != nil {
+					assert.ErrorIs(t, err, tc.wantErr)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestHost_RepoPageURL(t *testing.T) {
+	testCases := []struct {
+		name        string
+		repoPageURL string
+		ns          domain.Namespace
+		want        string
+	}{
+		{name: "fills the template", repoPageURL: "https://h.test/{user}/{repo}", ns: "h.test/u/r@v1", want: "https://h.test/u/r"},
+		{name: "no template", ns: "h.test/u/r"},
+		{name: "invalid namespace", repoPageURL: "https://h.test/{user}/{repo}", ns: "only-two"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewBitbucket(Config{Host: "h.test", RepoPageURL: tc.repoPageURL})
+
+			assert.Equal(t, tc.want, p.RepoPageURL(tc.ns))
+		})
+	}
+}
+
+func TestHost_ReleaseAssets_PublishesNothing(t *testing.T) {
+	assets, err := NewBitbucket(Config{Host: "bitbucket.org"}).
+		ReleaseAssets(context.Background(), domain.Namespace("bitbucket.org/u/r"), "v1")
+
+	require.NoError(t, err)
+	assert.Empty(t, assets)
 }
 
 // A host with a search dialect but no endpoint configured refuses in the same

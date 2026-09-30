@@ -1,5 +1,6 @@
 // Package hosts declares what manifold needs to know about a git host and does
-// not own: where the host serves a raw file and which refs it defaults to.
+// not own: where the host serves a raw file or a page, which refs it defaults
+// to, and what a release publishes.
 //
 // Manifold owns manifest knowledge — which filenames are a manifest, which refs
 // to try, what the bytes mean — and none of that is host knowledge. The
@@ -8,12 +9,14 @@
 package hosts
 
 import (
+	"context"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 // Host answers the host-specific questions manifest resolution runs into. It
-// names URLs and refs; it never fetches anything, because reading a manifest is
-// manifold's job.
+// names URLs and refs, and asks the host only what naming a release's assets
+// takes; reading a repository's files is manifold's job.
 type Host interface {
 	// RawFileURL is where file lives at ref inside the repository ns names.
 	RawFileURL(
@@ -22,9 +25,27 @@ type Host interface {
 		file string,
 	) (string, error)
 
+	BlobFileURL(
+		ns domain.Namespace,
+		ref string,
+		file string,
+	) (string, error)
+
+	RepoPageURL(
+		ns domain.Namespace,
+	) string
+
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
+
+	// An absent or empty release is an empty list; an error means the host
+	// could not be asked.
+	ReleaseAssets(
+		ctx context.Context,
+		ns domain.Namespace,
+		tag string,
+	) ([]domain.ReleaseAsset, error)
 }
 
 // Lookup resolves the host serving ns, reporting false when none does. A

@@ -154,3 +154,31 @@ func TestArrowListItemDTO_WireShape_InstalledAt(t *testing.T) {
 		})
 	}
 }
+
+func TestArrowListItemDTOFrom_OriginAndConfidence(t *testing.T) {
+	testCases := []struct {
+		name           string
+		in             models.ArrowListDTO
+		wantOrigin     string
+		wantConfidence string
+		wantKey        bool
+	}{
+		{name: "declared omits confidence", in: models.ArrowListDTO{Origin: "declared"}, wantOrigin: "declared"},
+		{name: "inferred carries confidence", in: models.ArrowListDTO{Origin: "inferred", Confidence: "high"}, wantOrigin: "inferred", wantConfidence: "high", wantKey: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := dto.ArrowListItemDTOFrom(tc.in)
+
+			assert.Equal(t, tc.wantOrigin, d.Origin)
+			assert.Equal(t, tc.wantConfidence, d.Confidence)
+			blob, err := json.Marshal(d)
+			require.NoError(t, err)
+			var decoded map[string]any
+			require.NoError(t, json.Unmarshal(blob, &decoded))
+			assert.Equal(t, tc.wantOrigin, decoded["origin"])
+			_, hasKey := decoded["confidence"]
+			assert.Equal(t, tc.wantKey, hasKey)
+		})
+	}
+}

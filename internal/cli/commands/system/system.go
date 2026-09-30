@@ -1,4 +1,4 @@
-// Package system implements `quiver health` and `quiver version`.
+// Package system implements `quiver health`, `quiver version`, and `quiver path`.
 package system
 
 import (
@@ -9,7 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
 
-// Commands builds the `quiver health` and `quiver version` commands.
+// Commands builds the `quiver health`, `quiver version`, and `quiver path` commands.
 type Commands interface {
 	Cmd() []*cobra.Command
 }
@@ -27,11 +27,11 @@ func New(
 	return &commands{sess: sess, version: version}
 }
 
-// Cmd returns health and version as two root-level commands — neither
+// Cmd returns health, version, and path as three root-level commands — none
 // nests under a shared "system" subcommand today, so this returns a slice
 // rather than one parent Cmd() like every other resource package.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{c.healthCmd(), c.versionCmd()}
+	return []*cobra.Command{c.healthCmd(), c.versionCmd(), c.pathCmd()}
 }
 
 func (c *commands) healthCmd() *cobra.Command {

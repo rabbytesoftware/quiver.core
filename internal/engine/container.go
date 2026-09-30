@@ -144,7 +144,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: netbridge: %w", err)
 	}
 
-	wiz, err := wizard.New(nil)
+	wiz, err := wizard.New(nil, config.GetArrows().ExtractMaxBytes, wizardOptions(cfg)...)
 	if err != nil {
 		shutdown.CloseAll(es, ss)
 		return nil, fmt.Errorf("engine container: wizard: %w", err)
@@ -198,7 +198,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL),
+		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL, manifold.WithFletcher(config.GetManifold().Fletcher.Enabled)),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
@@ -207,6 +207,15 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
+}
+
+func wizardOptions(
+	cfg engineOpts,
+) []wizard.Option {
+	if cfg.homeDir == "" {
+		return nil
+	}
+	return []wizard.Option{wizard.WithSandboxHome(cfg.homeDir)}
 }
 
 // hostLookup adapts the provider set into the lookup manifold asks its host

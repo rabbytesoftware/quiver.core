@@ -141,7 +141,7 @@ The Arrow resource manages catalog entries: registration, version checks, manife
 
 #### POST /arrow/{ns} — Register
 
-Registers the arrow identified by `{ns}`. The ref after `@` is the selector the row follows, classified once against the repository's refs and stored; a refless `{ns}` is registered under the repository's default channel (`stable` when it has stable releases). The manifest is fetched at the commit the selector points at. No request body. Returns **201 Created** with the mutation envelope on success. Re-registering is idempotent and returns 201: an existing row is left as it is, and one that exists only as a dependency is promoted to user-installed. Errors: 400 (invalid namespace, or a selector that names no channel, ref, glob or commit), 404 (manifest or default channel not found), 409 (only when a concurrent registration of the same identity wins the race), 502 (fetch failed), 500.
+Registers the arrow identified by `{ns}`. The ref after `@` is the selector the row follows, classified once against the repository's refs and stored; a refless `{ns}` is registered under the repository's default channel (`stable` when it has stable releases). The manifest is fetched at the commit the selector points at. No request body. Returns **201 Created** with the mutation envelope on success. Re-registering is idempotent and returns 201: an existing row is left as it is, and one that exists only as a dependency is promoted to user-installed. Errors: 400 (invalid namespace, or a selector that names no channel, ref, glob or commit), 404 (manifest or default channel not found), 409 (only when a concurrent registration of the same identity wins the race), 502 (fetch failed), 500. When Fletcher could not synthesize a manifest for a repository without an `ARROW.md`, the 404 is the same as for any missing manifest; the not-fletchable reason (`host_unsupported`, `no_release_assets`, `no_usable_asset`, `no_digest`, `low_confidence`) stays in the wrapped error chain and never reaches the response.
 
 #### PATCH /arrow/{ns} — Update
 
@@ -190,7 +190,19 @@ Response shape (query envelope, `data` is a list):
 
 Returns full detail for a single arrow including current state, the active run (if any), and the most recent completed return. Supports WS upgrade — same dispatch as `GET /arrow`.
 
-The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `user_installed`, `selector_kind` (`pin`, `channel`, `constraint` or `commit`), `resolved_ref`, `installed_commit`, `available` (`{ref, commit}`, omitted when current), `outdated` (true exactly when `available` is set), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`) and the `execution_id` of the run it ended; `active_run` carries a `pid` for service-style executions.
+The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `user_installed`, `selector_kind` (`pin`, `channel`, `constraint` or `commit`), `resolved_ref`, `installed_commit`, `available` (`{ref, commit}`, omitted when current), `outdated` (true exactly when `available` is set), `origin`, `inference` (omitted unless inferred), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`) and the `execution_id` of the run it ended; `active_run` carries a `pid` for service-style executions.
+
+**Origin and inference.** `origin` is `declared` (the repository ships an `ARROW.md` / `arrow.yaml`) or `inferred` (Fletcher synthesized the manifest). An inferred arrow also carries `inference`:
+
+| Field | Meaning |
+|---|---|
+| `generator` | Heuristics that produced the manifest, e.g. `fletcher/1` |
+| `confidence` | `high` \| `medium` \| `low` |
+| `warnings` | Omitted when empty; any of `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch` |
+
+The arrow list items (`GET /arrow`) carry `origin` (always present) and `confidence` (omitted unless the arrow is inferred); discovery search results carry both, each omitted when empty. Search results from the vault lane (arrows Quiver has cached but not catalogued) report them too: the vault index stores the generator name and confidence.
+
+**Expose results.** Exposure is reported as ordinary steps of the run. An `_install` or `_update` of an arrow that declares `expose` entries ends with one step of type `expose` per entry (title `Expose <kind> <name>`): `completed` when the entry was placed, or when an `auto` entry resolved to nothing; `failed`, with the reason in `error`, when Quiver declined it — for example a name owned by another arrow or by the user. A failed `expose` step never fails the run. An `_uninstall` of such an arrow starts with one step of type `unexpose` (`Remove exposed entries`).
 
 An uncatalogued namespace resolves live, the way an add would, and reports state `absent` and the `selector_kind` an add would record (best-effort: a remote whose refs cannot be listed leaves it `pin`). Reading a catalogued row whose last version check is older than `arrows.version_check_ttl` launches a new check in the background; the response does not wait for it. Errors: 404 (not found), 422, 502 (fetch failed), 500.
 
@@ -303,7 +315,33 @@ A single liveness probe with no envelope. Used by container orchestrators and th
 
 ### 6.5 System
 
-The `system` endpoint folder exists in the codebase under `internal/api/v0/endpoints/system/` but its routes file is empty (`package system` only) and `routes.go` in the v0 router does not register it. **No system endpoints are exposed today.** The folder is reserved for a future addition.
+Registered from `internal/api/v0/endpoints/system/routes.go`.
+
+| Method | Path | Summary | Async? |
+|---|---|---|---|
+| GET | `/config` | Read the daemon configuration | Sync |
+| PATCH | `/config` | Patch the daemon configuration | Sync |
+| GET | `/system/path` | Report whether `~/.quiver/bin` is on `PATH` | Sync |
+| POST | `/system/path` | Put `~/.quiver/bin` on `PATH` (explicit user action) | Sync |
+
+#### GET /system/path — PATH status
+
+Returns the query envelope with a `PathStatusDTO`:
+
+| Field | Meaning |
+|---|---|
+| `bin_dir` | Absolute path of `~/.quiver/bin`, where `cli` expose entries live on macOS and Linux (on Windows each command's own folder goes on the user `Path` instead) |
+| `on_path` | Whether `bin_dir` is on the daemon's current `PATH` |
+| `configured` | Whether it is configured to stay there: the Quiver block in the shell rc files on unix, the user `Path` on Windows |
+| `files` | Where that configuration is checked and written: the shell rc files on unix, the user `Path` location on Windows (always an array, possibly empty) |
+
+Errors: 500.
+
+#### POST /system/path — PATH setup
+
+Adds `bin_dir` to `PATH` — only ever on this explicit call, never on its own. On unix it appends a block to the shell rc files (never prepends); on Windows it appends to the user `Path` and broadcasts `WM_SETTINGCHANGE`, so Explorer and newly opened terminals pick it up. Idempotent: once configured, calling it again changes nothing. Returns **200 OK** with the updated `PathStatusDTO`. A shell already running does not see the change until it is restarted. The CLI equivalents are `quiver path status` and `quiver path setup`.
+
+Errors: 500.
 
 ---
 
@@ -335,6 +373,8 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `GET /v0/runtime` | WS only | 101 (Switching Protocols) |
 | `GET /v0/runtime/{ns}` | WS only | 101 |
 | `GET /v0/health` | Sync | 200 |
+| `GET /v0/system/path` | Sync | 200 |
+| `POST /v0/system/path` | Sync | 200 |
 
 Async endpoints return immediately after the use case layer accepts the command. The client observes execution progress by connecting to the WebSocket feed at `/v0/runtime` or `/v0/runtime/{ns}` ([websocket.md](websocket.md)).
 

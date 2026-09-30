@@ -37,9 +37,25 @@ type Provider interface {
 		file string,
 	) (string, error)
 
+	BlobFileURL(
+		ns domain.Namespace,
+		ref string,
+		file string,
+	) (string, error)
+
+	RepoPageURL(
+		ns domain.Namespace,
+	) string
+
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
+
+	ReleaseAssets(
+		ctx context.Context,
+		ns domain.Namespace,
+		tag string,
+	) ([]domain.ReleaseAsset, error)
 }
 
 // DoFunc issues one HTTP request. It exists so tests can supply canned
@@ -56,12 +72,17 @@ type DoFunc func(
 // Kind names the host itself. No implementation reads it — it is what picks the
 // implementation, so it is read once, by the constructor.
 type Config struct {
-	Host            string
-	Kind            string
-	RawURL          string
-	DefaultBranches []string
-	SearchURL       string
-	Timeout         time.Duration
-	Do              DoFunc
-	Now             func() time.Time
+	Host              string
+	Kind              string
+	RawURL            string
+	DefaultBranches   []string
+	SearchURL         string
+	ExpandedAssetsURL string
+	RepoPageURL       string
+	BlobURL           string
+	ReleaseAPIURL     string
+	PackagesAPIURL    string
+	Timeout           time.Duration
+	Do                DoFunc
+	Now               func() time.Time
 }

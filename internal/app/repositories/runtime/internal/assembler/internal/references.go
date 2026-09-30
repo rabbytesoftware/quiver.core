@@ -46,6 +46,12 @@ func collectStepReferences(
 		// skipping verification -- so a checksum reference that went
 		// unrequired here would turn a missing value into a failed fetch.
 		collectOverrideable(typed.Checksum, into)
+	case domainStep.ExtractStep:
+		collectOverrideable(typed.From, into)
+		collectOverrideable(typed.To, into)
+	case domainStep.PortableStep:
+		collectOverrideable(typed.From, into)
+		collectOverrideable(typed.To, into)
 	}
 }
 

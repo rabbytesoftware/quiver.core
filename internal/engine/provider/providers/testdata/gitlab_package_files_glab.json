@@ -1,0 +1,52 @@
+[
+  {
+    "id": 355378101,
+    "package_id": 70206788,
+    "created_at": "2026-09-22T12:17:13.287Z",
+    "file_name": "glab_1.119.0_darwin_arm64.tar.gz",
+    "size": 17481316,
+    "file_md5": null,
+    "file_sha1": null,
+    "file_sha256": "d9cddd1dbe9a8bea8d5709f90a9ac13c3dd3eb0d0e94e3bc4fae6b27abd6a3db"
+  },
+  {
+    "id": 355378113,
+    "package_id": 70206788,
+    "created_at": "2026-09-22T12:17:13.592Z",
+    "file_name": "glab_1.119.0_linux_amd64.tar.gz",
+    "size": 18422088,
+    "file_md5": null,
+    "file_sha1": null,
+    "file_sha256": "4d83375d202ffa634eaf627fd9272b610fa599f20f5b711f55d770583eca2b84"
+  },
+  {
+    "id": 355378128,
+    "package_id": 70206788,
+    "created_at": "2026-09-22T12:17:14.118Z",
+    "file_name": "checksums.txt",
+    "size": 3391,
+    "file_md5": null,
+    "file_sha1": null,
+    "file_sha256": "c484749df6e962ba86efa158a8c5208533b10ffda1228e8639009a288192c399"
+  },
+  {
+    "id": 355378141,
+    "package_id": 70206788,
+    "created_at": "2026-09-22T12:17:14.880Z",
+    "file_name": "glab_1.119.0_linux_amd64.deb",
+    "size": 18510348,
+    "file_md5": null,
+    "file_sha1": null,
+    "file_sha256": "95a9ca105518dec7f70ee403d98501402a5fda154c406f4f4cd6696928d3a098"
+  },
+  {
+    "id": 355378144,
+    "package_id": 70206788,
+    "created_at": "2026-09-22T12:17:15.118Z",
+    "file_name": "glab_1.119.0_windows_amd64.zip",
+    "size": 18646882,
+    "file_md5": null,
+    "file_sha1": null,
+    "file_sha256": "fa12c31cf8100fd5b41f6fc9cf907b344474d183c766d9b6806dbbbeba14e7af"
+  }
+]

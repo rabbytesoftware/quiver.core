@@ -312,6 +312,13 @@ There is no latest-release shortcut. Earlier versions asked the git host for its
 "latest release" permalink before listing refs; that path is gone. Every refless add is
 decided from the tag snapshot alone, on any git host, with no API quota involved.
 
+A default channel whose target serves no manifest — a definitive not found, such as a
+latest release that ships neither a manifest nor assets Fletcher can draft one from — does
+not end the add. `ResolveInstall` then tries the other listed channels in the same order,
+and finally the `HEAD` branch (catalogued as a pin on it), and returns the original not
+found only if every one of them fails. Any other failure (transport, rate limit, invalid
+manifest) is returned at once, and a namespace that names a selector never falls back.
+
 A refless namespace is also accepted by every other route. Once the catalog holds rows for
 that repository, `ResolveCatalogued` maps the bare namespace to the preferred row —
 user-installed first, then the most recently installed — so `quiver run

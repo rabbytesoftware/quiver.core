@@ -21,6 +21,8 @@ type ArrowDetailDTO struct {
 	Outdated   bool          `json:"outdated" yaml:"outdated"`
 	ActiveRun  *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
 	LastReturn *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
+	Origin     string        `json:"origin" yaml:"origin"`
+	Inference  *InferenceDTO `json:"inference,omitempty" yaml:"inference,omitempty"`
 }
 
 func ArrowDetailDTOFrom(
@@ -51,5 +53,7 @@ func ArrowDetailDTOFrom(
 		Outdated:        a.Outdated,
 		ActiveRun:       RunRecordDTOFrom(a.ActiveRun),
 		LastReturn:      ReturnDTOFrom(a.LastReturn),
+		Origin:          a.Origin,
+		Inference:       InferenceDTOFrom(a.Generator),
 	}
 }

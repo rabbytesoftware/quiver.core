@@ -44,6 +44,22 @@ func (c *Client) Versions(ctx context.Context) (VersionsInfo, error) {
 	return out, err
 }
 
+func (c *Client) PathStatus(
+	ctx context.Context,
+) (apidto.PathStatusDTO, error) {
+	var out apidto.PathStatusDTO
+	err := c.do(ctx, http.MethodGet, "/v0/system/path", nil, &out)
+	return out, err
+}
+
+func (c *Client) SetupPath(
+	ctx context.Context,
+) (apidto.PathStatusDTO, error) {
+	var out apidto.PathStatusDTO
+	err := c.do(ctx, http.MethodPost, "/v0/system/path", nil, &out)
+	return out, err
+}
+
 // ─── arrows ──────────────────────────────────────────────────────────────────
 
 // ListArrows returns catalog arrows. userInstalled filters when non-nil.

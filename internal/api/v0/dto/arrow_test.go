@@ -78,6 +78,34 @@ func TestArrowDTOFrom(t *testing.T) {
 	assert.Contains(t, string(dataInstalled), `"user_installed":true`)
 }
 
+func TestArrowDTOFrom_Origin(t *testing.T) {
+	generator := &domain.ArrowGenerator{Name: "generator/1", Confidence: "high"}
+	testCases := []struct {
+		name          string
+		generator     *domain.ArrowGenerator
+		wantOrigin    string
+		wantInference *dto.InferenceDTO
+	}{
+		{name: "declared", wantOrigin: "declared"},
+		{
+			name:          "inferred",
+			generator:     generator,
+			wantOrigin:    "inferred",
+			wantInference: dto.InferenceDTOFrom(generator),
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := dto.ArrowDTOFrom(domain.Arrow{
+				Namespace: "github.com/user/repo",
+				ArrowMeta: domain.ArrowMeta{Name: "Test", Generator: tc.generator},
+			})
+			assert.Equal(t, tc.wantOrigin, d.Origin)
+			assert.Equal(t, tc.wantInference, d.Inference)
+		})
+	}
+}
+
 func TestArrowDTOFrom_MediaMapped(t *testing.T) {
 	a := domain.Arrow{
 		Namespace: "github.com/user/repo",
@@ -179,7 +207,7 @@ func TestArrowEventDTOFrom_WireShape_Unchanged(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &m))
 
 	assert.ElementsMatch(t,
-		[]string{"event", "namespace", "name", "description", "tags", "media", "user_installed"},
+		[]string{"event", "namespace", "name", "description", "tags", "media", "user_installed", "origin"},
 		mapKeys(m))
 }
 

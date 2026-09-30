@@ -23,6 +23,8 @@ type ArrowListItemDTO struct {
 	Tags        []string                  `json:"tags" yaml:"tags"`
 	Media       domain.ArrowMedia         `json:"media" yaml:"media"`
 	Versions    []InstalledVersionItemDTO `json:"versions" yaml:"versions"`
+	Origin      string                    `json:"origin" yaml:"origin"`
+	Confidence  string                    `json:"confidence,omitempty" yaml:"confidence,omitempty"`
 }
 
 func ArrowListItemDTOFrom(
@@ -53,5 +55,7 @@ func ArrowListItemDTOFrom(
 		Tags:        a.Tags,
 		Media:       a.Media,
 		Versions:    versions,
+		Origin:      a.Origin,
+		Confidence:  a.Confidence,
 	}
 }

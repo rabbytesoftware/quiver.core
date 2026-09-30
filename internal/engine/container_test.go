@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,44 @@ func TestNew_Success_PopulatesContainer(t *testing.T) {
 	assert.NotNil(t, c.DepTree)
 }
 
+func TestNew_WizardUsesTheContainerHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+
+	c, err := New(context.Background(), WithHomeDir(home))
+	require.NoError(t, err)
+	release(t, c)
+
+	status, err := c.Wizard.PathStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, metadata.GetBinPathAt(home), status.BinDir)
+}
+
+func TestNew_WizardResolvesNothingOutsideTheContainerHome(t *testing.T) {
+	home := t.TempDir()
+
+	c, err := New(context.Background(), WithHomeDir(home))
+	require.NoError(t, err)
+	release(t, c)
+
+	status, err := c.Wizard.PathStatus(context.Background())
+	require.NoError(t, err)
+	for _, dir := range append([]string{status.BinDir}, status.Files...) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		rel, err := filepath.Rel(home, dir)
+		require.NoError(t, err)
+		assert.False(t, strings.HasPrefix(rel, ".."), "%s escapes %s", dir, home)
+	}
+}
+
+func TestWizardOptions_DefaultHomeHasNoOptions(t *testing.T) {
+	assert.Empty(t, wizardOptions(engineOpts{}))
+	assert.Len(t, wizardOptions(engineOpts{homeDir: "/h"}), 1)
+}
+
 func TestNew_Success_CreatesNetbridgeDBFiles(t *testing.T) {
 	home := t.TempDir()
 
@@ -61,10 +100,9 @@ func TestNew_NetbridgeEventStoreOpenFails_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(events, "netbridge.db"), 0o750))
 
-	_, err = New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container:")
-	assert.Contains(t, err.Error(), "eventstore:")
+	assert.Nil(t, c)
 }
 
 func TestNew_NetbridgeSnapshotStoreOpenFails_ReturnsError(t *testing.T) {
@@ -73,10 +111,9 @@ func TestNew_NetbridgeSnapshotStoreOpenFails_ReturnsError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(events, "netbridge_snapshots.db"), 0o750))
 
-	_, err = New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container:")
-	assert.Contains(t, err.Error(), "snapshotstore:")
+	assert.Nil(t, c)
 }
 
 // The vault is the last fallible step of New for a reason: it opens a database,
@@ -90,10 +127,10 @@ func TestNew_VaultIndexUnopenable_ReturnsError(t *testing.T) {
 		0o750,
 	))
 
-	_, err := New(context.Background(), WithHomeDir(home))
+	c, err := New(context.Background(), WithHomeDir(home))
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "engine container: vault")
+	assert.Nil(t, c)
 }
 
 func TestNew_InvalidHomeDir_ReturnsError(t *testing.T) {
@@ -270,4 +307,46 @@ func TestHostLookup_NoProviders_MissesEveryNamespace(t *testing.T) {
 	host, ok := hostLookup(nil)(domain.Namespace("github.com/u/r"))
 	assert.False(t, ok)
 	assert.Nil(t, host)
+}
+
+func TestHostLookup_PlatformHosts_AnswerThroughTheHostContract(t *testing.T) {
+	providers, err := newProviders(metadata.GetPlatforms(), config.Search{ProviderTimeout: "10s"})
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name     string
+		ns       domain.Namespace
+		wantBlob string
+		wantPage string
+	}{
+		{
+			name:     "github",
+			ns:       "github.com/u/r",
+			wantBlob: "https://github.com/u/r/blob/v1/README.md",
+			wantPage: "https://github.com/u/r",
+		},
+		{
+			name:     "gitlab",
+			ns:       "gitlab.com/u/r",
+			wantBlob: "https://gitlab.com/u/r/-/blob/v1/README.md",
+			wantPage: "https://gitlab.com/u/r",
+		},
+		{
+			name:     "bitbucket",
+			ns:       "bitbucket.org/u/r",
+			wantBlob: "https://bitbucket.org/u/r/src/v1/README.md",
+			wantPage: "",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			host, ok := hostLookup(providers)(tc.ns)
+			require.True(t, ok)
+
+			blob, err := host.BlobFileURL(tc.ns, "v1", "README.md")
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantBlob, blob)
+			assert.Equal(t, tc.wantPage, host.RepoPageURL(tc.ns))
+		})
+	}
 }

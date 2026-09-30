@@ -14,6 +14,8 @@ var ErrUnsupportedPlatform = errors.New("resolver: unsupported git platform")
 // remote repository.
 var ErrNotFound = resolvers.ErrNotFound
 
+var ErrManifestNotFound = resolvers.ErrManifestNotFound
+
 // ErrFetchFailed is returned when the remote git repository cannot be cloned,
 // HTTP request fails, or the file cannot be read from the in-memory worktree.
 var ErrFetchFailed = resolvers.ErrFetchFailed

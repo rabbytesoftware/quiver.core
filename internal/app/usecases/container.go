@@ -10,6 +10,7 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
+	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 type Container struct {
@@ -22,9 +23,15 @@ type Container struct {
 	Discovery DiscoveryUsecase
 	Config    ConfigUsecase
 	Auth      AuthUsecase
+	Path      PathUsecase
 }
 
-func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Container, error) {
+func New(
+	repos *repositories.Container,
+	m manifold.Manifold,
+	v vault.Vault,
+	w wizardPkg.Wizard,
+) (*Container, error) {
 	pairingCodeTTL, err := time.ParseDuration(config.GetAuth().PairingCodeTTL)
 	if err != nil {
 		return nil, fmt.Errorf("usecases: parse auth.pairing_code_ttl: %w", err)
@@ -74,5 +81,6 @@ func New(repos *repositories.Container, m manifold.Manifold, v vault.Vault) (*Co
 		Discovery:  discoveryUC,
 		Config:     NewConfigUsecase(repos.Config),
 		Auth:       NewAuthUsecase(repos.PairingCode, repos.Device, pairingCodeTTL),
+		Path:       NewPathUsecase(w),
 	}, nil
 }

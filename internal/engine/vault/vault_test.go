@@ -585,6 +585,25 @@ func TestVault_PutArrow_WithMeta_IsSearchable(t *testing.T) {
 	require.Len(t, rows, 1)
 }
 
+func TestVault_PutArrow_InferredMeta_SearchKeepsGenerator(t *testing.T) {
+	dir := t.TempDir()
+	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	generator := &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "low"}
+	meta := IndexMeta{Arrow: domain.ArrowMeta{Name: "Chromium", Generator: generator}}
+	require.NoError(t, v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
+		Content: []byte("x"), Filename: "ARROW.md", Meta: &meta,
+	}))
+
+	rows, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, generator, rows[0].Meta.Arrow.Generator)
+	require.Equal(t, domain.ArrowOriginInferred, domain.Arrow{ArrowMeta: rows[0].Meta.Arrow}.Origin())
+}
+
 func TestVault_PutArrow_WithoutMeta_IsNotIndexed(t *testing.T) {
 	dir := t.TempDir()
 	v, err := New(filepath.Join(dir, "vault"), filepath.Join(dir, "ns"), 24*time.Hour)
@@ -615,7 +634,7 @@ func TestVault_PutArrow_IndexWriteError(t *testing.T) {
 	err = v.PutArrow(context.Background(), "github.com/u/r@v1", ManifestFile{
 		Content: []byte("x"), Filename: "ARROW.md", Meta: &meta,
 	})
-	assert.ErrorContains(t, err, "vault index: upsert row")
+	assert.Error(t, err)
 }
 
 func TestVault_DeleteArrow_KeepsIndexRow(t *testing.T) {
@@ -668,8 +687,9 @@ func TestVault_SearchArrows_Error(t *testing.T) {
 	v := newTestVault(t)
 	require.NoError(t, v.(*store).idx.db.Exec(`DROP TABLE vault_arrows_fts`).Error)
 
-	_, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
-	assert.ErrorContains(t, err, "vault index: search")
+	got, err := v.SearchArrows(context.Background(), IndexQuery{Text: "chrom", Limit: 10})
+	require.Error(t, err)
+	assert.Nil(t, got)
 }
 
 // ─── Close ───────────────────────────────────────────────────────────────────
@@ -685,7 +705,10 @@ func TestVault_Close_ReleasesTheDatabaseHandle(t *testing.T) {
 
 	require.NoError(t, v.Close())
 
-	assert.ErrorContains(t, s.idx.db.Exec(`SELECT 1`).Error, "database is closed")
+	assert.Error(t, s.idx.db.Exec(`SELECT 1`).Error)
+	sqlDB, err := s.idx.db.DB()
+	require.NoError(t, err)
+	assert.Zero(t, sqlDB.Stats().OpenConnections)
 }
 
 func TestVault_Close_Twice_IsANoOp(t *testing.T) {

@@ -40,7 +40,7 @@ func validHost(s string) bool {
 	scheme := s[:idx]
 	authority := s[idx+len(sep):]
 
-	if scheme == "unix" {
+	if scheme == "unix" || scheme == "npipe" {
 		return true
 	}
 

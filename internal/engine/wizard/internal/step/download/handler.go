@@ -34,6 +34,10 @@ var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 // ErrChecksumMismatch.
 var ErrChecksumUnresolved = errors.New("download: checksum: variable reference resolved to an empty value")
 
+var ErrUnsupportedChecksumAlgorithm = errors.New("download: unsupported checksum algorithm")
+
+const checksumAlgorithmSHA256 = "sha256"
+
 type handler struct{}
 
 func NewHandler() wizstep.Handler[domainstep.FetchStep] {
@@ -98,6 +102,11 @@ func verifyChecksum(
 	path string,
 	want string,
 ) error {
+	expected, err := expectedDigest(want)
+	if err != nil {
+		return err
+	}
+
 	rc, err := fns.ReadStream(ctx, path)
 	if err != nil {
 		return fmt.Errorf("download: checksum: open %s: %w", path, err)
@@ -110,8 +119,22 @@ func verifyChecksum(
 	}
 
 	got := hex.EncodeToString(digest.Sum(nil))
-	if !strings.EqualFold(got, want) {
-		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", path, want, got, ErrChecksumMismatch)
+	if !strings.EqualFold(got, expected) {
+		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", path, expected, got, ErrChecksumMismatch)
 	}
 	return nil
+}
+
+func expectedDigest(
+	checksum string,
+) (string, error) {
+	checksum = strings.TrimSpace(checksum)
+	algorithm, digest, tagged := strings.Cut(checksum, ":")
+	if !tagged {
+		return checksum, nil
+	}
+	if !strings.EqualFold(algorithm, checksumAlgorithmSHA256) {
+		return "", fmt.Errorf("download: checksum: %q: %w", algorithm, ErrUnsupportedChecksumAlgorithm)
+	}
+	return digest, nil
 }

@@ -124,7 +124,7 @@ func TestNewWithClock_UsesInjectedClock(t *testing.T) {
 func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
 	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	crs := &stubConstraintResolver{}
-	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, func() time.Time { return fixed }).(*manifold)
+	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, nil, func() time.Time { return fixed }).(*manifold)
 	if !ok {
 		t.Fatal("NewWithResolversAndClock(...).(*manifold) assertion failed")
 	}
@@ -839,6 +839,28 @@ func (s *stubHost) RawFileURL(
 	return "", errors.New("the injected resolver fetches, not the host")
 }
 
+func (s *stubHost) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s *stubHost) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s *stubHost) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (s *stubHost) DefaultBranches() []string { return nil }
 
 // hostedBy answers for every namespace, which is what a manifold wired to a
@@ -850,7 +872,7 @@ func hostedBy(h *stubHost) HostLookup {
 func TestNewWithResolvers_ReturnsManifoldInterface(t *testing.T) {
 	rsv := &stubResolver{}
 	crs := &stubConstraintResolver{}
-	_ = NewWithResolvers(rsv, crs)
+	_ = NewWithResolvers(rsv, crs, nil)
 }
 
 func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
@@ -858,7 +880,7 @@ func TestNewWithResolvers_UsesInjectedResolver(t *testing.T) {
 	rsv := &stubResolver{arrowErr: resolveErr}
 	crs := &stubConstraintResolver{}
 
-	m := NewWithResolvers(rsv, crs)
+	m := NewWithResolvers(rsv, crs, nil)
 	_, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/user/repo"))
 
 	if !errors.Is(err, resolveErr) {
@@ -1252,12 +1274,26 @@ func TestParseArrow_EmptyCommand_RejectedInPreinstalled(t *testing.T) {
 	if !errors.Is(err, ErrInvalidManifest) {
 		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "lifecycle.preinstalled[0].command") {
-		t.Fatalf("expected the error to name the uncovered preinstalled command, got: %v", err)
+	requireRuleOnField(t, err, "insufficient_coverage", "lifecycle.preinstalled[0].command")
+}
+
+func requireRuleOnField(
+	t *testing.T,
+	err error,
+	rule string,
+	fieldSuffix string,
+) {
+	t.Helper()
+	var rules ruleset.RuleErrors
+	if !errors.As(err, &rules) {
+		t.Fatalf("expected rule errors, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "insufficient_coverage") {
-		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
+	for _, r := range rules {
+		if r.Rule == rule && strings.HasSuffix(r.Field, fieldSuffix) {
+			return
+		}
 	}
+	t.Fatalf("expected rule %q on a field ending in %q, got: %+v", rule, fieldSuffix, rules)
 }
 
 // TestParseArrow_EmptyCommand_RejectedInInstall is the control the finding
@@ -1274,9 +1310,7 @@ func TestParseArrow_EmptyCommand_RejectedInInstall(t *testing.T) {
 	if !errors.Is(err, ErrInvalidManifest) {
 		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "insufficient_coverage") {
-		t.Fatalf("expected the coverage rule to be the one that rejected it, got: %v", err)
-	}
+	requireRuleOnField(t, err, "insufficient_coverage", "lifecycle.install[0].command")
 }
 
 // globKeyArrowYAML is the manifest §6.5 used to carry as its "BROKEN today"
@@ -1509,8 +1543,12 @@ targets:
 	if !errors.Is(err, ErrInvalidManifest) {
 		t.Fatalf("expected ErrInvalidManifest, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("expected the ambiguity to be named in the error, got: %v", err)
+	var ambig *models.AmbiguousTargetError
+	if !errors.As(err, &ambig) {
+		t.Fatalf("expected *AmbiguousTargetError, got: %v", err)
+	}
+	if ambig.OS != string(domain.OSWindowsAMD64) {
+		t.Fatalf("ambiguous OS = %q, want %q", ambig.OS, domain.OSWindowsAMD64)
 	}
 }
 
@@ -1928,7 +1966,7 @@ func TestListChannels_BucketsTagsCorrectly_ExcludesDefaultBranchWhenTagsExist(t 
 		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -1984,7 +2022,7 @@ func TestListChannels_NoTagsAtAll_FallsBackToDefaultBranch(t *testing.T) {
 		listTags: nil,
 		branch:   "develop",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2010,7 +2048,7 @@ func TestListChannels_RealWorldPrefixStyleConvention(t *testing.T) {
 			"nightly-latest",
 		},
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2076,7 +2114,7 @@ func TestListChannels_DeterministicOrderAcrossRepeatedCalls(t *testing.T) {
 		listTags: []string{"v1.4.0", "v1.3.0", "v1.5.0-rc1", "v1.5.0-rc2", "nightly"},
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	const runs = 20
 	var first []ChannelInfo
@@ -2103,7 +2141,7 @@ func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
 		listTags:  []string{"v1.0.0"},
 		branchErr: errors.New("no HEAD symref"),
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	got, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if err != nil {
@@ -2117,7 +2155,7 @@ func TestListChannels_NoDefaultBranch_StillReturnsTagChannels(t *testing.T) {
 func TestListChannels_ListTagsError_Propagates(t *testing.T) {
 	listErr := errors.New("dial tcp: connection refused")
 	crs := &stubConstraintResolver{listTagsErr: listErr}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	_, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
 	if !errors.Is(err, listErr) {
@@ -2133,7 +2171,7 @@ func TestListChannels_ListTagsError_Propagates(t *testing.T) {
 func TestListChannels_ListTagsError_NotCached(t *testing.T) {
 	listErr := errors.New("dial tcp: connection refused")
 	crs := &stubConstraintResolver{listTagsErr: listErr}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 	ns := domain.Namespace("github.com/u/r")
 
 	_, err1 := m.ListChannels(context.Background(), ns)
@@ -2160,7 +2198,7 @@ func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
 		listTags: nil,
 		branch:   "main",
 	}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 	ns := domain.Namespace("github.com/u/r")
 
 	first, err := m.ListChannels(context.Background(), ns)
@@ -2188,7 +2226,7 @@ func TestListChannels_SecondCall_ServedFromCache(t *testing.T) {
 // is keyed per namespace, not a single global slot.
 func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
 	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
-	m := NewWithResolvers(&stubResolver{}, crs)
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
 
 	if _, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/one")); err != nil {
 		t.Fatalf("unexpected error: %v", err)

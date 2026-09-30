@@ -37,6 +37,7 @@ paths:
   logs: "{{home}}/logs"
   vault: "{{home}}/vault"
   self: "{{home}}/self"
+  bin: "{{home}}/bin"
 
 # ? namespaces are quiver.core's own self-arrow identities: the module paths
 # ? it registers itself and its companion quiver.desktop GUI under in the
@@ -60,14 +61,22 @@ platforms:
   github.com:
     kind: github
     raw_url: "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}"
+    blob_url: "https://github.com/{user}/{repo}/blob/{branch}/{file}"
     default_branches: [main, master]
     search_url: "https://api.github.com/search/repositories?q={query}"
+    expanded_assets_url: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}"
+    repo_page_url: "https://github.com/{user}/{repo}"
   gitlab.com:
     kind: gitlab
     raw_url: "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}"
     default_branches: [main, master]
     search_url: "https://gitlab.com/api/v4/projects?search={query}&topic={topic}"
+    blob_url: "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}"
+    repo_page_url: "https://gitlab.com/{user}/{repo}"
+    release_api_url: "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}"
+    packages_api_url: "https://gitlab.com/api/v4/projects/{project}/packages"
   bitbucket.org:
     kind: bitbucket
     raw_url: "https://bitbucket.org/{user}/{repo}/raw/{branch}/{file}"
+    blob_url: "https://bitbucket.org/{user}/{repo}/src/{branch}/{file}"
     default_branches: [main, master]

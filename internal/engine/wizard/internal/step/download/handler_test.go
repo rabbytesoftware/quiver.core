@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -167,13 +168,21 @@ func TestHandler_Execute_ShellFormInToLeftVerbatim(t *testing.T) {
 }
 
 func TestHandler_Execute_InvalidTimeout_ReturnsError(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte("x"))
+	}))
+	t.Cleanup(srv.Close)
+	workDir := t.TempDir()
 	h := newTestHandler()
-	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:0/x", "/tmp/out.txt", "", "bad-timeout", true)
+	s := domainstep.NewFetchStep("fetch", srv.URL+"/x", "out.txt", "", "bad-timeout", true)
 
-	err := h.Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+	err := h.Execute(context.Background(), wizstep.Request{WorkDir: workDir}, s)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid timeout")
+	assert.Zero(t, hits, "a step with an unusable timeout must not start the download")
+	assert.NoFileExists(t, filepath.Join(workDir, "out.txt"))
 }
 
 func TestHandler_Execute_DownloadError(t *testing.T) {
@@ -330,4 +339,50 @@ func TestHandler_Execute_ChecksumVarResolvesEmpty_ReturnsErrorAndRemovesFile(t *
 	assert.ErrorIs(t, err, stepdownload.ErrChecksumUnresolved)
 	_, statErr := os.Stat(dst)
 	assert.True(t, os.IsNotExist(statErr), "a download whose declared checksum never resolved must be removed, not left on disk")
+}
+
+func TestHandler_Execute_ChecksumAlgorithmPrefix(t *testing.T) {
+	content := []byte("algorithm tagged content")
+	sum := sha256.Sum256(content)
+	digest := hex.EncodeToString(sum[:])
+	zeros := strings.Repeat("0", 64)
+
+	testCases := []struct {
+		name     string
+		checksum string
+		wantErr  error
+	}{
+		{name: "bare hex matches", checksum: digest},
+		{name: "lowercase sha256 prefix matches", checksum: "sha256:" + digest},
+		{name: "uppercase sha256 prefix matches", checksum: "SHA256:" + strings.ToUpper(digest)},
+		{name: "bare hex with surrounding whitespace matches", checksum: " " + digest + "\n"},
+		{name: "sha256 prefix with surrounding whitespace matches", checksum: "\tsha256:" + digest + " "},
+		{name: "sha256 prefix mismatch", checksum: "sha256:" + zeros, wantErr: stepdownload.ErrChecksumMismatch},
+		{name: "sha512 prefix unsupported", checksum: "sha512:" + digest, wantErr: stepdownload.ErrUnsupportedChecksumAlgorithm},
+		{name: "md5 prefix unsupported", checksum: "md5:" + zeros[:32], wantErr: stepdownload.ErrUnsupportedChecksumAlgorithm},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(content)
+			}))
+			defer srv.Close()
+
+			dst := filepath.Join(t.TempDir(), "out.bin")
+			s := domainstep.NewFetchStep("fetch", srv.URL, dst, tc.checksum, "10s", true)
+
+			err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, errors.Is(tc.wantErr, stepdownload.ErrChecksumMismatch), errors.Is(err, stepdownload.ErrChecksumMismatch))
+			_, statErr := os.Stat(dst)
+			assert.True(t, os.IsNotExist(statErr))
+		})
+	}
 }

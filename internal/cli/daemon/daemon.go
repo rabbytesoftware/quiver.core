@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 const probeTimeout = 250 * time.Millisecond
@@ -67,7 +68,7 @@ func (b *boundedBuffer) String() string {
 
 // Manager supervises the local daemon process.
 type Manager struct {
-	// Socket is the daemon's Unix socket path.
+	// Socket is the daemon's Unix socket path, or its named pipe on Windows.
 	Socket string
 	// PIDFile records the booted daemon's PID; PIDFile+".lock" serialises
 	// concurrent boot attempts.
@@ -102,7 +103,7 @@ func NewManager() (*Manager, error) {
 	dir := filepath.Join(home, ".quiver")
 
 	m := &Manager{
-		Socket:      filepath.Join(dir, "quiver.sock"),
+		Socket:      gateway.LocalSocket(dir),
 		PIDFile:     filepath.Join(dir, "quiver.pid"),
 		BootTimeout: 15 * time.Second,
 	}
@@ -255,7 +256,10 @@ func lastLine(s string) string {
 
 // IsLive reports whether the daemon answers on its socket.
 func (m *Manager) IsLive() bool {
-	conn, err := net.DialTimeout("unix", m.Socket, probeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+
+	conn, err := gateway.Dial(ctx, m.Socket)
 	if err != nil {
 		return false
 	}

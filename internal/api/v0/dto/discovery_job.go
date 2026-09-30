@@ -48,7 +48,8 @@ type DiscoveryProviderDTO struct {
 	Reason   string `json:"reason,omitempty" yaml:"reason,omitempty"`
 	// RetryAfter is in seconds and is set only when the host said how long to
 	// wait.
-	RetryAfter int `json:"retry_after,omitempty" yaml:"retry_after,omitempty"`
+	RetryAfter int    `json:"retry_after,omitempty" yaml:"retry_after,omitempty"`
+	Pass       string `json:"pass,omitempty" yaml:"pass,omitempty"`
 }
 
 func DiscoveryJobStartedDTOFrom(
@@ -88,6 +89,7 @@ func providerDTOs(
 			Returned:   outcome.Returned,
 			Reason:     outcome.Reason,
 			RetryAfter: int(outcome.RetryAfter.Seconds()),
+			Pass:       outcome.Pass,
 		})
 	}
 	return dtos

@@ -68,7 +68,8 @@ func newDaemonCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&host, "host", "", `host URI to bind (overrides config). Examples:
   unix:///custom/path/quiver.sock   Unix domain socket at custom path
-  unix://                           Unix domain socket at default path (~/.quiver/quiver.sock)
+  unix://                           Unix domain socket at default path (~/.quiver/quiver.sock; the named pipe on Windows)
+  npipe://quiver                    Windows named pipe (\\.\pipe\quiver)
   tcp://0.0.0.0:40257               TCP socket (remote mode)`)
 
 	return cmd

@@ -126,6 +126,8 @@ func catalogResults(
 			Provenance:   provenance,
 			Installed:    true,
 			Known:        true,
+			Origin:       hit.Metadata.Origin(),
+			Confidence:   hit.Metadata.Confidence(),
 		})
 	}
 	return results
@@ -192,6 +194,8 @@ func seenResult(
 		Known:        true,
 		Stars:        row.Meta.Stars,
 		Source:       row.Meta.Source,
+		Origin:       domain.Arrow{ArrowMeta: row.Meta.Arrow}.Origin(),
+		Confidence:   domain.Arrow{ArrowMeta: row.Meta.Arrow}.Confidence(),
 	}
 }
 

@@ -178,7 +178,7 @@ func New(
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os),
+		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os), getArrow, os},
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
@@ -198,6 +198,33 @@ func New(
 	}
 
 	return repo, nil
+}
+
+// plannedAssembler hands every assembled run to wizard.Plan, which adds the
+// steps the wizard itself runs for the method.
+type plannedAssembler struct {
+	assembler.Assembler
+	getArrow GetArrowFn
+	os       domain.OS
+}
+
+func (a plannedAssembler) Assemble(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+	userVars map[string]string,
+	opts ...assembler.AssembleOption,
+) (assembler.ResolvedExecution, error) {
+	resolved, err := a.Assembler.Assemble(ctx, ns, method, userVars, opts...)
+	if err != nil {
+		return resolved, err
+	}
+	arrow, err := a.getArrow(ctx, ns)
+	if err != nil {
+		return assembler.ResolvedExecution{}, fmt.Errorf("plan: %w", err)
+	}
+	resolved.Steps = wizardPkg.Plan(method, arrow, a.os, resolved.Steps)
+	return resolved, nil
 }
 
 // MarkPreinstalled returns a function that lands ns's runtime aggregate at

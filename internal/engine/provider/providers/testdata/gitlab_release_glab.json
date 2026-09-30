@@ -1,0 +1,62 @@
+{
+  "name": "v1.119.0",
+  "tag_name": "v1.119.0",
+  "assets": {
+    "count": 9,
+    "sources": [
+      {
+        "format": "zip",
+        "url": "https://gitlab.com/gitlab-org/cli/-/archive/v1.119.0/cli-v1.119.0.zip"
+      },
+      {
+        "format": "tar.gz",
+        "url": "https://gitlab.com/gitlab-org/cli/-/archive/v1.119.0/cli-v1.119.0.tar.gz"
+      },
+      {
+        "format": "tar.bz2",
+        "url": "https://gitlab.com/gitlab-org/cli/-/archive/v1.119.0/cli-v1.119.0.tar.bz2"
+      },
+      {
+        "format": "tar",
+        "url": "https://gitlab.com/gitlab-org/cli/-/archive/v1.119.0/cli-v1.119.0.tar"
+      }
+    ],
+    "links": [
+      {
+        "id": 13191373,
+        "name": "glab_1.119.0_windows_amd64.zip",
+        "url": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/glab_1%2E119%2E0_windows_amd64%2Ezip",
+        "direct_asset_url": "https://gitlab.com/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_windows_amd64.zip",
+        "link_type": "other"
+      },
+      {
+        "id": 13191372,
+        "name": "glab_1.119.0_linux_amd64.deb",
+        "url": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/glab_1%2E119%2E0_linux_amd64%2Edeb",
+        "direct_asset_url": "https://gitlab.com/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.deb",
+        "link_type": "other"
+      },
+      {
+        "id": 13191365,
+        "name": "checksums.txt",
+        "url": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/checksums%2Etxt",
+        "direct_asset_url": "https://gitlab.com/gitlab-org/cli/-/releases/v1.119.0/downloads/checksums.txt",
+        "link_type": "other"
+      },
+      {
+        "id": 13191354,
+        "name": "glab_1.119.0_linux_amd64.tar.gz",
+        "url": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/glab_1%2E119%2E0_linux_amd64%2Etar%2Egz",
+        "direct_asset_url": "https://gitlab.com/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_linux_amd64.tar.gz",
+        "link_type": "other"
+      },
+      {
+        "id": 13191346,
+        "name": "glab_1.119.0_darwin_arm64.tar.gz",
+        "url": "https://gitlab.com/api/v4/projects/gitlab-org%2Fcli/packages/generic/glab/1%2E119%2E0/glab_1%2E119%2E0_darwin_arm64%2Etar%2Egz",
+        "direct_asset_url": "https://gitlab.com/gitlab-org/cli/-/releases/v1.119.0/downloads/glab_1.119.0_darwin_arm64.tar.gz",
+        "link_type": "other"
+      }
+    ]
+  }
+}

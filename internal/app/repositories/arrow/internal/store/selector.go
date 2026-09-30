@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -46,19 +47,75 @@ func (r *storeService) ResolveInstall(
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}
 
+	arrow, err := r.installAt(ctx, identity, kind, snap, o.exists)
+	if err == nil || ns.Ref() != "" || !errors.Is(err, apperrors.ErrNotFound) {
+		return identity, arrow, err
+	}
+	if fallback, arrow, ok := r.installFallback(ctx, ns, identity.Ref(), snap, o.exists); ok {
+		return fallback, arrow, nil
+	}
+	return identity, nil, err
+}
+
+func (r *storeService) installAt(
+	ctx context.Context,
+	identity domain.Namespace,
+	kind domain.SelectorKind,
+	snap domain.RefSnapshot,
+	exists ExistsFunc,
+) (*domain.Arrow, error) {
 	target, err := manifold.Target(kind, identity.Ref(), snap)
 	if err != nil {
-		return identity, nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, targetSentinel(kind), err)
+		return nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, targetSentinel(kind), err)
 	}
 
-	arrow, err := r.fetchAtCommit(ctx, identity, target, o.exists)
+	arrow, err := r.fetchAtCommit(ctx, identity, target, exists)
 	if err != nil {
-		return identity, nil, fmt.Errorf("reader resolve install %s: %w", identity, err)
+		return nil, fmt.Errorf("reader resolve install %s: %w", identity, err)
 	}
 
 	arrow.SelectorKind = kind
 	arrow.Resolved = resolvedAt(target)
-	return identity, arrow, nil
+	return arrow, nil
+}
+
+// installFallback settles a refless install whose default channel serves no
+// manifest — a latest release published without one, say — on the first other
+// listed channel that does, and then on the HEAD branch.
+func (r *storeService) installFallback(
+	ctx context.Context,
+	ns domain.Namespace,
+	tried string,
+	snap domain.RefSnapshot,
+	exists ExistsFunc,
+) (domain.Namespace, *domain.Arrow, bool) {
+	for _, selector := range fallbackSelectors(snap, tried) {
+		kind, err := manifold.ClassifySelector(selector, snap)
+		if err != nil {
+			continue
+		}
+		identity := ns.WithRef(selector)
+		if arrow, err := r.installAt(ctx, identity, kind, snap, exists); err == nil {
+			return identity, arrow, true
+		}
+	}
+	return ns, nil, false
+}
+
+func fallbackSelectors(
+	snap domain.RefSnapshot,
+	tried string,
+) []string {
+	selectors := []string{tried}
+	for _, channel := range manifold.ChannelsOf(snap) {
+		if !channel.IsDefaultBranchFallback && !slices.Contains(selectors, channel.Name) {
+			selectors = append(selectors, channel.Name)
+		}
+	}
+	if snap.Head != "" && !slices.Contains(selectors, snap.Head) {
+		selectors = append(selectors, snap.Head)
+	}
+	return selectors[1:]
 }
 
 type snapshotFunc func(ctx context.Context, ns domain.Namespace) (domain.RefSnapshot, error)

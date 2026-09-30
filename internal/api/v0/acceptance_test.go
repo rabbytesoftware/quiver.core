@@ -205,6 +205,28 @@ func (p *blockingProvider) RawFileURL(
 	return "", errNotProviderSearch
 }
 
+func (p *blockingProvider) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (p *blockingProvider) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (p *blockingProvider) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
+}
+
 func (p *blockingProvider) DefaultBranches() []string { return nil }
 
 var errNotProviderSearch = errors.New("stub provider: discovery never asks this")
@@ -373,14 +395,19 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	assert.Equal(t, 1, summary.Found)
 	assert.Equal(t, 1, summary.Verified)
 	assert.Zero(t, summary.Skipped)
-	require.Len(t, summary.Providers, 1)
-	assert.Equal(t, "github.com", summary.Providers[0].Host)
-	assert.True(t, summary.Providers[0].OK)
-	assert.Equal(t, 1, summary.Providers[0].Returned)
+	require.Len(t, summary.Providers, 2, "one outcome per pass")
+	tagged := summary.Providers[0]
+	assert.Equal(t, "github.com", tagged.Host)
+	assert.Equal(t, "tagged", tagged.Pass)
+	assert.True(t, tagged.OK)
+	assert.Equal(t, 1, tagged.Returned)
+	unmarked := summary.Providers[1]
+	assert.Equal(t, "github.com", unmarked.Host)
+	assert.Equal(t, "unmarked", unmarked.Pass)
 
 	resolvesAfterDiscovery, _ := env.manifold.counts()
 	require.Equal(t, 1, resolvesAfterDiscovery, "discovery proves each candidate exactly once")
-	require.Equal(t, 1, env.provider.searches())
+	require.Equal(t, 2, env.provider.searches(), "one search per pass")
 
 	// 5. Adding the discovered arrow fetches its manifest once more, at the
 	//    exact commit the install records, and asks no provider anything.
@@ -391,7 +418,7 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	resolvesAfterAdd, _ := env.manifold.counts()
 	assert.Equal(t, resolvesAfterDiscovery+1, resolvesAfterAdd,
 		"add fetches the manifest exactly once, at the commit it installs")
-	assert.Equal(t, 1, env.provider.searches(),
+	assert.Equal(t, 2, env.provider.searches(),
 		"add must not ask any provider anything")
 
 	// 6. The arrow is now a local result. The add is accepted before the
@@ -423,7 +450,7 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	// Nothing after the add reached a provider or fetched a manifest again.
 	finalResolves, _ := env.manifold.counts()
 	assert.Equal(t, resolvesAfterAdd, finalResolves)
-	assert.Equal(t, 1, env.provider.searches())
+	assert.Equal(t, 2, env.provider.searches())
 }
 
 // assertAddedWireShape reads the detail, list and manifest of an arrow added

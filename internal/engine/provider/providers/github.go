@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
 type githubProvider struct {
 	host
-	searchURL string
+	searchURL         string
+	expandedAssetsURL string
 }
 
 // NewGitHub builds the provider answering for a GitHub host.
@@ -18,8 +21,9 @@ func NewGitHub(
 	cfg Config,
 ) Provider {
 	return &githubProvider{
-		host:      newHost(cfg),
-		searchURL: cfg.SearchURL,
+		host:              newHost(cfg),
+		searchURL:         cfg.SearchURL,
+		expandedAssetsURL: cfg.ExpandedAssetsURL,
 	}
 }
 
@@ -45,6 +49,9 @@ func (p *githubProvider) Search(
 ) ([]Candidate, error) {
 	if !p.CanSearch() {
 		return p.host.Search(ctx, req)
+	}
+	if req.Unmarked {
+		return p.searchOne(ctx, unmarkedGithubQuery(req.Text, req.MinStars), "", req.Limit)
 	}
 
 	return searchEachTopic(ctx, req.Topics, req.Limit,
@@ -110,4 +117,44 @@ func githubQuery(
 		parts = append(parts, "topic:"+topic)
 	}
 	return strings.Join(parts, " ")
+}
+
+func unmarkedGithubQuery(
+	text string,
+	minStars int,
+) string {
+	parts := make([]string, 0, 4)
+	if text != "" {
+		parts = append(parts, text)
+	}
+	parts = append(parts, "fork:false", "archived:false", fmt.Sprintf("stars:>=%d", minStars))
+	return strings.Join(parts, " ")
+}
+
+func (p *githubProvider) ReleaseAssets(
+	ctx context.Context,
+	ns domain.Namespace,
+	tag string,
+) ([]domain.ReleaseAsset, error) {
+	rawURL, err := tagURL(p.expandedAssetsURL, ns, tag)
+	if err != nil {
+		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
+	}
+
+	resp, err := p.transport.fetch(ctx, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
+	}
+	if resp.Status == http.StatusNotFound {
+		return []domain.ReleaseAsset{}, nil
+	}
+	if resp.Status < http.StatusOK || resp.Status >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("provider %s: release assets: http %d", p.name, resp.Status)
+	}
+
+	assets, err := parseExpandedAssets(resp.Body, rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("provider %s: release assets: %w", p.name, err)
+	}
+	return assets, nil
 }

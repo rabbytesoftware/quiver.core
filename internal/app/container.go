@@ -40,6 +40,7 @@ type Container struct {
 	Discovery usecases.DiscoveryUsecase
 	Config    usecases.ConfigUsecase
 	Auth      usecases.AuthUsecase
+	Path      usecases.PathUsecase
 	Hub       *hub.Hub
 
 	repos    *repositories.Container
@@ -289,7 +290,7 @@ func New(
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
-	uc, err := usecases.New(repos, engines.Manifold, engines.Vault)
+	uc, err := usecases.New(repos, engines.Manifold, engines.Vault, engines.Wizard)
 	if err != nil {
 		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: usecases: %w", err)
@@ -303,6 +304,7 @@ func New(
 		Discovery:  uc.Discovery,
 		Config:     uc.Config,
 		Auth:       uc.Auth,
+		Path:       uc.Path,
 		Hub:        h,
 		repos:      repos,
 		arrowsDB:   db,

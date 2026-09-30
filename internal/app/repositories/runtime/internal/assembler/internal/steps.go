@@ -23,6 +23,9 @@ func StepsForMethod(
 		return target.Lifecycle.Uninstall, nil, nil
 
 	case domain.MethodUpdate:
+		if len(target.Lifecycle.Update) == 0 {
+			return target.Lifecycle.Install, nil, nil
+		}
 		return target.Lifecycle.Update, nil, nil
 
 	case domain.MethodExecute:

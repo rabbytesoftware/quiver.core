@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/xeipuuv/gojsonschema"
 	"gopkg.in/yaml.v3"
 
@@ -403,7 +405,6 @@ targets:
 	}
 }
 
-// TestMap_PreRefactorShapeReturnsError: old flat-shape manifest returns error containing "pre-refactor".
 func TestMap_PreRefactorShapeReturnsError(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"
@@ -414,12 +415,12 @@ lifecycle:
     - type: run
       command: "echo old"
 `)
-	_, _, err := v0.New().Parse(yamlData)
+	arrow, targets, err := v0.New().Parse(yamlData)
 	if err == nil {
 		t.Fatal("expected error for pre-refactor manifest shape")
 	}
-	if !strings.Contains(err.Error(), "pre-refactor") {
-		t.Errorf("error = %q, want it to contain \"pre-refactor\"", err.Error())
+	if arrow != nil || targets != nil {
+		t.Errorf("a rejected manifest must produce nothing, got arrow %v and targets %v", arrow, targets)
 	}
 }
 
@@ -484,8 +485,9 @@ targets:
 	if err == nil {
 		t.Fatal("expected error for dependencies step type in manifest")
 	}
-	if !strings.Contains(err.Error(), "synthetic") {
-		t.Errorf("error = %q, want it to contain \"synthetic\"", err.Error())
+	control := []byte(strings.Replace(string(yamlData), "type: dependencies", "type: run\n          command: echo ok", 1))
+	if _, _, err := v0.New().Parse(control); err != nil {
+		t.Fatalf("the same manifest with a run step must parse, got %v", err)
 	}
 }
 
@@ -644,6 +646,77 @@ targets:
 	}
 }
 
+func TestMap_FromToSteps(t *testing.T) {
+	testCases := []struct {
+		kind     string
+		extra    string
+		wantName string
+	}{
+		{kind: "extract"},
+		{kind: "portable"},
+		{kind: "portable", extra: "\n          name: tool.exe", wantName: "tool.exe"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.kind+tc.wantName, func(t *testing.T) {
+			yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: from-to-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: ` + tc.kind + `
+          title: Placing files
+          timeout: 5m
+          exit_on_failure: false
+          from:
+            default: "./default"
+            linux/amd64: "./linux-amd64"
+            darwin/arm64: "./darwin-arm64"
+          to:
+            default: "./"
+            linux/amd64: "./bin/"` + tc.extra + `
+`)
+			if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
+				t.Fatalf("schema validation error = %v, want nil", err)
+			}
+			_, precompiled, err := v0.New().Parse(yamlData)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			steps := precompiled["*"].Lifecycle.Install
+			if len(steps) != 1 {
+				t.Fatalf("Install steps = %d, want 1", len(steps))
+			}
+
+			var from, to, timeout step.Overrideable[string]
+			var name string
+			switch got := steps[0].(type) {
+			case step.ExtractStep:
+				from, to, timeout = got.From, got.To, got.Timeout
+			case step.PortableStep:
+				from, to, timeout, name = got.From, got.To, got.Timeout, got.Name
+			default:
+				t.Fatalf("install[0] is %T, want %s step", steps[0], tc.kind)
+			}
+			if steps[0].Title() != "Placing files" || steps[0].ExitOnFailure() {
+				t.Errorf("Title() = %q, ExitOnFailure() = %v", steps[0].Title(), steps[0].ExitOnFailure())
+			}
+			if timeout.Default != "5m" || name != tc.wantName {
+				t.Errorf("Timeout default = %q, Name = %q", timeout.Default, name)
+			}
+			if from.Default != "./default" || from.OSArch["linux/amd64"] != "./linux-amd64" || from.OSArch["darwin/arm64"] != "./darwin-arm64" {
+				t.Errorf("From = %+v", from)
+			}
+			if to.Default != "./" || to.OSArch["linux/amd64"] != "./bin/" {
+				t.Errorf("To = %+v", to)
+			}
+		})
+	}
+}
+
 func TestMap_InvalidStepInUpdate(t *testing.T) {
 	yamlData := []byte(`
 schema: "arrow@v0"
@@ -784,5 +857,212 @@ targets:
 	_, _, err := v0.New().Parse(yamlData)
 	if err == nil {
 		t.Fatal("expected error for sequence node in overrideable field")
+	}
+}
+
+func TestMap_Expose_SchemaAcceptsKey(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: expose-schema-test
+targets:
+  "*":
+    expose:
+      cli:
+        - name: mytool
+          path: "${INSTALL_PATH}/bin/mytool"
+      desktop:
+        - name: MyApp
+          path: auto
+          icon: "${INSTALL_PATH}/icon.png"
+          categories: [Utility]
+    lifecycle:
+      install:
+        - type: run
+          command: "echo install"
+      uninstall:
+        - type: run
+          command: "echo uninstall"
+`)
+	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err != nil {
+		t.Fatalf("schema validation error = %v, want nil: expose must be an accepted target key", err)
+	}
+}
+
+func TestMap_Expose_PopulatesField(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: expose-test
+targets:
+  "*":
+    expose:
+      cli:
+        - name: mytool
+          path: "${INSTALL_PATH}/bin/mytool"
+      desktop:
+        - name: MyApp
+          path: auto
+          icon: "${INSTALL_PATH}/icon.png"
+          categories: [Utility, Development]
+    lifecycle:
+      install:
+        - type: run
+          command: "echo install"
+      uninstall:
+        - type: run
+          command: "echo uninstall"
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	expose := precompiled["*"].Expose
+	if len(expose.CLI) != 1 || expose.CLI[0].Name != "mytool" || expose.CLI[0].Path != "${INSTALL_PATH}/bin/mytool" {
+		t.Fatalf("Expose.CLI = %+v, want one mytool entry", expose.CLI)
+	}
+	if len(expose.Desktop) != 1 {
+		t.Fatalf("Expose.Desktop = %+v, want one entry", expose.Desktop)
+	}
+	got := expose.Desktop[0]
+	if got.Name != "MyApp" || got.Path != "auto" || got.Icon != "${INSTALL_PATH}/icon.png" {
+		t.Fatalf("Expose.Desktop[0] = %+v, want MyApp/auto/icon", got)
+	}
+	if len(got.Categories) != 2 || got.Categories[0] != "Utility" || got.Categories[1] != "Development" {
+		t.Fatalf("Expose.Desktop[0].Categories = %v, want [Utility Development]", got.Categories)
+	}
+}
+
+func TestMap_Expose_AbsentYieldsZeroValue(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: expose-absent-test
+targets:
+  "*":
+    lifecycle:
+      install:
+        - type: run
+          command: "echo ok"
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !precompiled["*"].Expose.IsEmpty() {
+		t.Fatalf("Expose = %+v, want empty", precompiled["*"].Expose)
+	}
+}
+
+func TestMap_Expose_RejectsUnknownField(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: expose-unknown-field-test
+targets:
+  "*":
+    expose:
+      cli:
+        - name: mytool
+          path: "${INSTALL_PATH}/bin/mytool"
+          unknown: nope
+    lifecycle:
+      install:
+        - type: run
+          command: "echo ok"
+`)
+	if err := validateAgainstSchema(t, v0.New().Schema(), yamlData); err == nil {
+		t.Fatal("expected schema validation error for unknown expose entry field")
+	}
+}
+
+func TestMap_Expose_ExplicitEmptyChildListReplacesParent(t *testing.T) {
+	yamlData := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: expose-empty-child-test
+targets:
+  _base:
+    expose:
+      cli:
+        - name: basetool
+          path: "${INSTALL_PATH}/bin/basetool"
+    lifecycle:
+      install:
+        - type: run
+          command: "echo ok"
+      uninstall:
+        - type: run
+          command: "echo bye"
+  linux/amd64:
+    base: _base
+    expose:
+      cli: []
+    lifecycle: {}
+`)
+	_, precompiled, err := v0.New().Parse(yamlData)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	rt, err := v0.SelectTarget(precompiled, domain.OSLinuxAMD64)
+	if err != nil {
+		t.Fatalf("SelectTarget() error = %v", err)
+	}
+	if rt.Expose.CLI == nil || len(rt.Expose.CLI) != 0 {
+		t.Fatalf("Expose.CLI = %v, want non-nil empty (explicit cli: [] must replace parent's basetool entry)", rt.Expose.CLI)
+	}
+}
+
+func TestMap_Generator(t *testing.T) {
+	testCases := []struct {
+		name     string
+		metadata string
+		want     *domain.ArrowGenerator
+	}{
+		{
+			name:     "absent generator is nil",
+			metadata: "  name: plain\n",
+			want:     nil,
+		},
+		{
+			name:     "generator with warnings",
+			metadata: "  name: forged\n  generator:\n    name: fletcher/1\n    confidence: medium\n    warnings: [assumed_arch, emulated]\n",
+			want: &domain.ArrowGenerator{
+				Name:       "fletcher/1",
+				Confidence: "medium",
+				Warnings:   []string{"assumed_arch", "emulated"},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte("schema: \"arrow@v0\"\nmetadata:\n" + tc.metadata +
+				"targets:\n  \"*\":\n    lifecycle:\n      execute:\n        - type: run\n          command: \"echo hi\"\n")
+			require.NoError(t, validateAgainstSchema(t, v0.New().Schema(), data))
+
+			arrow, _, err := v0.New().Parse(data)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, arrow.Generator)
+		})
+	}
+}
+
+func TestMap_Generator_SchemaRejectsInvalidShapes(t *testing.T) {
+	testCases := []struct {
+		name      string
+		generator string
+	}{
+		{name: "unknown confidence", generator: "    name: fletcher/1\n    confidence: certain\n"},
+		{name: "missing name", generator: "    confidence: high\n"},
+		{name: "non-string warning", generator: "    name: fletcher/1\n    confidence: low\n    warnings: [{a: b}]\n"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := []byte("schema: \"arrow@v0\"\nmetadata:\n  name: forged\n  generator:\n" + tc.generator +
+				"targets:\n  \"*\":\n    lifecycle:\n      execute:\n        - type: run\n          command: \"echo hi\"\n")
+
+			assert.Error(t, validateAgainstSchema(t, v0.New().Schema(), data))
+		})
 	}
 }

@@ -2295,8 +2295,10 @@ func TestAdd_RulesetRejectionMapsToInvalidManifest(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrInvalidManifest)
-	assert.Contains(t, err.Error(), "insufficient_coverage",
-		"the rule that rejected the manifest must survive the mapping")
+	var rules aerrors.RuleErrors
+	require.ErrorAs(t, err, &rules, "the rule that rejected the manifest must survive the mapping")
+	require.Len(t, rules, 1)
+	assert.Equal(t, "insufficient_coverage", rules[0].Rule)
 }
 
 func TestAdd_NoSupportedPlatformMapsToPlatformNotSupported(t *testing.T) {

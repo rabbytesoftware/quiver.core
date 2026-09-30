@@ -23,11 +23,13 @@ import (
 // ─── stub provider ───────────────────────────────────────────────────────────
 
 type stubProvider struct {
-	host       string
-	candidates []provider.Candidate
-	err        error
-	queries    chan provider.SearchRequest
-	noSearch   bool
+	host               string
+	candidates         []provider.Candidate
+	err                error
+	unmarkedCandidates []provider.Candidate
+	unmarkedErr        error
+	queries            chan provider.SearchRequest
+	noSearch           bool
 }
 
 func (s *stubProvider) Host() string { return s.host }
@@ -44,6 +46,9 @@ func (s *stubProvider) Search(
 	if s.queries != nil {
 		s.queries <- req
 	}
+	if req.Unmarked {
+		return s.unmarkedCandidates, s.unmarkedErr
+	}
 	return s.candidates, s.err
 }
 
@@ -53,6 +58,28 @@ func (s *stubProvider) RawFileURL(
 	_ string,
 ) (string, error) {
 	return "", errNotDiscovery
+}
+
+func (s *stubProvider) BlobFileURL(
+	_ domain.Namespace,
+	_ string,
+	_ string,
+) (string, error) {
+	return "", nil
+}
+
+func (s *stubProvider) RepoPageURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
+func (s *stubProvider) ReleaseAssets(
+	_ context.Context,
+	_ domain.Namespace,
+	_ string,
+) ([]domain.ReleaseAsset, error) {
+	return nil, nil
 }
 
 func (s *stubProvider) DefaultBranches() []string { return nil }
@@ -200,6 +227,7 @@ func newDiscovery(
 		Topics:           []string{"quiver-arrow"},
 		PerProviderLimit: 25,
 		FetchConcurrency: 8,
+		Unmarked:         discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: 10},
 	}
 	if mutate != nil {
 		mutate(&cfg)
@@ -208,6 +236,16 @@ func newDiscovery(
 	d, err := discovery.New(providers, m, v, known, cfg)
 	require.NoError(t, err)
 	return d
+}
+
+func taggedProviders(outcome discovery.Outcome) []discovery.ProviderOutcome {
+	var tagged []discovery.ProviderOutcome
+	for _, po := range outcome.Providers {
+		if po.Pass == discovery.PassTagged {
+			tagged = append(tagged, po)
+		}
+	}
+	return tagged
 }
 
 type collector struct {
@@ -230,15 +268,15 @@ func (c *collector) all() []discovery.Result {
 // ─── construction ────────────────────────────────────────────────────────────
 
 func TestNew_NilManifold_ReturnsError(t *testing.T) {
-	_, err := discovery.New(nil, nil, newVault(t), neverKnown, discovery.Config{})
+	d, err := discovery.New(nil, nil, newVault(t), neverKnown, discovery.Config{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "manifold")
+	assert.Nil(t, d)
 }
 
 func TestNew_NilVault_ReturnsError(t *testing.T) {
-	_, err := discovery.New(nil, &stubManifold{}, nil, neverKnown, discovery.Config{})
+	d, err := discovery.New(nil, &stubManifold{}, nil, neverKnown, discovery.Config{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vault")
+	assert.Nil(t, d)
 }
 
 // ─── happy path ──────────────────────────────────────────────────────────────
@@ -258,9 +296,10 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	assert.Equal(t, 1, outcome.Found)
 	assert.Equal(t, 1, outcome.Verified)
 	assert.Zero(t, outcome.Skipped)
-	require.Len(t, outcome.Providers, 1)
-	assert.True(t, outcome.Providers[0].OK)
-	assert.Equal(t, 1, outcome.Providers[0].Returned)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1)
+	assert.True(t, tagged[0].OK)
+	assert.Equal(t, 1, tagged[0].Returned)
 
 	results := got.all()
 	require.Len(t, results, 1)
@@ -485,9 +524,10 @@ func TestDiscover_OneProviderRateLimitedOtherSucceeds(t *testing.T) {
 	assert.Len(t, got.all(), 1, "a rate-limited host must not stop the others")
 	assert.Equal(t, 1, outcome.Verified)
 
-	require.Len(t, outcome.Providers, 2)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 2)
 	byHost := map[string]discovery.ProviderOutcome{}
-	for _, po := range outcome.Providers {
+	for _, po := range tagged {
 		byHost[po.Host] = po
 	}
 
@@ -515,9 +555,10 @@ func TestDiscover_ProviderThatCannotSearchIsSkipped(t *testing.T) {
 		Discover(context.Background(), "browser", got.emit)
 	require.NoError(t, err)
 
-	require.Len(t, outcome.Providers, 1, "only the hosts that were asked are reported")
-	assert.Equal(t, "github.com", outcome.Providers[0].Host)
-	assert.True(t, outcome.Providers[0].OK)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1, "only the hosts that were asked are reported")
+	assert.Equal(t, "github.com", tagged[0].Host)
+	assert.True(t, tagged[0].OK)
 	assert.Len(t, got.all(), 1)
 }
 
@@ -542,9 +583,10 @@ func TestDiscover_UnauthorizedProviderIsReportedAsSuch(t *testing.T) {
 		Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
-	require.Len(t, outcome.Providers, 1)
-	assert.Equal(t, discovery.ReasonUnauthorized, outcome.Providers[0].Reason)
-	assert.Zero(t, outcome.Providers[0].RetryAfter)
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 1)
+	assert.Equal(t, discovery.ReasonUnauthorized, tagged[0].Reason)
+	assert.Zero(t, tagged[0].RetryAfter)
 }
 
 func TestDiscover_AllProvidersFailReturnsOutcomeNotError(t *testing.T) {
@@ -560,12 +602,13 @@ func TestDiscover_AllProvidersFailReturnsOutcomeNotError(t *testing.T) {
 	assert.Zero(t, outcome.Found)
 	assert.Zero(t, outcome.Verified)
 	assert.Empty(t, got.all())
-	require.Len(t, outcome.Providers, 2)
-	for _, po := range outcome.Providers {
+	tagged := taggedProviders(outcome)
+	require.Len(t, tagged, 2)
+	for _, po := range tagged {
 		assert.False(t, po.OK)
 	}
-	assert.Equal(t, discovery.ReasonRateLimited, outcome.Providers[0].Reason)
-	assert.Equal(t, discovery.ReasonError, outcome.Providers[1].Reason)
+	assert.Equal(t, discovery.ReasonRateLimited, tagged[0].Reason)
+	assert.Equal(t, discovery.ReasonError, tagged[1].Reason)
 }
 
 func TestDiscover_NoProviders_ReturnsEmptyOutcome(t *testing.T) {
@@ -589,20 +632,30 @@ func TestDiscover_EmptyText_ReturnsError(t *testing.T) {
 // ─── query shape ─────────────────────────────────────────────────────────────
 
 func TestDiscover_SendsTopicsAndLimitToEveryProvider(t *testing.T) {
-	queries := make(chan provider.SearchRequest, 1)
+	queries := make(chan provider.SearchRequest, 2)
 	p := &stubProvider{host: "github.com", queries: queries}
 	m := &stubManifold{resolve: resolvesTo("Chromium")}
 
 	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, func(c *discovery.Config) {
 		c.Topics = []string{"quiver-arrow", "quiver-beta"}
 		c.PerProviderLimit = 3
+		c.Unmarked = discovery.UnmarkedConfig{MinStars: 7, ProbeLimit: 4}
 	}).Discover(context.Background(), "browser", func(discovery.Result) {})
 	require.NoError(t, err)
 
-	req := <-queries
-	assert.Equal(t, "browser", req.Text)
-	assert.Equal(t, []string{"quiver-arrow", "quiver-beta"}, req.Topics)
-	assert.Equal(t, 3, req.Limit)
+	require.Len(t, queries, 2)
+	tagged := <-queries
+	assert.Equal(t, "browser", tagged.Text)
+	assert.False(t, tagged.Unmarked)
+	assert.Equal(t, []string{"quiver-arrow", "quiver-beta"}, tagged.Topics)
+	assert.Equal(t, 3, tagged.Limit)
+
+	unmarked := <-queries
+	assert.Equal(t, "browser", unmarked.Text)
+	assert.True(t, unmarked.Unmarked)
+	assert.Empty(t, unmarked.Topics)
+	assert.Equal(t, 7, unmarked.MinStars)
+	assert.Equal(t, 8, unmarked.Limit)
 }
 
 // The branch comes off the search response, so the manifest fetch must address
@@ -896,4 +949,121 @@ func TestDiscover_CancelledBeforeStart_ReturnsWithoutFetching(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, outcome.Verified)
 	assert.Empty(t, m.requests())
+}
+
+func withUnmarkedConfig(
+	cfg discovery.UnmarkedConfig,
+) func(*discovery.Config) {
+	return func(c *discovery.Config) {
+		c.Unmarked = cfg
+	}
+}
+
+func TestDiscover_Unmarked_RunsWithoutAnyFlag(t *testing.T) {
+	queries := make(chan provider.SearchRequest, 2)
+	p := &stubProvider{host: "github.com", queries: queries, candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "main"),
+	}}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, nil).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
+	require.NoError(t, err)
+
+	require.Len(t, queries, 2, "the unmarked pass always follows the tagged one")
+	assert.False(t, (<-queries).Unmarked)
+	assert.True(t, (<-queries).Unmarked)
+}
+
+func TestDiscover_Unmarked_SecondSearchIsUnmarkedWithMinStarsAndNoTopics(t *testing.T) {
+	queries := make(chan provider.SearchRequest, 2)
+	p := &stubProvider{host: "github.com", queries: queries, candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "main"),
+	}}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	_, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
+		withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 75, ProbeLimit: 5}),
+	).Discover(context.Background(), "browser", func(discovery.Result) {})
+	require.NoError(t, err)
+
+	require.Len(t, queries, 2)
+	tagged := <-queries
+	assert.False(t, tagged.Unmarked)
+
+	unmarked := <-queries
+	assert.True(t, unmarked.Unmarked)
+	assert.Equal(t, 75, unmarked.MinStars)
+	assert.Empty(t, unmarked.Topics)
+	assert.Equal(t, 10, unmarked.Limit, "limit is 2x ProbeLimit, to leave room for dedupe")
+}
+
+func TestDiscover_Unmarked_TaggedDuplicateIsNotResolvedTwice(t *testing.T) {
+	shared := candidate("github.com/acme/chromium", "main")
+	p := &stubProvider{
+		host:               "github.com",
+		candidates:         []provider.Candidate{shared},
+		unmarkedCandidates: []provider.Candidate{shared},
+	}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	var got collector
+	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown,
+		withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: 5}),
+	).Discover(context.Background(), "browser", got.emit)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, outcome.Found)
+	assert.Equal(t, 1, outcome.Verified)
+	assert.Len(t, got.all(), 1)
+	assert.Len(t, m.requests(), 1, "a candidate the tagged pass already proved is never re-resolved")
+}
+
+func withUnmarked(
+	probeLimit int,
+) func(*discovery.Config) {
+	return withUnmarkedConfig(discovery.UnmarkedConfig{MinStars: 10, ProbeLimit: probeLimit})
+}
+
+func TestDiscover_Unmarked_UnmarkedResultsAreCappedAtProbeLimit(t *testing.T) {
+	cands := make([]provider.Candidate, 0, 5)
+	for i := range 5 {
+		cands = append(cands, candidate(fmt.Sprintf("github.com/acme/probe%d", i), "main"))
+	}
+	p := &stubProvider{
+		host:               "github.com",
+		candidates:         []provider.Candidate{candidate("github.com/acme/tagged", "main")},
+		unmarkedCandidates: cands,
+	}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	outcome, err := newDiscovery(t, []provider.Provider{p}, m, newVault(t), neverKnown, withUnmarked(2)).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, outcome.Found, "1 tagged + 2 capped from the untagged pass")
+	assert.Equal(t, 3, outcome.Verified)
+	assert.Len(t, m.requests(), 3)
+}
+
+func TestDiscover_Unmarked_ProviderUnsupportedForUnmarkedIsNotAFailure(t *testing.T) {
+	tagged := &stubProvider{host: "github.com", candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "main"),
+	}}
+	gitlabLike := &stubProvider{host: "gitlab.com", unmarkedErr: provider.ErrSearchUnsupported}
+	m := &stubManifold{resolve: resolvesTo("Chromium")}
+
+	outcome, err := newDiscovery(t, []provider.Provider{tagged, gitlabLike}, m, newVault(t), neverKnown, withUnmarked(5)).
+		Discover(context.Background(), "browser", func(discovery.Result) {})
+	require.NoError(t, err)
+
+	var unmarkedOutcome *discovery.ProviderOutcome
+	for i := range outcome.Providers {
+		if outcome.Providers[i].Host == "gitlab.com" && outcome.Providers[i].Pass == discovery.PassUnmarked {
+			unmarkedOutcome = &outcome.Providers[i]
+		}
+	}
+	require.NotNil(t, unmarkedOutcome)
+	assert.True(t, unmarkedOutcome.OK, "an unsupported unmarked search is not a failure")
+	assert.Equal(t, discovery.ReasonUnsupported, unmarkedOutcome.Reason)
 }

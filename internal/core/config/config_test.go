@@ -236,6 +236,10 @@ func TestGetArrows_ReturnsVersionCheckTTL(t *testing.T) {
 	assert.NotEmpty(t, GetArrows().VersionCheckTTL)
 }
 
+func TestGetSearch_ReturnsUnmarkedSection(t *testing.T) {
+	assert.Positive(t, GetSearch().Unmarked.ProbeLimit)
+}
+
 func TestGetAuth_Defaults(t *testing.T) {
 	resetForTesting()
 	a := GetAuth()

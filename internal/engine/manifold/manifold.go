@@ -11,7 +11,9 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -120,28 +122,7 @@ var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its colle
 const StableChannel = resolvers.StableChannel
 
 // ChannelInfo describes one channel a namespace's repository publishes.
-type ChannelInfo struct {
-	// Name is the channel's identity: a classified name (§4.1) for an
-	// ordered channel, or the literal ref name for a pointer channel.
-	Name string
-	// Kind is "ordered" or "pointer".
-	Kind string
-	// Latest is the highest-precedence tag for an ordered channel, or the
-	// literal ref (tag or branch name) for a pointer channel.
-	Latest string
-	// Count is the number of tags classified into this channel. Always 0
-	// for a pointer channel, which by definition has exactly one member.
-	Count int
-	// Members lists every tag in this channel, ordered by precedence
-	// (highest first) — Members[0] always equals Latest. Empty for a
-	// pointer channel, which by definition has exactly one member: itself.
-	Members []string
-	// IsDefaultBranchFallback is true only for the synthetic entry
-	// ListChannels appends when a repository has no tags at all: the
-	// default branch offered as something to show in a channel picker,
-	// not a published channel.
-	IsDefaultBranchFallback bool
-}
+type ChannelInfo = models.ChannelInfo
 
 // defaultManifoldCacheTTL is the fallback used when a Manifold is built with
 // no explicit cache TTL (a zero/negative value passed to New, or
@@ -164,7 +145,10 @@ type manifold struct {
 	cmp        compiler.Compiler
 	rls        ruleset.Ruleset
 	constraint resolvers.ConstraintResolver
+	hosts      HostLookup
 	clock      func() time.Time
+	timeout    time.Duration
+	fl         fletcher.Fletcher
 
 	// cacheTTL bounds how long a cached remote lookup — Snapshot, and so
 	// ListChannels — is reused before asking the remote again. Set at construction time (see New), not a
@@ -195,8 +179,9 @@ func New(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
 	cacheTTL time.Duration,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now)
+	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now, opts)
 }
 
 // NewWithClock is New with an injectable clock, so a test can advance time
@@ -208,8 +193,9 @@ func NewWithClock(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, clock)
+	return newManifold(fetchTimeout, lookup, cacheTTL, clock, opts)
 }
 
 func newManifold(
@@ -217,25 +203,28 @@ func newManifold(
 	lookup HostLookup,
 	cacheTTL time.Duration,
 	clock func() time.Time,
+	opts []Option,
 ) Manifold {
 	lookup = hosts.Or(lookup)
 	if cacheTTL <= 0 {
 		cacheTTL = defaultManifoldCacheTTL
 	}
 
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        resolver.New(fetchTimeout, lookup),
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: resolvers.NewConstraintResolver(fetchTimeout),
+		hosts:      lookup,
 		clock:      clock,
+		timeout:    fetchTimeout,
 		cacheTTL:   cacheTTL,
-	}
+	}, opts)
 }
 
-// NewWithResolvers builds a Manifold with an injected resolver and constraint
-// resolver. Intended for tests that need to control how
+// NewWithResolvers builds a Manifold with an injected resolver, constraint
+// resolver and host lookup. Intended for tests that need to control how
 // namespaces are resolved; its cache TTL is always defaultManifoldCacheTTL,
 // with the real clock, since no caller of this constructor previously
 // needed either different — see NewWithResolversAndClock for the one that
@@ -243,8 +232,10 @@ func newManifold(
 func NewWithResolvers(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
+	lookup HostLookup,
+	opts ...Option,
 ) Manifold {
-	return NewWithResolversAndClock(rsv, crs, time.Now)
+	return NewWithResolversAndClock(rsv, crs, lookup, time.Now, opts...)
 }
 
 // NewWithResolversAndClock is NewWithResolvers with an injectable clock, so
@@ -254,17 +245,30 @@ func NewWithResolvers(
 func NewWithResolversAndClock(
 	rsv resolver.Resolver,
 	crs resolvers.ConstraintResolver,
+	lookup HostLookup,
 	clock func() time.Time,
+	opts ...Option,
 ) Manifold {
-	return &manifold{
+	return withOptions(&manifold{
 		rsv:        rsv,
 		trs:        translator.NewTranslator(),
 		cmp:        compiler.New(),
 		rls:        ruleset.New(),
 		constraint: crs,
+		hosts:      hosts.Or(lookup),
 		clock:      clock,
 		cacheTTL:   defaultManifoldCacheTTL,
+	}, opts)
+}
+
+func withOptions(
+	m *manifold,
+	opts []Option,
+) Manifold {
+	for _, opt := range opts {
+		opt(m)
 	}
+	return m
 }
 
 func (m *manifold) ResolveArrow(
@@ -272,6 +276,9 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	if err != nil && m.fl != nil {
+		raw, filename, err = m.fl.Recover(ctx, namespace, err)
+	}
 	if err != nil {
 		return nil, nil, "", err
 	}

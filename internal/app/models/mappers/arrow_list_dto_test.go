@@ -126,3 +126,29 @@ func TestArrowListDTOsFrom_VersionCarriesResolvedRef(t *testing.T) {
 		})
 	}
 }
+
+func TestArrowListDTOsFrom_OriginAndConfidence(t *testing.T) {
+	testCases := []struct {
+		name           string
+		generator      *domain.ArrowGenerator
+		wantOrigin     string
+		wantConfidence string
+	}{
+		{name: "declared", generator: nil, wantOrigin: domain.ArrowOriginDeclared},
+		{name: "inferred", generator: &domain.ArrowGenerator{Name: "generator/1", Confidence: "medium"}, wantOrigin: domain.ArrowOriginInferred, wantConfidence: "medium"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			views := []models.ArrowView{{
+				Namespace: "github.com/org/repo",
+				Metadata:  domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Repo", Generator: tc.generator}},
+			}}
+
+			result := mappers.ArrowListDTOsFrom(views)
+
+			assert.Len(t, result, 1)
+			assert.Equal(t, tc.wantOrigin, result[0].Origin)
+			assert.Equal(t, tc.wantConfidence, result[0].Confidence)
+		})
+	}
+}

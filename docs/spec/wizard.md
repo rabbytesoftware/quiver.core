@@ -10,13 +10,19 @@ The package layout under `internal/engine/wizard/`:
 
 | Path | Role |
 |------|------|
-| `wizard.go` | Public `Wizard` interface, `New`, `Start`, `Shutdown`, `ProcessAlive` |
+| `wizard.go` | Public `Wizard` interface, `New` + `WithSandboxHome`, `Start`, `Probe`, `Shutdown`, `ProcessAlive`, `PathStatus`, `SetupPath`, and the `Plan` function |
 | `internal/models/` | `RunRequest`, `Event`, `EventKind`, `Execution`, `ExecutionImpl` |
 | `internal/step/` | `Handler[S]` generic interface, `Request` carrier |
 | `internal/step/run/` | `RunStep` handler — spawns OS processes |
 | `internal/step/download/` | `FetchStep` handler — HTTP download via `internal/core/fns` |
 | `internal/step/signal/` | `SignalStep` handler — sends OS signals to a PID |
 | `internal/step/dependencies/` | `DependenciesStep` handler — calls an injected `Executor` |
+| `internal/step/extract/` | `ExtractStep` handler — unpacks an archive into a directory |
+| `internal/step/portable/` | `PortableStep` handler — materializes an AppImage, `.dmg`, archive or bare executable as a Quiver-owned app; its `internal/install` places the files, writes `${WORKDIR}/.quiver-apps.json` and anchors paths to the workdir |
+| `internal/step/expose/` | `Plan` (the synthetic `expose`/`unexpose` steps of a run) and the `ExposeStep`/`UnexposeStep` bridge to `internal/shelf`: applies a run's expose steps in one shelf pass and reports each entry's outcome; removes the entries owned by the run's workdir |
+| `internal/shelf/` | Places and removes an arrow's `expose` entries on the host (CLI commands, desktop entries) and reports/sets up `PATH`. `shelf.go` only orchestrates; `internal/platform.ForOS` composes, once, the OS's strategies from `internal/{cli,desktop/bundle,desktop/xdg,desktop/lnk,pathenv}` over `internal/{host,discover,ownership,fsguard,userpath,models}` (host layout, `auto` resolution, entry ownership, path guards, the Windows user `Path`, shared types); `mocks/` holds the test doubles |
+| `internal/unpack/` | Archive, AppImage and DMG extraction behind a safety `Guard` (path-escape, symlink, size and entry-count limits); shared by `extract` and `portable`. Its `internal/{archive,appimage,dmg,guard,models}` hold the formats and the guard, `mocks/` the fixture builders |
+| `internal/workfs/` | Path containment (`Inside`), relocation and the rename-aside `Swap` shared by `portable`, `unpack` and the shelf |
 | `internal/runtime/` | Process spawn/signal sub-engine (see `runtime.md`) |
 | `internal/mocks/` | Test doubles |
 
@@ -60,21 +66,21 @@ To stop a running `_execute`, the app layer cancels the per-execution context (o
 
 ### Wizard
 
-The `Wizard` interface exposes three methods.
-
 | Method | Behavior |
 |--------|----------|
 | `Start(ctx, req) Execution` | Launches a goroutine to execute `req.Steps` sequentially; returns the `Execution` handle immediately |
 | `Shutdown(ctx) error` | Cancels every active execution's root context, waits (bounded by `ctx`) for goroutines to drain, returns `nil` on success or `ctx.Err()` on timeout |
 | `ProcessAlive(pid) bool` | Reports whether the OS process with the given PID is currently running; delegated to the runtime sub-engine. Used by app-layer crash recovery to decide between "detach to running process" and "recover interrupted state" |
+| `PathStatus(ctx) (PathStatus, error)` | Reports whether `~/.quiver/bin` is on `PATH` and which shell files configure it; backs `GET /v0/system/path` |
+| `SetupPath(ctx) (PathStatus, error)` | Appends `~/.quiver/bin` to the user's `PATH` (shell rc files, or the user `Path` on Windows, then broadcasts `WM_SETTINGCHANGE` so Explorer and new terminals see it); runs only on explicit user action (`POST /v0/system/path`), never on its own |
 
 `Shutdown` is idempotent (`sync.Once`). After `Shutdown` is invoked, any further `Start` call returns an `Execution` that is immediately finished with `ExecutionOutcomeCancelled`.
 
 ### Constructor
 
-`New(depExec stepdeps.Executor) (Wizard, error)`
+`New(depExec stepdeps.Executor, extractMaxBytes int64, opts ...Option) (Wizard, error)`
 
-A single argument: the dependency-step executor function. Passing `nil` makes every `DependenciesStep` a no-op (used in tests and in lifecycles where dependency resolution is delegated outside the wizard). The constructor builds the runtime sub-engine via `runtime.New()` (which fails with `ErrUnsupportedOS` outside `darwin`/`linux`/`windows`), then registers the four built-in handlers in the dispatch table.
+The first argument is the dependency-step executor function. Passing `nil` makes every `DependenciesStep` a no-op (used in tests and in lifecycles where dependency resolution is delegated outside the wizard). The second is the uncompressed-size cap the `extract` and `portable` handlers enforce (the engine container passes `arrows.extract_max_bytes`). `WithSandboxHome(home)` keeps every exposed entry and the `PATH` the wizard reports inside `home` instead of the user's real home; the engine container passes it whenever it runs under `WithHomeDir`, so tests never touch the real `~/.quiver/bin`, desktop entries or `/Applications`. The constructor builds the runtime sub-engine via `runtime.New()` (which fails with `ErrUnsupportedOS` outside `darwin`/`linux`/`windows`) and the shelf, then registers the built-in handlers in the dispatch table.
 
 ### RunRequest
 
@@ -131,7 +137,7 @@ The Wizard does not call asynx, never knows about step indexing offsets, and nev
 
 ## Step Types
 
-The dispatch table is fixed at construction time. Four step types map to four handlers; an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
+The dispatch table is fixed at construction time. Seven step types map to seven handlers, and `expose` steps are run by the wizard loop itself (see [Exposure](#exposure)); an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
 
 | Step type | Handler | Description |
 |-----------|---------|-------------|
@@ -139,6 +145,21 @@ The dispatch table is fixed at construction time. Four step types map to four ha
 | `fetch` | `internal/step/download` | Downloads URL → `WorkDir`-relative or absolute destination via `internal/core/fns`; expands `${VAR}` references using `req.Vars` |
 | `signal` | `internal/step/signal` | Sends a `SignalKind` (graceful/kill/interrupt) directly to `req.PID`; returns `ErrNoProcess` if `PID <= 0` |
 | `dependencies` | `internal/step/dependencies` | Calls the `Executor` injected at `New`; if `nil`, a no-op |
+| `extract` | `internal/step/extract` | Unpacks a tar (plain or `.gz`/`.xz`/`.bz2`/`.zst`), zip or single compressed file into a `WorkDir`-anchored directory through `internal/unpack`; refuses an AppImage or `.dmg` with `ErrPortableFormat`, pointing at `portable` |
+| `portable` | `internal/step/portable` | Installs an AppImage, `.dmg`, archive or bare executable as a Quiver-owned app (staging directory, ownership marker, swap with rollback), records the apps it produced in `${WORKDIR}/.quiver-apps.json`, then removes the source when it lies inside the workdir |
+| `expose` | `internal/step/expose` (batch) | One step per `expose` entry of the target; see [Exposure](#exposure) |
+| `unexpose` | `internal/step/expose` | Removes the entries owned by `req.WorkDir`; see [Exposure](#exposure) |
+
+### Exposure
+
+Placing an arrow's `expose` entries on the host is a side effect of running its lifecycle, so it happens inside the wizard run. The wizard plans the steps itself: `wizard.Plan(method, arrow, os, steps)`, which the runtime repository's `plannedAssembler` applies to every assembled run before the run is recorded, so the added steps are recorded like any other. For a target that declares `expose` entries, `_install` and `_update` end with one `expose` step per entry (desktop entries first, then CLI, in declaration order; title `Expose <kind> <name>`), and `_uninstall` starts with one `unexpose` step (`Remove exposed entries`). Neither is ever fatal (`ExitOnFailure` is false).
+
+- **Expose.** When the loop reaches the run's contiguous `expose` steps it applies them in one shelf pass — a macOS `.app` bundle moved out of the workdir relocates CLI entries pointing into it, and the pass prunes the entries of the same bare namespace it did not place — then reports every step on its own: `step.completed` when the entry was placed (or an `auto` entry resolved to nothing), `step.failed` with an error wrapping `ErrRefused` when the shelf declined it (a name owned by another namespace or by the user, a target outside the workdir, …). A refusal fails its step, never the run. Because the steps come last, a fatal failure earlier in the run leaves nothing exposed.
+- **Unexpose.** Removes only the entries that point into this run's workdir, plus entries of the same bare namespace whose workdir no longer exists. Ownership lives on each entry — the symlink target, the `X-Quiver-Namespace`/`X-Quiver-Workdir` lines of a `.desktop` file, a Windows user `Path` entry lying inside the namespaces dir, the `quiver:<bare>|<workdir>` description of a Start Menu shortcut, the `net.quiver.namespace` xattr on a macOS bundle — so uninstalling `bat@v1` never removes an entry that `bat@v2` took over. Taking over is by bare namespace: applying `bat@v2` replaces `bat@v1`'s entry of the same name.
+
+Per OS, an entry is placed as follows. **macOS:** a CLI entry is a symlink in `~/.quiver/bin` (an unsigned Mach-O outside a bundle is ad-hoc signed on Apple silicon); a desktop entry moves the `.app` bundle into `/Applications`, else `~/Applications`, and tags it. **Linux:** a CLI entry is a symlink in `~/.quiver/bin`; a desktop entry is a `.desktop` file in `~/.local/share/applications`. **Windows:** a CLI entry appends the folder holding its `.exe` to the user `Path` (`HKCU\Environment\Path`, keeping its `REG_EXPAND_SZ` type and every existing entry, never prepending) and broadcasts `WM_SETTINGCHANGE`, the way winget does — the command is the executable's own name, whatever the entry's `name`, and two entries in one folder share one `Path` entry; `unexpose` drops only the claimed `Path` entries inside the namespaces dir. A desktop entry is a `.lnk` in the `Quiver` Start Menu folder, written and read in pure Go ([MS-SHLLINK]); an entry name Windows cannot hold (a reserved device name such as `CON`, or a trailing dot or space) is refused.
+
+The results travel only as the run's step progress; nothing outside the wizard knows the shelf exists. `PathStatus`/`SetupPath` are the one other door into it.
 
 ### Step Request
 
@@ -155,7 +176,7 @@ Every handler receives a `step.Request` derived from the `RunRequest` plus per-e
 
 ### Per-step timeouts
 
-`RunStep`, `FetchStep`, and `SignalStep` each carry an `Overrideable[string]` `Timeout` field. When non-empty, the handler resolves it for the current OS, parses it as a Go `time.Duration`, and derives a `context.WithTimeout` from the parent context. The fetch handler additionally disables the underlying HTTP client's default timeout (`config.WithTimeout(0)`) so the wrapping context deadline becomes the sole authority — preventing the 30s default from firing before a longer step timeout takes effect.
+`RunStep`, `FetchStep`, `SignalStep`, `ExtractStep`, and `PortableStep` each carry an `Overrideable[string]` `Timeout` field. When non-empty, the handler resolves it for the current OS, parses it as a Go `time.Duration`, and derives a `context.WithTimeout` from the parent context. The fetch handler additionally disables the underlying HTTP client's default timeout (`config.WithTimeout(0)`) so the wrapping context deadline becomes the sole authority — preventing the 30s default from firing before a longer step timeout takes effect.
 
 ### Step type / handler dispatch
 
@@ -171,11 +192,17 @@ flowchart LR
   F -->|fetch| FET[fns.Download]
   F -->|signal| SIG[runtime.SignalPID]
   F -->|dependencies| DEP[Executor func]
+  F -->|extract| EXT[unpack archive via Guard]
+  F -->|portable| POR[install + record apps]
+  F -->|unexpose| UNX[shelf.Remove workdir]
   F -->|unknown| UNK[ErrUnknownStepType]
   RUN --> G{err?}
   FET --> G
   SIG --> G
   DEP --> G
+  EXT --> G
+  POR --> G
+  UNX --> G
   UNK --> G
   G -->|nil| H[emit step.completed] --> B
   G -->|err & ctx cancelled| Z
@@ -213,7 +240,7 @@ sequenceDiagram
   App->>Wiz: New(depExec)
   Wiz->>RT: runtime.New()
   RT-->>Wiz: Runtime
-  Wiz->>Wiz: register dispatch[Run/Fetch/Signal/Deps]
+  Wiz->>Wiz: register dispatch[Run/Fetch/Signal/Deps/Extract/Portable]
   Wiz-->>App: Wizard
 
   App->>Wiz: Start(ctx, req)
@@ -395,7 +422,7 @@ After the first `Shutdown`, the `shutting` flag short-circuits new `Start` calls
 
 The wizard returns no domain-wrapped error type. Step handlers return raw errors (sentinels where useful, e.g. `ErrNonZeroExit`, `ErrNoProcess`, `ErrInvalidSignal`); the wizard delivers them verbatim in the `step.failed` event's `Err` field. The app layer is responsible for any logging, classification, or user-facing translation.
 
-The single sentinel exposed at the public boundary is `ErrUnknownStepType` (re-exported from `internal/models`), surfaced when the dispatch table has no entry for a step's type.
+The sentinels exposed at the public boundary are `ErrUnknownStepType` (re-exported from `internal/models`), surfaced when the dispatch table has no entry for a step's type, `ErrShuttingDown` and `ErrVacuousProbe`. A refused `expose` entry's `step.failed` error wraps `internal/step/expose.ErrRefused`.
 
 ---
 

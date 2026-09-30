@@ -20,6 +20,10 @@ config:
 
   manifold:
     fetch_timeout: 30s
+    # ? fletcher synthesizes a manifest from a repository's release assets
+    # ? when it publishes no ARROW.md.
+    fletcher:
+      enabled: false
 
   vault:
     sweep_interval: 5m
@@ -40,6 +44,9 @@ config:
     # ? was published under (stable, beta, hotfix, nightly-latest) is used, and
     # ? a build that declares none is pinned to its own version.
     self_update_channel: ""
+    # ? extract_max_bytes caps the total uncompressed size a single extract
+    # ? step may write, so a hostile or corrupt archive cannot fill the disk.
+    extract_max_bytes: 8589934592
 
   # ? Pairing codes authenticate quiver.desktop when the daemon is reachable
   # ? over tcp://. Unix socket connections are already trusted and never use
@@ -53,8 +60,15 @@ config:
 
   # ? Discovery is anonymous. Quiver authenticates to no git host and asks for
   # ? no credentials, so these are the only knobs: how many candidates to take
-  # ? per provider, how many manifests to verify at once, and when to give up.
+  # ? per provider, how many manifests to verify at once, when to give up, and
+  # ? how to search untagged repositories.
   search:
     per_provider_limit: 25
     fetch_concurrency: 8
     provider_timeout: 10s
+    # ? unmarked adds a second search pass over repositories that carry no
+    # ? discovery topic. min_stars is its star floor and probe_limit caps how
+    # ? many of its candidates get resolved per search.
+    unmarked:
+      min_stars: 50
+      probe_limit: 10

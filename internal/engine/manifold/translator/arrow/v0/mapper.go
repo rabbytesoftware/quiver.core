@@ -49,6 +49,7 @@ func toAggregate(raw arrowV0) (*domain.Arrow, map[string]models.PrecompiledTarge
 			Credits:     toCredits(raw.Metadata.Credits),
 			Tags:        raw.Metadata.Tags,
 			Media:       toMedia(raw.Metadata.Media),
+			Generator:   toGenerator(raw.Metadata.Generator),
 		},
 		Variables: toVariables(raw.Variables),
 		Netbridge: toPorts(raw.Netbridge),
@@ -91,7 +92,35 @@ func toTarget(t targetV0) (models.PrecompiledTarget, error) {
 		Exports:      toExports(t.Exports),
 		Lifecycle:    lifecycle,
 		Methods:      methods,
+		Expose:       toExpose(t.Expose),
 	}, nil
+}
+
+func toExpose(
+	e exposeV0,
+) domain.Expose {
+	return domain.Expose{
+		CLI:     toExposeEntries(e.CLI),
+		Desktop: toExposeEntries(e.Desktop),
+	}
+}
+
+func toExposeEntries(
+	entries []exposeEntryV0,
+) []domain.ExposeEntry {
+	if entries == nil {
+		return nil
+	}
+	result := make([]domain.ExposeEntry, len(entries))
+	for i, e := range entries {
+		result[i] = domain.ExposeEntry{
+			Name:       e.Name,
+			Path:       e.Path,
+			Icon:       e.Icon,
+			Categories: e.Categories,
+		}
+	}
+	return result
 }
 
 func toRequirement(req requirementsV0) domain.Requirement {
@@ -134,6 +163,19 @@ func toMedia(m mediaV0) domain.ArrowMedia {
 	return domain.ArrowMedia{
 		Icon:   m.Icon,
 		Banner: m.Banner,
+	}
+}
+
+func toGenerator(
+	g generatorV0,
+) *domain.ArrowGenerator {
+	if g.Name == "" {
+		return nil
+	}
+	return &domain.ArrowGenerator{
+		Name:       g.Name,
+		Confidence: g.Confidence,
+		Warnings:   g.Warnings,
 	}
 }
 
@@ -267,6 +309,17 @@ func toStep(s stepV0) (step.Step, error) {
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
+	case "extract":
+		st := step.NewExtractStep(s.Title, "", "", "", exitOnFailure)
+		st.From, st.To, st.Timeout = toFromToTimeout(s)
+		return st, nil
+
+	case "portable":
+		st := step.NewPortableStep(s.Title, "", "", "", exitOnFailure)
+		st.From, st.To, st.Timeout = toFromToTimeout(s)
+		st.Name = s.Name
+		return st, nil
+
 	case "signal":
 		st := step.NewSignalStep(
 			s.Title,
@@ -312,6 +365,12 @@ func resolveExitOnFailure(v *bool) bool {
 		return true
 	}
 	return *v
+}
+
+func toFromToTimeout(
+	s stepV0,
+) (step.Overrideable[string], step.Overrideable[string], step.Overrideable[string]) {
+	return toStepOverrideable(s.From), toStepOverrideable(s.To), toStepOverrideable(s.Timeout)
 }
 
 func toStepOverrideable(o overrideableV0[string]) step.Overrideable[string] {

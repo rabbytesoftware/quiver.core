@@ -77,6 +77,8 @@ func TestPredicate_ValidHost(t *testing.T) {
 	}{
 		{name: "unix default", value: "unix://", want: true},
 		{name: "unix explicit path", value: "unix:///tmp/quiver.sock", want: true},
+		{name: "npipe default", value: "npipe://", want: true},
+		{name: "npipe named", value: "npipe://quiver", want: true},
 		{name: "tcp all interfaces", value: "tcp://0.0.0.0:40257", want: true},
 		{name: "tcp localhost", value: "tcp://127.0.0.1:9000", want: true},
 		{name: "tcp missing port", value: "tcp://0.0.0.0", want: false},

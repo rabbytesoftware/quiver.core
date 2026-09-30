@@ -62,6 +62,34 @@ func TestArrowDetailDTOFrom_MapsAllFields(t *testing.T) {
 	assert.Equal(t, domain.MethodExecute, result.LastReturn.Method)
 }
 
+func TestArrowDetailDTOFrom_OriginAndGenerator(t *testing.T) {
+	generator := &domain.ArrowGenerator{Name: "generator/1", Confidence: "low", Warnings: []string{"name_mismatch"}}
+	testCases := []struct {
+		name       string
+		generator  *domain.ArrowGenerator
+		wantOrigin string
+	}{
+		{name: "declared", wantOrigin: domain.ArrowOriginDeclared},
+		{name: "inferred", generator: generator, wantOrigin: domain.ArrowOriginInferred},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := &models.ArrowDetailView{
+				Metadata: domain.Arrow{
+					Namespace: "github.com/org/repo@v1.0.0",
+					ArrowMeta: domain.ArrowMeta{Generator: tc.generator},
+				},
+			}
+
+			result := mappers.ArrowDetailDTOFrom(view)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tc.wantOrigin, result.Origin)
+			assert.Equal(t, tc.generator, result.Generator)
+		})
+	}
+}
+
 func TestArrowDetailDTOFrom_NeverUsed_LastUsedAtIsZero(t *testing.T) {
 	view := &models.ArrowDetailView{
 		Metadata: domain.Arrow{Namespace: "github.com/org/repo@v1.0.0"},

@@ -278,6 +278,7 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 | Manifest read through the cache (not yet cached) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
 | Manifest read from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
 | Manifest adopted from raw bytes (seed, collection-local arrow, core self-registration) | `DeleteArrow` → `PutArrow` | `arrow.Adopt` (`replaceCachedManifest`) |
+| Arrow proven by discovery (tagged or unmarked pass), at the search's default branch | `PutArrow` with `Meta` | `discovery.verifyOne` |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
 | Update staged / row advanced | `DeleteArrow(ns)` → `PutArrow(ns, manifest at target commit)` under the same identity | `arrow.RefreshToTarget`, `arrow.Advance` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |

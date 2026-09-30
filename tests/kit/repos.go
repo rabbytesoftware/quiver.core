@@ -25,7 +25,10 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
+
+const noManifestMarker = "NO_MANIFEST"
 
 // FixtureRepos is a concurrency-safe map of fixture key (e.g. "quiver-test/tool-a")
 // to its in-memory storer. All access is synchronized so test threads and resolver
@@ -118,6 +121,11 @@ func BuildFixtureRepos(t *testing.T) *FixtureRepos {
 				createTag(t, repo, tag, hash)
 			}
 			repos.Set(key, storer)
+			return
+		}
+
+		if tags, ok := manifestlessTags(t, root, relDir); ok {
+			repos.Set(key, BuildManifestlessRepo(t, tags...))
 			return
 		}
 
@@ -453,10 +461,13 @@ func (r *testResolver) ResolveArrow(ctx context.Context, ns domain.Namespace) ([
 		return data, "ARROW.md", nil
 	}
 	data, err := readFromRepo(storer, ns.Ref(), "arrow.yaml")
-	if err != nil {
-		return nil, "", err
+	if err == nil {
+		return data, "arrow.yaml", nil
 	}
-	return data, "arrow.yaml", nil
+	if _, markerErr := readFromRepo(storer, ns.Ref(), noManifestMarker); markerErr == nil {
+		return nil, "", fmt.Errorf("fixture %s: %w", ns, resolvers.ErrManifestNotFound)
+	}
+	return nil, "", err
 }
 
 func (r *testResolver) ResolveArrowAt(_ context.Context, ns domain.Namespace, path string) ([]byte, string, error) {
@@ -744,7 +755,7 @@ func walkFixtures(root string, fn func(relDir string, versionedFiles map[string]
 			continue
 		}
 
-		if hasManifestFile(subPath) {
+		if isFixtureDir(subPath) {
 			fn(name, nil)
 			continue
 		}
@@ -758,7 +769,7 @@ func walkFixtures(root string, fn func(relDir string, versionedFiles map[string]
 				continue
 			}
 			leafPath := filepath.Join(subPath, se.Name())
-			if hasManifestFile(leafPath) {
+			if isFixtureDir(leafPath) {
 				fn(filepath.Join(name, se.Name()), nil)
 			}
 		}
@@ -866,6 +877,74 @@ func readManifestFile(t *testing.T, root, relDir, key string) (string, []byte) {
 		t.Fatalf("read manifest for %s: %v", key, err)
 	}
 	return "arrow.yaml", content
+}
+
+func isFixtureDir(
+	dir string,
+) bool {
+	if hasManifestFile(dir) {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(dir, noManifestMarker))
+	return err == nil
+}
+
+func manifestlessTags(
+	t *testing.T,
+	root string,
+	relDir string,
+) ([]string, bool) {
+	t.Helper()
+	content, err := fs.ReadFile(os.DirFS(filepath.Join(root, relDir)), noManifestMarker)
+	if err != nil {
+		return nil, false
+	}
+	tags := strings.Fields(string(content))
+	if len(tags) == 0 {
+		t.Fatalf("%s for %s lists no tags", noManifestMarker, relDir)
+	}
+	return tags, true
+}
+
+func BuildManifestlessRepo(
+	t *testing.T,
+	tags ...string,
+) *memory.Storage {
+	t.Helper()
+	storer := memory.NewStorage()
+	repo, err := gogit.Init(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("BuildManifestlessRepo: git init: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("BuildManifestlessRepo: worktree: %v", err)
+	}
+	commitFile(t, wt, noManifestMarker, []byte(strings.Join(tags, "\n")+"\n"))
+	hash, err := wt.Commit("init", &gogit.CommitOptions{Author: testAuthor()})
+	if err != nil {
+		t.Fatalf("BuildManifestlessRepo: commit: %v", err)
+	}
+	for _, tag := range tags {
+		createTag(t, repo, tag, hash)
+	}
+	return storer
+}
+
+// TagHead tags the commit HEAD points at and returns it. Run it inside
+// FixtureRepos.Mutate when a daemon may be reading the repo.
+func TagHead(t *testing.T, storer *memory.Storage, tag string) string {
+	t.Helper()
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("TagHead: open repo: %v", err)
+	}
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatalf("TagHead: head: %v", err)
+	}
+	createTag(t, repo, tag, head.Hash())
+	return head.Hash().String()
 }
 
 func createTag(t *testing.T, repo *gogit.Repository, tag string, hash plumbing.Hash) {

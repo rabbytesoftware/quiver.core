@@ -107,3 +107,15 @@ func Self() (string, error) {
 func SelfAt(homeDir string) (string, error) {
 	return ensure(metadata.GetSelfPathAt(homeDir))
 }
+
+func Bin() (string, error) {
+	return ensure(
+		metadata.GetBinPath(),
+	)
+}
+
+func BinAt(
+	homeDir string,
+) (string, error) {
+	return ensure(metadata.GetBinPathAt(homeDir))
+}

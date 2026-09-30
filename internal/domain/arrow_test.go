@@ -261,3 +261,40 @@ func parseArrowStateDiagram(t *testing.T, doc string) map[string]bool {
 	require.NotEmpty(t, edges, "the state diagram must declare at least one edge")
 	return edges
 }
+
+func TestArrow_OriginAndConfidence(t *testing.T) {
+	testCases := []struct {
+		name           string
+		generator      *ArrowGenerator
+		wantOrigin     string
+		wantConfidence string
+	}{
+		{name: "nil generator is declared", wantOrigin: ArrowOriginDeclared},
+		{name: "empty generator is declared", generator: &ArrowGenerator{}, wantOrigin: ArrowOriginDeclared},
+		{name: "confidence without name is declared", generator: &ArrowGenerator{Confidence: "high"}, wantOrigin: ArrowOriginDeclared},
+		{
+			name:           "named generator is inferred and carries its confidence",
+			generator:      &ArrowGenerator{Name: "fletcher/1", Confidence: "low"},
+			wantOrigin:     ArrowOriginInferred,
+			wantConfidence: "low",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arrow := Arrow{ArrowMeta: ArrowMeta{Generator: tc.generator}}
+
+			assert.Equal(t, tc.wantOrigin, arrow.Origin())
+			assert.Equal(t, tc.wantConfidence, arrow.Confidence())
+		})
+	}
+}
+
+func TestArrow_Generator_JSONOmittedWhenDeclared(t *testing.T) {
+	declared, err := json.Marshal(Arrow{ArrowMeta: ArrowMeta{Name: "plain"}})
+	require.NoError(t, err)
+	inferred, err := json.Marshal(Arrow{ArrowMeta: ArrowMeta{Name: "forged", Generator: &ArrowGenerator{Name: "fletcher/1", Confidence: "high"}}})
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(declared), `"generator"`)
+	assert.Contains(t, string(inferred), `"generator":{"name":"fletcher/1","confidence":"high"}`)
+}

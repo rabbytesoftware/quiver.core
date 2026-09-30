@@ -9,7 +9,9 @@ import (
 
 type gitlabProvider struct {
 	host
-	searchURL string
+	searchURL      string
+	releaseAPIURL  string
+	packagesAPIURL string
 }
 
 // NewGitLab builds the provider answering for a GitLab host.
@@ -17,8 +19,10 @@ func NewGitLab(
 	cfg Config,
 ) Provider {
 	return &gitlabProvider{
-		host:      newHost(cfg),
-		searchURL: cfg.SearchURL,
+		host:           newHost(cfg),
+		searchURL:      cfg.SearchURL,
+		releaseAPIURL:  cfg.ReleaseAPIURL,
+		packagesAPIURL: cfg.PackagesAPIURL,
 	}
 }
 
@@ -38,7 +42,7 @@ func (p *gitlabProvider) Search(
 	ctx context.Context,
 	req SearchRequest,
 ) ([]Candidate, error) {
-	if !p.CanSearch() {
+	if !p.CanSearch() || req.Unmarked {
 		return p.host.Search(ctx, req)
 	}
 

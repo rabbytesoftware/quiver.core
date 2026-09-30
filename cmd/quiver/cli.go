@@ -9,6 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 // newCLIDeps wires the command tree to the real process environment.
@@ -64,7 +65,7 @@ func stopIdleDaemon(ctx context.Context, mgr *daemon.Manager) {
 		return
 	}
 
-	cli, err := client.New("unix://" + mgr.Socket)
+	cli, err := client.New(gateway.LocalURI(mgr.Socket))
 	if err != nil {
 		return
 	}

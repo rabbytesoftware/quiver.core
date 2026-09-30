@@ -53,7 +53,7 @@ targets:
 
 // Manifold is a real manifold resolving every namespace through h.
 func (h *CloneOnlyHost) Manifold() manifold.Manifold {
-	return manifold.NewWithResolvers(h, h)
+	return manifold.NewWithResolvers(h, h, nil)
 }
 
 // Requests lists every manifest fetch h answered or refused, in order.

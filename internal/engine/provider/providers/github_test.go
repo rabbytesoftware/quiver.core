@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,8 +50,8 @@ func TestGitHub_Search_MalformedJSON(t *testing.T) {
 	stub := &stubDoer{response: okBody(`{"items": [`)}
 
 	_, err := newGitHub(stub).Search(context.Background(), SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
+	var syntaxErr *json.SyntaxError
+	assert.ErrorAs(t, err, &syntaxErr)
 }
 
 func TestGitHub_Search_SkipsRepositoriesWithAnUnusableFullName(t *testing.T) {
@@ -100,6 +101,25 @@ func TestGitHub_Search_NoTopics_StillSendsTheText(t *testing.T) {
 		t,
 		"https://api.github.com/search/repositories?q=browser&per_page=5",
 		stub.lastURL(t),
+	)
+}
+
+func TestGitHub_Search_Unmarked_SendsStarsQueryWithNoTopicInOneRequest(t *testing.T) {
+	stub := &stubDoer{response: okBody(githubPayload)}
+
+	_, err := newGitHub(stub).Search(context.Background(), SearchRequest{
+		Text:     "browser",
+		Topics:   []string{"quiver-arrow"},
+		Unmarked: true,
+		MinStars: 50,
+		Limit:    20,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		[]string{"https://api.github.com/search/repositories?q=browser+fork%3Afalse+archived%3Afalse+stars%3A%3E%3D50&per_page=20"},
+		stub.urls(t),
 	)
 }
 

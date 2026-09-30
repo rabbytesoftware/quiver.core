@@ -394,6 +394,110 @@ func TestResolveInstall_Errors(t *testing.T) {
 	}
 }
 
+func refFailingManifold(
+	snap domain.RefSnapshot,
+	failures map[string]error,
+	fetched *[]string,
+) *mocks.Manifold {
+	return &mocks.Manifold{
+		SnapshotResult: snap,
+		ResolveArrowAtCommitFn: func(
+			_ context.Context,
+			ns domain.Namespace,
+			ref string,
+			_ string,
+		) (*domain.Arrow, []byte, string, error) {
+			*fetched = append(*fetched, ref)
+			if err, failed := failures[ref]; failed {
+				return nil, nil, "", err
+			}
+			return &domain.Arrow{Namespace: ns}, []byte("raw"), "ARROW.md", nil
+		},
+	}
+}
+
+// A refless install whose latest stable release serves no manifest settles on
+// the next listed channel that does, then on the HEAD branch.
+func TestResolveInstall_ReflessStableWithoutManifest(t *testing.T) {
+	snap := domain.RefSnapshot{
+		Tags:     map[string]string{"v1.3.1": "c131", "tip": "ctip", "bad//tag": "cbad"},
+		Branches: map[string]string{"main": "cmain"},
+		Head:     "main",
+	}
+	missing := manifoldresolver.ErrNotFound
+
+	testCases := []struct {
+		name         string
+		ns           domain.Namespace
+		failures     map[string]error
+		wantErr      error
+		wantIdentity domain.Namespace
+		wantKind     domain.SelectorKind
+		wantFetched  []string
+	}{
+		{
+			name:         "other listed channel",
+			ns:           selectorBare,
+			failures:     map[string]error{"v1.3.1": missing},
+			wantIdentity: selectorBare.WithRef("tip"),
+			wantKind:     domain.SelectorChannel,
+			wantFetched:  []string{"v1.3.1", "tip"},
+		},
+		{
+			name:         "head branch",
+			ns:           selectorBare,
+			failures:     map[string]error{"v1.3.1": missing, "tip": missing},
+			wantIdentity: selectorBare.WithRef("main"),
+			wantKind:     domain.SelectorPin,
+			wantFetched:  []string{"v1.3.1", "tip", "main"},
+		},
+		{
+			name: "every fallback failing keeps the stable not-found",
+			ns:   selectorBare,
+			failures: map[string]error{
+				"v1.3.1": missing,
+				"tip":    missing,
+				"main":   manifoldresolver.ErrFetchFailed,
+			},
+			wantErr:     apperrors.ErrNotFound,
+			wantFetched: []string{"v1.3.1", "tip", "main"},
+		},
+		{
+			name:        "fetch failure does not fall back",
+			ns:          selectorBare,
+			failures:    map[string]error{"v1.3.1": manifoldresolver.ErrFetchFailed},
+			wantErr:     apperrors.ErrFetchFailed,
+			wantFetched: []string{"v1.3.1"},
+		},
+		{
+			name:        "an explicit selector does not fall back",
+			ns:          selectorBare.WithRef("stable"),
+			failures:    map[string]error{"v1.3.1": missing},
+			wantErr:     apperrors.ErrNotFound,
+			wantFetched: []string{"v1.3.1"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetched []string
+			r := newTestReaderWithVaultManifold(t, nil, refFailingManifold(snap, tc.failures, &fetched))
+
+			identity, arrow, err := r.ResolveInstall(context.Background(), tc.ns)
+
+			assert.Equal(t, tc.wantFetched, fetched)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, arrow)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantIdentity, identity)
+			assert.Equal(t, tc.wantKind, arrow.SelectorKind)
+		})
+	}
+}
+
 func TestCheckDrift(t *testing.T) {
 	moved := selectorSnapshot()
 	moved.Tags["nightly"] = "cnightly2"

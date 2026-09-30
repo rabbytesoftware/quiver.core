@@ -75,6 +75,8 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO'
       description:
         type: string
+      inference:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO'
       installed_at:
         type: string
       installed_commit:
@@ -88,6 +90,8 @@ definitions:
       name:
         type: string
       namespace:
+        type: string
+      origin:
         type: string
       outdated:
         description: Outdated is true exactly when Available is set.
@@ -113,6 +117,8 @@ definitions:
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ArrowListItemDTO:
     properties:
+      confidence:
+        type: string
       description:
         type: string
       media:
@@ -120,6 +126,8 @@ definitions:
       name:
         type: string
       namespace:
+        type: string
+      origin:
         type: string
       tags:
         items:
@@ -368,6 +376,8 @@ definitions:
         type: string
       ok:
         type: boolean
+      pass:
+        type: string
       reason:
         type: string
       retry_after:
@@ -387,6 +397,17 @@ definitions:
           Variables supplied by the caller. WORKDIR, INSTALL_PATH, ARROW_NAMESPACE,
           PLATFORM and REF are computed by Quiver and rejected with 400 if set.
         type: object
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InferenceDTO:
+    properties:
+      confidence:
+        type: string
+      generator:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InstalledVersionItemDTO:
     properties:
@@ -426,6 +447,19 @@ definitions:
         type: string
       expires_at:
         type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO:
+    properties:
+      bin_dir:
+        type: string
+      configured:
+        type: boolean
+      files:
+        items:
+          type: string
+        type: array
+      on_path:
+        type: boolean
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO:
     properties:
@@ -480,6 +514,8 @@ definitions:
         items:
           type: string
         type: array
+      confidence:
+        type: string
       description:
         type: string
       installed:
@@ -504,6 +540,8 @@ definitions:
       name:
         type: string
       namespace:
+        type: string
+      origin:
         type: string
       provenance:
         description: |-
@@ -646,6 +684,9 @@ definitions:
     properties:
       auto_retry:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ArrowAutoRetry'
+      extract_max_bytes:
+        minimum: 1
+        type: integer
       self_update_channel:
         type: string
       version_check_ttl:
@@ -672,6 +713,13 @@ definitions:
     properties:
       fetch_timeout:
         type: string
+      fletcher:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.ManifoldFletcher'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.ManifoldFletcher:
+    properties:
+      enabled:
+        type: boolean
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Netbridge:
     properties:
@@ -696,6 +744,17 @@ definitions:
         type: integer
       provider_timeout:
         type: string
+      unmarked:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_core_config.SearchUnmarked'
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_core_config.SearchUnmarked:
+    properties:
+      min_stars:
+        minimum: 0
+        type: integer
+      probe_limit:
+        minimum: 1
+        type: integer
     type: object
   github_com_rabbytesoftware_quiver_core_internal_core_config.Vault:
     properties:
@@ -705,6 +764,17 @@ definitions:
         type: string
       ttl:
         type: string
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator:
+    properties:
+      confidence:
+        type: string
+      name:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia:
     properties:
@@ -721,6 +791,8 @@ definitions:
         type: array
       description:
         type: string
+      generator:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator'
       license:
         type: string
       maintainers:
@@ -790,6 +862,30 @@ definitions:
       type:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.DepType'
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_domain.Expose:
+    properties:
+      cli:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry'
+        type: array
+      desktop:
+        items:
+          $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry'
+        type: array
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_domain.ExposeEntry:
+    properties:
+      categories:
+        items:
+          type: string
+        type: array
+      icon:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.Method:
     properties:
       available_in:
@@ -815,6 +911,8 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      expose:
+        $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Expose'
       lifecycle:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.TargetLifecycle'
       methods:
@@ -2098,6 +2196,53 @@ paths:
       summary: Read a discovery job
       tags:
       - search
+  /system/path:
+    get:
+      description: Reports whether ~/.quiver/bin exists, is on PATH, and, where the
+        platform tracks it, whether it is configured to stay there (shell rc files
+        on unix, the user Path on Windows).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Read PATH status
+      tags:
+      - system
+    post:
+      description: 'Adds ~/.quiver/bin to PATH on explicit user action: appends a
+        block to shell rc files on unix, sets the user Path on Windows. Idempotent
+        — calling it again once already configured is a no-op.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PathStatusDTO'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Set up PATH
+      tags:
+      - system
 produces:
 - application/json
 swagger: "2.0"

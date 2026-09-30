@@ -63,14 +63,14 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	s.Zero(summary.Skipped)
 
 	s.Require().Equal(1, counter.fetches(), "discovery proves each candidate exactly once")
-	s.Require().Equal(1, prov.searches())
+	s.Require().Equal(2, prov.searches(), "one search per pass")
 
 	// 5. Adding the discovered arrow fetches its manifest once, at the commit
 	// the row records.
 	s.Require().Equal(http.StatusCreated, tc.Add(discoveredNS("search-lumen")))
 
 	s.Equal(2, counter.fetches(), "add fetches the manifest exactly once, at the resolved commit")
-	s.Equal(1, prov.searches(), "add must not ask any provider anything")
+	s.Equal(2, prov.searches(), "add must not ask any provider anything")
 
 	// 6. The arrow is now a local, installed result.
 	var installed []apidto.SearchResultDTO
@@ -90,7 +90,7 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 
 	// Searching the local catalog reached no host at all.
 	s.Equal(2, counter.fetches())
-	s.Equal(1, prov.searches())
+	s.Equal(2, prov.searches())
 }
 
 // TestLifecycle_Rediscovery_ReusesTheWarmIndex proves the claim that discovery
@@ -104,7 +104,7 @@ func (s *SearchSuite) TestLifecycle_Rediscovery_KeepsOneResultPerNamespace() {
 	s.runDiscovery(tc, "widget", 1)
 	s.runDiscovery(tc, "widget", 1)
 
-	s.Equal(2, prov.searches(), "one metered search per pass, no more")
+	s.Equal(4, prov.searches(), "one metered search per pass (tagged and unmarked), no more")
 
 	results, status := tc.Search("widget", kit.SearchParams{})
 	s.Equal(http.StatusOK, status)

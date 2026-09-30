@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -110,7 +111,7 @@ func (r *resolver) fetchManifest(
 	namespace domain.Namespace,
 	filePaths []string,
 ) ([]byte, string, error) {
-	var lastErr error
+	var failure, absence error
 
 	for _, f := range r.fetchers {
 		if !f.CanResolve(namespace) {
@@ -120,12 +121,32 @@ func (r *resolver) fetchManifest(
 		if err == nil {
 			return data, matchedPath, nil
 		}
-		lastErr = err
+		if errors.Is(err, resolvers.ErrAbsentAtRef) {
+			return nil, "", fmt.Errorf("%w: %s: %v", resolvers.ErrManifestNotFound, namespace, err)
+		}
+		failure, absence = classifyFailure(failure, absence, err)
 	}
 
-	if lastErr != nil {
-		return nil, "", lastErr
+	if failure != nil {
+		return nil, "", failure
+	}
+	if absence != nil {
+		return nil, "", fmt.Errorf("%w: %s: %v", resolvers.ErrManifestNotFound, namespace, absence)
 	}
 
 	return nil, "", fmt.Errorf("%w: no fetcher could resolve %s", resolvers.ErrFetchFailed, namespace)
+}
+
+func classifyFailure(
+	failure error,
+	absence error,
+	err error,
+) (error, error) {
+	if errors.Is(err, resolvers.ErrNotFound) {
+		return failure, err
+	}
+	if failure == nil {
+		return err, absence
+	}
+	return failure, absence
 }

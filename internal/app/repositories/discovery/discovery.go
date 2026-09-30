@@ -46,6 +46,12 @@ type Config struct {
 	Topics           []string
 	PerProviderLimit int
 	FetchConcurrency int
+	Unmarked         UnmarkedConfig
+}
+
+type UnmarkedConfig struct {
+	MinStars   int
+	ProbeLimit int
 }
 
 type discovery struct {
@@ -56,6 +62,7 @@ type discovery struct {
 	topics      []string
 	limit       int
 	concurrency int
+	unmarked    UnmarkedConfig
 }
 
 // New builds the pipeline. known may be nil, in which case nothing is ever
@@ -87,6 +94,7 @@ func New(
 		topics:      cfg.Topics,
 		limit:       cfg.PerProviderLimit,
 		concurrency: concurrency,
+		unmarked:    cfg.Unmarked,
 	}, nil
 }
 
@@ -122,13 +130,56 @@ func (d *discovery) Discover(
 	unique := dedupe(candidates)
 
 	counted := d.verify(ctx, unique, emit)
+	found := len(unique)
+
+	unmarked, unmarkedOutcomes, unmarkedTally := d.discoverUnmarked(ctx, query, unique, emit)
+	found += len(unmarked)
+	outcomes = append(outcomes, unmarkedOutcomes...)
+	counted.verified += unmarkedTally.verified
+	counted.skipped += unmarkedTally.skipped
 
 	return Outcome{
-		Found:     len(unique),
+		Found:     found,
 		Verified:  counted.verified,
 		Skipped:   counted.skipped,
 		Providers: outcomes,
 	}, nil
+}
+
+func (d *discovery) discoverUnmarked(
+	ctx context.Context,
+	query string,
+	tagged []provider.Candidate,
+	emit func(Result),
+) ([]provider.Candidate, []ProviderOutcome, tally) {
+	candidates, outcomes := d.searchUnmarked(ctx, query)
+	capped := capUnmarked(candidates, tagged, d.unmarked.ProbeLimit)
+
+	return capped, outcomes, d.verify(ctx, capped, emit)
+}
+
+func capUnmarked(
+	candidates []provider.Candidate,
+	tagged []provider.Candidate,
+	limit int,
+) []provider.Candidate {
+	seen := make(map[domain.Namespace]struct{}, len(tagged))
+	for _, candidate := range tagged {
+		seen[candidate.Namespace.BareNamespace()] = struct{}{}
+	}
+
+	unique := make([]provider.Candidate, 0, len(candidates))
+	for _, candidate := range dedupe(candidates) {
+		if _, dup := seen[candidate.Namespace.BareNamespace()]; dup {
+			continue
+		}
+		unique = append(unique, candidate)
+	}
+
+	if limit > 0 && len(unique) > limit {
+		return unique[:limit]
+	}
+	return unique
 }
 
 // search fans out to every provider at once and waits for all of them. A host
@@ -137,12 +188,30 @@ func (d *discovery) search(
 	ctx context.Context,
 	query string,
 ) ([]provider.Candidate, []ProviderOutcome) {
-	req := provider.SearchRequest{
+	return d.runSearch(ctx, provider.SearchRequest{
 		Text:   query,
 		Topics: d.topics,
 		Limit:  d.limit,
-	}
+	}, PassTagged)
+}
 
+func (d *discovery) searchUnmarked(
+	ctx context.Context,
+	query string,
+) ([]provider.Candidate, []ProviderOutcome) {
+	return d.runSearch(ctx, provider.SearchRequest{
+		Text:     query,
+		Unmarked: true,
+		MinStars: d.unmarked.MinStars,
+		Limit:    d.unmarked.ProbeLimit * 2,
+	}, PassUnmarked)
+}
+
+func (d *discovery) runSearch(
+	ctx context.Context,
+	req provider.SearchRequest,
+	pass string,
+) ([]provider.Candidate, []ProviderOutcome) {
 	found := make([][]provider.Candidate, len(d.providers))
 	outcomes := make([]ProviderOutcome, len(d.providers))
 
@@ -153,7 +222,9 @@ func (d *discovery) search(
 			defer wg.Done()
 			candidates, err := p.Search(ctx, req)
 			found[i] = candidates
-			outcomes[i] = outcomeOf(p.Host(), candidates, err)
+			outcome := outcomeOf(p.Host(), candidates, err)
+			outcome.Pass = pass
+			outcomes[i] = outcome
 		}()
 	}
 	wg.Wait()

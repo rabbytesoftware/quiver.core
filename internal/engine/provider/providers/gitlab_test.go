@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -59,8 +60,8 @@ func TestGitLab_Search_MalformedJSON(t *testing.T) {
 	stub := &stubDoer{response: okBody(`[{`)}
 
 	_, err := newGitLab(stub).Search(context.Background(), SearchRequest{Text: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "decode")
+	var syntaxErr *json.SyntaxError
+	assert.ErrorAs(t, err, &syntaxErr)
 }
 
 func TestGitLab_Search_EmptyResults(t *testing.T) {
@@ -83,6 +84,19 @@ func TestGitLab_Search_SkipsNestedGroupPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, domain.Namespace("gitlab.com/acme/ok"), got[0].Namespace)
+}
+
+func TestGitLab_Search_Unmarked_ReturnsUnsupported(t *testing.T) {
+	stub := &stubDoer{response: okBody(gitlabPayload)}
+
+	_, err := newGitLab(stub).Search(context.Background(), SearchRequest{
+		Text:     "browser",
+		Unmarked: true,
+		MinStars: 50,
+	})
+
+	require.ErrorIs(t, err, ErrSearchUnsupported)
+	assert.Empty(t, stub.urls(t), "an unsupported search must cost no request")
 }
 
 func TestGitLab_Search_RateLimited429(t *testing.T) {

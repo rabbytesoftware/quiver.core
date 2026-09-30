@@ -138,7 +138,28 @@ func mergeTargets(parent, child models.PrecompiledTarget) models.PrecompiledTarg
 		Exports:      mergeExports(parent.Exports, child.Exports),
 		Lifecycle:    mergeLifecycle(parent.Lifecycle, child.Lifecycle),
 		Methods:      mergeMethods(parent.Methods, child.Methods),
+		Expose:       mergeExpose(parent.Expose, child.Expose),
 	}
+}
+
+func mergeExpose(
+	parent domain.Expose,
+	child domain.Expose,
+) domain.Expose {
+	return domain.Expose{
+		CLI:     mergeExposeEntries(parent.CLI, child.CLI),
+		Desktop: mergeExposeEntries(parent.Desktop, child.Desktop),
+	}
+}
+
+func mergeExposeEntries(
+	parent []domain.ExposeEntry,
+	child []domain.ExposeEntry,
+) []domain.ExposeEntry {
+	if child != nil {
+		return child
+	}
+	return parent
 }
 
 func mergeRequirements(parent, child domain.Requirement) domain.Requirement {
@@ -240,6 +261,7 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Targe
 		Exports:      exports,
 		Lifecycle:    lifecycle,
 		Methods:      methods,
+		Expose:       t.Expose,
 	}, nil
 }
 
@@ -390,6 +412,14 @@ func resolveStep(s step.Step, os domain.OS) (step.Step, error) {
 		return resolveFetchStep(v, os)
 	case *step.FetchStep:
 		return resolveFetchStep(*v, os)
+	case step.ExtractStep:
+		return resolveExtractStep(v, os)
+	case *step.ExtractStep:
+		return resolveExtractStep(*v, os)
+	case step.PortableStep:
+		return resolvePortableStep(v, os)
+	case *step.PortableStep:
+		return resolvePortableStep(*v, os)
 	case step.SignalStep:
 		return resolveSignalStep(v, os)
 	case *step.SignalStep:
@@ -442,6 +472,53 @@ func resolveFetchStep(s step.FetchStep, os domain.OS) (step.Step, error) {
 	s.Checksum = checksum
 	s.Timeout = timeout
 	return s, nil
+}
+
+func resolveExtractStep(
+	s step.ExtractStep,
+	os domain.OS,
+) (step.Step, error) {
+	var err error
+	s.From, s.To, s.Timeout, err = resolveFromToTimeout(s.From, s.To, s.Timeout, os)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func resolvePortableStep(
+	s step.PortableStep,
+	os domain.OS,
+) (step.Step, error) {
+	var err error
+	s.From, s.To, s.Timeout, err = resolveFromToTimeout(s.From, s.To, s.Timeout, os)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func resolveFromToTimeout(
+	from step.Overrideable[string],
+	to step.Overrideable[string],
+	timeout step.Overrideable[string],
+	os domain.OS,
+) (step.Overrideable[string], step.Overrideable[string], step.Overrideable[string], error) {
+	var none step.Overrideable[string]
+
+	from, err := resolveField(from, os, "from")
+	if err != nil {
+		return none, none, none, err
+	}
+	to, err = resolveField(to, os, "to")
+	if err != nil {
+		return none, none, none, err
+	}
+	timeout, err = resolveField(timeout, os, "timeout")
+	if err != nil {
+		return none, none, none, err
+	}
+	return from, to, timeout, nil
 }
 
 func resolveSignalStep(s step.SignalStep, os domain.OS) (step.Step, error) {
