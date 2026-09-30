@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 )
 
@@ -47,6 +48,8 @@ func MapResolveErr(err error) error {
 		return fmt.Errorf("%w: %w", apperrors.ErrPlatformNotSupported, err)
 	case errors.Is(err, ruleset.ErrInvalidManifest):
 		return fmt.Errorf("%w: %w", apperrors.ErrInvalidManifest, err)
+	case errors.Is(err, manifoldresolver.ErrNotFound):
+		return fmt.Errorf("%w: %w", apperrors.ErrNotFound, err)
 	}
 
 	for _, sentinel := range appSentinels {
