@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,6 +68,14 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			name:         "commit selector adopts itself",
 			ns:           selectorBare.WithRef(headSHA),
 			ref:          headSHA,
+			wantIdentity: selectorBare.WithRef(headSHA),
+			wantKind:     domain.SelectorCommit,
+			wantResolved: domain.Resolved{Ref: headSHA, Commit: headSHA, Fingerprint: headSHA},
+		},
+		{
+			name:         "commit selector in upper case adopts under the lower-case identity",
+			ns:           selectorBare.WithRef(strings.ToUpper(headSHA)),
+			ref:          strings.ToUpper(headSHA),
 			wantIdentity: selectorBare.WithRef(headSHA),
 			wantKind:     domain.SelectorCommit,
 			wantResolved: domain.Resolved{Ref: headSHA, Commit: headSHA, Fingerprint: headSHA},

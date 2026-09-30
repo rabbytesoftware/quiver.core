@@ -110,6 +110,9 @@ func classifyInstall(
 	if err != nil {
 		return ns, kind, fmt.Errorf("%s: %w: %w", ns, apperrors.ErrInvalidNamespace, err)
 	}
+	if kind == domain.SelectorCommit {
+		return ns.WithRef(strings.ToLower(ns.Ref())), kind, nil
+	}
 	return ns, kind, nil
 }
 

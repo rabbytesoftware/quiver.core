@@ -71,6 +71,7 @@ func (h *Handlers) Add(c *gin.Context) {
 // @Success      201  {object}  libs.MutationResponse  "Arrow adopted, or already at the declared state"
 // @Failure      400  {object}  libs.ErrResponse       "Invalid namespace, a body that is not JSON, a missing resolved_ref, or a ref the selector could never resolve to"
 // @Failure      404  {object}  libs.ErrResponse       "Repository or ref not found"
+// @Failure      409  {object}  libs.ErrResponse       "A concurrent registration of the same identity won the race"
 // @Failure      422  {object}  libs.ErrResponse       "Invalid manifest at the declared ref"
 // @Failure      500  {object}  libs.ErrResponse       "Internal error"
 // @Failure      502  {object}  libs.ErrResponse       "Repository unreachable"
@@ -322,7 +323,8 @@ func (h *Handlers) ListChannels(c *gin.Context) {
 // @Param        ns    path  string  true   "Arrow namespace"
 // @Param        body  body  string  true   "Raw YAML manifest"
 // @Success      201   {object}  libs.MutationResponse  "Manifest seeded and arrow registered"
-// @Failure      400   {object}  libs.ErrResponse       "Failed to read body"
+// @Failure      400   {object}  libs.ErrResponse       "Failed to read body, or a namespace without a ref or with an empty ref component"
+// @Failure      409   {object}  libs.ErrResponse       "A concurrent registration of the same identity won the race"
 // @Failure      422   {object}  libs.ErrResponse       "Invalid manifest"
 // @Failure      500   {object}  libs.ErrResponse       "Internal error"
 // @Router       /arrow/{ns}/manifest [post]

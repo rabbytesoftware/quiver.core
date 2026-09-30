@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	gormdb "gorm.io/gorm"
@@ -481,12 +482,22 @@ func (r *storeService) ResolveCatalogued(
 	}
 
 	for _, vr := range vm.Versions {
-		if vr.Namespace.String() == ns.String() {
-			return ns, nil
+		if vr.Namespace.String() == ns.String() || sameCommitSelector(vr, ns) {
+			return vr.Namespace, nil
 		}
 	}
 
 	return "", fmt.Errorf("reader resolve catalogued %s: %w", ns, apperrors.ErrNotFound)
+}
+
+// sameCommitSelector reports whether ns spells vr's commit selector in
+// another case: a commit row is catalogued in lower case.
+func sameCommitSelector(
+	vr storage.VersionRef,
+	ns domain.Namespace,
+) bool {
+	return vr.Metadata.SelectorKind == domain.SelectorCommit &&
+		strings.EqualFold(vr.Namespace.Ref(), ns.Ref())
 }
 
 // Search translates the storage result into the app-layer contract: the

@@ -221,3 +221,21 @@ func TestAdoptInstalled_ManifestThatDoesNotParse_IsAnInvalidManifest(t *testing.
 
 	require.ErrorIs(t, err, apperrors.ErrInvalidManifest)
 }
+
+// Two spellings of one commit selector are one row, so they can never share
+// (and delete) each other's workdir.
+func TestAdd_CommitSelectorInTwoCases_IsOneRow(t *testing.T) {
+	a := newAdoptCatalog(t)
+	lower := adoptBare.WithRef("abcdef1")
+
+	require.NoError(t, a.cat.Add(context.Background(), adoptBare.WithRef("ABCDEF1")))
+	require.NoError(t, a.cat.Add(context.Background(), lower))
+
+	exists, err := a.cat.Exists(context.Background(), adoptBare.WithRef("ABCDEF1"))
+	require.NoError(t, err)
+	assert.False(t, exists)
+	assert.Equal(t, lower, a.row(t, lower).Namespace)
+	identity, err := a.cat.ResolveCatalogued(context.Background(), adoptBare.WithRef("AbCdEf1"))
+	require.NoError(t, err)
+	assert.Equal(t, lower, identity)
+}

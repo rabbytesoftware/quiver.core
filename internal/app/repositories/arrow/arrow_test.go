@@ -2843,6 +2843,22 @@ func TestAdopt_Failures(t *testing.T) {
 			wantErrIs: apperrors.ErrInvalidNamespace,
 		},
 		{
+			name:      "selector with an empty ref component",
+			filename:  "ARROW.md",
+			ns:        domain.Namespace("github.com/rabbytesoftware/quiver.core@feat//x"),
+			manifold:  &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidNamespace,
+		},
+		{
+			name:      "selector with a trailing slash",
+			filename:  "ARROW.md",
+			ns:        domain.Namespace("github.com/rabbytesoftware/quiver.core@feat/"),
+			manifold:  &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:     &mocks.Vault{},
+			wantErrIs: apperrors.ErrInvalidNamespace,
+		},
+		{
 			name:      "manifest does not parse",
 			filename:  "ARROW.md",
 			ns:        validNs,
@@ -2895,7 +2911,7 @@ func TestAdopt_Failures(t *testing.T) {
 			wantErrIs: apperrors.ErrNotFound,
 		},
 		{
-			name:     "the create is rejected",
+			name:     "the create loses the race to another create",
 			filename: "ARROW.md",
 			ns:       validNs,
 			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
@@ -2906,7 +2922,34 @@ func TestAdopt_Failures(t *testing.T) {
 					return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrValidation)
 				},
 			},
-			wantErrIs: apperrors.ErrStateViolation,
+			wantErrIs: apperrors.ErrAlreadyExists,
+		},
+		{
+			name:     "the create conflicts with another append",
+			filename: "ARROW.md",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, nil },
+				SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, fmt.Errorf("pipeline: %w", asynxModels.ErrPipelineFailed)
+				},
+			},
+			wantErrIs: apperrors.ErrAlreadyExists,
+		},
+		{
+			name:     "the create fails to send",
+			filename: "ARROW.md",
+			ns:       validNs,
+			manifold: &mocks.Manifold{ParseArrowResult: &domain.Arrow{}},
+			vault:    &mocks.Vault{},
+			ax: &arrowMocks.AsynxArrow{
+				ExistsFn: func(_ context.Context, _ string) (bool, error) { return false, nil },
+				SendWaitFn: func(_ context.Context, _ asynxModels.Command[domain.Arrow]) (asynxModels.Event[domain.Arrow], error) {
+					return asynxModels.Event[domain.Arrow]{}, errors.New("closed")
+				},
+			},
 		},
 	}
 

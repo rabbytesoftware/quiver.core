@@ -459,7 +459,7 @@ The store projection (`internal/app/repositories/collection/internal/store/store
 ## 11. Out of scope (v0)
 
 - Composition / playlist semantics — Collections do not declare an execution order or runtime arguments. Future work may layer a Playlist primitive on top.
-- Per-entry overrides — entries cannot pin an arrow ref different from the arrow's own namespace; a Collection cannot say "use steamcmd@v2 instead of @latest".
+- Per-entry overrides — entries cannot pin an arrow ref different from the arrow's own namespace; a Collection cannot say "use steamcmd@v2 instead of @stable".
 - Collection-level dependency graphs — Collections do not declare dependencies between their referenced arrows.
 - Collection-level events for per-arrow resolution failures — `FailedArrows` is exposed via `Get` but not as a separate event stream.
 - Auto-retry backoff — retry uses a fixed count with no jitter; advanced retry policy is a future config addition.

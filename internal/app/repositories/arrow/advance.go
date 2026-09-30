@@ -13,6 +13,7 @@ import (
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -68,7 +69,7 @@ func (s *arrowService) Adopt(
 	manifest []byte,
 	filename string,
 ) error {
-	if ns.Validate() != nil || ns.Ref() == "" {
+	if ns.Validate() != nil || ns.Ref() == "" || manifold.HasEmptyComponent(ns.Ref()) {
 		return fmt.Errorf("adopt %s: %w", ns, apperrors.ErrInvalidNamespace)
 	}
 	if filename == "" {
@@ -217,15 +218,10 @@ func (s *arrowService) sendAdvance(
 	return mapSendErr("advance", ns, err)
 }
 
-// sendRetryingConflicts sends a write whose event depends only on the row
-// existing, sending it again when it fails with ErrPipelineFailed: most often
-// a version conflict with another append to the row, but asynx also reports
-// that after the event committed (a dispatcher closing on shutdown), so a
-// retry may append the same advance or refresh twice. Both events are
-// idempotent — they set the row to the same manifest and Resolved — so a
-// duplicate is harmless. Callers have already swapped the vault cache, so
-// giving up at the first failure would leave cache and row disagreeing until
-// the next advance or adopt.
+// sendRetryingConflicts resends a write whose event depends only on the row
+// existing while it fails with ErrPipelineFailed. The event is idempotent, so
+// resending one that did commit is harmless, and giving up would leave the
+// vault cache the caller already swapped disagreeing with the row.
 func (s *arrowService) sendRetryingConflicts(
 	ctx context.Context,
 	cmd asynxModels.Command[domain.Arrow],
@@ -256,6 +252,9 @@ func (s *arrowService) sendAdopted(
 		SelectorKind:  kind,
 		Resolved:      resolved,
 	})
+	if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("adopt %s: %w", ns, apperrors.ErrAlreadyExists)
+	}
 	return mapSendErr("adopt", ns, err)
 }
 

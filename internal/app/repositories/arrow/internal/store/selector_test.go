@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +134,14 @@ func TestResolveInstall_Selectors(t *testing.T) {
 		{
 			name:         "unlisted hex is a commit",
 			ns:           selectorBare.WithRef(headSHA),
+			snap:         selectorSnapshot(),
+			wantIdentity: selectorBare.WithRef(headSHA),
+			wantKind:     domain.SelectorCommit,
+			wantResolved: domain.Resolved{Ref: headSHA, Commit: headSHA, Fingerprint: headSHA},
+		},
+		{
+			name:         "a commit spelled in upper case is the lower-case identity",
+			ns:           selectorBare.WithRef(strings.ToUpper(headSHA)),
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef(headSHA),
 			wantKind:     domain.SelectorCommit,

@@ -29,7 +29,7 @@ func ClassifySelector(
 	selector string,
 	snap domain.RefSnapshot,
 ) (domain.SelectorKind, error) {
-	if hasEmptyComponent(selector) {
+	if HasEmptyComponent(selector) {
 		return domain.SelectorPin, fmt.Errorf("classify selector %q: empty ref component: %w", selector, ErrUnknownSelector)
 	}
 	if _, ok := findChannel(selector, snap); ok {
@@ -100,7 +100,9 @@ func pinnedRef(
 	return selector, commit, ok
 }
 
-func hasEmptyComponent(
+// HasEmptyComponent reports whether selector has an empty ref component, which
+// two spellings of one ref would otherwise share.
+func HasEmptyComponent(
 	selector string,
 ) bool {
 	return strings.HasPrefix(selector, "/") ||

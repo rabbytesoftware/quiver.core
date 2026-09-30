@@ -325,6 +325,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
+                    "409": {
+                        "description": "A concurrent registration of the same identity won the race",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
                     "422": {
                         "description": "Invalid manifest at the declared ref",
                         "schema": {
@@ -604,7 +610,13 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Failed to read body",
+                        "description": "Failed to read body, or a namespace without a ref or with an empty ref component",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "A concurrent registration of the same identity won the race",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }

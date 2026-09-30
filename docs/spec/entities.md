@@ -178,8 +178,20 @@ classDiagram
       +PortDef[] netbridge
       +Map~OS,Target~ targets
       +bool userInstalled
-      +string installedRef
-      +string installedConstraint
+      +SelectorKind selectorKind
+      +Resolved resolved
+      +Available? available
+    }
+
+    class Resolved {
+      +string ref
+      +string commit
+      +string fingerprint
+    }
+
+    class Available {
+      +string ref
+      +string commit
     }
 
     class Target {
@@ -225,6 +237,8 @@ classDiagram
     }
 
     Arrow --> Namespace : identified by
+    Arrow --> Resolved : installed
+    Arrow ..> Available : ahead of it
     Arrow "1" --> "1..*" Target : per OS
     Target --> TargetLifecycle
     Target "1" --> "*" Method

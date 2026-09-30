@@ -79,3 +79,26 @@ func TestResolveCatalogued_PrefersTheUserInstalledVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.Namespace("github.com/user/pkg@v2.0.0"), got)
 }
+
+// A commit selector is catalogued in lower case, so any spelling of it names
+// that one row.
+func TestResolveCatalogued_CommitSelectorInAnyCase(t *testing.T) {
+	r := newTestReader(t)
+	identity := domain.Namespace("github.com/user/pkg@abcdef1")
+	seedArrow(t, r, domain.Arrow{Namespace: identity, SelectorKind: domain.SelectorCommit})
+
+	got, err := r.ResolveCatalogued(context.Background(), "github.com/user/pkg@ABCDEF1")
+
+	require.NoError(t, err)
+	assert.Equal(t, identity, got)
+}
+
+// Only a commit row matches without case: a pin keeps its exact spelling.
+func TestResolveCatalogued_PinDoesNotMatchAnotherCase(t *testing.T) {
+	r := newTestReader(t)
+	seedArrow(t, r, domain.Arrow{Namespace: "github.com/user/pkg@abcdef1", SelectorKind: domain.SelectorPin})
+
+	_, err := r.ResolveCatalogued(context.Background(), "github.com/user/pkg@ABCDEF1")
+
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
