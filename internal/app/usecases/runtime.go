@@ -825,10 +825,29 @@ func (u *runtimeUsecase) settleUpdate(
 	if succeeded && u.commitUpdate(ctx, rt.Ref, target) {
 		return
 	}
-	if ctx.Err() != nil {
+	restoreCtx, cancel, ok := u.afterSettle(ctx)
+	if !ok {
 		return
 	}
-	u.restoreInstalled(ctx, rt.Ref)
+	defer cancel()
+	u.restoreInstalled(restoreCtx, rt.Ref)
+}
+
+// afterSettle gives the writes that close a settling their own context once
+// the settling's ran out: a commit that timed out still restores the row and
+// reconciles its badge. A settling a shutdown drain aborted writes nothing:
+// the stores are about to close.
+func (u *runtimeUsecase) afterSettle(
+	ctx context.Context,
+) (context.Context, context.CancelFunc, bool) {
+	if ctx.Err() == nil {
+		return ctx, func() {}, true
+	}
+	if u.commits.isDraining() {
+		return nil, nil, false
+	}
+	fresh, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+	return fresh, cancel, true
 }
 
 // commitUpdate stamps target as installed only if it is still what its ref
@@ -862,14 +881,16 @@ func (u *runtimeUsecase) commitUpdate(
 // reconcileBadge lands the runtime badge on the row as the settled update
 // left it: Ready once nothing is available, Outdated while the row still
 // has something ahead (a newer release recorded during the update, or a
-// target that was not stamped). An aborted settling writes nothing.
+// target that was not stamped). See afterSettle for a settling that ran out.
 func (u *runtimeUsecase) reconcileBadge(
 	ctx context.Context,
 	ns domain.Namespace,
 ) {
-	if ctx.Err() != nil {
+	ctx, cancel, ok := u.afterSettle(ctx)
+	if !ok {
 		return
 	}
+	defer cancel()
 	if err := u.runtime.ReconcileVersionBadge(ctx, ns); err != nil {
 		slog.ErrorContext(ctx, "update: reconcile version badge", "ns", ns, "err", err)
 	}

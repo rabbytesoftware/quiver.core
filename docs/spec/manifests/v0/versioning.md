@@ -586,7 +586,11 @@ has landed, the row is **settling**: `GET /v0/runtime` reports `settling: true` 
 `ready` or `outdated`, and the CLI never idle-stops a daemon with a settling row. A graceful
 shutdown drains the commits in flight before any aggregate or store closes, under a budget
 of its own (30 s in the daemon); a commit that begins after the drain started is refused,
-and one the budget runs out on is aborted. Either way, and when the daemon dies outright,
+and one the budget runs out on is aborted. An aborted settling writes nothing more. A
+commit that runs out of its own time (`commitTimeout`, 2 min) outside a shutdown stamps
+nothing either, but it still restores the installed manifest (step 8) and re-derives the
+badge, under a short context of its own, so the badge never stays `ready` on a row that
+has something available. Either way, and when the daemon dies outright,
 nothing is stamped: the row stays outdated at what it had installed, and the next update
 runs the update steps again. That is the same worst case as a target that moved.
 

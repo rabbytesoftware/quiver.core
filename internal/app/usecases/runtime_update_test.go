@@ -952,7 +952,8 @@ func TestRuntimeOnUpdateEnded_CommitHasADeadline(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the commit never gave up on a hung remote")
 	}
-	assert.Empty(t, log.all(), "nothing is stamped when the re-check times out")
+	assert.Equal(t, []string{"restore c1", "reconcile badge"}, log.all(),
+		"nothing is stamped when the re-check times out, but the row is restored and its badge follows it")
 }
 
 // ─── concurrent brackets on one identity ─────────────────────────────────────
