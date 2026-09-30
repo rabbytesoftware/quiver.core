@@ -690,6 +690,17 @@ On every boot `selfarrow.EnsureRegistered`:
 Because the identity is the channel, an update of core keeps `quiver.core@stable` for its
 whole life; the boot after an update only moves `Resolved` onto the new build.
 
+The release workflows name their tags with `.github/scripts/release-tag.sh`, pinned by
+`tests/releasetags`. A `beta/<series>` branch must name a calendar series (`26.5`) or a date
+(`2026-09-27`); any other name is refused, so no release lands in a pointer channel of its
+own. A calendar series publishes `beta-26.5`, `beta-26.5-1`, …, `stable-26.5`,
+`stable-26.5.1`, … and `hotfix-26.5.2`; a dated series `beta-2026-09-27`,
+`beta-2026-09-27-1`, …, `stable-2026-09-27`, `stable-2026-09-27.1`, … and
+`hotfix-2026-09-27.1`. The two schemes rank on one calendar (§2.1): a dated series sits
+between the calendar series of its month and the next — after `26.9`, before `26.10` — so a
+`beta/26.6` cut after `beta/2026-09-27` is older and never offered to rows already on the
+dated beta. The latest stable a hotfix builds on is picked in that same order.
+
 ---
 
 ## 11. API shape
