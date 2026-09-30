@@ -142,20 +142,25 @@ func HighestMatch(
 // sortTagsDesc sorts tags in descending order. Stable semver tags are compared
 // numerically and always rank ahead of the rest, so a single unparseable tag
 // cannot demote the whole set to string comparison — that would make v1.9.0
-// outrank v1.10.0. Lexicographic order applies only when no tag is semver, and
-// to the non-semver remainder.
+// outrank v1.10.0. Tags behind a channel word come next, in their channel's
+// order; lexicographic order applies to the remainder only.
 func sortTagsDesc(tags []string) {
 	semver := make([]string, 0, len(tags))
+	channelled := make([]classifiedTag, 0, len(tags))
 	rest := make([]string, 0, len(tags))
 	for _, t := range tags {
 		if IsStableSemver(t) {
 			semver = append(semver, t)
 			continue
 		}
+		if c, ok := channelWordTag(t); ok {
+			channelled = append(channelled, c)
+			continue
+		}
 		rest = append(rest, t)
 	}
 
-	if len(semver) == 0 {
+	if len(semver) == 0 && len(channelled) == 0 {
 		sortLexDesc(tags)
 		return
 	}
@@ -166,10 +171,29 @@ func sortTagsDesc(tags []string) {
 		}
 		return strings.Compare(b, a)
 	})
+	tierAgainstDates(channelled)
+	slices.SortFunc(channelled, compareClassified)
 	sortLexDesc(rest)
 
 	copy(tags, semver)
-	copy(tags[len(semver):], rest)
+	for i, c := range channelled {
+		tags[len(semver)+i] = c.tag
+	}
+	copy(tags[len(semver)+len(channelled):], rest)
+}
+
+// channelWordTag ranks a tag behind a channel word (stable-26.5.1,
+// stable-2026-09-27, beta-26.5-4) the way its channel does, so a glob such
+// as stable-* picks the release its channel would. Any other non-semver tag
+// keeps the lexical order constraints always used.
+func channelWordTag(
+	tag string,
+) (classifiedTag, bool) {
+	prefix, _, _, ok := parseTagFull(tag)
+	if !ok || !isKnownChannel(normalizeVersionPrefix(prefix)) {
+		return classifiedTag{}, false
+	}
+	return rankOf(tag)
 }
 
 func sortLexDesc(tags []string) {

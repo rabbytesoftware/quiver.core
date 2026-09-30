@@ -344,7 +344,11 @@ an optional leading `v` — `1.2`, `v1.2.3`. Anything carrying a prerelease comp
 A constraint's matches are ranked by `resolvers.HighestMatch`: stable-semver matches sort
 numerically descending and always rank ahead of the rest, which sort lexicographically
 descending. Equal-rank matches (`v1.2`, `v1.2.0`, `1.2.0`) are ordered by tag name,
-descending, so the answer never depends on what else the repository holds. Partitioning rather than degrading the whole set to string order is what keeps
+descending, so the answer never depends on what else the repository holds. Matches behind a
+channel word (`stable-26.5.1`, `stable-2026-09-27`, `beta-26.5-4`) rank after the
+stable-semver ones in their channel's order (§2.1), so `crowbar@stable-*` picks what the
+`stable` channel would, not the lexically largest name; every other match keeps the
+lexicographic order. Partitioning rather than degrading the whole set to string order is what keeps
 `v1.10.0` above `v1.9.0` when an unrelated `nightly` tag also matches. Branches are never
 searched, and a constraint no tag matches is rejected.
 

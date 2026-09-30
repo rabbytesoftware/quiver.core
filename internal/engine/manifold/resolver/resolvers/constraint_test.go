@@ -450,3 +450,25 @@ func TestHighestMatch_EqualRankTiesAreTotal(t *testing.T) {
 		})
 	}
 }
+
+func TestHighestMatch_ChannelWordPrefixedTagsRankByTheChannelOrder(t *testing.T) {
+	testCases := []struct {
+		name    string
+		tags    []string
+		pattern string
+		want    string
+	}{
+		{name: "a dated stable outranks a calendar one", tags: []string{"stable-26.5", "stable-26.5.1", "stable-2026-09-27"}, pattern: "stable-*", want: "stable-2026-09-27"},
+		{name: "a numbered patch outranks a lexically larger one", tags: []string{"stable-26.9", "stable-26.10"}, pattern: "stable-*", want: "stable-26.10"},
+		{name: "a rebuild outranks its base", tags: []string{"beta-26.5", "beta-26.5-4", "beta-26.5-10"}, pattern: "beta-*", want: "beta-26.5-10"},
+		{name: "pre-releases keep their lexical order", tags: []string{"v1.2.0-beta.2", "v1.2.0-rc.1"}, pattern: "v1.2.0-*", want: "v1.2.0-rc.1"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := HighestMatch(tc.tags, tc.pattern)
+			if err != nil || !ok || got != tc.want {
+				t.Errorf("HighestMatch(%v, %q) = %q, %v, %v; want %q", tc.tags, tc.pattern, got, ok, err, tc.want)
+			}
+		})
+	}
+}
