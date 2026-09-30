@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -160,8 +160,11 @@ func sortTagsDesc(tags []string) {
 		return
 	}
 
-	sort.Slice(semver, func(i, j int) bool {
-		return semverGT(semver[i], semver[j])
+	slices.SortFunc(semver, func(a, b string) int {
+		if c := compareCores(semverParts(b), semverParts(a)); c != 0 {
+			return c
+		}
+		return strings.Compare(b, a)
 	})
 	sortLexDesc(rest)
 
@@ -170,8 +173,8 @@ func sortTagsDesc(tags []string) {
 }
 
 func sortLexDesc(tags []string) {
-	sort.Slice(tags, func(i, j int) bool {
-		return tags[i] > tags[j]
+	slices.SortFunc(tags, func(a, b string) int {
+		return strings.Compare(b, a)
 	})
 }
 
@@ -191,17 +194,6 @@ func IsStableSemver(tag string) bool {
 		}
 	}
 	return true
-}
-
-func semverGT(a, b string) bool {
-	aParts := semverParts(a)
-	bParts := semverParts(b)
-	for i := range aParts {
-		if aParts[i] != bParts[i] {
-			return aParts[i] > bParts[i]
-		}
-	}
-	return false
 }
 
 func semverParts(tag string) [3]int {

@@ -225,3 +225,72 @@ func TestSortInChannel_UniformPrefixWithNumericOrdinalSuffix_BreaksTiesWithinSta
 		}
 	}
 }
+
+func TestGroupChannels_EqualRankTiesAreTotal(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "v1.2 and v1.2.0 rank equal; the name breaks the tie",
+			tags: []string{"v1.2", "v1.1.0", "v1.2.0"},
+			want: []TagChannel{{Name: "stable", Members: []string{"v1.2.0", "v1.2", "v1.1.0"}}},
+		},
+		{
+			name: "1.2.0 and v1.2.0 rank equal; the name breaks the tie",
+			tags: []string{"1.2.0", "v1.2.0"},
+			want: []TagChannel{{Name: "stable", Members: []string{"v1.2.0", "1.2.0"}}},
+		},
+		{
+			name: "channels listed alphabetically, each in precedence order",
+			tags: []string{"v1.0.0", "v2.0.0-rc1", "v2.0.0-beta.2", "v2.0.0-beta.1"},
+			want: []TagChannel{
+				{Name: "beta", Members: []string{"v2.0.0-beta.2", "v2.0.0-beta.1"}},
+				{Name: "rc", Members: []string{"v2.0.0-rc1"}},
+				{Name: StableChannel, Members: []string{"v1.0.0"}},
+			},
+		},
+		{
+			name: "no versioned tag has no ordered channel",
+			tags: []string{"nightly"},
+			want: []TagChannel{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, order := range [][]string{tc.tags, reversed(tc.tags)} {
+				got := GroupChannels(order)
+				if !equalGroups(got, tc.want) {
+					t.Errorf("GroupChannels(%v) = %v, want %v", order, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func reversed(tags []string) []string {
+	out := make([]string, len(tags))
+	for i, tag := range tags {
+		out[len(tags)-1-i] = tag
+	}
+	return out
+}
+
+func equalGroups(a, b []TagChannel) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || len(a[i].Members) != len(b[i].Members) {
+			return false
+		}
+		for j := range a[i].Members {
+			if a[i].Members[j] != b[i].Members[j] {
+				return false
+			}
+		}
+	}
+	return true
+}

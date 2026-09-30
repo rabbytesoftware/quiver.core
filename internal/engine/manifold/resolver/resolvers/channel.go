@@ -1,8 +1,10 @@
 package resolvers
 
 import (
+	"cmp"
+	"maps"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -80,8 +82,15 @@ func normalizeVersionPrefix(
 type classifiedTag struct {
 	tag     string
 	channel string
-	core    string
+	core    [3]int
 	ordinal int
+}
+
+// TagChannel is one ordered channel of a tag set: its classified name and
+// its members, highest precedence first.
+type TagChannel struct {
+	Name    string
+	Members []string
 }
 
 // classifyAll classifies every tag in tags that has a version core at all
@@ -128,7 +137,7 @@ func classifyAll(
 	result := make([]classifiedTag, 0, len(entries))
 	for _, e := range entries {
 		channel, ordinal := classifyOne(e.suffix, e.prefix, prefixIsMeaningful)
-		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: e.core, ordinal: ordinal})
+		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: semverParts(e.core), ordinal: ordinal})
 	}
 	return result
 }
@@ -166,58 +175,79 @@ func classifyByPrefix(
 	return StableChannel, ordinal
 }
 
-// SortInChannel returns every tag belonging to channel, ordered by
-// precedence (highest first): highest version core wins, ties within the
-// same core broken by ordinal. Empty when no tag in tags belongs to
-// channel.
-func SortInChannel(
+// GroupChannels classifies tags once and buckets them into ordered
+// channels, alphabetically by name, each member list in precedence order.
+func GroupChannels(
 	tags []string,
-	channel string,
-) []string {
-	classified := classifyAll(tags)
-	var candidates []classifiedTag
-	for _, c := range classified {
-		if c.channel == channel {
-			candidates = append(candidates, c)
-		}
+) []TagChannel {
+	byChannel := make(map[string][]classifiedTag)
+	for _, c := range classifyAll(tags) {
+		byChannel[c.channel] = append(byChannel[c.channel], c)
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return higherPrecedenceClassified(candidates[i], candidates[j])
-	})
-	out := make([]string, len(candidates))
-	for i, c := range candidates {
-		out[i] = c.tag
+
+	out := make([]TagChannel, 0, len(byChannel))
+	for _, name := range slices.Sorted(maps.Keys(byChannel)) {
+		candidates := byChannel[name]
+		slices.SortFunc(candidates, compareClassified)
+		members := make([]string, len(candidates))
+		for i, c := range candidates {
+			members[i] = c.tag
+		}
+		out = append(out, TagChannel{Name: name, Members: members})
 	}
 	return out
 }
 
-// higherPrecedenceClassified reports whether a outranks b within the same
-// channel: by version core first, then by ordinal.
-func higherPrecedenceClassified(
-	a, b classifiedTag,
-) bool {
-	if a.core != b.core {
-		return semverGT(a.core, b.core)
+// SortInChannel returns every tag belonging to channel, ordered by
+// precedence (highest first). Empty when no tag in tags belongs to channel.
+func SortInChannel(
+	tags []string,
+	channel string,
+) []string {
+	for _, c := range GroupChannels(tags) {
+		if c.Name == channel {
+			return c.Members
+		}
 	}
-	return a.ordinal > b.ordinal
+	return nil
+}
+
+// compareClassified orders two tags of one channel, highest precedence
+// first: by version core, then by ordinal, then by name, so equal-rank tags
+// such as v1.2 and v1.2.0 always settle the same way.
+func compareClassified(
+	a, b classifiedTag,
+) int {
+	if c := compareCores(b.core, a.core); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(b.ordinal, a.ordinal); c != 0 {
+		return c
+	}
+	return strings.Compare(b.tag, a.tag)
+}
+
+func compareCores(
+	a, b [3]int,
+) int {
+	for i := range a {
+		if c := cmp.Compare(a[i], b[i]); c != 0 {
+			return c
+		}
+	}
+	return 0
 }
 
 // ChannelsPresent returns the distinct ordered-channel names present in
-// tags (a tag with no version core at all is a pointer-channel candidate,
-// not included here — see parseTagFull). Order is alphabetical, for
-// determinism; callers needing precedence order call SortInChannel per
-// channel.
+// tags, alphabetically (a tag with no version core at all is a
+// pointer-channel candidate, not included here — see parseTagFull).
 func ChannelsPresent(
 	tags []string,
 ) []string {
-	seen := make(map[string]bool)
-	for _, c := range classifyAll(tags) {
-		seen[c.channel] = true
+	groups := GroupChannels(tags)
+	out := make([]string, len(groups))
+	for i, c := range groups {
+		out[i] = c.Name
 	}
-	out := make([]string, 0, len(seen))
-	for c := range seen {
-		out = append(out, c)
-	}
-	sort.Strings(out)
 	return out
 }

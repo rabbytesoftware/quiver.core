@@ -74,17 +74,16 @@ func ChannelsOf(
 
 	var channels []ChannelInfo
 	consumed := make(map[string]bool)
-	for _, channel := range resolvers.ChannelsPresent(tags) {
-		sorted := resolvers.SortInChannel(tags, channel)
-		for _, t := range sorted {
+	for _, channel := range resolvers.GroupChannels(tags) {
+		for _, t := range channel.Members {
 			consumed[t] = true
 		}
 		channels = append(channels, ChannelInfo{
-			Name:    channel,
+			Name:    channel.Name,
 			Kind:    "ordered",
-			Latest:  sorted[0],
-			Count:   len(sorted),
-			Members: sorted,
+			Latest:  channel.Members[0],
+			Count:   len(channel.Members),
+			Members: channel.Members,
 		})
 	}
 

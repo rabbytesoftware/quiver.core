@@ -206,17 +206,17 @@ func makeRepoOnBranch(
 	return dir
 }
 
-// ─── semverGT edge cases ──────────────────────────────────────────────────────
+// ─── compareCores edge cases ──────────────────────────────────────────────────
 
-func TestSemverGT_Equal(t *testing.T) {
-	if semverGT("v1.2.3", "v1.2.3") {
-		t.Error("semverGT(equal) = true, want false")
+func TestCompareCores_Equal(t *testing.T) {
+	if compareCores(semverParts("v1.2.3"), semverParts("v1.2.3")) != 0 {
+		t.Error("compareCores(equal) != 0")
 	}
 }
 
-func TestSemverGT_PatchDiffers(t *testing.T) {
-	if !semverGT("v1.2.4", "v1.2.3") {
-		t.Error("semverGT(v1.2.4, v1.2.3) = false, want true")
+func TestCompareCores_PatchDiffers(t *testing.T) {
+	if compareCores(semverParts("v1.2.4"), semverParts("v1.2.3")) <= 0 {
+		t.Error("compareCores(v1.2.4, v1.2.3) <= 0, want > 0")
 	}
 }
 
@@ -427,4 +427,26 @@ func TestHighestMatch_DoesNotReorderTheCallersSlice(t *testing.T) {
 	_, _, err := HighestMatch(tags, "*")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"v1.0.0", "v1.2.0"}, tags)
+}
+
+func TestHighestMatch_EqualRankTiesAreTotal(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want string
+	}{
+		{name: "two-part and three-part spellings of one release", tags: []string{"v1.2", "v1.2.0", "v1.1.0"}, want: "v1.2.0"},
+		{name: "prefixed and bare spellings of one release", tags: []string{"1.2.0", "v1.2.0"}, want: "v1.2.0"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, order := range [][]string{tc.tags, reversed(tc.tags)} {
+				got, ok, err := HighestMatch(order, "*1.*")
+				if err != nil || !ok || got != tc.want {
+					t.Errorf("HighestMatch(%v) = %q, %v, %v; want %q", order, got, ok, err, tc.want)
+				}
+			}
+		})
+	}
 }
