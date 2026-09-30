@@ -3,7 +3,7 @@ module github.com/rabbytesoftware/quiver.core
 go 1.26.2
 
 require (
-	github.com/char2cs/asynx v0.8.0
+	github.com/char2cs/asynx v0.8.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/term v0.2.1
