@@ -48,6 +48,7 @@ func NewTestable(
 	}
 	if len(reconcileVersionBadge) > 0 {
 		hooks.ReconcileVersionBadge = reconcileVersionBadge[0]
+		repo.reconcileBadge = reconcileVersionBadge[0]
 	}
 
 	if err := runtimeinternal.RegisterReactions(

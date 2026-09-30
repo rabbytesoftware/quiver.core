@@ -74,6 +74,9 @@ func drainExecution(
 	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
 		return
 	}
+	if method == domain.MethodUpdate {
+		return
+	}
 	reconcileVersionBadge(ctx, hooks, ns)
 }
 
@@ -85,10 +88,10 @@ func drainExecution(
 //
 // A re-derivation, not a fresh check: Arrow.Available already holds the
 // answer, so this skips the network round trip and just re-projects it onto
-// runtime state. It reads Available when it runs, never earlier: after an
-// update the post-update handler's advance (which clears Available, then
-// calls ClearVersionBadge) races this reconcile, and reading late is what
-// makes both orders converge on Ready.
+// runtime state. An update's end is left to the update bracket, which
+// re-derives the badge once its commit (or restore) has landed: read here,
+// the row still names the target it is about to stamp, and the runtime would
+// read outdated between the update and its commit.
 //
 // Runs unconditionally, regardless of outcome or method: the aggregate read
 // is its own short-circuit. Called only after EndExecution's Send returns,

@@ -194,7 +194,9 @@ Everything that changes as versions move lives inside the row:
 The runtime aggregate keeps its own `outdated` **state** — the badge Quiver Desktop reads.
 It is reconciled from the row: whenever a check records `Available`, the runtime is moved
 `ready → outdated` (`MarkVersionOutdated`) or back (`ClearVersionOutdated`) to match the row
-as it stands at that moment, never the answer the check computed.
+as it stands at that moment, never the answer the check computed. The end of any execution
+re-derives it the same way, except the end of `_update`, whose badge the update bracket
+re-derives once its commit has landed (§8.2 step 7).
 
 ---
 
@@ -444,7 +446,10 @@ target left in the last run must never lend its `${REF}` to another release's st
 
 Every update is one in-place operation on the same aggregate. `AdvanceArrow` (event
 `arrow.advanced.<ns>`) replaces the row's manifest with the one at the target commit, sets
-`Resolved` to the target and clears `Available`. Identity, runtime aggregate and workdir are
+`Resolved` to the target and clears `Available` — except that an update's commit keeps an
+`Available` naming something other than the target it stamps (a newer release a check
+recorded while the update's steps ran stays offered). An adoption (§10) always clears it
+for the next check to judge. Identity, runtime aggregate and workdir are
 untouched; the update steps overwrite files in place. Before every advance the vault
 manifest cache for the identity is replaced with the manifest fetched at the target commit
 (`ns.WithRef(commit)`; hosts serve raw files by SHA). On a host that cannot serve a SHA (one
@@ -510,10 +515,10 @@ sequenceDiagram
     A->>M: FreshSnapshot
     alt target ref still at target commit
         U->>A: Advance(ns, target) (arrow.advanced)
-        U->>R: ClearVersionBadge
     else target moved during the update
-        U->>U: stamp nothing; the row stays outdated
+        U->>A: RefreshToTarget(ns, Resolved) (restore the installed manifest)
     end
+    U->>R: ReconcileVersionBadge (from the row as it stands)
 ```
 
 1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`, and with the
@@ -541,16 +546,23 @@ sequenceDiagram
    against a fresh snapshot. The target ref is looked up where the row's stored kind says
    its refs live (`manifold.RefCommit`): an escaped branch pin `@refs/heads/master` reads
    the branch even when a tag `master` exists. Only if the target ref still stands at the
-   target commit is the row advanced and the runtime's version badge cleared. If it moved while the steps
-   ran, the installed bits may not be the target's, so nothing is stamped and the row
-   stays outdated. The worst case is an extra update, never a wrong stamp or a missed one.
+   target commit is the row advanced; a newer release a check recorded while the steps ran
+   stays in `Available` and keeps being offered. If the target moved while the steps ran,
+   the installed bits may not be the target's, so nothing is stamped and the row stays
+   outdated. The worst case is an extra update, never a wrong stamp or a missed one.
+   Either way the runtime's version badge is then re-derived from the row as it stands
+   (`ReconcileVersionBadge`): `ready` when nothing is available, `outdated` otherwise.
+   The badge is re-derived here, once, and not when `_update` ends: until the commit lands
+   the row still names the target as available, and reading it then made the runtime go
+   `ready → outdated → ready` right after every update.
 8. **Failure** stamps nothing: `Resolved` and `Available` stay as they were, and the
    manifest of the installed release is staged on the row again (fetched at
    `Resolved.Commit`, replacing the target manifest step 4 staged), so an install or
    execution that follows runs the installed release's own steps for its own `${REF}`. The
    same restore follows a commit that stamps nothing because the target moved (step 7). A
    row with no recorded commit, or a restore whose fetch fails, keeps the staged manifest
-   until the next update restages it.
+   until the next update restages it. The badge is then re-derived from the row, as in
+   step 7.
 
 The commit runs detached from the event handler that observes `runtime.ended`, because
 clearing the badge waits on the same runtime event queue the handler is delivered on.

@@ -780,6 +780,7 @@ func (u *runtimeUsecase) settleUpdate(
 	target domain.Available,
 	recorded bool,
 ) {
+	defer u.reconcileBadge(ctx, rt.Ref)
 	if isSelfNamespace(rt.Ref) {
 		return
 	}
@@ -824,10 +825,23 @@ func (u *runtimeUsecase) commitUpdate(
 		slog.ErrorContext(ctx, "update: advance", "ns", ns, "err", err)
 		return false
 	}
-	if err := u.runtime.ClearVersionBadge(ctx, ns); err != nil {
-		slog.ErrorContext(ctx, "update: clear version badge", "ns", ns, "err", err)
-	}
 	return true
+}
+
+// reconcileBadge lands the runtime badge on the row as the settled update
+// left it: Ready once nothing is available, Outdated while the row still
+// has something ahead (a newer release recorded during the update, or a
+// target that was not stamped). An aborted settling writes nothing.
+func (u *runtimeUsecase) reconcileBadge(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := u.runtime.ReconcileVersionBadge(ctx, ns); err != nil {
+		slog.ErrorContext(ctx, "update: reconcile version badge", "ns", ns, "err", err)
+	}
 }
 
 // restoreInstalled stages the manifest of the release the row has installed

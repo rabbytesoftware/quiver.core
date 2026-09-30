@@ -554,22 +554,22 @@ func commitFixture(unmoved bool, unmovedErr error) (*ucmocks.MockArrow, *ucmocks
 		},
 	}
 	rt := &ucmocks.MockRuntime{
-		ClearVersionBadgeFn: func(context.Context, domain.Namespace) error {
-			log.add("clear badge")
+		ReconcileVersionBadgeFn: func(context.Context, domain.Namespace) error {
+			log.add("reconcile badge")
 			return nil
 		},
 	}
 	return a, rt, log
 }
 
-func TestRuntimeOnUpdateEnded_TargetUnchanged_AdvancesThenClearsTheBadge(t *testing.T) {
+func TestRuntimeOnUpdateEnded_TargetUnchanged_AdvancesThenReconcilesTheBadge(t *testing.T) {
 	a, rt, log := commitFixture(true, nil)
 	uc := newUC(a, rt, &ucmocks.MockGraph{})
 	uc.targets.put(rollingRow, rollingTarget())
 
 	uc.onRuntimeEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge"}, log.all())
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
 }
 
 func TestRuntimeOnUpdateEnded_StampsNothing(t *testing.T) {
@@ -585,33 +585,34 @@ func TestRuntimeOnUpdateEnded_StampsNothing(t *testing.T) {
 			name:    "target moved during the update",
 			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
 			record:  true,
-			wantLog: []string{"re-resolve c2", "restore c1"},
+			wantLog: []string{"re-resolve c2", "restore c1", "reconcile badge"},
 		},
 		{
 			name:       "target cannot be re-resolved",
 			rt:         updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
 			record:     true,
 			unmovedErr: errors.New("remote down"),
-			wantLog:    []string{"re-resolve c2", "restore c1"},
+			wantLog:    []string{"re-resolve c2", "restore c1", "reconcile badge"},
 		},
 		{
 			name:    "update steps failed",
 			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed),
 			record:  true,
 			unmoved: true,
-			wantLog: []string{"restore c1"},
+			wantLog: []string{"restore c1", "reconcile badge"},
 		},
 		{
 			name:    "no return recorded",
 			rt:      domainRuntime.ArrowRuntime{Ref: rollingRow},
 			record:  true,
 			unmoved: true,
-			wantLog: []string{"restore c1"},
+			wantLog: []string{"restore c1", "reconcile badge"},
 		},
 		{
 			name:    "no update began toward a target",
 			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
 			unmoved: true,
+			wantLog: []string{"reconcile badge"},
 		},
 	}
 
@@ -662,7 +663,7 @@ func TestRuntimeOnUpdateEnded_CommitsTheTargetTheUpdateRan(t *testing.T) {
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge"}, log.all())
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
 }
 
 func TestRuntimeOnUpdateEnded_AdvanceFails_BadgeStays(t *testing.T) {
@@ -676,7 +677,7 @@ func TestRuntimeOnUpdateEnded_AdvanceFails_BadgeStays(t *testing.T) {
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance failed", "restore c1"}, log.all())
+	assert.Equal(t, []string{"re-resolve c2", "advance failed", "restore c1", "reconcile badge"}, log.all())
 }
 
 // A failed update leaves the row reporting what it had installed, and the
@@ -734,10 +735,10 @@ func TestRuntimeOnUpdateEnded_NothingStamped_RestoresTheInstalledManifest(t *tes
 	}
 }
 
-func TestRuntimeOnUpdateEnded_ClearBadgeFails_IsOnlyLogged(t *testing.T) {
+func TestRuntimeOnUpdateEnded_ReconcileBadgeFails_IsOnlyLogged(t *testing.T) {
 	a, rt, log := commitFixture(true, nil)
-	rt.ClearVersionBadgeFn = func(context.Context, domain.Namespace) error {
-		log.add("clear badge failed")
+	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
+		log.add("reconcile badge failed")
 		return errors.New("event store down")
 	}
 	uc := newUC(a, rt, &ucmocks.MockGraph{})
@@ -745,7 +746,7 @@ func TestRuntimeOnUpdateEnded_ClearBadgeFails_IsOnlyLogged(t *testing.T) {
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge failed"}, log.all())
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge failed"}, log.all())
 }
 
 // quiver.core's relaunched binary adopts its own new state, so its update
@@ -758,7 +759,7 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	a, rt, log := commitFixture(true, nil)
 	f.arrow.TargetUnmovedFn = a.TargetUnmovedFn
 	f.arrow.AdvanceFn = a.AdvanceFn
-	f.runtime.ClearVersionBadgeFn = rt.ClearVersionBadgeFn
+	f.runtime.ReconcileVersionBadgeFn = rt.ReconcileVersionBadgeFn
 	uc := f.usecase()
 
 	require.NoError(t, uc.Execute(context.Background(), selfRow, domain.MethodUpdate, nil))
@@ -767,7 +768,7 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	assert.Contains(t, f.log.all(), "begin update")
 	_, remembered := uc.targets.take(selfRow)
 	assert.False(t, remembered)
-	assert.Empty(t, log.all())
+	assert.Equal(t, []string{"reconcile badge"}, log.all(), "nothing is committed; the badge follows the row")
 }
 
 // quiver.core's own update is no exception to the bracket: a self row that is
@@ -795,7 +796,7 @@ func TestRuntimeOnUpdateEnded_CommitsOffTheDeliveringGoroutine(t *testing.T) {
 		return true, nil
 	}
 	cleared := make(chan struct{})
-	rt.ClearVersionBadgeFn = func(context.Context, domain.Namespace) error {
+	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
 		close(cleared)
 		return nil
 	}
@@ -817,7 +818,7 @@ func TestRuntimeOnUpdateEnded_CommitsOffTheDeliveringGoroutine(t *testing.T) {
 	select {
 	case <-cleared:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the detached commit never cleared the badge")
+		t.Fatal("the detached commit never reconciled the badge")
 	}
 }
 
@@ -933,7 +934,7 @@ func TestRuntimeExecute_Update_PendingEndHandlerRejectsTheNextBracket(t *testing
 	a, rt, commits := commitFixture(true, nil)
 	f.arrow.TargetUnmovedFn = a.TargetUnmovedFn
 	f.arrow.AdvanceFn = a.AdvanceFn
-	f.runtime.ClearVersionBadgeFn = rt.ClearVersionBadgeFn
+	f.runtime.ReconcileVersionBadgeFn = rt.ReconcileVersionBadgeFn
 	uc := f.usecase()
 	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
 
@@ -945,7 +946,7 @@ func TestRuntimeExecute_Update_PendingEndHandlerRejectsTheNextBracket(t *testing
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c1", "advance c1", "clear badge"}, commits.all())
+	assert.Equal(t, []string{"re-resolve c1", "advance c1", "reconcile badge"}, commits.all())
 }
 
 func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {

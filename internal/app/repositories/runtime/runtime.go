@@ -136,6 +136,13 @@ type Runtime interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	// ReconcileVersionBadge re-derives ns's version badge from its catalog
+	// row as the row stands now: Outdated while it has something available,
+	// Ready otherwise. The update bracket calls it once an update settled.
+	ReconcileVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	// MarkReady lands ns's runtime aggregate at Ready without an install ever
 	// having run, the same outcome MarkPreinstalled records for a preinstalled
 	// detection.
@@ -151,6 +158,7 @@ type Runtime interface {
 
 type runtimeRepository struct {
 	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
+	reconcileBadge        func(ctx context.Context, ns domain.Namespace) error
 	wizard                wizardPkg.Wizard
 	assembler             assembler.Assembler
 	hasDependents         HasDependentsFn
@@ -182,13 +190,14 @@ func New(
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
+		reconcileBadge:        ReconcileVersionBadge(getArrow, axRuntime),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
 		MarkInstalled:         markInstalled,
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
-		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+		ReconcileVersionBadge: repo.reconcileBadge,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -739,6 +748,16 @@ func (s *runtimeRepository) ClearVersionBadge(
 ) error {
 	if err := SetVersionOutdated(s.axRuntime)(ctx, ns, false); err != nil {
 		return fmt.Errorf("clear version badge: %w", err)
+	}
+	return nil
+}
+
+func (s *runtimeRepository) ReconcileVersionBadge(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := s.reconcileBadge(ctx, ns); err != nil {
+		return fmt.Errorf("reconcile version badge: %w", err)
 	}
 	return nil
 }

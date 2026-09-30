@@ -512,6 +512,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	ReconcileVersionBadgeFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	ClearVersionBadgeFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -707,6 +711,13 @@ func (m *MockRuntime) MarkOutdated(
 ) error {
 	if m.MarkOutdatedFn != nil {
 		return m.MarkOutdatedFn(ctx, ns, addedDeps, removedDeps)
+	}
+	return nil
+}
+
+func (m *MockRuntime) ReconcileVersionBadge(ctx context.Context, ns domain.Namespace) error {
+	if m.ReconcileVersionBadgeFn != nil {
+		return m.ReconcileVersionBadgeFn(ctx, ns)
 	}
 	return nil
 }

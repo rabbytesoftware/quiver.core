@@ -101,7 +101,7 @@ func TestRuntimeDrain_CommitInFlight_WaitsUntilItLands(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Drain never returned after the commit landed")
 	}
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "clear badge"}, b.log.all(),
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, b.log.all(),
 		"the commit must have landed by the time Drain returns")
 }
 
