@@ -949,6 +949,23 @@ func TestRuntimeExecute_Update_PendingEndHandlerRejectsTheNextBracket(t *testing
 	assert.Equal(t, []string{"re-resolve c1", "advance c1", "reconcile badge"}, commits.all())
 }
 
+// The first update's steps ended and its detached commit is still landing
+// (the row reads settling). A second update must not begin: it would run the
+// update steps again toward the target the first one already installed.
+func TestRuntimeExecute_Update_CommitInFlightRejectsTheNextBracket(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	uc := f.usecase()
+	require.True(t, uc.commits.begin(rollingRow))
+	defer uc.commits.done(rollingRow)
+
+	err := uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
+	assert.Empty(t, f.log.all(), "nothing is checked, staged or begun while the row settles")
+	assert.True(t, uc.Settling(rollingRow))
+}
+
 func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {
 	first := domain.Available{Ref: "r", Commit: "c1"}
 	second := domain.Available{Ref: "r", Commit: "c2"}

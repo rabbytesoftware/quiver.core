@@ -425,9 +425,10 @@ func (u *runtimeUsecase) Update(
 // the row, stops it if it runs, stages the target's manifest so the target's
 // own update steps run, installs any dependency the target gained, and
 // begins the update, reporting whether it started one. onUpdateEnded closes
-// the bracket. Brackets of one row
-// are serialized up to BeginUpdate, so a second one finds the first running
-// instead of staging its own target under it.
+// the bracket. Brackets of one row are serialized up to BeginUpdate, so a
+// second one finds the first running instead of staging its own target under
+// it, and one that arrives while the first is still settling (its commit or
+// restore not landed yet) is refused rather than running the steps again.
 func (u *runtimeUsecase) executeUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -438,7 +439,7 @@ func (u *runtimeUsecase) executeUpdate(
 		return false, fmt.Errorf("update: %w", err)
 	}
 	defer closeBracket()
-	if u.targets.pending(ns) {
+	if u.Settling(ns) {
 		return false, fmt.Errorf("update: previous update of %s not settled: %w", ns, apperrors.ErrStateViolation)
 	}
 

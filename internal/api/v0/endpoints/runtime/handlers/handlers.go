@@ -36,6 +36,7 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
 // @Failure      409     {object}  libs.ErrResponse                  "Arrow already running"
+// @Failure      422     {object}  libs.ErrResponse                  "State violation, e.g. an update while the previous one is still settling"
 // @Failure      500     {object}  libs.ErrResponse                  "Internal error"
 // @Router       /runtime/{ns}/{method} [post]
 func (h *Handlers) Execute(c *gin.Context) {

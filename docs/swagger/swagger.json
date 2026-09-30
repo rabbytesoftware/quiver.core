@@ -1595,6 +1595,12 @@
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
+                    "422": {
+                        "description": "State violation, e.g. an update while the previous one is still settling",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal error",
                         "schema": {

@@ -523,7 +523,9 @@ sequenceDiagram
 
 1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`, and with the
    installs and catalog advances of that row (§8.1); a bracket whose
-   predecessor began but has not been closed yet is refused with a state violation (422).
+   predecessor began but has not settled yet — its steps still running, or ended with its
+   commit or restore not landed (the row reads `settling`) — is refused with a state
+   violation (422), so the update steps never run twice toward one target.
 2. **Re-resolve.** The last check may be an hour old, so the target is resolved again
    against a fresh snapshot and recorded as `Available`. Nothing ahead: nothing to do, and
    the request is answered **200** as an idempotent no-op (no runtime event follows)
