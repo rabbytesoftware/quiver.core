@@ -506,9 +506,9 @@ func (u *runtimeUsecase) stageAndBegin(
 		if err == nil || began || !u.commits.begin(ns) {
 			return
 		}
-		defer u.commits.done(ns)
 		restoreCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), restoreTimeout)
 		defer cancel()
+		defer u.releaseSettled(restoreCtx, ns)
 		u.restoreInstalled(restoreCtx, ns)
 	}()
 

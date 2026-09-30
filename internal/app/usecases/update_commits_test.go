@@ -360,3 +360,34 @@ func TestRuntimeOnUpdateEnded_CheckHeldDuringTheRun_ReleasesAfterOneReconcile(t 
 	assert.Equal(t, []bool{true}, settlingAtReconcile)
 	assert.False(t, uc.Settling(rollingRow), "released right after its one reconcile")
 }
+
+// A bracket's own restore settles the row like an update's end: a check held
+// while it ran gets the badge re-derived, and nothing stays held.
+func TestRuntimeExecute_Update_RestoreAfterFailure_ReconcilesTheBadge(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+	}
+	uc := f.usecase()
+	refresh := f.arrow.RefreshToTargetFn
+	f.arrow.RefreshToTargetFn = func(ctx context.Context, ns domain.Namespace, a domain.Available) (*domain.Arrow, error) {
+		if a.Commit == "c1" {
+			assert.True(t, uc.HoldBadge(ns), "a check landing during the restore is held")
+		}
+		return refresh(ctx, ns, a)
+	}
+	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
+		return errors.New("refused")
+	}
+	reconciled := 0
+	f.runtime.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
+		reconciled++
+		return nil
+	}
+
+	require.Error(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+
+	assert.Equal(t, 1, reconciled, "the held check's badge is re-derived")
+	assert.False(t, uc.HoldBadge(rollingRow), "nothing stays held once the restore settled")
+}
