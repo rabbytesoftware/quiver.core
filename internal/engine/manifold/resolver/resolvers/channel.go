@@ -44,20 +44,26 @@ func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
 	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil && isKnownChannel(normalizeVersionPrefix(m[1])) {
-		year, _ := strconv.Atoi(m[2])
-		if year >= dateEpoch {
-			year -= dateEpoch
-		}
-		patch := m[5]
-		if patch == "" {
-			patch = "0"
-		}
-		return m[1], strconv.Itoa(year) + "." + m[3] + "." + m[4] + "." + patch, strings.TrimLeft(m[6], "-_."), true
+		return m[1], dateCore(m[2], m[3], m[4], m[5]), strings.TrimLeft(m[6], "-_."), true
 	}
 	if m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag); m != nil {
 		return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
 	}
 	return "", "", "", false
+}
+
+// dateCore writes a date and its patch as the core YY.MM.DD.patch.
+func dateCore(
+	year, month, day, patch string,
+) string {
+	y, _ := strconv.Atoi(year)
+	if y >= dateEpoch {
+		y -= dateEpoch
+	}
+	if patch == "" {
+		patch = "0"
+	}
+	return strconv.Itoa(y) + "." + month + "." + day + "." + patch
 }
 
 // knownChannels are prefixes that name a release channel whatever else the
