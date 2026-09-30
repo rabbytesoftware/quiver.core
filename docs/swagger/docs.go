@@ -1364,7 +1364,7 @@ const docTemplate = `{
         },
         "/runtime": {
             "get": {
-                "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". Use the WebSocket upgrade on the same route to stream updates instead.",
+                "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". settling marks an arrow whose update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -1405,7 +1405,7 @@ const docTemplate = `{
         },
         "/runtime/{ns}": {
             "get": {
-                "description": "Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.",
+                "description": "Returns the current runtime state for an arrow, including the active execution and the last completed return. settling is true while an update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -1954,6 +1954,10 @@ const docTemplate = `{
                 },
                 "namespace": {
                     "type": "string"
+                },
+                "settling": {
+                    "description": "Settling is true while an update has not committed yet, including the\nmoment after its steps ended and before its row advanced. Only REST\nreads set it; streamed runtime events omit it.",
+                    "type": "boolean"
                 },
                 "state": {
                     "type": "string"

@@ -2,7 +2,7 @@
 
 The `quiver` command is your terminal interface to Quiver. It installs, runs, and manages software published as Arrows, straight from any Git repository.
 
-You never need to start or stop anything by hand — the Quiver daemon boots automatically when a command needs it and shuts down on its own when there is nothing left to manage.
+You never need to start or stop anything by hand — the Quiver daemon boots automatically when a command needs it and shuts down on its own when there is nothing left to manage. An update counts as something to manage until the arrow has actually moved to the new version, a moment after its steps finish.
 
 ---
 

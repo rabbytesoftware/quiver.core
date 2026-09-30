@@ -169,6 +169,21 @@ func TestStopIdleDaemon_IdleDaemonIsStopped(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "idle daemon must be stopped and pid file removed")
 }
 
+// An update whose steps ended reads ready or outdated while its commit is
+// still advancing the row: stopping the daemon then would lose the commit.
+func TestStopIdleDaemon_SettlingUpdateKeepsDaemon(t *testing.T) {
+	mgr := newTestManager(t)
+	pid := sleepProcess(t)
+	require.NoError(t, os.WriteFile(mgr.PIDFile, []byte(strconv.Itoa(pid)), 0o600))
+	serveRuntimeSocket(t, mgr.Socket,
+		`[{"namespace":"github.com/u/r@nightly","state":"outdated","settling":true}]`)
+
+	stopIdleDaemon(context.Background(), mgr)
+
+	_, err := os.Stat(mgr.PIDFile)
+	assert.NoError(t, err, "a settling update must keep the daemon alive")
+}
+
 func TestRootCommand_HasCLICommands(t *testing.T) {
 	// "daemon" is registered directly by newRootCmd(), outside
 	// commands.New(...).Attach(cmd); everything else comes from the command

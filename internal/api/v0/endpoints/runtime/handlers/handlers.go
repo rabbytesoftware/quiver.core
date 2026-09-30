@@ -11,6 +11,7 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Handlers struct {
@@ -85,7 +86,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 // Get returns the runtime snapshot for a single arrow.
 //
 // @Summary      Get runtime
-// @Description  Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.
+// @Description  Returns the current runtime state for an arrow, including the active execution and the last completed return. settling is true while an update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.
 // @Tags         runtime
 // @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"
@@ -107,13 +108,13 @@ func (h *Handlers) Get(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	libs.WriteQueryOK(c, apidto.ArrowRuntimeDTOFrom(*rt))
+	libs.WriteQueryOK(c, h.runtimeDTO(*rt))
 }
 
 // List returns runtime snapshots for every arrow in the catalog.
 //
 // @Summary      List runtimes
-// @Description  Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state "absent". Use the WebSocket upgrade on the same route to stream updates instead.
+// @Description  Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state "absent". settling marks an arrow whose update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.
 // @Tags         runtime
 // @Produce      json
 // @Success      200  {object}  libs.QueryResponse{data=[]apidto.ArrowRuntimeDTO}
@@ -129,7 +130,13 @@ func (h *Handlers) List(c *gin.Context) {
 
 	dtos := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
 	for _, rt := range runtimes {
-		dtos = append(dtos, apidto.ArrowRuntimeDTOFrom(rt))
+		dtos = append(dtos, h.runtimeDTO(rt))
 	}
 	libs.WriteQueryOK(c, dtos)
+}
+
+func (h *Handlers) runtimeDTO(rt domainRuntime.ArrowRuntime) apidto.ArrowRuntimeDTO {
+	out := apidto.ArrowRuntimeDTOFrom(rt)
+	out.Settling = h.svc.Settling(rt.Ref)
+	return out
 }

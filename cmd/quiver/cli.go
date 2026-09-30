@@ -47,7 +47,9 @@ func shouldManageDaemon(args []string) bool {
 }
 
 // stopIdleDaemon terminates a CLI-booted local daemon once nothing is
-// active, honoring the promise that the daemon shuts down on its own.
+// active, honoring the promise that the daemon shuts down on its own. An
+// update still settling counts as active: its steps ended, but the commit
+// that advances its row has not landed yet.
 // Every step is best-effort: a daemon that cannot be probed is left alone.
 func stopIdleDaemon(ctx context.Context, mgr *daemon.Manager) {
 	if _, err := mgr.ReadPID(); err != nil {
@@ -66,7 +68,7 @@ func stopIdleDaemon(ctx context.Context, mgr *daemon.Manager) {
 		return
 	}
 	for _, rt := range runtimes {
-		if commands.IsActiveState(rt.State) {
+		if commands.IsActiveState(rt.State) || rt.Settling {
 			return
 		}
 	}

@@ -91,6 +91,13 @@ func TestRuntimeService_Stop(t *testing.T) {
 	assert.Equal(t, errTest, m.Stop(ctx, testNS))
 }
 
+func TestRuntimeService_SettlingAndDrain(t *testing.T) {
+	m := &mocks.RuntimeService{SettlingNamespaces: map[domain.Namespace]bool{testNS: true}, DrainErr: errTest}
+	assert.True(t, m.Settling(testNS))
+	assert.False(t, m.Settling(domain.Namespace("github.com/u/other")))
+	assert.Equal(t, errTest, m.Drain(ctx))
+}
+
 func TestHub_BroadcastArrow(t *testing.T) {
 	m := &mocks.Hub{}
 	m.BroadcastArrow(domain.Arrow{Namespace: testNS})

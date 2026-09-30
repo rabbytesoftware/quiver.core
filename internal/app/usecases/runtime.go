@@ -66,7 +66,16 @@ type RuntimeUsecase interface {
 	ListRuntimes(
 		ctx context.Context,
 	) ([]domainRuntime.ArrowRuntime, error)
+	// Settling reports whether an update of ns began and has not committed
+	// yet. Its runtime may already read ready or outdated: the commit that
+	// advances the row runs after the update's steps ended.
+	Settling(ns domain.Namespace) bool
 	Start(ctx context.Context)
+	// Drain waits for every update commit in flight and refuses new ones,
+	// so a shutdown never closes the stores under a commit. When ctx ends
+	// first it aborts them and reports why: those rows stay outdated and
+	// their next update runs again.
+	Drain(ctx context.Context) error
 }
 
 type runtimeUsecase struct {
@@ -74,6 +83,7 @@ type runtimeUsecase struct {
 	runtime runtimerepo.Runtime
 	graph   graph.Graph
 	targets *updateTargets
+	commits *updateCommits
 	detach  func(fn func())
 	// commitTimeout bounds a detached update commit, which has no caller
 	// whose context would end it.
@@ -98,6 +108,7 @@ func newRuntimeUsecase(
 		runtime:       runtime,
 		graph:         graph,
 		targets:       newUpdateTargets(),
+		commits:       newUpdateCommits(),
 		detach:        func(fn func()) { go fn() },
 		commitTimeout: updateCommitTimeout,
 	}
@@ -459,6 +470,7 @@ func (u *runtimeUsecase) Reset(
 	if err := u.runtime.Forget(ctx, ns); err != nil {
 		return fmt.Errorf("reset: %w", err)
 	}
+	u.targets.take(ns)
 	return nil
 }
 
@@ -626,6 +638,21 @@ func (u *runtimeUsecase) Start(ctx context.Context) {
 	u.runtime.Start(ctx)
 }
 
+// Settling reads the remembered target before the running commits:
+// onUpdateEnded registers the commit before it releases the target, so in
+// this order no read falls between the two.
+func (u *runtimeUsecase) Settling(ns domain.Namespace) bool {
+	return u.targets.pending(ns) || u.commits.inFlight(ns)
+}
+
+func (u *runtimeUsecase) Drain(ctx context.Context) error {
+	if err := u.commits.drain(ctx); err != nil {
+		slog.WarnContext(ctx, "update: shutdown abandoned commits in flight; their rows stay outdated", "err", err)
+		return fmt.Errorf("drain update commits: %w", err)
+	}
+	return nil
+}
+
 // onUpdateEnded closes the update bracket: it always releases the row's
 // remembered target, so the next update is admitted, and commits it only
 // once the update steps succeeded.
@@ -634,25 +661,46 @@ func (u *runtimeUsecase) Start(ctx context.Context) {
 //
 // The commit runs detached because this handler is delivered on the runtime
 // aggregate's own ordered event queue, and clearing the badge waits for that
-// same queue: done inline, it would wait for itself.
+// same queue: done inline, it would wait for itself. Detached is not
+// untracked: a shutdown drains it before closing the stores.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
+	admitted := u.commits.begin(rt.Ref)
 	target, ok := u.targets.take(rt.Ref)
-	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+	if !u.shouldCommit(ctx, rt, ok) {
+		if admitted {
+			u.commits.done(rt.Ref)
+		}
 		return
 	}
-	if isSelfNamespace(rt.Ref) {
-		return
-	}
-	if !ok {
-		slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
+	if !admitted {
+		slog.WarnContext(ctx, "update: shutting down; the row stays outdated until its next update", "ns", rt.Ref)
 		return
 	}
 
 	u.detach(func() {
-		commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), u.commitTimeout)
+		defer u.commits.done(rt.Ref)
+		commitCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), u.commitTimeout)
 		defer cancel()
 		u.commitUpdate(commitCtx, rt.Ref, target)
 	})
+}
+
+func (u *runtimeUsecase) shouldCommit(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+	recorded bool,
+) bool {
+	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
+		return false
+	}
+	if isSelfNamespace(rt.Ref) {
+		return false
+	}
+	if !recorded {
+		slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
+		return false
+	}
+	return true
 }
 
 // commitUpdate stamps target as installed only if it is still what its ref

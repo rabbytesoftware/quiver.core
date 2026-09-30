@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 func TestMain(m *testing.M) {
@@ -235,4 +237,65 @@ func TestExecute_NonReservedVariable_IsAccepted(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+// ─── settling ────────────────────────────────────────────────────────────────
+
+func TestRuntimeReads_ReportSettlingRows(t *testing.T) {
+	const settlingNS = domain.Namespace("github.com/user/repo")
+	svc := &mocks.RuntimeService{
+		GetRuntimeResult: &domainRuntime.ArrowRuntime{Ref: settlingNS, State: domain.ArrowStateOutdated},
+		ListRuntimesResult: []domainRuntime.ArrowRuntime{
+			{Ref: settlingNS, State: domain.ArrowStateOutdated},
+			{Ref: "github.com/user/other", State: domain.ArrowStateReady},
+		},
+		SettlingNamespaces: map[domain.Namespace]bool{settlingNS: true},
+	}
+	h := handlers.New(svc)
+	r := gin.New()
+	r.UseRawPath = true
+	r.UnescapePathValues = true
+	r.GET("/v0/runtime", h.List)
+	r.GET("/v0/runtime/:ns", h.Get)
+
+	testCases := []struct {
+		name string
+		path string
+		want map[string]bool
+	}{
+		{name: "one runtime", path: encodedNS, want: map[string]bool{"github.com/user/repo": true}},
+		{name: "every runtime", path: "/v0/runtime", want: map[string]bool{
+			"github.com/user/repo":  true,
+			"github.com/user/other": false,
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			require.Equal(t, http.StatusOK, w.Code)
+
+			got := map[string]bool{}
+			for _, rt := range decodeRuntimes(t, w.Body.Bytes()) {
+				got[rt.Namespace] = rt.Settling
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func decodeRuntimes(t *testing.T, body []byte) []apidto.ArrowRuntimeDTO {
+	t.Helper()
+	var list struct {
+		Data []apidto.ArrowRuntimeDTO `json:"data"`
+	}
+	if err := json.Unmarshal(body, &list); err == nil {
+		return list.Data
+	}
+	var one struct {
+		Data apidto.ArrowRuntimeDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &one))
+	return []apidto.ArrowRuntimeDTO{one.Data}
 }

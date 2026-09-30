@@ -89,8 +89,15 @@ func (c *Container) promoteRunningBinary(ctx context.Context) {
 // arrows.db backs both the arrow and the graph read models, so it closes here
 // rather than in either repository — and only once repos.Shutdown has drained
 // the arrow aggregate, since both read models are fed by its projections.
+//
+// Update commits drain first: they write to both aggregates, off either
+// one's own queue.
 func (c *Container) Shutdown(ctx context.Context) error {
 	var errs []error
+
+	if err := c.DrainUpdates(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("app container: %w", err))
+	}
 
 	if err := c.shutdownRepos(ctx); err != nil {
 		errs = append(errs, err)
@@ -105,6 +112,16 @@ func (c *Container) Shutdown(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// DrainUpdates waits for the update commits still in flight; see
+// usecases.RuntimeUsecase.Drain. It is safe to call before Shutdown, which
+// drains again and then finds nothing left.
+func (c *Container) DrainUpdates(ctx context.Context) error {
+	if c.Runtime == nil {
+		return nil
+	}
+	return c.Runtime.Drain(ctx)
 }
 
 func (c *Container) shutdownRepos(ctx context.Context) error {

@@ -190,13 +190,15 @@ The execution lifecycle layer. Composes `arrow` + `runtime` + `graph` repositori
 | `Stop(ctx, ns)` | `runtime.BeginStop` | Direct passthrough — the wizard cancellation happens inside the runtime repository's drain machinery. | `ErrStateViolation`. |
 | `RuntimeExists(ctx, ns)` | `runtime.RuntimeExists` | — | — |
 | `Start(ctx)` | `runtime.Start` | Triggers `RecoverTransients`. Called by `app.Container.Start`. | — |
+| `Settling(ns)` | — | True from the moment an update of `ns` begins until its commit has landed or been given up, including after its steps ended while the runtime already reads `ready`/`outdated`. Surfaced as `settling` on `GET /v0/runtime` reads; the CLI never idle-stops a daemon with a settling row. | — |
+| `Drain(ctx)` | — | Refuses every later update commit and waits for the ones in flight. When `ctx` ends first it aborts them and returns the context error: those rows stay outdated and their next update runs again. Called by `app.Container.Shutdown` (and `DrainUpdates`) before any aggregate drains. | context error on timeout. |
 | `Shutdown(ctx)` | `runtime.Shutdown` | Drains in-flight executions, then shuts down Asynx. Called by `app.Container.Shutdown`. | — |
 
 #### Reactive callbacks wired in `usecases.New`
 
 | Source event | Handler | Behaviour |
 |--------------|---------|-----------|
-| `runtime.ended.*` | `onRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps; `_update` closes the update bracket (`onUpdateEnded`): on success, and only if the target ref still stands at the target commit, `arrow.Advance` then `runtime.ClearVersionBadge`, detached from the handler; otherwise nothing is stamped. quiver.core's own row is skipped — its relaunched build adopts its new state on boot. |
+| `runtime.ended.*` | `onRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps; `_update` closes the update bracket (`onUpdateEnded`): on success, and only if the target ref still stands at the target commit, `arrow.Advance` then `runtime.ClearVersionBadge`, detached from the handler but tracked so a graceful shutdown waits for it (`Drain`); otherwise nothing is stamped. quiver.core's own row is skipped — its relaunched build adopts its new state on boot. |
 
 ### 3.3 CollectionUsecase — `usecases/collection.go`
 

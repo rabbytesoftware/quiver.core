@@ -455,6 +455,15 @@ sequenceDiagram
 The commit runs detached from the event handler that observes `runtime.ended`, because
 clearing the badge waits on the same runtime event queue the handler is delivered on.
 
+Detached is not untracked. From `BeginUpdate` until its commit has landed, the row is
+**settling**: `GET /v0/runtime` reports `settling: true` even once the runtime reads
+`ready` or `outdated`, and the CLI never idle-stops a daemon with a settling row. A graceful
+shutdown drains the commits in flight before any aggregate or store closes, under a budget
+of its own (30 s in the daemon); a commit that begins after the drain started is refused,
+and one the budget runs out on is aborted. Either way, and when the daemon dies outright,
+nothing is stamped: the row stays outdated at what it had installed, and the next update
+runs the update steps again. That is the same worst case as a target that moved.
+
 quiver.core's own row is excluded from step 7: its update replaces the running process,
 and the relaunched build adopts its new state on boot (§10.2).
 

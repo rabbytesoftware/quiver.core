@@ -89,15 +89,32 @@ func TestContainer_ShutdownPhases_ClosesStoresAfterEveryDrain(t *testing.T) {
 	c := newTestContainer(t)
 	t.Cleanup(func() { _ = c.Shutdown() })
 
-	names := make([]string, 0, 5)
+	names := make([]string, 0, 6)
 	for _, p := range c.shutdownPhases() {
 		names = append(names, p.Name)
 	}
 
 	assert.Equal(t,
-		[]string{"api shutdown", "app shutdown", "engine shutdown", "adapters close", "logger close"},
+		[]string{"api shutdown", "update commits drain", "app shutdown", "engine shutdown", "adapters close", "logger close"},
 		names,
-		"stores must close only after every aggregate has drained, logger last of all")
+		"update commits drain under their own budget before the aggregates they write to, "+
+			"stores close only after every aggregate has drained, logger last of all")
+}
+
+// A commit may re-resolve a remote and fetch a manifest: it gets a budget of
+// its own rather than a share of the aggregates' drain.
+func TestContainer_ShutdownPhases_UpdateCommitsHaveTheirOwnBudget(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	for _, p := range c.shutdownPhases() {
+		if p.Name == "update commits drain" {
+			assert.Equal(t, updateCommitsDrainTimeout, p.Timeout)
+			assert.Greater(t, p.Timeout, appDrainTimeout)
+			return
+		}
+	}
+	t.Fatal("no update commits drain phase")
 }
 
 func TestContainer_Shutdown_DrainsAndClosesEveryLayer(t *testing.T) {

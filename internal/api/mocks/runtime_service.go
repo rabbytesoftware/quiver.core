@@ -22,6 +22,8 @@ type RuntimeService struct {
 	GetRuntimeErr       error
 	ListRuntimesResult  []domainRuntime.ArrowRuntime
 	ListRuntimesErr     error
+	SettlingNamespaces  map[domain.Namespace]bool
+	DrainErr            error
 }
 
 func (m *RuntimeService) GetRuntime(
@@ -92,3 +94,11 @@ func (m *RuntimeService) RuntimeExists(
 }
 
 func (m *RuntimeService) Start(_ context.Context) {}
+
+func (m *RuntimeService) Settling(ns domain.Namespace) bool {
+	return m.SettlingNamespaces[ns]
+}
+
+func (m *RuntimeService) Drain(_ context.Context) error {
+	return m.DrainErr
+}

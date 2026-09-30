@@ -26,11 +26,12 @@ import (
 // the aggregate drain then runs on an already-dead context, returning
 // immediately without persisting anything.
 const (
-	apiDrainTimeout     = 2 * time.Second
-	appDrainTimeout     = 10 * time.Second
-	engineDrainTimeout  = 5 * time.Second
-	adapterCloseTimeout = 5 * time.Second
-	loggerCloseTimeout  = 2 * time.Second
+	apiDrainTimeout           = 2 * time.Second
+	updateCommitsDrainTimeout = 30 * time.Second
+	appDrainTimeout           = 10 * time.Second
+	engineDrainTimeout        = 5 * time.Second
+	adapterCloseTimeout       = 5 * time.Second
+	loggerCloseTimeout        = 2 * time.Second
 )
 
 type Container struct {
@@ -67,9 +68,9 @@ func (c *Container) Shutdown() error {
 	return shutdown.Sequence("internal", c.shutdownPhases())
 }
 
-// shutdownPhases lists the sequence in order. Requests stop first, every
-// aggregate drains next, and the stores close last, so writes still in flight
-// reach an open database.
+// shutdownPhases lists the sequence in order. Requests stop first, the update
+// commits still in flight land next, every aggregate drains after them, and
+// the stores close last, so writes still in flight reach an open database.
 //
 // That ordering is the intent, not a guarantee. A phase that overruns its budget
 // is abandoned rather than waited on, so a drain that timed out is still running
@@ -83,6 +84,7 @@ func (c *Container) Shutdown() error {
 func (c *Container) shutdownPhases() []shutdown.Phase {
 	return []shutdown.Phase{
 		{Name: "api shutdown", Timeout: apiDrainTimeout, Run: c.API.Shutdown},
+		{Name: "update commits drain", Timeout: updateCommitsDrainTimeout, Run: c.App.DrainUpdates},
 		{Name: "app shutdown", Timeout: appDrainTimeout, Run: c.App.Shutdown},
 		{Name: "engine shutdown", Timeout: engineDrainTimeout, Run: c.Engines.Shutdown},
 		{Name: "adapters close", Timeout: adapterCloseTimeout, Run: c.closeAdapters},
