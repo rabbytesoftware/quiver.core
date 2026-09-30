@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // MockCQRS is a test double for arrowstore.Store.
@@ -24,6 +25,8 @@ type MockCQRS struct {
 	ResolveInstallFn    func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error)
 	ResolveAdoptionFn   func(ctx context.Context, ns domain.Namespace, resolvedRef string) (arrowstore.Adoption, error)
 	CheckDriftFn        func(ctx context.Context, arrow domain.Arrow) (*domain.Available, bool)
+	CachedAtCommitFn    func(ctx context.Context, identity domain.Namespace, target domain.Available) (*domain.Arrow, vault.ManifestFile, bool)
+	RecordAbsentCalls   []domain.Available
 }
 
 func (m *MockCQRS) List(
@@ -157,4 +160,23 @@ func (m *MockCQRS) CheckDrift(
 		return m.CheckDriftFn(ctx, arrow)
 	}
 	return nil, false
+}
+
+func (m *MockCQRS) CachedAtCommit(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, vault.ManifestFile, bool) {
+	if m.CachedAtCommitFn != nil {
+		return m.CachedAtCommitFn(ctx, identity, target)
+	}
+	return nil, vault.ManifestFile{}, false
+}
+
+func (m *MockCQRS) RecordAbsent(
+	_ context.Context,
+	_ domain.Namespace,
+	target domain.Available,
+) {
+	m.RecordAbsentCalls = append(m.RecordAbsentCalls, target)
 }

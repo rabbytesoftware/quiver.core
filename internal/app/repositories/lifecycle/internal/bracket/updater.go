@@ -3,6 +3,7 @@ package bracket
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -176,6 +177,7 @@ func (u *updater) stageAndBegin(
 ) (err error) {
 	target, err := u.arrow.RefreshToTarget(ctx, ns, available)
 	if err != nil {
+		u.rejudge(ctx, ns)
 		return fmt.Errorf("update: %w", err)
 	}
 	began := false
@@ -197,6 +199,17 @@ func (u *updater) stageAndBegin(
 		return err
 	}
 	return nil
+}
+
+// rejudge checks ns again after its target could not be staged: a target the
+// fetch found empty is recorded so, and stops being offered.
+func (u *updater) rejudge(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if _, err := u.arrow.CheckAvailable(ctx, ns); err != nil {
+		slog.WarnContext(ctx, "update: judge the target again", "ns", ns, "err", err)
+	}
 }
 
 // updateBegan reports, after the caller gave up during BeginUpdate, whether

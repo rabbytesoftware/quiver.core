@@ -390,6 +390,9 @@ func (d *discovery) verifyOne(
 	bare := candidate.Namespace.BareNamespace()
 	resolvedNs := bare.WithRef(candidate.DefaultBranch)
 
+	// Read before the manifest, so the commit it names is never newer than
+	// what was built: a tag's commit is what lets an add reuse this build.
+	snap, snapErr := d.manifold.Snapshot(ctx, bare)
 	arrow, raw, filename, err := d.manifold.ResolveArrow(ctx, resolvedNs)
 	if err != nil {
 		d.recordAbsent(ctx, resolvedNs, err)
@@ -414,7 +417,11 @@ func (d *discovery) verifyOne(
 	inCatalog := d.inCatalog(ctx, arrow.Namespace)
 	inVault := d.inVault(ctx, arrow.Namespace)
 
-	if err := d.index(ctx, arrow, raw, filename, candidate); err != nil {
+	commit := ""
+	if snapErr == nil {
+		commit = snap.Tags[resolvedNs.Ref()]
+	}
+	if err := d.index(ctx, arrow, raw, filename, commit, candidate); err != nil {
 		return false
 	}
 
@@ -434,11 +441,14 @@ func (d *discovery) index(
 	arrow *domain.Arrow,
 	raw []byte,
 	filename string,
+	commit string,
 	candidate provider.Candidate,
 ) error {
 	return d.vault.PutArrow(ctx, arrow.Namespace, vault.ManifestFile{
 		Content:  raw,
 		Filename: filename,
+		Ref:      arrow.Namespace.Ref(),
+		Commit:   commit,
 		Meta: &vault.IndexMeta{
 			Arrow:  arrow.ArrowMeta,
 			OS:     supportedOS(arrow.Targets),

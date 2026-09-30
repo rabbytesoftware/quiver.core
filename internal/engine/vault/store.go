@@ -255,11 +255,12 @@ func (s *store) PutArrow(
 func (s *store) PutArrowNotFound(
 	ctx context.Context,
 	ns domain.Namespace,
+	commit string,
 ) error {
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return putArrowNotFound(s, ns)
+	return putArrowNotFound(s, ns, commit)
 }
 
 func (s *store) PutCollection(

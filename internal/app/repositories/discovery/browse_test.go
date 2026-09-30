@@ -206,7 +206,7 @@ func TestBrowse_UnparseableCachedManifest_IsResolvedAgain(t *testing.T) {
 func TestBrowse_ConfirmedAbsentCandidate_IsDroppedWithoutAHostRequest(t *testing.T) {
 	v := newVault(t)
 	ctx := context.Background()
-	require.NoError(t, v.PutArrowNotFound(ctx, "github.com/acme/a@main"))
+	require.NoError(t, v.PutArrowNotFound(ctx, "github.com/acme/a@main", ""))
 	m := &stubManifold{resolve: resolvesTo("X")}
 	d := newDiscovery(t, []provider.Provider{browseProvider("a", "b")}, m, v, neverKnown, nil)
 
@@ -278,6 +278,7 @@ type markerRefusingVault struct {
 func (m *markerRefusingVault) PutArrowNotFound(
 	_ context.Context,
 	_ domain.Namespace,
+	_ string,
 ) error {
 	return errors.New("disk full")
 }

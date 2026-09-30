@@ -13,7 +13,8 @@ type Vault interface {
 	// Returns ErrNotCached if no entry exists.
 	// Returns ErrStale if TTL expired — ManifestFile is still returned.
 	// Returns ErrConfirmedAbsent if a fresh PutArrowNotFound marker exists —
-	// no ManifestFile content, since there was never any to cache.
+	// no ManifestFile content, since there was never any to cache, only the
+	// commit the marker was recorded for.
 	GetArrow(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -47,9 +48,12 @@ type Vault interface {
 	// not-found (the fetch reached the repository and inspected its tree),
 	// never for a transient failure — caching a network blip as "absent"
 	// would convert a temporary outage into a false not-found for a full TTL.
+	// commit is the commit the fetch looked at, empty when unknown; GetArrow
+	// reports it on the ManifestFile it returns with ErrConfirmedAbsent.
 	PutArrowNotFound(
 		ctx context.Context,
 		ns domain.Namespace,
+		commit string,
 	) error
 
 	PutCollection(

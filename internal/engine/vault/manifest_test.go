@@ -129,7 +129,7 @@ func TestHelperPutArrowNotFound_ThenGetArrow_ReturnsConfirmedAbsent(t *testing.T
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, putArrowNotFound(s, ns))
+	require.NoError(t, putArrowNotFound(s, ns, ""))
 
 	_, err := getArrow(s, ns)
 
@@ -159,7 +159,7 @@ func TestHelperPutArrowNotFound_WritesNoManifestFile(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, putArrowNotFound(s, ns))
+	require.NoError(t, putArrowNotFound(s, ns, ""))
 
 	// A confirmed-absent marker has nothing to serve as content: neither
 	// candidate extension should exist on disk.
@@ -176,7 +176,7 @@ func TestHelperPutArrowNotFound_MkdirError(t *testing.T) {
 	s.vaultPath = filepath.Join(t.TempDir(), "blocked")
 	require.NoError(t, os.WriteFile(s.vaultPath, []byte("block"), 0o644))
 
-	err := putArrowNotFound(s, mocks.Namespace())
+	err := putArrowNotFound(s, mocks.Namespace(), "")
 
 	assert.Error(t, err)
 }
@@ -190,7 +190,7 @@ func TestHelperPutArrow_ClearsPriorNotFoundMarker(t *testing.T) {
 	s := newTestStore(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, putArrowNotFound(s, ns))
+	require.NoError(t, putArrowNotFound(s, ns, ""))
 	require.NoError(t, putArrow(s, ns, testFile))
 
 	got, err := getArrow(s, ns)

@@ -49,6 +49,33 @@ func TestGetArrow_Fresh(t *testing.T) {
 	assert.Equal(t, testManifest.Filename, got.Filename)
 }
 
+func TestGetArrow_ReturnsTheReleaseTheManifestWasReadAt(t *testing.T) {
+	testCases := []struct {
+		name   string
+		ref    string
+		commit string
+	}{
+		{name: "known release", ref: "v1.0.0", commit: "0123abc"},
+		{name: "unknown release"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := newTestVault(t)
+			ns := mocks.Namespace()
+			file := testManifest
+			file.Ref = tc.ref
+			file.Commit = tc.commit
+
+			require.NoError(t, v.PutArrow(context.Background(), ns, file))
+			got, err := v.GetArrow(context.Background(), ns)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.ref, got.Ref)
+			assert.Equal(t, tc.commit, got.Commit)
+		})
+	}
+}
+
 func TestGetArrow_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
@@ -87,17 +114,30 @@ func TestPutArrowNotFound_ThenGetArrow_ReturnsConfirmedAbsent(t *testing.T) {
 	v := newTestVault(t)
 	ns := mocks.Namespace()
 
-	require.NoError(t, v.PutArrowNotFound(context.Background(), ns))
+	require.NoError(t, v.PutArrowNotFound(context.Background(), ns, ""))
 
 	_, err := v.GetArrow(context.Background(), ns)
 
 	assert.ErrorIs(t, err, ErrConfirmedAbsent)
 }
 
+func TestPutArrowNotFound_ReportsTheCommitItWasRecordedFor(t *testing.T) {
+	v := newTestVault(t)
+	ns := mocks.Namespace()
+
+	require.NoError(t, v.PutArrowNotFound(context.Background(), ns, "c2"))
+
+	file, err := v.GetArrow(context.Background(), ns)
+
+	assert.ErrorIs(t, err, ErrConfirmedAbsent)
+	assert.Equal(t, "c2", file.Commit)
+	assert.Empty(t, file.Content)
+}
+
 func TestPutArrowNotFound_InvalidNamespace(t *testing.T) {
 	v := newTestVault(t)
 
-	err := v.PutArrowNotFound(context.Background(), domain.Namespace(""))
+	err := v.PutArrowNotFound(context.Background(), domain.Namespace(""), "")
 
 	assert.ErrorIs(t, err, ErrInvalidNamespace)
 }
@@ -116,7 +156,7 @@ func TestPutArrowNotFound_ExpiresAfterTTL_RefetchIsPossibleAgain(t *testing.T) {
 	t.Cleanup(func() { _ = v.Close() })
 
 	ns := mocks.Namespace()
-	require.NoError(t, v.PutArrowNotFound(context.Background(), ns))
+	require.NoError(t, v.PutArrowNotFound(context.Background(), ns, ""))
 
 	_, err = v.GetArrow(context.Background(), ns)
 	require.ErrorIs(t, err, ErrConfirmedAbsent)

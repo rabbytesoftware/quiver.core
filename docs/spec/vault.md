@@ -35,7 +35,8 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 
 | Method | Purpose |
 |--------|---------|
-| `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. |
+| `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. Returns `ErrConfirmedAbsent` for a fresh not-found marker, with only the marker's `Commit` set. |
+| `PutArrowNotFound(ctx, ns, commit) error` | Record that `ns` definitively has no manifest (at `commit`, when known), for one TTL. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
 | `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Staging a manifest (`arrow.RefreshToTarget`: an update's target, a restore, or the one-shot retry after a fetch checksum mismatch) deletes before it writes, so the next read never serves the replaced copy. |
 | `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` suffixes (catalog selectors) cached under the same bare namespace. |
@@ -171,6 +172,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 |-------|------|-------------|
 | `Content` | `[]byte` | Raw manifest bytes — written verbatim, returned verbatim. |
 | `Filename` | `string` | Source filename, used to pick the on-disk extension (`.yaml`, `.md`). Stored in the meta sidecar so the matching content file can be re-located on read. |
+| `Ref`, `Commit` | `string` | The release the manifest was read at, when the writer knew it: an add, advance, staging or adoption records the target it read; discovery records the tag it filed a build under and, from the ref snapshot it reads first, that tag's commit (a branch build records no commit, since a branch moves under it). A reader reuses the bytes for that exact release only — same ref, same commit — so a moved tag, or another tag of the same commit, is read from the host again. |
 
 ### 5.2 `VaultMetadata`
 
@@ -178,6 +180,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 |-------|------|-------------|
 | `CachedAt` | `time.Time` | Wall-clock time at which `PutArrow` was called. Used to compute staleness against the configured TTL. |
 | `Filename` | `string` | Original filename — required to reconstruct the manifest path on `Get`. |
+| `Ref`, `Commit` | `string` | The release a manifest was read at (see `ManifestFile`); on a confirmed-absent marker, the commit the fetch found no manifest at. |
 
 `Source`, `EvictionTTL`, `OS` from the previous design are *not* present. TTL is a single global value from config, not per-entry. Source URL is reconstructible from the namespace via `Namespace.CloneURL()`.
 

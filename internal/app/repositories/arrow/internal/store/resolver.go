@@ -128,7 +128,7 @@ func cacheConfirmedAbsent(
 	if !errors.Is(fetchErr, manifoldresolver.ErrNotFound) {
 		return
 	}
-	if err := v.PutArrowNotFound(ctx, ns); err != nil {
+	if err := v.PutArrowNotFound(ctx, ns, ""); err != nil {
 		slog.WarnContext(ctx, "resolver: cache confirmed-absent result", "ns", ns, "err", err)
 	}
 }

@@ -27,6 +27,7 @@ type Vault struct {
 	// confirmed-absent, so a test can assert the right one without a call
 	// count alone standing in for it.
 	PutArrowNotFoundNamespaces []domain.Namespace
+	PutArrowNotFoundCommits    []string
 
 	DeleteArrowErr   error
 	DeleteArrowCalls int
@@ -80,9 +81,11 @@ func (m *Vault) PutArrow(
 func (m *Vault) PutArrowNotFound(
 	_ context.Context,
 	ns domain.Namespace,
+	commit string,
 ) error {
 	m.PutArrowNotFoundCalls++
 	m.PutArrowNotFoundNamespaces = append(m.PutArrowNotFoundNamespaces, ns)
+	m.PutArrowNotFoundCommits = append(m.PutArrowNotFoundCommits, commit)
 	return m.PutArrowNotFoundErr
 }
 

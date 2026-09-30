@@ -253,7 +253,7 @@ func (d *discovery) recordAbsent(
 	if !errors.Is(resolveErr, manifoldresolver.ErrNotFound) {
 		return
 	}
-	if err := d.vault.PutArrowNotFound(ctx, ns); err != nil {
+	if err := d.vault.PutArrowNotFound(ctx, ns, ""); err != nil {
 		slog.WarnContext(ctx, "discovery: record confirmed-absent result", "ns", ns, "err", err)
 	}
 }

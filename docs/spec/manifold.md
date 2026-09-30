@@ -259,9 +259,12 @@ a branch, so the draft comes from a release tag (the same tag details, add and i
 a refless add picks through the stable channel, or the newest non-stable one when there is no
 stable). Discovery files the arrow under that tag, so the ref shown in search is the ref
 installed. Opening the details of a discovered arrow reads that vault row — a preview reads the
-vault at the ref its selector points at — and builds nothing again; an add still reads the
-manifest afresh at the exact commit it records (`ResolveArrowAtCommit`, §2), so it drafts once more.
-`ResolveArrowAtCommit` stamps the identity over whatever ref the draft came from. A declared
+vault at the ref its selector points at — and builds nothing again, and neither does an add, an
+adoption or an install: the arrow store reuses a vault copy recorded for the exact release it
+records (same ref, same commit; discovery records the tag's commit from the ref snapshot it reads
+first) and calls `ResolveArrowAtCommit` (§2) only when no such copy exists. A tag that moved names
+another commit, so its old build is never reused. `ResolveArrowAtCommit` stamps the identity over
+whatever ref the draft came from. A declared
 manifest keeps the branch discovery fetched it from.
 
 **Caching of resolution.** Every ref question — channels, a constraint's match, Fletcher's latest

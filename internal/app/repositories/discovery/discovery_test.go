@@ -109,6 +109,7 @@ type stubManifold struct {
 	requested []domain.Namespace
 	resolve   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error)
 	parse     func(raw []byte) (*domain.Arrow, error)
+	snap      *domain.RefSnapshot
 }
 
 func (s *stubManifold) ResolveArrow(
@@ -169,7 +170,10 @@ func (s *stubManifold) Snapshot(
 	_ context.Context,
 	_ domain.Namespace,
 ) (domain.RefSnapshot, error) {
-	return domain.RefSnapshot{}, errors.New("not used")
+	if s.snap == nil {
+		return domain.RefSnapshot{}, errors.New("not used")
+	}
+	return *s.snap, nil
 }
 
 func (s *stubManifold) FreshSnapshot(
@@ -367,6 +371,48 @@ func TestDiscover_ManifestDraftedFromAReleaseTag_LivesAtThatTag(t *testing.T) {
 	require.NoError(t, err)
 	_, err = v.GetArrow(context.Background(), "github.com/acme/chromium@dev")
 	assert.Error(t, err)
+}
+
+// A build filed at a tag records the release it was read at, so an add of
+// that release reuses it; a branch build records no commit, since a branch
+// moves under it.
+func TestDiscover_BuildRecordsTheReleaseItWasReadAt(t *testing.T) {
+	snap := domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c120"}, Branches: map[string]string{"dev": "cdev"}}
+	testCases := []struct {
+		name       string
+		draftedAt  string
+		snap       *domain.RefSnapshot
+		wantRef    string
+		wantCommit string
+	}{
+		{name: "a release tag", draftedAt: "v1.2.0", snap: &snap, wantRef: "v1.2.0", wantCommit: "c120"},
+		{name: "a branch", draftedAt: "dev", snap: &snap, wantRef: "dev"},
+		{name: "refs that cannot be listed", draftedAt: "v1.2.0", wantRef: "v1.2.0"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := newVault(t)
+			p := &stubProvider{host: "github.com", candidates: []provider.Candidate{
+				candidate("github.com/acme/chromium", "dev"),
+			}}
+			drafted := resolvesTo("Chromium")
+			m := &stubManifold{snap: tc.snap, resolve: func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error) {
+				arrow, raw, filename, err := drafted(ctx, ns)
+				arrow.Namespace = ns.BareNamespace().WithRef(tc.draftedAt)
+				return arrow, raw, filename, err
+			}}
+
+			var got collector
+			_, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, nil).
+				Discover(context.Background(), "browser", got.emit)
+			require.NoError(t, err)
+
+			file, err := v.GetArrow(context.Background(), domain.Namespace("github.com/acme/chromium").WithRef(tc.draftedAt))
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRef, file.Ref)
+			assert.Equal(t, tc.wantCommit, file.Commit)
+		})
+	}
 }
 
 func TestDiscover_UnparseableManifestIsSkippedNotEmitted(t *testing.T) {

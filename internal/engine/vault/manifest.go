@@ -35,7 +35,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		if s.clock().Sub(meta.CachedAt) > s.ttl {
 			return ManifestFile{}, ErrNotCached
 		}
-		return ManifestFile{}, ErrConfirmedAbsent
+		return ManifestFile{Commit: meta.Commit}, ErrConfirmedAbsent
 	}
 
 	content, err := os.ReadFile(filepath.Join(s.vaultPath, name+filepath.Ext(meta.Filename))) // #nosec G304 -- path derived from URL-encoded namespace
@@ -46,7 +46,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, err
 	}
 
-	file := ManifestFile{Content: content, Filename: meta.Filename}
+	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit}
 
 	if s.clock().Sub(meta.CachedAt) > s.ttl {
 		return file, ErrStale
@@ -77,7 +77,7 @@ func readCachedMeta(s *store, ns domain.Namespace) (VaultMetadata, string, error
 	return VaultMetadata{}, "", err
 }
 
-func putArrowNotFound(s *store, ns domain.Namespace) error {
+func putArrowNotFound(s *store, ns domain.Namespace, commit string) error {
 	mu := s.namespaceLock(string(ns))
 	mu.Lock()
 	defer mu.Unlock()
@@ -90,6 +90,7 @@ func putArrowNotFound(s *store, ns domain.Namespace) error {
 		CachedAt:  s.clock(),
 		NotFound:  true,
 		Namespace: ns,
+		Commit:    commit,
 	})
 	if err != nil {
 		return err
@@ -122,6 +123,8 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		CachedAt:  s.clock(),
 		Filename:  file.Filename,
 		Namespace: ns,
+		Ref:       file.Ref,
+		Commit:    file.Commit,
 	})
 	if err != nil {
 		return err

@@ -239,6 +239,7 @@ func (s *FletcherSuite) TestFletcher_DiscoveredArrowServesDetailAddAndInstallFro
 	installed := kit.NSFor(toolFixture, "stable")
 	s.Require().Equal(http.StatusAccepted, tc.Install(installed, nil))
 	env.WaitForState(s.T(), installed, domain.ArrowStateReady, waitTimeout)
+	s.Equal(callsAfterDiscovery, host.Calls(), "add and install reuse the build discovery cached")
 	added, status := tc.GetDetail(installed)
 	s.Require().Equal(http.StatusOK, status)
 	s.Equal("v1.1.0", added.ResolvedRef, "the add records the release the preview showed")
@@ -246,6 +247,39 @@ func (s *FletcherSuite) TestFletcher_DiscoveredArrowServesDetailAddAndInstallFro
 	addedStatus, addedManifest := tc.GetSub(installed, "manifest")
 	s.Require().Equal(http.StatusOK, addedStatus)
 	s.Equal(s.targetsOf(manifest), s.targetsOf(addedManifest))
+}
+
+// Reusing discovery's build never pins a row to it: once its tag moves, the
+// update reads the release at the new commit from the host.
+func (s *FletcherSuite) TestFletcher_ReusedBuildOfAMovedTagIsBuiltAgain() {
+	storer := s.releasedFixture(releasingFixture, "v1.0.0")
+	host := s.newHost()
+	env := s.NewEnv(
+		kit.WithFletcher(host.Lookup),
+		kit.WithProviders(&discoveredProvider{fixtures: []string{releasingFixture}}),
+	)
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor(releasingFixture, "stable")
+
+	job, status := tc.Discover("tool")
+	s.Require().Equal(http.StatusAccepted, status)
+	s.Require().Eventually(func() bool {
+		got, jobStatus := tc.DiscoveryJob(job.JobID)
+		return jobStatus == http.StatusOK && got.Status == string(usecases.JobCompleted) && got.Verified == 1
+	}, waitTimeout, 10*time.Millisecond)
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, waitTimeout)
+	callsBeforeMove := host.Calls()
+
+	var moved string
+	s.Repos.Mutate(func() { moved = kit.MoveTagToNewCommit(s.T(), storer, "v1.0.0") })
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodUpdate, nil))
+	kit.WaitForDetail(s.T(), tc, ns, "the row advanced to the moved commit", waitTimeout,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.InstalledCommit == moved && d.State == string(domain.ArrowStateReady)
+		})
+	s.Greater(host.Calls(), callsBeforeMove, "the moved tag's release is read from the host again")
 }
 
 func (s *FletcherSuite) targetsOf(

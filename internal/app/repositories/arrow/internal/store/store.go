@@ -65,6 +65,20 @@ type Store interface {
 		ns domain.Namespace,
 		resolvedRef string,
 	) (Adoption, error)
+	// CachedAtCommit is the manifest the vault holds for identity at
+	// target's exact commit, under the identity or at target's ref.
+	CachedAtCommit(
+		ctx context.Context,
+		identity domain.Namespace,
+		target domain.Available,
+	) (*domain.Arrow, vault.ManifestFile, bool)
+	// RecordAbsent marks target's ref as holding no manifest at target's
+	// commit, so a version check stops offering it.
+	RecordAbsent(
+		ctx context.Context,
+		identity domain.Namespace,
+		target domain.Available,
+	)
 	// CheckDrift reports what arrow's selector points at when that differs
 	// from what arrow has installed, nil when it is current. ok is false
 	// whenever the remote could not answer, and the caller must then record

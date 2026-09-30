@@ -93,11 +93,11 @@ func (a *advancer) RefreshToTarget(
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, apperrors.ErrNotFound)
 	}
 
-	m, raw, filename, err := a.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
+	m, raw, filename, err := a.manifestAt(ctx, ns, target, false)
 	if err != nil {
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, MapResolveErr(err))
 	}
-	if err := a.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
+	if err := a.replaceCachedManifest(ctx, ns, cacheableAt(m, raw, filename, target)); err != nil {
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, err)
 	}
 

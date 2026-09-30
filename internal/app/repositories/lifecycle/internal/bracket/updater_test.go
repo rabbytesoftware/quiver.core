@@ -294,7 +294,28 @@ func TestRuntimeExecute_Update_Failures(t *testing.T) {
 					return nil, boom
 				}
 			},
-			wantLog: []string{"check available", "refresh"},
+			// The target is judged again: one no fetch can stage stops being
+			// offered once the fetch recorded it empty.
+			wantLog: []string{"check available", "refresh", "check available"},
+		},
+		{
+			name: "target cannot be staged nor judged again",
+			arrange: func(f *bracketFixture) {
+				checks := 0
+				f.arrow.CheckAvailableFn = func(context.Context, domain.Namespace) (*domain.Available, error) {
+					f.log.add("check available")
+					checks++
+					if checks > 1 {
+						return nil, boom
+					}
+					return f.available, nil
+				}
+				f.arrow.RefreshToTargetFn = func(context.Context, domain.Namespace, domain.Available) (*domain.Arrow, error) {
+					f.log.add("refresh")
+					return nil, boom
+				}
+			},
+			wantLog: []string{"check available", "refresh", "check available"},
 		},
 		{
 			name: "dependency change cannot be recorded",

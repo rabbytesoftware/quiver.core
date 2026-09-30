@@ -15,6 +15,7 @@ import (
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	manifoldresolver "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -132,12 +133,12 @@ func (a *advancer) Advance(
 		return fmt.Errorf("advance %s: %w", ns, apperrors.ErrNotFound)
 	}
 
-	m, raw, filename, err := a.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
+	m, raw, filename, err := a.manifestAt(ctx, ns, target, true)
 	if err != nil {
 		return fmt.Errorf("advance %s: %w", ns, MapResolveErr(err))
 	}
 
-	if err := a.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
+	if err := a.replaceCachedManifest(ctx, ns, cacheableAt(m, raw, filename, target)); err != nil {
 		return fmt.Errorf("advance %s: %w", ns, err)
 	}
 
@@ -174,7 +175,7 @@ func (a *advancer) Adopt(
 	if err != nil {
 		return fmt.Errorf("adopt %s: %w: %w", ns, apperrors.ErrInvalidManifest, err)
 	}
-	cache := arrowstore.Cacheable(m, manifest, filename)
+	cache := cacheableAt(m, manifest, filename, domain.Available{Ref: resolved.Ref, Commit: resolved.Commit})
 
 	exists, err := a.axArrow.Exists(ctx, ns.String())
 	if err != nil {
@@ -369,4 +370,42 @@ func mapSendErr(
 		return fmt.Errorf("%s %s: %w", op, ns, apperrors.ErrStateViolation)
 	}
 	return fmt.Errorf("%s %s: %w", op, ns, err)
+}
+
+// cacheableAt is the vault entry for m, read at release.
+func cacheableAt(
+	m *domain.Arrow,
+	raw []byte,
+	filename string,
+	release domain.Available,
+) vault.ManifestFile {
+	file := arrowstore.Cacheable(m, raw, filename)
+	file.Ref = release.Ref
+	file.Commit = release.Commit
+	return file
+}
+
+// manifestAt is ns's manifest at target's commit. reuse takes the copy the
+// vault holds for that exact commit when there is one; a refresh that must
+// see what the host serves now passes false. A definitive absence is
+// recorded so a version check stops offering the target.
+func (a *advancer) manifestAt(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+	reuse bool,
+) (*domain.Arrow, []byte, string, error) {
+	if reuse {
+		if m, file, ok := a.store.CachedAtCommit(ctx, ns, target); ok {
+			return m, file.Content, file.Filename, nil
+		}
+	}
+	m, raw, filename, err := a.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
+	if err == nil {
+		return m, raw, filename, nil
+	}
+	if errors.Is(err, manifoldresolver.ErrNotFound) {
+		a.store.RecordAbsent(ctx, ns, target)
+	}
+	return nil, nil, "", MapResolveErr(err)
 }

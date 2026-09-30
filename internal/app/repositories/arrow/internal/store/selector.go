@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // ExistsFunc reports whether identity already has a catalog row.
@@ -204,31 +205,103 @@ func (r *storeService) readTarget(
 	o installOpts,
 ) (*domain.Arrow, error) {
 	if o.preview {
-		if cached, ok := r.cachedAt(ctx, identity.WithRef(target.Ref)); ok {
-			return cached, nil
-		}
-		return r.fetchAtCommit(ctx, identity, target, nil)
+		arrow, _, _, err := r.manifestAt(ctx, identity, target)
+		return arrow, err
 	}
 	return r.fetchAtCommit(ctx, identity, target, o.exists)
 }
 
-// cachedAt is the manifest the vault holds, still fresh, for ns.
-func (r *storeService) cachedAt(
+// manifestAt is identity's manifest at target's commit. A copy the vault holds
+// for that very release — its ref at its commit — is reused, under the identity or at target's ref
+// (where discovery files what it built); only without one is it read from
+// the host. A tag that moved names another commit, so its stale copy is
+// never served.
+func (r *storeService) manifestAt(
 	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, bool) {
-	if r.vault == nil {
-		return nil, false
+	identity domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, []byte, string, error) {
+	if arrow, file, ok := r.CachedAtCommit(ctx, identity, target); ok {
+		return arrow, file.Content, file.Filename, nil
 	}
-	file, err := r.vault.GetArrow(ctx, ns)
-	if err != nil {
-		return nil, false
+	return r.fetchManifestAt(ctx, identity, target)
+}
+
+// fetchManifestAt reads identity's manifest at target's commit from the host.
+// A definitive absence is recorded at target's ref, for that commit, so a
+// version check stops offering a target no update could install.
+func (r *storeService) fetchManifestAt(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, []byte, string, error) {
+	arrow, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, target.Ref, target.Commit)
+	if err == nil {
+		return arrow, raw, filename, nil
 	}
-	arrow, err := r.manifold.ParseArrow(file.Content)
-	if err != nil {
-		return nil, false
+	mapped := wrapManifoldErr("fetch at commit", err)
+	if errors.Is(mapped, apperrors.ErrNotFound) {
+		r.RecordAbsent(ctx, identity, target)
 	}
-	return arrow, true
+	return nil, nil, "", mapped
+}
+
+func (r *storeService) CachedAtCommit(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, vault.ManifestFile, bool) {
+	if r.vault == nil || target.Commit == "" {
+		return nil, vault.ManifestFile{}, false
+	}
+	for _, key := range []domain.Namespace{identity, identity.WithRef(target.Ref)} {
+		file, err := r.vault.GetArrow(ctx, key)
+		if err != nil && !errors.Is(err, vault.ErrStale) {
+			continue
+		}
+		if file.Ref != target.Ref || file.Commit == "" || !strings.EqualFold(file.Commit, target.Commit) {
+			continue
+		}
+		arrow, err := r.manifold.ParseArrow(file.Content)
+		if err != nil {
+			continue
+		}
+		arrow.Namespace = identity
+		return arrow, file, true
+	}
+	return nil, vault.ManifestFile{}, false
+}
+
+// RecordAbsent marks target's ref as holding no manifest at target's commit.
+// A ref that is the identity itself is left alone: the identity's entry is
+// the installed row's own manifest.
+func (r *storeService) RecordAbsent(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) {
+	key := identity.WithRef(target.Ref)
+	if r.vault == nil || key == identity || target.Commit == "" {
+		return
+	}
+	if err := r.vault.PutArrowNotFound(ctx, key, target.Commit); err != nil {
+		slog.WarnContext(ctx, "store: record absent target", "ns", key, "err", err)
+	}
+}
+
+// knownAbsent reports whether a fetch already found no manifest at target's
+// commit: a local read, no request.
+func (r *storeService) knownAbsent(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) bool {
+	key := identity.WithRef(target.Ref)
+	if r.vault == nil || key == identity {
+		return false
+	}
+	file, err := r.vault.GetArrow(ctx, key)
+	return errors.Is(err, vault.ErrConfirmedAbsent) && file.Commit != "" && strings.EqualFold(file.Commit, target.Commit)
 }
 
 // fetchAtCommit caches the manifest under the identity, not under the
@@ -241,9 +314,9 @@ func (r *storeService) fetchAtCommit(
 	target domain.Available,
 	exists ExistsFunc,
 ) (*domain.Arrow, error) {
-	arrow, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, target.Ref, target.Commit)
+	arrow, raw, filename, err := r.manifestAt(ctx, identity, target)
 	if err != nil {
-		return nil, wrapManifoldErr("fetch at commit", err)
+		return nil, err
 	}
 	if exists == nil {
 		return arrow, nil
@@ -260,7 +333,10 @@ func (r *storeService) fetchAtCommit(
 	if err := r.vault.DeleteArrow(ctx, identity); err != nil {
 		return nil, fmt.Errorf("purge cached manifest: %w", err)
 	}
-	if err := r.vault.PutArrow(ctx, identity, Cacheable(arrow, raw, filename)); err != nil {
+	file := Cacheable(arrow, raw, filename)
+	file.Ref = target.Ref
+	file.Commit = target.Commit
+	if err := r.vault.PutArrow(ctx, identity, file); err != nil {
 		return nil, CacheError(err)
 	}
 	return arrow, nil
@@ -298,9 +374,9 @@ func (r *storeService) ResolveAdoption(
 		return Adoption{}, fmt.Errorf("reader resolve adoption %s: %w: %w", identity, admitSentinel(err), err)
 	}
 
-	_, raw, filename, err := r.manifold.ResolveArrowAtCommit(ctx, identity, declared.Ref, declared.Commit)
+	_, raw, filename, err := r.manifestAt(ctx, identity, declared)
 	if err != nil {
-		return Adoption{}, fmt.Errorf("reader resolve adoption %s: %w", identity, wrapManifoldErr("fetch at commit", err))
+		return Adoption{}, fmt.Errorf("reader resolve adoption %s: %w", identity, err)
 	}
 
 	return Adoption{
@@ -336,28 +412,8 @@ func (r *storeService) CheckDrift(
 	if err != nil {
 		return nil, false
 	}
-	if !outdated {
+	if !outdated || r.knownAbsent(ctx, arrow.Namespace, target) {
 		return nil, true
 	}
-	return r.verifyTarget(ctx, arrow.Namespace, target)
-}
-
-// verifyTarget offers target only once its manifest resolves: an update that
-// cannot be fetched is never offered. A definitive absence reads as up to
-// date; any other failure leaves the answer unknown.
-func (r *storeService) verifyTarget(
-	ctx context.Context,
-	identity domain.Namespace,
-	target domain.Available,
-) (*domain.Available, bool) {
-	_, _, _, err := r.manifold.ResolveArrowAtCommit(ctx, identity, target.Ref, target.Commit)
-	if err == nil {
-		return &target, true
-	}
-	slog.DebugContext(ctx, "version drift: target does not resolve",
-		"ns", identity, "ref", target.Ref, "err", err)
-	if errors.Is(wrapManifoldErr("verify target", err), apperrors.ErrNotFound) {
-		return nil, true
-	}
-	return nil, false
+	return &target, true
 }
