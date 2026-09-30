@@ -136,6 +136,7 @@ The Arrow resource manages catalog entries: registration, version checks, manife
 | GET | `/arrow/{ns}/dependencies` | Get the resolved dependency plan | Sync |
 | GET | `/arrow/{ns}/channels` | List the channels the repository publishes | Sync |
 | POST | `/arrow/{ns}/manifest` | Adopt a raw manifest as a pin of `{ns}`'s own ref | Sync |
+| POST | `/arrow/{ns}/adopt` | Register `{ns}` as already installed at a declared ref | Sync |
 | POST | `/arrow/{ns}/manifest/validate` | Validate a raw YAML manifest without writing it | Sync |
 
 #### POST /arrow/{ns} — Register
@@ -204,6 +205,12 @@ Lists the channels the repository publishes, for picking a selector at install t
 #### POST /arrow/{ns}/manifest — Seed
 
 Accepts a raw manifest in the request body and adopts it as a **pin of `{ns}`'s own ref**: a new user-installed row when the identity is absent, a manifest replacement when it exists. `{ns}` must carry a ref. Used to register an arrow from a local manifest file. `Content-Type: application/x-yaml` is expected but not enforced — the body is read raw via `io.ReadAll`. Returns **201 Created** with the mutation envelope. Errors: 400 (failed to read body), 422 (invalid manifest), 500.
+
+#### POST /arrow/{ns}/adopt — Adopt installed
+
+Registers `{ns}` under the identity `POST /arrow/{ns}` would file it under (the ref after `@` is the selector; a refless `{ns}` follows the repository's default channel), but as **already installed at `resolved_ref`** rather than at what the selector points at now. For a client that installed itself and announces the build it runs (Quiver Desktop's own arrow): the next version check then offers the update that build actually needs. Body: `{"resolved_ref": "<ref>"}` (JSON; unknown fields are ignored).
+
+`resolved_ref` is checked against a live ref snapshot. It must be a tag or branch the repository holds (else 404) and one the selector could resolve to (else 400): a member of the channel (a pointer channel, or the default-branch fallback, admits only its own ref), a tag the constraint's glob matches, the pin's own ref, or — for a commit selector — the selector itself or a ref at a commit it prefixes. The manifest is fetched at that ref's commit and written through the same adoption `quiver.core` uses for itself ([versioning.md §10](manifests/v0/versioning.md)): a new user-installed row, an in-place advance when the row stands elsewhere (the identity never changes), or nothing when it is already there. The runtime state is not touched. Returns **201 Created** with the mutation envelope, including when nothing changed. Errors: 400 (invalid namespace, a body that is not JSON, a missing `resolved_ref`, or a ref the selector could never resolve to), 404 (repository or ref not found), 422 (invalid manifest at the ref), 502 (fetch failed), 500.
 
 #### POST /arrow/{ns}/manifest/validate — Validate
 
@@ -315,6 +322,7 @@ The `system` endpoint folder exists in the codebase under `internal/api/v0/endpo
 | `GET /v0/arrow/{ns}/dependencies` | Sync | 200 |
 | `GET /v0/arrow/{ns}/channels` | Sync | 200 |
 | `POST /v0/arrow/{ns}/manifest` | Sync | 201 |
+| `POST /v0/arrow/{ns}/adopt` | Sync | 201 |
 | `POST /v0/arrow/{ns}/manifest/validate` | Sync | 200 (valid) / 422 (invalid) |
 | `POST /v0/collection/{ns}/follow` | Sync | 201 |
 | `DELETE /v0/collection/{ns}/follow` | Sync | 200 |

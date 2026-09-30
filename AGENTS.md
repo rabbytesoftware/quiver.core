@@ -375,6 +375,10 @@ These describe the general call chain for major operations. Read the actual code
 
 Handler validates namespace → ArrowUsecase.Add → arrow repository adds: reads a ref snapshot, classifies the selector (refless → default channel), fetches the manifest at the target commit via manifold, caches it to vault under the identity, sends `AddArrow` (selector kind + `Resolved`) → the single arrow-topic subscriber runs the callbacks (dependency graph sync), writes the read model, then broadcasts to WS clients.
 
+### Adopt installed arrow (POST /v0/arrow/:ns/adopt)
+
+Handler validates namespace + `{"resolved_ref"}` → ArrowUsecase.AdoptInstalled → arrow repository `AdoptInstalled`: store `ResolveAdoption` settles the identity as Add does, admits the ref against a fresh snapshot (`manifold.Admit`: 404 unknown, 400 outside the selector), fetches the manifest at its commit → existing `Adopt` (create / advance in place / no-op); runtime untouched.
+
 ### Install arrow (POST /v0/runtime/:ns/install)
 
 RuntimeUsecase.Install → dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
@@ -489,7 +493,7 @@ Called internally by the variable assembler when resolving port variables. You w
 
 ### 15.11 Arrow catalog — `app/repositories/arrow`
 
-Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
+Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `AdoptInstalled` (declared installed state, admitted against the selector), `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
 
 **Do NOT:** call `asynx.Send` directly from usecases, read `domain.Arrow` from Asynx directly.
 

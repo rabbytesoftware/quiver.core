@@ -182,6 +182,25 @@ func (c *Client) Seed(ns string, body []byte) *http.Response {
 	return resp
 }
 
+// Adopt declares ns already installed at resolvedRef.
+func (c *Client) Adopt(ns, resolvedRef string) *http.Response {
+	c.t.Helper()
+	b, err := json.Marshal(map[string]string{"resolved_ref": resolvedRef})
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/adopt"), bytes.NewReader(b))
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) Validate(ns string, body []byte) *http.Response {
 	c.t.Helper()
 	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/manifest/validate"), bytes.NewReader(body))

@@ -49,7 +49,7 @@ Each repository owns exactly one Asynx aggregate (or in `Graph`'s case, a derive
 
 ### 2.1 Arrow repository
 
-Public methods (selected): `Add`, `AddDependency`, `Adopt`, `Remove`, `Forget`, `Get`, `Exists`, `List`, `GetDetail`, `GetManifest`, `ResolveManifest`, `ResolveCatalogued`, `Search`, `CheckAvailable`, `CheckVersionNow`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `ValidateManifest`, `MarkInstalled`, `MarkUninstalled`, `MarkLastUsed`, `ListChannels`, `Shutdown`, plus the `OnArrowAdded` / `OnArrowUpdated` / `OnArrowRemoved` callbacks.
+Public methods (selected): `Add`, `AddDependency`, `Adopt`, `AdoptInstalled`, `Remove`, `Forget`, `Get`, `Exists`, `List`, `GetDetail`, `GetManifest`, `ResolveManifest`, `ResolveCatalogued`, `Search`, `CheckAvailable`, `CheckVersionNow`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `ValidateManifest`, `MarkInstalled`, `MarkUninstalled`, `MarkLastUsed`, `ListChannels`, `Shutdown`, plus the `OnArrowAdded` / `OnArrowUpdated` / `OnArrowRemoved` callbacks.
 
 Commands sent (one file each in `internal/commands/`; see [commands.md](commands.md)):
 
@@ -67,7 +67,7 @@ Commands sent (one file each in `internal/commands/`; see [commands.md](commands
 
 `Remove` calls `axArrow.Forget(ns)` — the `OnForget` projection deletes the work-dir from Vault.
 
-`CheckAvailable` re-resolves a row against a fresh snapshot (`manifold.Drift`), records the answer with `RecordAvailable` and reconciles the runtime's version badge from the row. `Advance` and `RefreshToTarget` both fetch the manifest at the target commit (`manifold.ResolveArrowAtCommit`) and replace the vault cache before sending `AdvanceArrow` / `RefreshManifest`. `TargetUnmoved` reports whether a target ref still stands at its commit on the remote. `Adopt` registers manifest bytes the caller holds as already-installed state, offline (see [manifests/v0/versioning.md §10](manifests/v0/versioning.md)).
+`CheckAvailable` re-resolves a row against a fresh snapshot (`manifold.Drift`), records the answer with `RecordAvailable` and reconciles the runtime's version badge from the row. `Advance` and `RefreshToTarget` both fetch the manifest at the target commit (`manifold.ResolveArrowAtCommit`) and replace the vault cache before sending `AdvanceArrow` / `RefreshManifest`. `TargetUnmoved` reports whether a target ref still stands at its commit on the remote. `Adopt` registers manifest bytes the caller holds as already-installed state, offline (see [manifests/v0/versioning.md §10](manifests/v0/versioning.md)). `AdoptInstalled` is its networked front: the store's `ResolveAdoption` settles the identity (sharing `ResolveInstall`'s classification), admits the declared ref against a fresh snapshot (`manifold.Admit`) and fetches the manifest at its commit, then `Adopt` writes it.
 
 `ResolveManifest` is layered: Vault first, then Manifold on `ErrNotCached` / `ErrStale`. Stale entries return cached content if Manifold is unreachable. A selector identity no host serves as a ref (`pkg@stable`, `pkg@v1.*`) falls back to reading the manifest at the selector's current target commit. `ResolveCatalogued` maps a refless namespace onto the catalogued row it names, so every runtime verb accepts a bare namespace.
 
@@ -168,6 +168,7 @@ Read/write surface over the catalog. Composes `arrow` + `graph` + `runtime` repo
 | Method | Calls | Behaviour | Errors |
 |--------|-------|-----------|--------|
 | `Add(ctx, ns)` | `arrow.Add` | Resolves the selector (a refless namespace gets the repository's default channel), fetches the manifest at the target commit, writes the row as `UserInstalled = true`. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrAlreadyExists`, `ErrFetchFailed`. |
+| `AdoptInstalled(ctx, ns, resolvedRef)` | `arrow.AdoptInstalled` | Settles `ns`'s identity as `Add` does, admits `resolvedRef` against a fresh snapshot as a ref the selector could resolve to, fetches the manifest at its commit and hands it to `arrow.Adopt`: a new user-installed row, an in-place advance, or nothing. The runtime is not touched. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrInvalidManifest`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `Remove(ctx, ns)` | `runtime.GetState` → `graph.HasDependents` → `arrow.Remove` | Refuses if state is active (`ArrowState.IsActive()`) or any other arrow depends on this one. | `ErrStateViolation`, `ErrDependentsExist`, `ErrNotFound`. |
 | `Update(ctx, ns)` | `arrow.ResolveCatalogued`, `arrow.Get`, `arrow.CheckAvailable`, `runtime.GetState`, `arrow.Advance`, `graph.DiffDeps` | Re-resolves the selector and records `Available`. Nothing ahead: empty result. An installed row stays where it is and the result carries `Available` — only the runtime update runs update steps. A row nothing is installed from is advanced at once and the result is the dep diff `UpdateResult{AddedDeps, RemovedFromManifest, ConstrainedDeps}`. | `ErrNotFound`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `List(ctx, userInstalled)` | `arrow.List` → `runtime.GetState` per version | Hydrates each version's `State` from the runtime aggregate. | — |

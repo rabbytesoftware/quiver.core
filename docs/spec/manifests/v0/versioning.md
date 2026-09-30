@@ -516,6 +516,20 @@ Two callers use it besides core registration:
 - Following a collection adopts each of its local arrows the same way, at the collection's
   ref.
 
+**Adopting declared state.** `POST /v0/arrow/{ns}/adopt` with `{"resolved_ref": "<ref>"}`
+(`Arrow.AdoptInstalled`) lets a client that installed itself declare what it runs, so its
+row is behind when the running build is. `{ns}` settles the identity and kind exactly as
+`POST /v0/arrow/{ns}` does (refless → default channel). `resolved_ref` is then admitted
+against a fresh snapshot (`manifold.Admit`) so the row's state can never contradict its
+identity: a channel admits its members (a pointer channel, or the default-branch fallback,
+only its own ref), a constraint the tags its glob matches, a pin its own ref, a commit
+selector itself or a ref at a commit it prefixes. A ref the remote does not hold is not
+found; one the selector could never resolve to is an invalid namespace. The manifest is
+fetched at that commit and passed to `Adopt` with `Resolved{ref, commit, commit}`, so the
+row table above applies unchanged. The runtime is not touched, and nothing is judged
+inline: the next version check (the passive one a detail read triggers, or `PATCH`)
+records what is ahead.
+
 ### 10.2 quiver.core's own row
 
 The build stamps three values through `-ldflags`: `main.version` (the release ref the build
@@ -562,6 +576,9 @@ moves to what the selector points at.
 `{ref, resolved_ref, state, installed_at, last_used_at}`, where `ref` is the identity's
 selector (always set), `resolved_ref` the installed ref, and `installed_at` / `last_used_at`
 are omitted until they happen.
+
+`POST /v0/arrow/{ns}/adopt` takes `{"resolved_ref"}` and registers the identity as already
+installed at that ref (§10.1).
 
 `PATCH /v0/arrow/{ns}` answers with the update result in `data`: `available` for an
 installed row that has something ahead, or the dependency diff for a row it advanced

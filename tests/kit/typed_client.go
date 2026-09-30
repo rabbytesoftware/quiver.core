@@ -149,6 +149,14 @@ func (tc *TypedClient) Seed(ns string, body []byte) int {
 	return resp.StatusCode
 }
 
+// Adopt declares ns already installed at resolvedRef and returns the HTTP
+// status code.
+func (tc *TypedClient) Adopt(ns, resolvedRef string) int {
+	resp := tc.raw.Adopt(ns, resolvedRef)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
 // Validate validates a manifest body and returns the validation result and HTTP status code.
 func (tc *TypedClient) Validate(ns string, body []byte) (dto.ValidationResultDTO, int) {
 	resp := tc.raw.Validate(ns, body)
