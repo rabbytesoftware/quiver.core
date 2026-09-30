@@ -532,10 +532,14 @@ func updateEnded(ns domain.Namespace, outcome domainRuntime.ExecutionOutcome) do
 	}
 }
 
-// commitFixture logs every step onUpdateEnded may take.
+// commitFixture logs every step onUpdateEnded may take. The row has c1
+// installed.
 func commitFixture(unmoved bool, unmovedErr error) (*ucmocks.MockArrow, *ucmocks.MockRuntime, *callLog) {
 	log := &callLog{}
 	a := &ucmocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+		},
 		TargetUnmovedFn: func(_ context.Context, _ domain.Namespace, target domain.Available) (bool, error) {
 			log.add("re-resolve " + target.Commit)
 			return unmoved, unmovedErr
@@ -543,6 +547,10 @@ func commitFixture(unmoved bool, unmovedErr error) (*ucmocks.MockArrow, *ucmocks
 		AdvanceFn: func(_ context.Context, _ domain.Namespace, target domain.Available) error {
 			log.add("advance " + target.Commit)
 			return nil
+		},
+		RefreshToTargetFn: func(_ context.Context, ns domain.Namespace, target domain.Available) (*domain.Arrow, error) {
+			log.add("restore " + target.Commit)
+			return &domain.Arrow{Namespace: ns}, nil
 		},
 	}
 	rt := &ucmocks.MockRuntime{
@@ -577,26 +585,28 @@ func TestRuntimeOnUpdateEnded_StampsNothing(t *testing.T) {
 			name:    "target moved during the update",
 			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
 			record:  true,
-			wantLog: []string{"re-resolve c2"},
+			wantLog: []string{"re-resolve c2", "restore c1"},
 		},
 		{
 			name:       "target cannot be re-resolved",
 			rt:         updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
 			record:     true,
 			unmovedErr: errors.New("remote down"),
-			wantLog:    []string{"re-resolve c2"},
+			wantLog:    []string{"re-resolve c2", "restore c1"},
 		},
 		{
 			name:    "update steps failed",
 			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed),
 			record:  true,
 			unmoved: true,
+			wantLog: []string{"restore c1"},
 		},
 		{
 			name:    "no return recorded",
 			rt:      domainRuntime.ArrowRuntime{Ref: rollingRow},
 			record:  true,
 			unmoved: true,
+			wantLog: []string{"restore c1"},
 		},
 		{
 			name:    "no update began toward a target",
@@ -666,7 +676,62 @@ func TestRuntimeOnUpdateEnded_AdvanceFails_BadgeStays(t *testing.T) {
 
 	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
 
-	assert.Equal(t, []string{"re-resolve c2", "advance failed"}, log.all())
+	assert.Equal(t, []string{"re-resolve c2", "advance failed", "restore c1"}, log.all())
+}
+
+// A failed update leaves the row reporting what it had installed, and the
+// manifest on the row must be that release's again: an install or execution
+// that follows must never run the failed target's steps for the installed
+// release's ${REF}.
+func TestRuntimeOnUpdateEnded_NothingStamped_RestoresTheInstalledManifest(t *testing.T) {
+	testCases := []struct {
+		name    string
+		row     *domain.Arrow
+		getErr  error
+		restore error
+		wantLog []string
+	}{
+		{
+			name:    "installed release restaged",
+			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120"}},
+			wantLog: []string{"restore v1.2.0@c120"},
+		},
+		{
+			name:    "a row with no recorded commit keeps the staged manifest",
+			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0"}},
+			wantLog: nil,
+		},
+		{
+			name:    "a row that cannot be read restores nothing",
+			getErr:  errors.New("event store down"),
+			wantLog: nil,
+		},
+		{
+			name:    "a restore that fails is only logged",
+			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120"}},
+			restore: errors.New("fetch failed"),
+			wantLog: []string{"restore v1.2.0@c120"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			log := &callLog{}
+			a := &ucmocks.MockArrow{
+				GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) { return tc.row, tc.getErr },
+				RefreshToTargetFn: func(_ context.Context, _ domain.Namespace, target domain.Available) (*domain.Arrow, error) {
+					log.add("restore " + target.Ref + "@" + target.Commit)
+					return nil, tc.restore
+				},
+			}
+			uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
+			uc.targets.put(rollingRow, rollingTarget())
+
+			uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed))
+
+			assert.Equal(t, tc.wantLog, log.all())
+		})
+	}
 }
 
 func TestRuntimeOnUpdateEnded_ClearBadgeFails_IsOnlyLogged(t *testing.T) {

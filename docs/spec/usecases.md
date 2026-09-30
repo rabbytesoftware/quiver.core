@@ -229,7 +229,7 @@ The assembler builds the variable map in six priority layers (later layers win):
 | 2 | Dep built-ins + named exports | For each `Tool` and `Service` edge in the OS target: `<dep>.INSTALL_PATH` from `vault.WorkDir(depNs)`, plus every entry in the dep target's `Exports` map (relative paths anchored to the dep's `INSTALL_PATH`). |
 | 3 | Manifest defaults | `arrow.Variables[].Default`. |
 | 4 | Netbridge ports | `netbridge.Allocate(ns, protocol, default)` per `arrow.Netbridge` entry; the allocated port number is stored as a string under the port name. Required ports abort the assembly on failure; optional ports are skipped. |
-| 5 | Stored vars | `runtime.LastReturn.Variables` from the previous execution. |
+| 5 | Stored vars | `runtime.LastReturn.Variables` from the previous execution — never a built-in or a dependency's `<namespace>.<name>` value, which are computed for each run, and never a declared variable without a default. |
 | 6 | User overrides | `userVars` passed by the API caller. |
 
 After all layers merge, `variables.go` enforces that every manifest variable without a `Default` has been resolved by some later layer; otherwise it returns `ErrMissingVariable`.

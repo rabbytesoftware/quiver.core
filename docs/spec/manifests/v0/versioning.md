@@ -431,6 +431,13 @@ no ref-to-version transform. The assembler picks, in order:
 installs with `${REF} = v1.2.0`, so a release-asset URL built from it names a real release.
 `preinstalled:` probes use the same `Resolved.Ref`, falling back to `ns.Ref()`.
 
+`${REF}` is computed for every run and never remembered. The variables a previous run
+returned (`LastReturn.Variables`) carry answers forward — a declared variable's value, an
+undeclared one a caller passed — but never a built-in (`${REF}`, `${WORKDIR}`,
+`${INSTALL_PATH}`, `${ARROW_NAMESPACE}`, `${PLATFORM}`) nor a dependency's value
+(`<namespace>.<name>`): a row advanced since (by `PATCH`, §8.1) or a failed update's
+target left in the last run must never lend its `${REF}` to another release's steps.
+
 ---
 
 ## 8. Update flow (`advance`)
@@ -537,14 +544,19 @@ sequenceDiagram
    target commit is the row advanced and the runtime's version badge cleared. If it moved while the steps
    ran, the installed bits may not be the target's, so nothing is stamped and the row
    stays outdated. The worst case is an extra update, never a wrong stamp or a missed one.
-8. **Failure** stamps nothing: `Resolved` and `Available` stay as they were. The manifest
-   staged in step 4 remains on the row until the next advance or update restages it.
+8. **Failure** stamps nothing: `Resolved` and `Available` stay as they were, and the
+   manifest of the installed release is staged on the row again (fetched at
+   `Resolved.Commit`, replacing the target manifest step 4 staged), so an install or
+   execution that follows runs the installed release's own steps for its own `${REF}`. The
+   same restore follows a commit that stamps nothing because the target moved (step 7). A
+   row with no recorded commit, or a restore whose fetch fails, keeps the staged manifest
+   until the next update restages it.
 
 The commit runs detached from the event handler that observes `runtime.ended`, because
 clearing the badge waits on the same runtime event queue the handler is delivered on.
 
-Detached is not untracked. From `BeginUpdate` until its commit has landed, the row is
-**settling**: `GET /v0/runtime` reports `settling: true` even once the runtime reads
+Detached is not untracked. From `BeginUpdate` until its commit (or its restore, step 8)
+has landed, the row is **settling**: `GET /v0/runtime` reports `settling: true` even once the runtime reads
 `ready` or `outdated`, and the CLI never idle-stops a daemon with a settling row. A graceful
 shutdown drains the commits in flight before any aggregate or store closes, under a budget
 of its own (30 s in the daemon); a commit that begins after the drain started is refused,

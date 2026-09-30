@@ -1081,3 +1081,58 @@ func TestResolveVariables_UndeclaredStoredVar_StillCarriedForward(t *testing.T) 
 	assert.NotContains(t, vars, "QUIVER_RELEASE_ASSET_URL",
 		"a required variable must not reappear from the previous execution")
 }
+
+// A previous run's facts are never this run's: ${REF} names the release the
+// row has resolved now (a PATCH may have advanced it, a failed update may have
+// left another target in LastReturn), and paths and dependency values are
+// computed again.
+func TestResolveVariables_ComputedValuesNeverCarriedForward(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Resolved:  domain.Resolved{Ref: "v1.3.0", Commit: "c130"},
+		Variables: []domain.Variable{{Name: "CHANNEL_CHOICE", Default: "a"}},
+	}
+	axRuntime := newTestAsynxRuntimeForVars(t)
+
+	_, err := axRuntime.Send(context.Background(), &setStoredVarsCommand{
+		ns: ns,
+		storedVars: map[string]string{
+			domain.VarRef:                      "v1.2.0",
+			domain.VarWorkdir:                  "/old/workdir",
+			domain.VarInstallPath:              "/old/workdir",
+			domain.VarArrowNamespace:           "github.com/other/row@v1",
+			domain.VarPlatform:                 "windows/amd64",
+			"github.com/dep/tool.INSTALL_PATH": "/old/dep",
+			"github.com/dep/tool.bin":          "/old/dep/bin",
+			"CHANNEL_CHOICE":                   "b",
+			"UNDECLARED_BUT_REMEMBERED":        "kept",
+		},
+	})
+	require.NoError(t, err)
+
+	vars, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		axRuntime,
+		nil,
+		nil,
+		nil,
+		[]domainStep.Step{domainStep.NewRunStep("noop", "true", false, "10s", true)},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "v1.3.0", vars[domain.VarRef], "${REF} is the row's resolved ref, never the last run's")
+	assert.Equal(t, ns.String(), vars[domain.VarArrowNamespace])
+	assert.Equal(t, domain.OSLinuxAMD64.String(), vars[domain.VarPlatform])
+	assert.NotContains(t, vars, domain.VarWorkdir, "no vault, no workdir: an old path must not stand in")
+	assert.NotContains(t, vars, domain.VarInstallPath)
+	assert.NotContains(t, vars, "github.com/dep/tool.INSTALL_PATH", "dependency values are computed from the dependency")
+	assert.NotContains(t, vars, "github.com/dep/tool.bin")
+	assert.Equal(t, "b", vars["CHANNEL_CHOICE"], "a declared answer is still remembered")
+	assert.Equal(t, "kept", vars["UNDECLARED_BUT_REMEMBERED"])
+}

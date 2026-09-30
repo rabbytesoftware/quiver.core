@@ -743,24 +743,20 @@ func (u *runtimeUsecase) Drain(ctx context.Context) error {
 }
 
 // onUpdateEnded closes the update bracket: it always releases the row's
-// remembered target, so the next update is admitted, and commits it only
-// once the update steps succeeded.
+// remembered target, so the next update is admitted, and settles the row:
+// it commits the target once the update steps succeeded, and otherwise puts
+// the installed release's manifest back on the row.
 // quiver.core's own update is excluded: its relaunched binary adopts its new
 // state on boot.
 //
-// The commit runs detached because this handler is delivered on the runtime
-// aggregate's own ordered event queue, and clearing the badge waits for that
-// same queue: done inline, it would wait for itself. Detached is not
-// untracked: a shutdown drains it before closing the stores.
+// The settling runs detached because this handler is delivered on the
+// runtime aggregate's own ordered event queue, and clearing the badge waits
+// for that same queue: done inline, it would wait for itself. Detached is not
+// untracked: the row reads settling until it is done, and a shutdown drains
+// it before closing the stores.
 func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.ArrowRuntime) {
 	admitted := u.commits.begin(rt.Ref)
-	target, ok := u.targets.take(rt.Ref)
-	if !u.shouldCommit(ctx, rt, ok) {
-		if admitted {
-			u.commits.done(rt.Ref)
-		}
-		return
-	}
+	target, recorded := u.targets.take(rt.Ref)
 	if !admitted {
 		slog.WarnContext(ctx, "update: shutting down; the row stays outdated until its next update", "ns", rt.Ref)
 		return
@@ -768,56 +764,91 @@ func (u *runtimeUsecase) onUpdateEnded(ctx context.Context, rt domainRuntime.Arr
 
 	u.detach(func() {
 		defer u.commits.done(rt.Ref)
-		commitCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), u.commitTimeout)
+		settleCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), u.commitTimeout)
 		defer cancel()
-		u.commitUpdate(commitCtx, rt.Ref, target)
+		u.settleUpdate(settleCtx, rt, target, recorded)
 	})
 }
 
-func (u *runtimeUsecase) shouldCommit(
+// settleUpdate commits a succeeded update, or restores the installed
+// release's manifest when nothing is stamped: a failed update, or one whose
+// target moved, leaves the row reporting what it had installed, so the next
+// install or execution runs that release's own steps for its own ${REF}.
+func (u *runtimeUsecase) settleUpdate(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
+	target domain.Available,
 	recorded bool,
-) bool {
-	if rt.LastReturn == nil || rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
-		return false
-	}
+) {
 	if isSelfNamespace(rt.Ref) {
-		return false
+		return
 	}
+	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
 	if !recorded {
-		slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
-		return false
+		if succeeded {
+			slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
+		}
+		return
 	}
-	return true
+	if succeeded && u.commitUpdate(ctx, rt.Ref, target) {
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	u.restoreInstalled(ctx, rt.Ref)
 }
 
 // commitUpdate stamps target as installed only if it is still what its ref
 // names: when the target moved while its update ran, the installed bits are
 // not the target's, so nothing is stamped and the row stays outdated. The
-// worst case is an extra update, never a missed one.
+// worst case is an extra update, never a missed one. It reports whether the
+// row advanced.
 func (u *runtimeUsecase) commitUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
 	target domain.Available,
-) {
+) bool {
 	unmoved, err := u.arrow.TargetUnmoved(ctx, ns, target)
 	if err != nil {
 		slog.WarnContext(ctx, "update: re-resolve target", "ns", ns, "err", err)
-		return
+		return false
 	}
 	if !unmoved {
 		slog.WarnContext(ctx, "update: target moved during update",
 			"ns", ns, "ref", target.Ref, "commit", target.Commit)
-		return
+		return false
 	}
 
 	if err := u.arrow.Advance(ctx, ns, target); err != nil {
 		slog.ErrorContext(ctx, "update: advance", "ns", ns, "err", err)
-		return
+		return false
 	}
 	if err := u.runtime.ClearVersionBadge(ctx, ns); err != nil {
 		slog.ErrorContext(ctx, "update: clear version badge", "ns", ns, "err", err)
+	}
+	return true
+}
+
+// restoreInstalled stages the manifest of the release the row has installed
+// again, replacing the target manifest the bracket staged. A row that
+// recorded no commit (one written before commits were recorded) has nothing
+// to fetch it at and keeps the staged manifest until its next update.
+func (u *runtimeUsecase) restoreInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	row, err := u.arrow.Get(ctx, ns)
+	if err != nil {
+		slog.WarnContext(ctx, "update: read row to restore its installed manifest", "ns", ns, "err", err)
+		return
+	}
+	if row == nil || row.Resolved.Commit == "" {
+		return
+	}
+	installed := domain.Available{Ref: row.Resolved.Ref, Commit: row.Resolved.Commit}
+	if _, err := u.arrow.RefreshToTarget(ctx, ns, installed); err != nil {
+		slog.WarnContext(ctx, "update: restore the installed manifest", "ns", ns, "err", err)
 	}
 }
 

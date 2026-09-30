@@ -139,12 +139,16 @@ func ResolveVariables( //nolint:gocyclo
 }
 
 // carryForward filters a previous execution's variables down to the ones
-// this execution may inherit: a variable declared without a default is never
-// inherited, since a remembered answer would silently satisfy the
-// per-execution requirement requireReferenced enforces without anyone being
-// asked -- e.g. a second update naming neither ${QUIVER_RELEASE_ASSET_URL}
-// nor ${QUIVER_RELEASE_CHECKSUM} would re-install the previous, possibly
-// wrong, build instead of failing loudly.
+// this execution may inherit: answers, never facts. A built-in (${REF},
+// ${WORKDIR}, ...) or a dependency's value (<namespace>.<name>) is computed
+// for this run: a row advanced since, or a failed update's target left in the
+// previous run, must never lend its ${REF} to another release's steps. A
+// variable declared without a default is never inherited either, since a
+// remembered answer would silently satisfy the per-execution requirement
+// requireReferenced enforces without anyone being asked -- e.g. a second
+// update naming neither ${QUIVER_RELEASE_ASSET_URL} nor
+// ${QUIVER_RELEASE_CHECKSUM} would re-install the previous, possibly wrong,
+// build instead of failing loudly.
 func carryForward(
 	arrow *domain.Arrow,
 	stored map[string]string,
@@ -155,18 +159,23 @@ func carryForward(
 			required[declared.Name] = struct{}{}
 		}
 	}
-	if len(required) == 0 {
-		return stored
-	}
 
 	carried := make(map[string]string, len(stored))
 	for name, value := range stored {
-		if _, isRequired := required[name]; isRequired {
+		if _, isRequired := required[name]; isRequired || isComputed(name) {
 			continue
 		}
 		carried[name] = value
 	}
 	return carried
+}
+
+// isComputed reports whether name is a value Quiver derives for each run: a
+// built-in, or a dependency's value, scoped by the dependency's namespace.
+func isComputed(
+	name string,
+) bool {
+	return domain.IsReservedVariable(name) || strings.Contains(name, "/")
 }
 
 // requireReferenced refuses an execution missing a variable its own steps

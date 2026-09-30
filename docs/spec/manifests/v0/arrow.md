@@ -1170,7 +1170,7 @@ ones.
 | 2 | Dependency exports + their built-ins | `${github.com/valve/steamcmd.steamcmd}` |
 | 3 | Manifest-level `variables:` defaults | `variables[].default` |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string |
-| 5 | Stored variables | Most recent completed execution |
+| 5 | Stored variables | Most recent completed execution — answers only: never a built-in such as `${REF}` or a dependency's value, which are computed for every run |
 | 6 (highest) | User-provided overrides | Key-value pairs from the request body |
 
 ### 10.1 Built-in variables
