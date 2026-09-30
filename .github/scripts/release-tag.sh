@@ -8,7 +8,9 @@
 #   stable    stable-<series>, then stable-26.5.1 / stable-2026-09-27.1, ...
 #   hotfix    hotfix-<next stable patch>, rebuilt as hotfix-<patch>-1, ...
 # The latest stable is picked the way quiver's channel ranking orders it: a
-# date ranks as YY.MM.DD.<patch>, among the YY.M calendar versions.
+# date ranks as YY.MM.DD.<patch>, among the YY.M calendar versions. A tag that
+# would not outrank its channel's latest release is refused: quiver would
+# never offer it.
 set -euo pipefail
 
 DATE_RE='^([0-9]{4})-([0-9]{2})-([0-9]{2})(\.([0-9]+))?$'
@@ -106,14 +108,10 @@ latest_stable_version() {
   echo "${latest#stable-}"
 }
 
-stable_tag() {
-  local version series latest
-  case $1 in
-    beta/*) version=$(beta_series "$1") ;;
-    hotfix/*) version=$(latest_stable_version) ;;
-    *) fail "unrecognized branch $1" ;;
-  esac
-  series=$(series_of "$version")
+# stable_for prints the stable tag a release of the version's series gets.
+stable_for() {
+  local series latest
+  series=$(series_of "$1")
   latest=$(latest_stable "^${series//./\\.}(\\.[0-9]+)?$")
   if [ -z "$latest" ]; then
     echo "stable-${series}"
@@ -122,19 +120,71 @@ stable_tag() {
   fi
 }
 
+# tag_key prints a published tag's rank within its family (stable-, beta-,
+# hotfix-): its version's rank key, then its rebuild number.
+tag_key() {
+  local version=${1#*-} rebuild=0 base
+  if ! is_version "$version" && [[ $version =~ ^(.+)-([0-9]+)$ ]]; then
+    base=${BASH_REMATCH[1]}
+    rebuild=${BASH_REMATCH[2]}
+    is_version "$base" || return 1
+    version=$base
+  fi
+  is_version "$version" || return 1
+  printf '%s.%d' "$(rank_key "$version")" "$((10#$rebuild))"
+}
+
+latest_key() {
+  local family=$1 tag key
+  for tag in "${TAGS[@]}"; do
+    [[ $tag == "$family"-* ]] || continue
+    key=$(tag_key "$tag") || continue
+    echo "$key"
+  done | sort -V | tail -1
+}
+
+# require_above refuses a tag that does not outrank every published tag of
+# its family: quiver offers a channel's highest-ranked member, so a lower one
+# would never be offered, while GitHub would still mark it the latest release.
+require_above() {
+  local tag=$1 family=$2 key latest
+  key=$(tag_key "$tag")
+  latest=$(latest_key "$family")
+  [ -z "$latest" ] && return 0
+  if [ "$key" = "$latest" ] || [ "$(printf '%s\n%s\n' "$latest" "$key" | sort -V | tail -1)" != "$key" ]; then
+    fail "$tag does not outrank the latest $family release; quiver would never offer it"
+  fi
+}
+
+stable_tag() {
+  local version tag
+  case $1 in
+    beta/*) version=$(beta_series "$1") ;;
+    hotfix/*) version=$(latest_stable_version) ;;
+    *) fail "unrecognized branch $1" ;;
+  esac
+  tag=$(stable_for "$version")
+  require_above "$tag" stable
+  echo "$tag"
+}
+
 prerelease_tag() {
-  local version
+  local version tag
   case $1 in
     beta/*)
       version=$(beta_series "$1")
-      rebuild "beta-${version}"
+      tag=$(rebuild "beta-${version}")
+      require_above "$tag" beta
+      require_above "$(stable_for "$version")" stable
       ;;
     hotfix/*)
       version=$(latest_stable_version)
-      rebuild "hotfix-$(next_patch "$version")"
+      tag=$(rebuild "hotfix-$(next_patch "$version")")
+      require_above "$tag" hotfix
       ;;
     *) fail "unrecognized branch $1" ;;
   esac
+  echo "$tag"
 }
 
 case ${1:-} in

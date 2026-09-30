@@ -93,8 +93,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TAG: ${{ needs.prepare.outputs.version }}
       run: |
+        # release-tag.sh only mints a stable that outranks every earlier one,
+        # so it is also GitHub's latest: install.sh / install.ps1 follow it.
         gh release create "$TAG" \
           --verify-tag \
+          --latest \
           --title "$TAG" \
           --notes-file CHANGELOG.md \
           bin/quiver-linux-amd64 \

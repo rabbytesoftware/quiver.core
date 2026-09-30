@@ -699,9 +699,18 @@ own. A calendar series publishes `beta-26.5`, `beta-26.5-1`, …, `stable-26.5`,
 `stable-26.5.1`, … and `hotfix-26.5.2`; a dated series `beta-2026-09-27`,
 `beta-2026-09-27-1`, …, `stable-2026-09-27`, `stable-2026-09-27.1`, … and
 `hotfix-2026-09-27.1`. The two schemes rank on one calendar (§2.1): a dated series sits
-between the calendar series of its month and the next — after `26.9`, before `26.10` — so a
-`beta/26.6` cut after `beta/2026-09-27` is older and never offered to rows already on the
-dated beta. The latest stable a hotfix builds on is picked in that same order.
+between the calendar series of its month and the next — after `26.9`, before `26.10`. The
+latest stable a hotfix builds on is picked in that same order.
+
+The script refuses (and the workflow fails) to publish a tag that would not outrank its
+channel's latest release, because quiver offers a channel's highest-ranked member and
+would never offer it, while GitHub would still mark it the latest release that
+`install.sh` / `install.ps1` download. A beta must outrank the latest beta, and the stable
+its series would become must outrank the latest stable; a stable must outrank the latest
+stable; a hotfix the latest hotfix. So `beta/2026-11-02` after `stable-26.11.3` (it would
+rank `26.11.2`), a late `beta/26.5.3` after `stable-26.11`, or `beta/26.6` after
+`stable-2026-09-27` are refused rather than published and never offered. Every stable is
+created with `--latest`, which keeps GitHub's latest release the highest-ranked stable.
 
 ---
 

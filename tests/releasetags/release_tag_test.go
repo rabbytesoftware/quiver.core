@@ -38,6 +38,19 @@ func releaseTag(t *testing.T, tags []string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
+// calendarOnly is quiver.core's tag list before the dated beta existed.
+var calendarOnly = []string{
+	"stable-26.5", "stable-26.5.1",
+	"beta-26.5", "beta-26.5-1", "beta-26.5-2", "beta-26.5-3", "beta-26.5-4",
+	"hotfix-26.5.2", "nightly-latest",
+}
+
+// november is a calendar series with three hotfixes promoted.
+var november = []string{
+	"beta-26.11", "stable-26.11", "hotfix-26.11.1", "stable-26.11.1",
+	"hotfix-26.11.2", "stable-26.11.2", "hotfix-26.11.3", "stable-26.11.3",
+}
+
 func with(tags []string, more ...string) []string {
 	return append(append([]string{}, tags...), more...)
 }
@@ -50,7 +63,7 @@ func TestReleaseTag_Names(t *testing.T) {
 		want string
 	}{
 		{name: "first beta of a calendar series", tags: []string{"stable-26.5.1"}, args: []string{"prerelease", "beta/26.6"}, want: "beta-26.6"},
-		{name: "second beta of a calendar series", tags: quiverCoreTags, args: []string{"prerelease", "beta/26.5"}, want: "beta-26.5-5"},
+		{name: "second beta of a calendar series", tags: calendarOnly, args: []string{"prerelease", "beta/26.5"}, want: "beta-26.5-5"},
 		{name: "second beta of a dated series", tags: quiverCoreTags, args: []string{"prerelease", "beta/2026-09-27"}, want: "beta-2026-09-27-1"},
 		{name: "hotfix of a calendar stable", tags: quiverCoreTags, args: []string{"prerelease", "hotfix/crash"}, want: "hotfix-26.5.2-1"},
 		{name: "stable from a calendar beta", tags: quiverCoreTags, args: []string{"stable", "beta/26.5"}, want: "stable-26.5.2"},
@@ -79,6 +92,12 @@ func TestReleaseTag_Refuses(t *testing.T) {
 		tags []string
 		args []string
 	}{
+		{name: "a dated beta ranking below the month's calendar patches", tags: november, args: []string{"prerelease", "beta/2026-11-02"}},
+		{name: "its stable, had the beta been cut anyway", tags: with(november, "beta-2026-11-02"), args: []string{"stable", "beta/2026-11-02"}},
+		{name: "a late calendar beta after a newer series", tags: with(calendarOnly, "stable-26.11"), args: []string{"prerelease", "beta/26.5.3"}},
+		{name: "a late calendar stable after a newer series", tags: with(calendarOnly, "stable-26.11"), args: []string{"stable", "beta/26.5.3"}},
+		{name: "a calendar beta older than the dated stable", tags: with(quiverCoreTags, "stable-2026-09-27"), args: []string{"prerelease", "beta/26.6"}},
+		{name: "a rebuild of an older beta series", tags: quiverCoreTags, args: []string{"prerelease", "beta/26.5"}},
 		{name: "a beta branch that names no series", tags: quiverCoreTags, args: []string{"prerelease", "beta/shiny"}},
 		{name: "a hotfix with no stable baseline", tags: []string{"beta-26.5"}, args: []string{"prerelease", "hotfix/x"}},
 		{name: "an unknown branch", tags: quiverCoreTags, args: []string{"prerelease", "feature/x"}},
