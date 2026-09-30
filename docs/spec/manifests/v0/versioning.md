@@ -377,7 +377,9 @@ reached only by cloning, such as a self-hosted git server) the fetch falls back 
 RESOLVED ref — the target's ref, never the identity's selector, which for `pkg@stable` or
 `pkg@v1.*` names no git ref. That ref may move between the snapshot and the fetch, which is
 why the update bracket's snapshot re-check verifies the commit afterwards, before it stamps
-anything (see [manifold.md §2](../../manifold.md#2-public-api)).
+anything (see [manifold.md §2](../../manifold.md#2-public-api)). An add or an adoption on such
+a host has no re-check: the row records the snapshot's commit, so a moving tag that advanced in
+between is offered as an update by the next check.
 
 Two entry points reach it.
 
