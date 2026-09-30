@@ -15,6 +15,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 )
 
 // updateCommitTimeout bounds closing an update bracket: one live ref listing
@@ -150,44 +151,90 @@ func (u *runtimeUsecase) Install(
 		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
-	plan, err := u.graph.Resolve(ctx, ns)
+	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
-		return false, fmt.Errorf("install: resolve deps: %w", err)
+		return false, fmt.Errorf("install: get state: %w", err)
 	}
-	if err := u.installPlan(ctx, plan); err != nil {
-		return false, fmt.Errorf("install: %w", err)
+	if !needsInstall(state) {
+		return false, u.installDeps(ctx, ns)
 	}
 
-	began, err := u.beginInstall(ctx, ns, userVars)
+	closeBracket, err := u.targets.open(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+	defer closeBracket()
+	if err := u.installDeps(ctx, ns); err != nil {
+		return false, err
+	}
+	began, err := u.beginInstallHeld(ctx, ns, userVars)
 	if err != nil {
 		return false, fmt.Errorf("install: %w", err)
 	}
 	return began, nil
 }
 
+func (u *runtimeUsecase) installDeps(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	plan, err := u.graph.Resolve(ctx, ns)
+	if err != nil {
+		return fmt.Errorf("install: resolve deps: %w", err)
+	}
+	if err := u.installPlan(ctx, plan); err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	return nil
+}
+
+func needsInstall(
+	state domain.ArrowState,
+) bool {
+	return state == "" ||
+		state == domain.ArrowStateAbsent ||
+		state == domain.ArrowStateInstalling ||
+		state == domain.ArrowStateRemoved
+}
+
 // beginInstall begins ns's install unless its runtime already has one, and
-// reports whether it tried. It holds ns's bracket from the state read to
-// the begin, so a catalog advance of ns cannot land while the install is
-// assembled from the row it is leaving.
+// reports whether it tried. Only a row that still needs an install takes its
+// bracket, so an update installing its dependencies never waits on the
+// bracket of an installed row, which may be its own or another update's.
 func (u *runtimeUsecase) beginInstall(
 	ctx context.Context,
 	ns domain.Namespace,
 	vars map[string]string,
 ) (bool, error) {
+	state, err := u.runtime.GetState(ctx, ns)
+	if err != nil {
+		return false, fmt.Errorf("get state: %w", err)
+	}
+	if !needsInstall(state) {
+		return false, nil
+	}
+
 	closeBracket, err := u.targets.open(ctx, ns)
 	if err != nil {
 		return false, err
 	}
 	defer closeBracket()
+	return u.beginInstallHeld(ctx, ns, vars)
+}
 
+// beginInstallHeld reads the state again under ns's bracket, so a catalog
+// advance of ns cannot land while the install is assembled from the row it
+// is leaving.
+func (u *runtimeUsecase) beginInstallHeld(
+	ctx context.Context,
+	ns domain.Namespace,
+	vars map[string]string,
+) (bool, error) {
 	state, err := u.runtime.GetState(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("get state: %w", err)
 	}
-	if state != "" &&
-		state != domain.ArrowStateAbsent &&
-		state != domain.ArrowStateInstalling &&
-		state != domain.ArrowStateRemoved {
+	if !needsInstall(state) {
 		return false, nil
 	}
 	return true, u.runtime.BeginInstall(ctx, ns, vars)
@@ -245,6 +292,27 @@ func (u *runtimeUsecase) ensureDependency(
 		return "", fmt.Errorf("add dep %s: %w", declared, err)
 	}
 	return identity, nil
+}
+
+// ensureAddedDeps catalogues the dependencies a row gained and returns the
+// identity each declaration installs. A row that gained itself is refused.
+func (u *runtimeUsecase) ensureAddedDeps(
+	ctx context.Context,
+	ns domain.Namespace,
+	added []domain.Namespace,
+) (map[domain.Namespace]domain.Namespace, error) {
+	identities := make(map[domain.Namespace]domain.Namespace, len(added))
+	for _, depNs := range added {
+		identity, err := u.ensureDependency(ctx, depNs)
+		if err != nil {
+			return nil, fmt.Errorf("sync deps: %w", err)
+		}
+		if identity == ns {
+			return nil, fmt.Errorf("sync deps: %s depends on itself: %w", ns, apperrors.ErrInvalidManifest)
+		}
+		identities[depNs] = identity
+	}
+	return identities, nil
 }
 
 func (u *runtimeUsecase) installOneDep(ctx context.Context, depNs domain.Namespace) error {
@@ -499,13 +567,13 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		return nil
 	}
 
-	identities := make(map[domain.Namespace]domain.Namespace, len(syncInfo.AddedDeps))
-	for _, depNs := range syncInfo.AddedDeps {
-		identity, depErr := u.ensureDependency(ctx, depNs)
-		if depErr != nil {
-			return fmt.Errorf("sync deps: %w", depErr)
-		}
-		identities[depNs] = identity
+	identities, err := u.ensureAddedDeps(ctx, ns, syncInfo.AddedDeps)
+	if err != nil {
+		return err
+	}
+	plan, err := u.graph.Resolve(ctx, ns)
+	if errors.Is(err, deptree.ErrCyclicDependency) {
+		return fmt.Errorf("sync deps: %w: %w", apperrors.ErrInvalidManifest, err)
 	}
 
 	for _, depNs := range syncInfo.AddedDeps {
@@ -514,7 +582,6 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		}
 	}
 
-	plan, err := u.graph.Resolve(ctx, ns)
 	if err == nil { //nolint:nestif
 		planMap := make(map[domain.Namespace]domain.DepType, len(plan))
 		for _, entry := range plan {

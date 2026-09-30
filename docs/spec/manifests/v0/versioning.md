@@ -401,10 +401,13 @@ Two entry points reach it.
 | Not installed | The row is advanced at once — there are no update steps to run for bits nobody installed — and the result reports the dependency diff (`added_deps`, `removed_from_manifest`, `constrained_deps`) |
 
 The advance of a row that is not installed takes the row's bracket (the one §8.2 serializes
-updates with) and reads the runtime state again inside it; an install takes the same bracket
-from its state read to `BeginInstall`. An install that starts during the advance therefore
-assembles the advanced manifest, and an advance that reaches a row whose install is being
-begun finds it installed and moves nothing.
+updates with) and reads the runtime state again inside it. An install of a row that is not
+installed takes the same bracket before it plans its dependencies and holds it through
+`BeginInstall`. An install that starts during the advance therefore plans and assembles the
+advanced manifest, and an advance that reaches a row whose install is under way finds it
+installed and moves nothing. Only a row that still needs an install takes its bracket: an
+update that installs the dependencies its target gained never waits on the bracket of an
+installed row, which may be its own or another update's.
 
 The request takes no body. It never runs update steps.
 
@@ -459,7 +462,9 @@ sequenceDiagram
    (`arrow.manifest_refreshed.<ns>`). `Resolved` and `Available` are left alone, so the
    row still says what is installed while the target's own `update:` steps are assembled.
 5. **Dependencies.** Dependencies the target gained or lost are marked on the runtime
-   (`MarkOutdated`) and synced before the update begins.
+   (`MarkOutdated`) and synced before the update begins. A target that gains a dependency
+   on the row itself, or whose dependencies form a cycle the graph sees, is refused as an
+   invalid manifest (422) before anything is installed.
 6. **Begin.** The target is remembered in memory for this row and `BeginUpdate` runs the
    target manifest's `update:` steps with `${REF}` set to that remembered target's ref
    (§7.1), never to an `Available` a check recorded while the bracket was staging.
