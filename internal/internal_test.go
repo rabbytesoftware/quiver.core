@@ -390,6 +390,7 @@ func TestWithRecommendations_SetsOption(t *testing.T) {
 
 func TestNew_WithoutRecommendations_DoesNotLaunchTheRefreshLoop(t *testing.T) {
 	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
 
 	assert.False(t, c.recommendations, "a container built without the option never reaches a git host")
 }
