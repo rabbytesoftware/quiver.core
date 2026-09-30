@@ -99,7 +99,7 @@ func TestAdversarial_Drift_PropertyInvariants(t *testing.T) {
 			require.NoError(t, err, "a classified selector %q (%s) must resolve against the snapshot it was classified on: %+v", selector, kind, snap)
 			require.True(t, outdated, "an empty Resolved is outdated")
 
-			switch kind {
+			switch kind.Family() {
 			case domain.SelectorPin:
 				want := strings.TrimPrefix(strings.TrimPrefix(selector, "refs/tags/"), "refs/heads/")
 				assert.Equal(t, want, target.Ref, "pin %q never crosses its ref", selector)
@@ -108,7 +108,8 @@ func TestAdversarial_Drift_PropertyInvariants(t *testing.T) {
 				assert.True(t, matched, "constraint %q never crosses its bounds (got %q)", selector, target.Ref)
 				_, isTag := snap.Tags[target.Ref]
 				assert.True(t, isTag, "constraint %q resolves to a tag", selector)
-			case domain.SelectorChannel, domain.SelectorCommit:
+			case domain.SelectorChannel, domain.SelectorCommit, domain.SelectorTagPin, domain.SelectorBranchPin,
+				domain.SelectorOrderedChannel, domain.SelectorPointerChannel, domain.SelectorBranchChannel:
 			}
 
 			_, again, err := Drift(kind, selector, domain.Resolved{Ref: target.Ref, Commit: target.Commit}, snap)
@@ -158,7 +159,7 @@ func TestAdversarial_PointerChannel_HijackedByLaterOrderedChannel(t *testing.T) 
 	before := domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c120", "nightly": "rolling1"}}
 	kind, err := ClassifySelector("nightly", before)
 	require.NoError(t, err)
-	require.Equal(t, domain.SelectorChannel, kind)
+	require.Equal(t, domain.SelectorChannel, kind.Family())
 	target, err := Target(kind, "nightly", before)
 	require.NoError(t, err)
 	require.Equal(t, domain.Available{Ref: "nightly", Commit: "rolling1"}, target)
@@ -180,7 +181,7 @@ func TestAdversarial_BranchPin_HijackedByLaterSameNameTag(t *testing.T) {
 	before := domain.RefSnapshot{Tags: map[string]string{"v1.0.0": "c1"}, Branches: map[string]string{"develop": "b1"}}
 	kind, err := ClassifySelector("develop", before)
 	require.NoError(t, err)
-	require.Equal(t, domain.SelectorPin, kind)
+	require.Equal(t, domain.SelectorPin, kind.Family())
 
 	later := domain.RefSnapshot{
 		Tags:     map[string]string{"v1.0.0": "c1", "develop": "old-tag"},
@@ -247,7 +248,7 @@ func TestAdversarial_Admit_DefaultBranchFallbackAfterFirstTag(t *testing.T) {
 	branchOnly := domain.RefSnapshot{Branches: map[string]string{"main": "m1"}, Head: "main"}
 	kind, err := ClassifySelector("main", branchOnly)
 	require.NoError(t, err)
-	require.Equal(t, domain.SelectorChannel, kind)
+	require.Equal(t, domain.SelectorChannel, kind.Family())
 
 	released := domain.RefSnapshot{
 		Tags: map[string]string{"v1.0.0": "c1"}, Branches: map[string]string{"main": "m2"}, Head: "main",

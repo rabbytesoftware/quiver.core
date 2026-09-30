@@ -105,7 +105,7 @@ manifold contexts) — in those uses the installation fields stay zero.
 | `InstalledAt`          | `time.Time`                         | Timestamp written when the install transitions to `ready`; zero until then and again after an uninstall. |
 | `LastUsedAt`           | `time.Time`                         | Timestamp written when an `_execute` run completes successfully; zero if the arrow has never been run. |
 | `UserInstalled`        | `bool`                              | True when a user explicitly installed this arrow; false for deps.     |
-| `SelectorKind`         | `SelectorKind`                      | How the selector is followed: `pin` (the zero value), `channel`, `constraint`, `commit`. Decided at creation and stored. |
+| `SelectorKind`         | `SelectorKind`                      | How the selector is followed: `pin` (the zero value), `channel`, `constraint`, `commit`, refined by the ref it named at creation (`pin:tag`, `pin:branch`, `channel:ordered`, `channel:pointer`, `channel:branch`; `Family()` maps back). Decided at creation and stored. |
 | `Resolved`             | `Resolved{Ref, Commit, Fingerprint}`| What is installed: the ref, its full commit, and a fingerprint (the commit today). Moved only by an advance or an adoption. |
 | `Available`            | `*Available{Ref, Commit}`           | What the last version check found ahead of `Resolved`; `nil` when current. "Outdated" is derived from it. |
 

@@ -77,7 +77,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			ns:           selectorBare,
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef("stable"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorOrderedChannel,
 			wantResolved: domain.Resolved{Ref: "v2.0.0", Commit: "c200", Fingerprint: "c200"},
 		},
 		{
@@ -88,7 +88,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 				Head:     "main",
 			},
 			wantIdentity: selectorBare.WithRef("main"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorBranchChannel,
 			wantResolved: domain.Resolved{Ref: "main", Commit: "cmain", Fingerprint: "cmain"},
 		},
 		{
@@ -96,7 +96,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("stable"),
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef("stable"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorOrderedChannel,
 			wantResolved: domain.Resolved{Ref: "v2.0.0", Commit: "c200", Fingerprint: "c200"},
 		},
 		{
@@ -104,7 +104,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("nightly"),
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef("nightly"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorPointerChannel,
 			wantResolved: domain.Resolved{Ref: "nightly", Commit: "cnightly", Fingerprint: "cnightly"},
 		},
 		{
@@ -112,7 +112,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("v1.2.0"),
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef("v1.2.0"),
-			wantKind:     domain.SelectorPin,
+			wantKind:     domain.SelectorTagPin,
 			wantResolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"},
 		},
 		{
@@ -120,7 +120,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("main"),
 			snap:         selectorSnapshot(),
 			wantIdentity: selectorBare.WithRef("main"),
-			wantKind:     domain.SelectorPin,
+			wantKind:     domain.SelectorBranchPin,
 			wantResolved: domain.Resolved{Ref: "main", Commit: "cmain", Fingerprint: "cmain"},
 		},
 		{
@@ -154,7 +154,7 @@ func TestResolveInstall_Selectors(t *testing.T) {
 				Tags: map[string]string{"stable": "cst", "v1.0.0": "c100"},
 			},
 			wantIdentity: selectorBare.WithRef("refs/tags/stable"),
-			wantKind:     domain.SelectorPin,
+			wantKind:     domain.SelectorTagPin,
 			wantResolved: domain.Resolved{Ref: "stable", Commit: "cst", Fingerprint: "cst"},
 		},
 	}
@@ -440,7 +440,7 @@ func TestResolveInstall_ReflessStableWithoutManifest(t *testing.T) {
 			ns:           selectorBare,
 			failures:     map[string]error{"v1.3.1": missing},
 			wantIdentity: selectorBare.WithRef("tip"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorPointerChannel,
 			wantFetched:  []string{"v1.3.1", "tip"},
 		},
 		{
@@ -448,7 +448,7 @@ func TestResolveInstall_ReflessStableWithoutManifest(t *testing.T) {
 			ns:           selectorBare,
 			failures:     map[string]error{"v1.3.1": missing, "tip": missing},
 			wantIdentity: selectorBare.WithRef("main"),
-			wantKind:     domain.SelectorPin,
+			wantKind:     domain.SelectorBranchPin,
 			wantFetched:  []string{"v1.3.1", "tip", "main"},
 		},
 		{

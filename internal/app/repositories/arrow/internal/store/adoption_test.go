@@ -29,7 +29,7 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("stable"),
 			ref:          "v1.2.0",
 			wantIdentity: selectorBare.WithRef("stable"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorOrderedChannel,
 			wantResolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"},
 		},
 		{
@@ -37,7 +37,7 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			ns:           selectorBare,
 			ref:          "v1.0.0",
 			wantIdentity: selectorBare.WithRef("stable"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorOrderedChannel,
 			wantResolved: domain.Resolved{Ref: "v1.0.0", Commit: "c100", Fingerprint: "c100"},
 		},
 		{
@@ -45,7 +45,7 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("nightly"),
 			ref:          "nightly",
 			wantIdentity: selectorBare.WithRef("nightly"),
-			wantKind:     domain.SelectorChannel,
+			wantKind:     domain.SelectorPointerChannel,
 			wantResolved: domain.Resolved{Ref: "nightly", Commit: "cnightly", Fingerprint: "cnightly"},
 		},
 		{
@@ -61,7 +61,7 @@ func TestResolveAdoption_Selectors(t *testing.T) {
 			ns:           selectorBare.WithRef("v1.2.0"),
 			ref:          "v1.2.0",
 			wantIdentity: selectorBare.WithRef("v1.2.0"),
-			wantKind:     domain.SelectorPin,
+			wantKind:     domain.SelectorTagPin,
 			wantResolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"},
 		},
 		{

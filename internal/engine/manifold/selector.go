@@ -23,6 +23,9 @@ const (
 // ClassifySelector decides what a selector follows: a listed channel name is
 // a channel; else an exact tag or branch (or a refs/tags/, refs/heads/ escape)
 // is a pin; else a glob is a constraint; else 7–40 hex characters are a commit.
+// The kind is refined by the ref the selector names right now (an ordered
+// channel, a rolling tag or the HEAD branch; a tag or a branch), so the row
+// that stores it keeps following that ref whatever is pushed later.
 // A selector with an empty ref component names nothing, whatever the snapshot
 // holds: two spellings of one ref must never become two identities.
 func ClassifySelector(
@@ -32,11 +35,11 @@ func ClassifySelector(
 	if HasEmptyComponent(selector) {
 		return domain.SelectorPin, fmt.Errorf("classify selector %q: empty ref component: %w", selector, ErrUnknownSelector)
 	}
-	if _, ok := findChannel(selector, snap); ok {
-		return domain.SelectorChannel, nil
+	if channel, ok := findChannel(selector, snap); ok {
+		return channelKind(channel), nil
 	}
-	if _, _, ok := pinnedRef(selector, snap); ok {
-		return domain.SelectorPin, nil
+	if kind, ok := pinKind(selector, snap); ok {
+		return kind, nil
 	}
 	if isGlob(selector) {
 		if _, err := path.Match(selector, ""); err != nil {
@@ -83,21 +86,129 @@ func findChannel(
 	return found, ok
 }
 
-// pinnedRef resolves a pin selector to its short ref name and commit.
+func channelKind(
+	channel ChannelInfo,
+) domain.SelectorKind {
+	if channel.Kind == "ordered" {
+		return domain.SelectorOrderedChannel
+	}
+	if channel.IsDefaultBranchFallback {
+		return domain.SelectorBranchChannel
+	}
+	return domain.SelectorPointerChannel
+}
+
+// pinKind names the ref a pin selector follows: an escape says it, else a
+// tag wins over a branch of the same name.
+func pinKind(
+	selector string,
+	snap domain.RefSnapshot,
+) (domain.SelectorKind, bool) {
+	name, source := followedRef(domain.SelectorPin, selector)
+	if source != refEither {
+		_, ok := source.lookup(name, snap)
+		return source.pinKind(), ok
+	}
+	if _, ok := snap.Tags[name]; ok {
+		return domain.SelectorTagPin, true
+	}
+	_, ok := snap.Branches[name]
+	return domain.SelectorBranchPin, ok
+}
+
+// refSource is where a followed ref is looked up.
+type refSource int
+
+const (
+	refEither refSource = iota
+	refTag
+	refBranch
+)
+
+// lookup returns the commit name has in the source; either prefers a tag.
+func (src refSource) lookup(
+	name string,
+	snap domain.RefSnapshot,
+) (string, bool) {
+	switch src {
+	case refTag:
+		commit, ok := snap.Tags[name]
+		return commit, ok
+	case refBranch:
+		commit, ok := snap.Branches[name]
+		return commit, ok
+	case refEither:
+	}
+	return snap.Commit(name)
+}
+
+func (src refSource) pinKind() domain.SelectorKind {
+	if src == refBranch {
+		return domain.SelectorBranchPin
+	}
+	return domain.SelectorTagPin
+}
+
+// followedRef names the one ref a pin or single-ref channel follows, escape
+// stripped, and where to look it up: an escape wins, then the stored kind;
+// an unrefined kind looks at a tag first, then a branch.
+func followedRef(
+	kind domain.SelectorKind,
+	selector string,
+) (string, refSource) {
+	if name, found := strings.CutPrefix(selector, tagRefPrefix); found {
+		return name, refTag
+	}
+	if name, found := strings.CutPrefix(selector, branchRefPrefix); found {
+		return name, refBranch
+	}
+	switch kind {
+	case domain.SelectorTagPin, domain.SelectorPointerChannel:
+		return selector, refTag
+	case domain.SelectorBranchPin, domain.SelectorBranchChannel:
+		return selector, refBranch
+	case domain.SelectorPin, domain.SelectorChannel, domain.SelectorOrderedChannel,
+		domain.SelectorConstraint, domain.SelectorCommit:
+	}
+	return selector, refEither
+}
+
+// pinnedRef resolves a pin or single-ref channel to its short ref name and
+// commit.
 func pinnedRef(
+	kind domain.SelectorKind,
 	selector string,
 	snap domain.RefSnapshot,
 ) (ref, commit string, ok bool) {
-	if name, found := strings.CutPrefix(selector, tagRefPrefix); found {
-		commit, ok = snap.Tags[name]
-		return name, commit, ok
+	name, source := followedRef(kind, selector)
+	commit, ok = source.lookup(name, snap)
+	return name, commit, ok
+}
+
+// RefCommit reports the commit ref names right now for a row of kind
+// following selector, looked up where that row's refs live: a branch row
+// reads branches, a tag-following row reads tags, so a same-name ref of the
+// other sort never answers for it.
+func RefCommit(
+	kind domain.SelectorKind,
+	selector string,
+	ref string,
+	snap domain.RefSnapshot,
+) (string, bool) {
+	switch kind {
+	case domain.SelectorCommit:
+		if commit, ok := snap.Commit(ref); ok {
+			return commit, true
+		}
+		return ref, true
+	case domain.SelectorOrderedChannel, domain.SelectorConstraint:
+		commit, ok := snap.Tags[ref]
+		return commit, ok
+	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
+		domain.SelectorPointerChannel, domain.SelectorBranchChannel, domain.SelectorChannel:
 	}
-	if name, found := strings.CutPrefix(selector, branchRefPrefix); found {
-		commit, ok = snap.Branches[name]
-		return name, commit, ok
-	}
-	commit, ok = snap.Commit(selector)
-	return selector, commit, ok
+	_, source := followedRef(kind, selector)
+	return source.lookup(ref, snap)
 }
 
 // HasEmptyComponent reports whether selector has an empty ref component, which

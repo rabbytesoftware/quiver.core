@@ -53,17 +53,23 @@ func (s *arrowService) CheckAvailable(
 }
 
 // TargetUnmoved reports whether target's ref still stands at target's commit
-// on the remote right now.
+// on the remote right now, reading the ref where the row's kind says it
+// lives: an escaped branch pin reads its branch even when a same-name tag
+// exists.
 func (s *arrowService) TargetUnmoved(
 	ctx context.Context,
 	ns domain.Namespace,
 	target domain.Available,
 ) (bool, error) {
+	current, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return false, fmt.Errorf("target unmoved %s: %w", ns, mapGetErr(err))
+	}
 	snap, err := s.manifold.FreshSnapshot(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("target unmoved %s: %w", ns, mapResolveErr(err))
 	}
-	commit, ok := snap.Commit(target.Ref)
+	commit, ok := manifold.RefCommit(current.SelectorKind, ns.Ref(), target.Ref, snap)
 	return ok && commit == target.Commit, nil
 }
 

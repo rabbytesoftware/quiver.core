@@ -3,11 +3,28 @@ package domain
 // SelectorKind names the type of selector a catalog row tracks.
 type SelectorKind string
 
+// A kind is stored on the row when it is created, and the refined kinds say
+// which ref the selector named at that moment, so a later tag or branch of
+// the same name never changes what the row follows. The unrefined pin and
+// channel are what rows written before the refinement carry.
 const (
-	// SelectorPin is the zero value: a row with no stored kind is a pin.
+	// SelectorPin is the zero value: a row with no stored kind is a pin of
+	// its tag, else of its branch.
 	SelectorPin SelectorKind = ""
-	// SelectorChannel tracks the newest ref of a release channel.
+	// SelectorTagPin follows exactly one tag.
+	SelectorTagPin SelectorKind = "pin:tag"
+	// SelectorBranchPin follows exactly one branch.
+	SelectorBranchPin SelectorKind = "pin:branch"
+	// SelectorChannel tracks the newest ref of a release channel: an ordered
+	// channel of its name, else a rolling tag, else the HEAD branch.
 	SelectorChannel SelectorKind = "channel"
+	// SelectorOrderedChannel tracks the newest member of a classified channel.
+	SelectorOrderedChannel SelectorKind = "channel:ordered"
+	// SelectorPointerChannel tracks one rolling tag.
+	SelectorPointerChannel SelectorKind = "channel:pointer"
+	// SelectorBranchChannel tracks the HEAD branch a tagless repository
+	// was added from.
+	SelectorBranchChannel SelectorKind = "channel:branch"
 	// SelectorConstraint tracks the newest tag satisfying a semver constraint.
 	SelectorConstraint SelectorKind = "constraint"
 	// SelectorCommit pins one commit, named by its full or abbreviated hash.
@@ -42,13 +59,30 @@ type RefSnapshot struct {
 	Head     string            `json:"head,omitempty" yaml:"head,omitempty"`
 }
 
-// Valid returns true if the selector kind is one of the four defined constants.
+// Valid returns true if the selector kind is one of the defined constants.
 func (k SelectorKind) Valid() bool {
 	switch k {
-	case SelectorPin, SelectorChannel, SelectorConstraint, SelectorCommit:
+	case SelectorPin, SelectorTagPin, SelectorBranchPin,
+		SelectorChannel, SelectorOrderedChannel, SelectorPointerChannel, SelectorBranchChannel,
+		SelectorConstraint, SelectorCommit:
 		return true
 	default:
 		return false
+	}
+}
+
+// Family returns the kind a refined kind belongs to: pin, channel,
+// constraint or commit.
+func (k SelectorKind) Family() SelectorKind {
+	switch k {
+	case SelectorPin, SelectorTagPin, SelectorBranchPin:
+		return SelectorPin
+	case SelectorChannel, SelectorOrderedChannel, SelectorPointerChannel, SelectorBranchChannel:
+		return SelectorChannel
+	case SelectorConstraint, SelectorCommit:
+		return k
+	default:
+		return k
 	}
 }
 

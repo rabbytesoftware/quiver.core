@@ -160,7 +160,7 @@ func classifyInstall(
 		if err != nil {
 			return ns, domain.SelectorChannel, fmt.Errorf("%s: %w: %w", ns, apperrors.ErrNotFound, err)
 		}
-		return ns.WithRef(channel), domain.SelectorChannel, nil
+		ns = ns.WithRef(channel)
 	}
 
 	kind, err := manifold.ClassifySelector(ns.Ref(), snap)
@@ -178,7 +178,7 @@ func classifyInstall(
 func targetSentinel(
 	kind domain.SelectorKind,
 ) error {
-	if kind == domain.SelectorChannel {
+	if kind.Family() == domain.SelectorChannel {
 		return apperrors.ErrNotFound
 	}
 	return apperrors.ErrInvalidNamespace

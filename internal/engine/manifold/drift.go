@@ -8,8 +8,9 @@ import (
 )
 
 // Target resolves what a selector of the given kind points at in snap: a
-// channel's latest member, a constraint's highest matching tag, a pin's own
-// ref (short name, escape stripped), or a commit itself.
+// channel's latest member, a constraint's highest matching tag, a pin's or a
+// single-ref channel's own ref (short name, escape stripped), or a commit
+// itself. A refined kind reads only the sort of ref it was classified on.
 func Target(
 	kind domain.SelectorKind,
 	selector string,
@@ -18,12 +19,15 @@ func Target(
 	switch kind {
 	case domain.SelectorChannel:
 		return channelTarget(selector, snap)
+	case domain.SelectorOrderedChannel:
+		return orderedTarget(selector, snap)
 	case domain.SelectorConstraint:
 		return constraintTarget(selector, snap)
-	case domain.SelectorPin:
-		ref, commit, ok := pinnedRef(selector, snap)
+	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
+		domain.SelectorPointerChannel, domain.SelectorBranchChannel:
+		ref, commit, ok := pinnedRef(kind, selector, snap)
 		if !ok {
-			return domain.Available{}, fmt.Errorf("target pin %q: %w", selector, ErrUnknownSelector)
+			return domain.Available{}, fmt.Errorf("target %s %q: %w", kind, selector, ErrUnknownSelector)
 		}
 		return domain.Available{Ref: ref, Commit: commit}, nil
 	case domain.SelectorCommit:
@@ -71,6 +75,20 @@ func channelTarget(
 		return domain.Available{}, fmt.Errorf("target channel %q: latest %q has no commit: %w", selector, channel.Latest, ErrUnknownSelector)
 	}
 	return domain.Available{Ref: channel.Latest, Commit: commit}, nil
+}
+
+// orderedTarget reads only an ordered channel, so a rolling tag of the same
+// name pushed later never answers for it.
+func orderedTarget(
+	selector string,
+	snap domain.RefSnapshot,
+) (domain.Available, error) {
+	for _, c := range ChannelsOf(snap) {
+		if c.Name == selector && c.Kind == "ordered" {
+			return domain.Available{Ref: c.Latest, Commit: snap.Tags[c.Latest]}, nil
+		}
+	}
+	return domain.Available{}, fmt.Errorf("target ordered channel %q: %w", selector, ErrUnknownSelector)
 }
 
 func constraintTarget(

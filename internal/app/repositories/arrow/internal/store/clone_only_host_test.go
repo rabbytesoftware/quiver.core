@@ -55,8 +55,8 @@ func TestResolveInstall_CloneOnlyHost_FetchesTheResolvedRef(t *testing.T) {
 		wantKind     domain.SelectorKind
 		wantResolved string
 	}{
-		{name: "stable channel", selector: "stable", wantKind: domain.SelectorChannel, wantResolved: "v2.0.0"},
-		{name: "refless follows the default channel", selector: "", wantKind: domain.SelectorChannel, wantResolved: "v2.0.0"},
+		{name: "stable channel", selector: "stable", wantKind: domain.SelectorOrderedChannel, wantResolved: "v2.0.0"},
+		{name: "refless follows the default channel", selector: "", wantKind: domain.SelectorOrderedChannel, wantResolved: "v2.0.0"},
 		{name: "constraint", selector: "v1.*", wantKind: domain.SelectorConstraint, wantResolved: "v1.3.0"},
 	}
 

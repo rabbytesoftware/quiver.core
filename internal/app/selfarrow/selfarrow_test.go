@@ -133,7 +133,7 @@ func TestEnsureRegistered_Channel_AdoptsTheChannelIdentity(t *testing.T) {
 	require.Len(t, *adopted, 1)
 	got := (*adopted)[0]
 	assert.Equal(t, want, got.ns)
-	assert.Equal(t, domain.SelectorChannel, got.kind)
+	assert.Equal(t, domain.SelectorPointerChannel, got.kind, "a build published under its channel's name follows that rolling tag")
 	assert.Equal(t, domain.Resolved{Ref: "nightly-latest", Commit: "c0ffee", Fingerprint: "c0ffee"}, got.resolved)
 	assert.Equal(t, selfmanifest.Raw(), got.manifest)
 	assert.Equal(t, "ARROW.md", got.filename)
@@ -150,7 +150,7 @@ func TestEnsureRegistered_NoChannel_AdoptsAPinOfTheVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, *adopted, 1)
 	assert.Equal(t, selfNs().WithRef("stable-26.5.1"), (*adopted)[0].ns)
-	assert.Equal(t, domain.SelectorPin, (*adopted)[0].kind)
+	assert.Equal(t, domain.SelectorTagPin, (*adopted)[0].kind)
 	assert.Equal(t, "stable-26.5.1", (*adopted)[0].resolved.Ref)
 }
 
@@ -196,7 +196,7 @@ func TestEnsureRegistered_ConfiguredChannel_IsTheIdentity(t *testing.T) {
 
 	require.Len(t, *adopted, 1)
 	assert.Equal(t, selfNs().WithRef("rc"), (*adopted)[0].ns)
-	assert.Equal(t, domain.SelectorChannel, (*adopted)[0].kind)
+	assert.Equal(t, domain.SelectorOrderedChannel, (*adopted)[0].kind, "a release tag published under another name is a member of an ordered channel")
 }
 
 // Earlier builds filed the core under other identities; after adopting the

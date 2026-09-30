@@ -226,7 +226,9 @@ func TestTargetUnmoved(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := &mocks.Manifold{SnapshotResult: tc.snap}
-			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), &mocks.Vault{}, m)
+			axArrow := newTestAsynxArrow(t)
+			seedSelectorRow(t, axArrow, rollingNs(), domain.SelectorPointerChannel, domain.Resolved{Ref: "nightly-latest", Commit: "c1"})
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
 
 			got, err := cat.TargetUnmoved(context.Background(), rollingNs(), target)
 
@@ -239,12 +241,51 @@ func TestTargetUnmoved(t *testing.T) {
 }
 
 func TestTargetUnmoved_SnapshotFails(t *testing.T) {
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), &mocks.Vault{},
+	axArrow := newTestAsynxArrow(t)
+	seedSelectorRow(t, axArrow, rollingNs(), domain.SelectorPointerChannel, domain.Resolved{Ref: "nightly-latest", Commit: "c1"})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{},
 		&mocks.Manifold{SnapshotErr: errors.New("remote down")})
 
 	_, err := cat.TargetUnmoved(context.Background(), rollingNs(), domain.Available{Ref: "x", Commit: "c"})
 
 	require.ErrorIs(t, err, apperrors.ErrFetchFailed)
+}
+
+func TestTargetUnmoved_NoRow(t *testing.T) {
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), &mocks.Vault{}, &mocks.Manifold{})
+
+	_, err := cat.TargetUnmoved(context.Background(), rollingNs(), domain.Available{Ref: "x", Commit: "c"})
+
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestTargetUnmoved_EscapedBranchPinReadsTheBranchNotTheSameNameTag(t *testing.T) {
+	ns := domain.Namespace("github.com/user/repo@refs/heads/master")
+	snap := domain.RefSnapshot{
+		Tags:     map[string]string{"master": "tag-commit"},
+		Branches: map[string]string{"master": "branch-moved"},
+	}
+
+	testCases := []struct {
+		name string
+		kind domain.SelectorKind
+	}{
+		{name: "refined branch pin", kind: domain.SelectorBranchPin},
+		{name: "row stored before kinds were refined", kind: domain.SelectorPin},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			seedSelectorRow(t, axArrow, ns, tc.kind, domain.Resolved{Ref: "master", Commit: "branch-old"})
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, &mocks.Manifold{SnapshotResult: snap})
+
+			got, err := cat.TargetUnmoved(context.Background(), ns, domain.Available{Ref: "master", Commit: "branch-moved"})
+
+			require.NoError(t, err)
+			assert.True(t, got, "the branch still stands at the target: the update must commit")
+		})
+	}
 }
 
 // ─── RefreshToTarget ─────────────────────────────────────────────────────────

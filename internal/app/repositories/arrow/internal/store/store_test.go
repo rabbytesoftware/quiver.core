@@ -294,8 +294,8 @@ func TestGetDetail_UncataloguedPreview_ReportsTheSelectorKindAnAddWould(t *testi
 		snapErr error
 		want    domain.SelectorKind
 	}{
-		{name: "rolling tag", ns: selectorBare.WithRef("nightly"), want: domain.SelectorChannel},
-		{name: "exact tag", ns: selectorBare.WithRef("v1.2.0"), want: domain.SelectorPin},
+		{name: "rolling tag", ns: selectorBare.WithRef("nightly"), want: domain.SelectorPointerChannel},
+		{name: "exact tag", ns: selectorBare.WithRef("v1.2.0"), want: domain.SelectorTagPin},
 		{name: "glob", ns: selectorBare.WithRef("v1.*"), want: domain.SelectorConstraint},
 		{name: "remote unreadable", ns: selectorBare.WithRef("nightly"), snapErr: errors.New("ls-remote failed"), want: domain.SelectorPin},
 		{name: "selector naming nothing", ns: selectorBare.WithRef("no-such-ref"), want: domain.SelectorPin},

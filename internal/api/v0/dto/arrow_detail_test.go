@@ -210,6 +210,11 @@ func TestArrowDetailDTO_WireShape_SelectorKindNames(t *testing.T) {
 		{"channel", domain.SelectorChannel, "channel"},
 		{"constraint", domain.SelectorConstraint, "constraint"},
 		{"commit", domain.SelectorCommit, "commit"},
+		{"tag pin", domain.SelectorTagPin, "pin"},
+		{"branch pin", domain.SelectorBranchPin, "pin"},
+		{"ordered channel", domain.SelectorOrderedChannel, "channel"},
+		{"pointer channel", domain.SelectorPointerChannel, "channel"},
+		{"branch channel", domain.SelectorBranchChannel, "channel"},
 	}
 
 	for _, tc := range testCases {

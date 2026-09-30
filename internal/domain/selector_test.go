@@ -17,10 +17,37 @@ func TestSelectorKind_Valid(t *testing.T) {
 		{name: "channel", kind: SelectorChannel, want: true},
 		{name: "constraint", kind: SelectorConstraint, want: true},
 		{name: "commit", kind: SelectorCommit, want: true},
+		{name: "tag pin", kind: SelectorTagPin, want: true},
+		{name: "branch pin", kind: SelectorBranchPin, want: true},
+		{name: "ordered channel", kind: SelectorOrderedChannel, want: true},
+		{name: "pointer channel", kind: SelectorPointerChannel, want: true},
+		{name: "branch channel", kind: SelectorBranchChannel, want: true},
 		{name: "unknown", kind: SelectorKind("floating"), want: false},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, tc.kind.Valid()) })
+	}
+}
+
+func TestSelectorKind_Family(t *testing.T) {
+	testCases := []struct {
+		name string
+		kind SelectorKind
+		want SelectorKind
+	}{
+		{name: "legacy pin", kind: SelectorPin, want: SelectorPin},
+		{name: "tag pin", kind: SelectorTagPin, want: SelectorPin},
+		{name: "branch pin", kind: SelectorBranchPin, want: SelectorPin},
+		{name: "legacy channel", kind: SelectorChannel, want: SelectorChannel},
+		{name: "ordered channel", kind: SelectorOrderedChannel, want: SelectorChannel},
+		{name: "pointer channel", kind: SelectorPointerChannel, want: SelectorChannel},
+		{name: "branch channel", kind: SelectorBranchChannel, want: SelectorChannel},
+		{name: "constraint", kind: SelectorConstraint, want: SelectorConstraint},
+		{name: "commit", kind: SelectorCommit, want: SelectorCommit},
+		{name: "unknown stays itself", kind: SelectorKind("floating"), want: SelectorKind("floating")},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) { assert.Equal(t, tc.want, tc.kind.Family()) })
 	}
 }
 

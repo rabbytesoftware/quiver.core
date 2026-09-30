@@ -82,9 +82,9 @@ ref snapshot (§5.1), in this order:
 | 6 | Anything else | error — `ErrUnknownSelector`, surfaced as `ErrInvalidNamespace` (400) |
 
 Step 2 runs before step 3 on purpose: a rolling tag such as `nightly-latest` is both a tag
-and a pointer channel, and by construction both readings follow the same ref. A repository
-tag literally named `stable` is shadowed by the `stable` channel; install it with
-`crowbar@refs/tags/stable`.
+and a pointer channel, and on the snapshot it is classified against both readings follow
+the same ref. A repository tag literally named `stable` is shadowed by the `stable` channel;
+install it with `crowbar@refs/tags/stable`.
 
 A commit selector is catalogued in lower case: `crowbar@ABCDEF1` and `crowbar@abcdef1` are
 one identity, `crowbar@abcdef1`, and either spelling names that row: every verb, every
@@ -100,6 +100,32 @@ The implementation is `internal/engine/manifold/selector.go`.
 The kind is decided once, when the row is created, and stored on it as
 `Arrow.SelectorKind`. It is authoritative from then on: a later tag push that would
 classify the same string differently never changes what an existing identity means.
+
+The stored kind is refined by the ref the selector named at that moment, because the
+family alone cannot say it: after someone pushes a tag `develop`, the string `develop`
+names both a branch and a tag, and after CI publishes `nightly-2026.09.30`, the string
+`nightly` names both a rolling tag and an ordered channel.
+
+| Stored kind | Family (wire) | Follows | Looks up refs in |
+|---|---|---|---|
+| `channel:ordered` | `channel` | The newest member of the ordered channel of that name | Tags |
+| `channel:pointer` | `channel` | The rolling tag of that name | Tags |
+| `channel:branch` | `channel` | The `HEAD` branch a tagless repository was added from | Branches |
+| `pin:tag` | `pin` | Exactly that tag (`refs/tags/` escape stripped) | Tags |
+| `pin:branch` | `pin` | Exactly that branch (`refs/heads/` escape stripped) | Branches |
+| `constraint` | `constraint` | The highest matching tag | Tags |
+| `commit` | `commit` | That commit | — |
+
+`ClassifySelector` returns the refined kind; `Target`, `Drift`, `Admit` and the update
+commit's re-check (`manifold.RefCommit`, §8.2 step 7) read only where the stored kind says
+the row's refs live. A branch pin therefore never reads a same-name tag, a pointer channel
+never turns into the ordered channel of its name, and a tag pin whose tag was deleted is
+not found rather than silently following a branch. The wire reports the family (§11).
+
+Rows stored before the refinement carry the unrefined kinds and keep the dynamic reading
+they were created with: a zero-value `pin` is the identity's tag, else its branch (an
+escape still says which); an unrefined `channel` is the ordered channel of its name, else
+the rolling tag, else the default branch it settled on (§5.2).
 
 The zero value of `SelectorKind` is `pin`. A row with no stored kind — any row written
 before the selector model existed — behaves as a pin of its identity's ref, so old data
@@ -248,16 +274,16 @@ pure functions (`internal/engine/manifold/drift.go`):
 |---|---|---|
 | `channel` | The channel's latest member (a pointer channel: its own ref) | Target ref or commit differs from `Resolved` |
 | `constraint` | The highest matching tag (§5.3) | Target ref or commit differs |
-| `pin` | The same ref (escape stripped) at its current commit | Its commit moved |
+| `pin` | The same ref (escape stripped) at its current commit, read as a tag or a branch as the stored kind says (§2.3) | Its commit moved |
 | `commit` | The commit itself | Never |
 
 - A row with an empty `Resolved.Commit` reports outdated once — unknown is not current.
   After the next advance it carries a commit and behaves normally.
 - A row that settled on a repository's default branch (a refless add of a repository with
-  no tags) keeps following that branch after the repository publishes its first tag, even
-  though the branch is no longer listed as a channel. Only the `HEAD` branch the row itself
-  resolved to qualifies, so an ordered channel or a deleted pointer tag never turns into a
-  same-name branch.
+  no tags, stored as `channel:branch`) keeps following that branch after the repository
+  publishes its first tag, even though the branch is no longer listed as a channel. An
+  unrefined `channel` row does the same only for the `HEAD` branch it itself resolved to,
+  so an ordered channel or a deleted pointer tag never turns into a same-name branch.
 - A selector never crosses its own bounds: `v1.*` never drifts to `v2.0.0`.
 - Any resolution error produces no answer, and nothing is written.
 
@@ -304,7 +330,8 @@ deterministic channel order `manifold.ChannelsOf` produces:
 | 3 | Pointer channels (unclassified tags such as `nightly`), by name |
 | 4 | The `HEAD` branch — listed only when the repository has no tags at all |
 
-The row is then written as `bare@<that channel>` with `SelectorKind = channel`. A
+The row is then written as `bare@<that channel>` with the channel's refined kind
+(`channel:ordered`, `channel:pointer` or `channel:branch`, §2.3). A
 repository with no tags and no `HEAD` branch has no default channel, and the add fails with
 not found.
 
@@ -315,7 +342,7 @@ decided from the tag snapshot alone, on any git host, with no API quota involved
 A default channel whose target serves no manifest — a definitive not found, such as a
 latest release that ships neither a manifest nor assets Fletcher can draft one from — does
 not end the add. `ResolveInstall` then tries the other listed channels in the same order,
-and finally the `HEAD` branch (catalogued as a pin on it), and returns the original not
+and finally the `HEAD` branch (catalogued as a `pin:branch` on it), and returns the original not
 found only if every one of them fails. Any other failure (transport, rate limit, invalid
 manifest) is returned at once, and a namespace that names a selector never falls back.
 
@@ -477,8 +504,10 @@ sequenceDiagram
    target manifest's `update:` steps with `${REF}` set to that remembered target's ref
    (§7.1), never to an `Available` a check recorded while the bracket was staging.
 7. **Commit on success.** When `_update` ends successfully, the target is re-resolved
-   against a fresh snapshot. Only if the target ref still stands at the target commit is
-   the row advanced and the runtime's version badge cleared. If it moved while the steps
+   against a fresh snapshot. The target ref is looked up where the row's stored kind says
+   its refs live (`manifold.RefCommit`): an escaped branch pin `@refs/heads/master` reads
+   the branch even when a tag `master` exists. Only if the target ref still stands at the
+   target commit is the row advanced and the runtime's version badge cleared. If it moved while the steps
    ran, the installed bits may not be the target's, so nothing is stamped and the row
    stays outdated. The worst case is an extra update, never a wrong stamp or a missed one.
 8. **Failure** stamps nothing: `Resolved` and `Available` stay as they were. The manifest
@@ -578,8 +607,10 @@ On every boot `selfarrow.EnsureRegistered`:
 
 1. Does nothing for an unstamped build (`version` empty or `dev`).
 2. Adopts the embedded `ARROW.md` offline as `quiver.core@<channel>` with
-   `SelectorKind = channel` and `Resolved{version, commit, commit}` — or as
-   `quiver.core@<version>`, a pin, when no channel is known.
+   `Resolved{version, commit, commit}` — kind `channel:pointer` when the build is published
+   under the channel's own name (`nightly-latest`), `channel:ordered` otherwise (`stable`,
+   `beta`, `hotfix`) — or as `quiver.core@<version>`, a `pin:tag`, when no channel is known.
+   An existing row keeps the kind it was stored with.
 3. Settles the row's runtime: an absent runtime is marked ready; an `outdated` badge left
    over from before this build's own update is cleared when the row has nothing available.
 4. Launches an immediate version check.
@@ -602,7 +633,7 @@ moves to what the selector points at.
 | Field | Meaning |
 |---|---|
 | `namespace` | The identity, `ns@selector` |
-| `selector_kind` | `pin`, `channel`, `constraint` or `commit` (the zero kind is spelled `pin`) |
+| `selector_kind` | `pin`, `channel`, `constraint` or `commit` — the stored kind's family (§2.3); the zero kind is spelled `pin` |
 | `resolved_ref` | `Resolved.Ref` |
 | `installed_commit` | `Resolved.Commit` |
 | `available` | `{ref, commit}` of what is ahead; omitted when current |

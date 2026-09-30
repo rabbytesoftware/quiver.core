@@ -94,9 +94,9 @@ func EnsureRegistered(
 	}
 
 	self, _ := metadata.GetSelfNamespaces()
-	ns, kind := self.WithRef(version), domain.SelectorPin
-	if channel != "" {
-		ns, kind = self.WithRef(channel), domain.SelectorChannel
+	ns, kind := self.WithRef(channel), selfChannelKind(version, channel)
+	if channel == "" {
+		ns, kind = self.WithRef(version), domain.SelectorTagPin
 	}
 	resolved := domain.Resolved{Ref: version, Commit: commit, Fingerprint: commit}
 
@@ -108,6 +108,19 @@ func EnsureRegistered(
 	}
 	arrows.CheckVersionNow(ctx, ns)
 	return removeOtherSelfRows(ctx, arrows, self, ns)
+}
+
+// selfChannelKind names how the core's own channel row follows its channel,
+// offline: a build published under the channel's own name is a rolling tag
+// (nightly-latest), any other is a member of an ordered channel.
+func selfChannelKind(
+	version string,
+	channel string,
+) domain.SelectorKind {
+	if version == channel {
+		return domain.SelectorPointerChannel
+	}
+	return domain.SelectorOrderedChannel
 }
 
 // settleRuntime lands ns's runtime at Ready. An absent runtime is marked

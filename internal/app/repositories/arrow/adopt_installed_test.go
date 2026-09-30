@@ -78,7 +78,7 @@ func TestAdoptInstalled_OlderChannelMember_IsInstalledAndBehind(t *testing.T) {
 	require.NoError(t, a.cat.AdoptInstalled(context.Background(), identity, "v1.2.0"))
 
 	got := a.row(t, identity)
-	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, domain.SelectorOrderedChannel, got.SelectorKind)
 	assert.Equal(t, domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"}, got.Resolved)
 	assert.True(t, got.UserInstalled)
 	assert.Nil(t, got.Available)
@@ -100,7 +100,7 @@ func TestAdoptInstalled_Refless_AdoptsUnderTheDefaultChannel(t *testing.T) {
 	require.NoError(t, a.cat.AdoptInstalled(context.Background(), adoptBare, "v1.2.0"))
 
 	got := a.row(t, adoptBare.WithRef("stable"))
-	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, domain.SelectorOrderedChannel, got.SelectorKind)
 	assert.Equal(t, "v1.2.0", got.Resolved.Ref)
 	exists, err := a.cat.Exists(context.Background(), adoptBare)
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestAdoptInstalled_NewerState_AdvancesInPlace(t *testing.T) {
 
 	got := a.row(t, identity)
 	assert.Equal(t, identity, got.Namespace)
-	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, domain.SelectorOrderedChannel, got.SelectorKind)
 	assert.Equal(t, domain.Resolved{Ref: "v1.3.0", Commit: "c130", Fingerprint: "c130"}, got.Resolved)
 	assert.True(t, got.UserInstalled)
 

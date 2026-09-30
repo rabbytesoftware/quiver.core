@@ -42,7 +42,8 @@ Everything else is a pure function of a snapshot, exported from the package:
 |---|---|
 | `ChannelsOf(snap)` | Buckets tags into channels: ordered channels by classified name, every unclassified tag as its own pointer channel, and the `HEAD` branch only when there are no tags. Sorted `stable` first, then ordered channels, then pointers, each by name. |
 | `DefaultChannel(snap)` | The channel a refless namespace follows: the first entry of `ChannelsOf`. |
-| `ClassifySelector(selector, snap)` | The `SelectorKind` of an identity's selector: channel, pin, constraint or commit. |
+| `ClassifySelector(selector, snap)` | The refined `SelectorKind` of an identity's selector: an ordered, pointer or default-branch channel, a tag or branch pin, a constraint or a commit (versioning §2.3). |
+| `RefCommit(kind, selector, ref, snap)` | The commit `ref` names right now, looked up where a row of that kind keeps its refs (tags or branches). The update commit's re-check uses it. |
 | `Target(kind, selector, snap)` | What a selector points at now, as `domain.Available{Ref, Commit}`. |
 | `Drift(kind, selector, resolved, snap)` | Whether a row that has `resolved` installed is behind, and its target. |
 
