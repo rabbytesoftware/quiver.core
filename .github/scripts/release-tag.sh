@@ -31,6 +31,7 @@ is_version() {
 }
 
 # rank_key prints a version as four numbers, the order quiver ranks them in.
+# Every component is read in base 10: "09" is nine, never an octal error.
 rank_key() {
   if [[ $1 =~ $DATE_RE ]]; then
     printf '%d.%d.%d.%d' "$((10#${BASH_REMATCH[1]} - 2000))" "$((10#${BASH_REMATCH[2]}))" \
@@ -40,7 +41,7 @@ rank_key() {
   local IFS=.
   # shellcheck disable=SC2206 # splitting on dots is the point
   local parts=($1)
-  printf '%d.%d.%d.0' "${parts[0]}" "${parts[1]}" "${parts[2]:-0}"
+  printf '%d.%d.%d.0' "$((10#${parts[0]}))" "$((10#${parts[1]}))" "$((10#${parts[2]:-0}))"
 }
 
 # latest_stable prints the highest-ranked stable tag whose version matches
@@ -76,7 +77,7 @@ next_patch() {
   local base patch
   base=$(echo "$1" | cut -d'.' -f1,2)
   patch=$(echo "$1" | cut -s -d'.' -f3)
-  echo "${base}.$((${patch:-0} + 1))"
+  echo "${base}.$((10#${patch:-0} + 1))"
 }
 
 # rebuild prints name, or name-N when name was already published N times.

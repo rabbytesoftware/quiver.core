@@ -4,6 +4,7 @@
 package releasetags_test
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -23,13 +24,15 @@ var quiverCoreTags = []string{
 
 func releaseTag(t *testing.T, tags []string, args ...string) (string, error) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	bash, err := exec.LookPath("bash")
+	if err != nil || runtime.GOOS == "windows" {
 		t.Skip("the release workflows run the script under bash on ubuntu")
 	}
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skip("no bash")
-	}
+	return releaseTagWith(t, bash, tags, args...)
+}
+
+func releaseTagWith(t *testing.T, bash string, tags []string, args ...string) (string, error) {
+	t.Helper()
 	script, err := filepath.Abs(filepath.Join("..", "..", ".github", "scripts", "release-tag.sh"))
 	require.NoError(t, err)
 	cmd := exec.Command(bash, append([]string{script}, args...)...) // #nosec G204 -- the repository's own script
@@ -108,6 +111,47 @@ func TestReleaseTag_Refuses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := releaseTag(t, tc.tags, tc.args...)
 			assert.Error(t, err)
+		})
+	}
+}
+
+// Calendar components written with a leading zero are decimal, never octal.
+func TestReleaseTag_ZeroPaddedCalendarSeries(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		args []string
+		want string
+	}{
+		{name: "first stable of 26.09", tags: []string{"beta-26.09"}, args: []string{"stable", "beta/26.09"}, want: "stable-26.09"},
+		{name: "a patch of 26.08", tags: []string{"stable-26.08"}, args: []string{"stable", "beta/26.08"}, want: "stable-26.08.1"},
+		{name: "a hotfix of patch 08", tags: []string{"stable-26.09.08"}, args: []string{"prerelease", "hotfix/x"}, want: "hotfix-26.09.9"},
+		{name: "26.09 outranks 26.8", tags: []string{"stable-26.8", "beta-26.8"}, args: []string{"prerelease", "beta/26.09"}, want: "beta-26.09"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := releaseTag(t, tc.tags, tc.args...)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// macOS ships bash 3.2 as /bin/bash; a repository with no tags yet must work
+// under it too.
+func TestReleaseTag_NoTagsUnderEveryBash(t *testing.T) {
+	shells := []string{"/bin/bash"}
+	if bash, err := exec.LookPath("bash"); err == nil {
+		shells = append(shells, bash)
+	}
+	for _, shell := range shells {
+		t.Run(shell, func(t *testing.T) {
+			if _, err := os.Stat(shell); err != nil || runtime.GOOS == "windows" {
+				t.Skip("no " + shell)
+			}
+			got, err := releaseTagWith(t, shell, nil, "stable", "beta/26.5")
+			require.NoError(t, err)
+			assert.Equal(t, "stable-26.5", got)
 		})
 	}
 }
