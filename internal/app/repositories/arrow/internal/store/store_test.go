@@ -250,6 +250,40 @@ func TestGetDetail_CataloguedAtOtherRef_FallsBackToLiveResolve(t *testing.T) {
 	assert.Equal(t, requested, got.Metadata.Namespace)
 }
 
+// A preview answers "the way an add would": the selector kind it reports is
+// the one the catalogued row would carry, not the zero value.
+func TestGetDetail_UncataloguedPreview_ReportsTheSelectorKindAnAddWould(t *testing.T) {
+	testCases := []struct {
+		name    string
+		ns      domain.Namespace
+		snapErr error
+		want    domain.SelectorKind
+	}{
+		{name: "rolling tag", ns: selectorBare.WithRef("nightly"), want: domain.SelectorChannel},
+		{name: "exact tag", ns: selectorBare.WithRef("v1.2.0"), want: domain.SelectorPin},
+		{name: "glob", ns: selectorBare.WithRef("v1.*"), want: domain.SelectorConstraint},
+		{name: "remote unreadable", ns: selectorBare.WithRef("nightly"), snapErr: errors.New("ls-remote failed"), want: domain.SelectorPin},
+		{name: "selector naming nothing", ns: selectorBare.WithRef("no-such-ref"), want: domain.SelectorPin},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("raw")}}
+			m := &mocks.Manifold{
+				ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "crowbar"}},
+				SnapshotResult:   selectorSnapshot(),
+				SnapshotErr:      tc.snapErr,
+			}
+			r := newTestReaderWithVaultManifold(t, v, m)
+
+			got, err := r.GetDetail(context.Background(), tc.ns)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Metadata.SelectorKind)
+		})
+	}
+}
+
 func TestGetDetail_CataloguedAtOtherRef_LiveResolveStillNotFound(t *testing.T) {
 	catalogued := domain.Namespace("github.com/user/pkg@v1.0.0")
 	requested := domain.Namespace("github.com/user/pkg@v2.0.0")

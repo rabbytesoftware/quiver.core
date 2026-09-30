@@ -191,7 +191,7 @@ Returns full detail for a single arrow including current state, the active run (
 
 The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license`, `state`, `tags`, `installed_at` (omitted while the arrow is not on disk), `last_used_at` (omitted while the arrow has never been run), `user_installed`, `selector_kind` (`pin`, `channel`, `constraint` or `commit`), `resolved_ref`, `installed_commit`, `available` (`{ref, commit}`, omitted when current), `outdated` (true exactly when `available` is set), `active_run` (nullable), `last_return` (nullable). `active_run` and `last_return` each contain a method name, variables map, and step list. `last_return` additionally carries an `outcome` (`success` | `failure` | `cancelled`) and the `execution_id` of the run it ended; `active_run` carries a `pid` for service-style executions.
 
-An uncatalogued namespace resolves live, the way an add would, and reports state `absent`. Reading a catalogued row whose last version check is older than `arrows.version_check_ttl` launches a new check in the background; the response does not wait for it. Errors: 404 (not found), 422, 502 (fetch failed), 500.
+An uncatalogued namespace resolves live, the way an add would, and reports state `absent` and the `selector_kind` an add would record (best-effort: a remote whose refs cannot be listed leaves it `pin`). Reading a catalogued row whose last version check is older than `arrows.version_check_ttl` launches a new check in the background; the response does not wait for it. Errors: 404 (not found), 422, 502 (fetch failed), 500.
 
 #### GET /arrow/{ns}/manifest — Get Resolved Manifest
 

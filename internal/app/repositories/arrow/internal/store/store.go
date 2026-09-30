@@ -308,12 +308,36 @@ func (r *storeService) resolveDetailLive(
 	if err != nil {
 		return nil, fmt.Errorf("reader get detail: %w", err)
 	}
+	r.classifyPreview(ctx, arrow)
 	return &models.ArrowDetailView{
 		Metadata:   *arrow,
 		State:      domain.ArrowStateAbsent,
 		ActiveRun:  nil,
 		LastReturn: nil,
 	}, nil
+}
+
+// classifyPreview names the selector kind an add of the previewed namespace
+// would record. A manifest read straight at a ref never classified it, and
+// the zero kind would call every selector a pin. It is best-effort: a remote
+// that cannot be listed leaves the preview as resolved.
+func (r *storeService) classifyPreview(
+	ctx context.Context,
+	arrow *domain.Arrow,
+) {
+	selector := arrow.Namespace.Ref()
+	if r.manifold == nil || selector == "" || arrow.Resolved.Commit != "" {
+		return
+	}
+	snap, err := r.manifold.Snapshot(ctx, arrow.Namespace)
+	if err != nil {
+		return
+	}
+	kind, err := manifold.ClassifySelector(selector, snap)
+	if err != nil {
+		return
+	}
+	arrow.SelectorKind = kind
 }
 
 func (r *storeService) GetManifest(
