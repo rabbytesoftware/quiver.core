@@ -115,6 +115,17 @@ func (c *Client) Channels(ns string) *http.Response {
 	return resp
 }
 
+// GetSub issues a plain GET of one of an arrow's detail sub-resources, such as
+// "manifest", "readme", "channels", "dependents" or "dependencies".
+func (c *Client) GetSub(ns, sub string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/" + sub))
+	if err != nil {
+		c.t.Fatalf("Client.GetSub %s: do request: %v", sub, err)
+	}
+	return resp
+}
+
 func (c *Client) Update(ns string, body map[string]any) *http.Response {
 	c.t.Helper()
 	b, err := json.Marshal(body)
@@ -353,6 +364,26 @@ func (c *Client) DiscoveryJob(jobID string) *http.Response {
 	resp, err := c.http.Get(c.url("/v0/search/discover/" + url.PathEscape(jobID)))
 	if err != nil {
 		c.t.Fatalf("Client.DiscoveryJob: do request: %v", err)
+	}
+	return resp
+}
+
+// Home issues GET /v0/home.
+func (c *Client) Home() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/home"))
+	if err != nil {
+		c.t.Fatalf("Client.Home: do request: %v", err)
+	}
+	return resp
+}
+
+// RefreshHome issues POST /v0/home/refresh.
+func (c *Client) RefreshHome() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Post(c.url("/v0/home/refresh"), "application/json", nil)
+	if err != nil {
+		c.t.Fatalf("Client.RefreshHome: do request: %v", err)
 	}
 	return resp
 }

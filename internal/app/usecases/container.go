@@ -24,6 +24,9 @@ type Container struct {
 	Config    ConfigUsecase
 	Auth      AuthUsecase
 	Path      PathUsecase
+	// Home is nil when the container was built without discovery, since there
+	// is nothing to recommend from.
+	Home HomeUsecase
 }
 
 func New(
@@ -65,6 +68,11 @@ func New(
 		discoveryUC = NewDiscoveryUsecase(repos.Discovery)
 	}
 
+	var homeUC HomeUsecase
+	if repos.Recommendation != nil {
+		homeUC = NewHomeUsecase(repos.Recommendation)
+	}
+
 	if err := repos.Runtime.OnRuntimeEnded(func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
@@ -83,5 +91,6 @@ func New(
 		Config:     NewConfigUsecase(repos.Config),
 		Auth:       NewAuthUsecase(repos.PairingCode, repos.Device, pairingCodeTTL),
 		Path:       NewPathUsecase(w),
+		Home:       homeUC,
 	}, nil
 }

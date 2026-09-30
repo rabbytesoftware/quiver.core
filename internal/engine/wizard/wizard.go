@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	goruntime "runtime"
 	"sync"
@@ -56,6 +57,10 @@ var (
 	ErrUnknownStepType = models.ErrUnknownStepType
 	ErrShuttingDown    = models.ErrShuttingDown
 	ErrVacuousProbe    = models.ErrVacuousProbe
+
+	// ErrChecksumMismatch is what a failed fetch step's event carries when the
+	// downloaded content did not match the checksum its manifest declares.
+	ErrChecksumMismatch = stepdownload.ErrChecksumMismatch
 )
 
 type Wizard interface {
@@ -415,6 +420,7 @@ func (w *wizard) runSteps(
 		if s.ExitOnFailure() {
 			return domainRuntime.ExecutionOutcomeFailed
 		}
+		slog.WarnContext(ctx, "wizard: non-fatal step failed", "ns", req.Namespace, "step", i, "type", s.Type(), "err", err)
 	}
 
 	if ctx.Err() != nil {
@@ -476,14 +482,15 @@ func (w *wizard) expose(
 	batch []domainstep.ExposeStep,
 	exec *models.ExecutionImpl,
 ) {
-	errs := w.exposer.Expose(ctx, stepRequest(req, exec.Emit), batch)
-	for k, err := range errs {
+	results := w.exposer.Expose(ctx, stepRequest(req, exec.Emit), batch)
+	for k, res := range results {
 		exec.Emit(Event{Kind: EventKindStepStarted, StepIndex: first + k})
-		if err != nil {
-			exec.Emit(Event{Kind: EventKindStepFailed, StepIndex: first + k, Err: err})
+		if res.Err != nil {
+			exec.Emit(Event{Kind: EventKindStepFailed, StepIndex: first + k, Err: res.Err})
+			slog.WarnContext(ctx, "wizard: expose step failed", "ns", req.Namespace, "step", first+k, "err", res.Err)
 			continue
 		}
-		exec.Emit(Event{Kind: EventKindStepCompleted, StepIndex: first + k})
+		exec.Emit(Event{Kind: EventKindStepCompleted, StepIndex: first + k, Note: res.Note})
 	}
 }
 

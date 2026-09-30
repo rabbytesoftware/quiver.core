@@ -52,6 +52,15 @@ func parseTagFull(
 	return "", "", "", false
 }
 
+// HasVersionCore reports whether tag carries a version or date core. A tag
+// without one is a pointer (rolling) tag.
+func HasVersionCore(
+	tag string,
+) bool {
+	_, _, _, ok := parseTagFull(tag)
+	return ok
+}
+
 // validDate accepts a date of this century only: anything else behind a
 // channel word (stable-1999-01-01, stable-9999-99-99) is no date.
 func validDate(

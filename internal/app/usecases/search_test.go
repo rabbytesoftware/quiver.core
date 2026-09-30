@@ -395,3 +395,21 @@ func TestSearch_FollowedVaultMemberOutranksLaterStranger(t *testing.T) {
 	assert.Equal(t, domain.Namespace("github.com/user/member"), got[0].Namespace,
 		"the curation boost must apply to vault results, not only catalog ones")
 }
+
+func TestSearch_VaultLaneRequestIsWidenedByCatalogHits(t *testing.T) {
+	arrows := &ucmocks.MockArrow{
+		SearchFn: func(_ context.Context, _ models.SearchQuery) ([]models.CatalogHit, error) {
+			return []models.CatalogHit{
+				catalogHit("github.com/u/a", "a", "v1"),
+				catalogHit("github.com/u/b", "b", "v1"),
+			}, nil
+		},
+	}
+	v := &mocks.Vault{}
+	uc := NewSearchUsecase(arrows, v, &ucmocks.MockCollection{})
+
+	_, err := uc.Search(context.Background(), models.SearchQuery{Text: "x", Limit: 5})
+	require.NoError(t, err)
+
+	assert.Equal(t, 7, v.SearchArrowsQuery.Limit)
+}

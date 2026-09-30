@@ -308,7 +308,7 @@ manifest re-parsed from the vault cache keeps its origin and confidence.
 |-------|----------|---------|
 | `name` | yes | Heuristics identifier that produced the manifest (`fletcher/1`). |
 | `confidence` | yes | `high`, `medium` or `low` (schema enum). Fletcher refuses a `low` build instead of emitting it. |
-| `warnings` | no | Why confidence is not `high`: `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch`. |
+| `warnings` | no | Why confidence is not `high`: `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch`, `unpinned_rolling_tag`. |
 
 An Arrow's **origin** is derived from it: `inferred` when `generator.name` is non-empty,
 `declared` otherwise. Hand-written manifests should omit `generator:`; the API reports any

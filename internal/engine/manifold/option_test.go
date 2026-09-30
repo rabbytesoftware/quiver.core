@@ -50,6 +50,7 @@ targets:
 
 type stubFletcher struct {
 	raw    []byte
+	ref    string
 	err    error
 	causes []error
 }
@@ -58,12 +59,12 @@ func (s *stubFletcher) Recover(
 	_ context.Context,
 	_ domain.Namespace,
 	cause error,
-) ([]byte, string, error) {
+) ([]byte, string, string, error) {
 	s.causes = append(s.causes, cause)
 	if s.err != nil {
-		return nil, "", s.err
+		return nil, "", "", s.err
 	}
-	return s.raw, "ARROW.md", nil
+	return s.raw, "ARROW.md", s.ref, nil
 }
 
 func withStubFletcher(
@@ -217,12 +218,12 @@ func (f *refFletcher) Recover(
 	_ context.Context,
 	ns domain.Namespace,
 	cause error,
-) ([]byte, string, error) {
+) ([]byte, string, string, error) {
 	f.asked = append(f.asked, ns)
 	if ns.Ref() != f.draftable {
-		return nil, "", cause
+		return nil, "", "", cause
 	}
-	return []byte(inferredArrow), "ARROW.md", nil
+	return []byte(inferredArrow), "ARROW.md", ns.Ref(), nil
 }
 
 // A release is published under its tag, never under the commit the tag
@@ -313,4 +314,24 @@ func TestSnapshotReleases(t *testing.T) {
 			assert.Equal(t, ChannelsOf(tc.snap), channels)
 		})
 	}
+}
+
+func TestResolveArrow_FletcherDraftedFromAnotherRef_ArrowNamesThatRef(t *testing.T) {
+	fl := &stubFletcher{raw: []byte(inferredArrow), ref: "v1.2.0"}
+	m := withStubFletcher(t, NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil), fl)
+
+	arrow, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/acme/tool@main"))
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/acme/tool@v1.2.0"), arrow.Namespace)
+}
+
+func TestResolveArrow_FletcherEnabled_WithoutARefLeavesTheNamespaceUnset(t *testing.T) {
+	fl := &stubFletcher{raw: []byte(inferredArrow)}
+	m := withStubFletcher(t, NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil), fl)
+
+	arrow, _, _, err := m.ResolveArrow(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"))
+
+	require.NoError(t, err)
+	assert.Empty(t, arrow.Namespace)
 }

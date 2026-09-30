@@ -20,6 +20,8 @@ type Pick struct {
 	Match     Match
 	NameMatch bool
 	GUI       bool
+	Product   string
+	Accepted  bool
 }
 
 type Format string
@@ -111,18 +113,27 @@ func (p *picker) Pick(
 		return Pick{}, false
 	}
 
+	gui := p.shipsGUI(assets)
 	ranked := canonical(rank(candidates, id))
+	if distinctStems(ranked) > 1 {
+		ranked = preferPackaging(ranked, gui, t)
+	}
 	if distinctStems(ranked) != 1 {
 		return Pick{}, false
 	}
 
 	chosen := ranked[0]
+	if chosen.arch == archNone && match == MatchExact {
+		match = MatchAssumed
+	}
 	return Pick{
 		Asset:     chosen.asset,
 		Format:    chosen.format,
 		Match:     match,
 		NameMatch: id.owns(chosen) && id.accepts(chosen),
-		GUI:       p.shipsGUI(assets),
+		GUI:       gui,
+		Product:   chosen.product,
+		Accepted:  id.accepts(chosen),
 	}, true
 }
 

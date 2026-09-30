@@ -40,3 +40,12 @@ type ListArrowsFn func(ctx context.Context) ([]models.ArrowView, error)
 // ListRuntimeAggregatesFn returns the namespaces of every runtime aggregate
 // that currently has events in the runtime event store.
 type ListRuntimeAggregatesFn func(ctx context.Context) ([]domain.Namespace, error)
+
+// RefreshManifestFn resolves ns's manifest again from its host, at the
+// release the method is running — the installed one for an install, the
+// update's target for an update — and stages it on the row.
+type RefreshManifestFn func(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+) error

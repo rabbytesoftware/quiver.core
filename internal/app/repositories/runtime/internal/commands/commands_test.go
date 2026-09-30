@@ -625,6 +625,28 @@ func TestAdvanceStep_WithError_SetsErrorField(t *testing.T) {
 	assert.Equal(t, errStr, *got.Execution.Steps[0].Error)
 }
 
+func TestAdvanceStep_WithNote_SetsNoteField(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := testNs()
+
+	seedRuntime(t, ax, ns, domainStep.StepList{domainStep.NewRunStep("step 0", "true", false, "", true)})
+
+	note := "nothing exposed: no executable found"
+	_, err := ax.Send(context.Background(), commands.AdvanceStep{
+		Namespace: ns,
+		StepIndex: 0,
+		ToStatus:  domainRuntime.StepStatusCompleted,
+		Note:      &note,
+	})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	require.NotNil(t, got.Execution.Steps[0].Note)
+	assert.Equal(t, note, *got.Execution.Steps[0].Note)
+	assert.Nil(t, got.Execution.Steps[0].Error)
+}
+
 func TestAdvanceStep_PreservesWorkDir(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()

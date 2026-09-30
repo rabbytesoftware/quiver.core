@@ -4,6 +4,7 @@ package search_test
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -160,7 +161,7 @@ func (s *SearchSuite) TestStream_Jobs_NeverSeeEachOthersResults() {
 	requireQuiet(s.T(), lumenConn)
 }
 
-func (s *SearchSuite) TestStream_LateSubscriber_GetsNothingAndTheResultsAreStillBanked() {
+func (s *SearchSuite) TestStream_LateSubscriber_ReplaysTheResultsThenClosesCleanly() {
 	prov := newStubProvider(fixtureHost).answer("widget", candidateFor("search-widget-beta", 1))
 	env := s.NewEnv(kit.WithProviders(prov))
 	tc := env.TypedClient(s.T())
@@ -170,9 +171,12 @@ func (s *SearchSuite) TestStream_LateSubscriber_GetsNothingAndTheResultsAreStill
 	summary := s.waitForCompleted(tc, job.JobID)
 	s.Require().Equal(1, summary.Verified)
 
-	// The stream is live but the pass is over, so there is nothing left to send.
 	conn := s.dialJob(env, job.JobID)
-	requireQuiet(s.T(), conn)
+	replayed := readResults(s.T(), conn, 1)
+	s.Contains(replayed, "quiver.test/quiver-test/search-widget-beta")
+	s.Require().NoError(conn.SetReadDeadline(time.Now().Add(quietWindow)))
+	_, _, err := conn.ReadMessage()
+	s.True(websocket.IsCloseError(err, websocket.CloseNormalClosure))
 
 	results, status := tc.Search("widget", kit.SearchParams{})
 	s.Equal(http.StatusOK, status)

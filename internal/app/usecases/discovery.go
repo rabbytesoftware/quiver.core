@@ -19,6 +19,11 @@ import (
 // single read to land.
 const jobGrace = 30 * time.Second
 
+// subscriberGrace is how long a running pass survives with nobody attached to
+// its stream. It bridges a reconnect: a client that drops and redials inside it
+// resumes the same pass and is replayed what it missed instead of restarting it.
+const subscriberGrace = 5 * time.Second
+
 // JobStatus is where a discovery pass is: still asking providers, or finished
 // and holding its summary until the grace elapses.
 type JobStatus string
@@ -45,7 +50,11 @@ type Job struct {
 // job id is routing metadata for the stream predicate, not a message variant —
 // the stream still carries exactly one payload type.
 type StreamItem struct {
-	JobID  string
+	JobID string
+	// Seq numbers the job's items from 1 in emission order. It is what lets a
+	// late subscriber's replay and the live feed be stitched without a
+	// duplicate or a gap.
+	Seq    uint64
 	Result discovery.Result
 }
 
@@ -70,6 +79,32 @@ type DiscoveryUsecase interface {
 		id string,
 	)
 
+	// Attach records a subscriber on the job's stream. A pass with no
+	// subscriber is cancelled once subscriberGrace elapses; attaching inside
+	// the grace keeps it running.
+	Attach(
+		id string,
+	)
+
+	// Detach is Attach's counterpart. The pass is cancelled only when the last
+	// subscriber has left and the grace has run out.
+	Detach(
+		id string,
+	)
+
+	// Replay returns every result the job has emitted so far, in order, so a
+	// subscriber that connected after the pass began still receives them.
+	Replay(
+		id string,
+	) []StreamItem
+
+	// Done is closed when the job has finished. It is already closed for a job
+	// that is finished or unknown, so a subscriber never waits on a pass that
+	// can no longer emit.
+	Done(
+		id string,
+	) <-chan struct{}
+
 	// OnResult registers a listener for verified results. Listeners accumulate;
 	// registering does not replace the previous one.
 	OnResult(
@@ -87,11 +122,17 @@ type session struct {
 	status    JobStatus
 	outcome   discovery.Outcome
 	expiresAt time.Time
+
+	items       []StreamItem
+	done        chan struct{}
+	subscribers int
+	idle        *time.Timer
 }
 
 type discoveryUsecase struct {
 	pipeline discovery.Discovery
 	now      func() time.Time
+	grace    time.Duration
 
 	mu        sync.Mutex
 	sessions  map[string]*session
@@ -112,6 +153,16 @@ func WithDiscoveryClock(
 	}
 }
 
+// WithDiscoverySubscriberGrace overrides how long a pass outlives its last
+// subscriber, so tests do not wait out the production value.
+func WithDiscoverySubscriberGrace(
+	grace time.Duration,
+) DiscoveryOption {
+	return func(d *discoveryUsecase) {
+		d.grace = grace
+	}
+}
+
 // NewDiscoveryUsecase wraps the discovery pipeline in a job lifecycle. A nil
 // pipeline is accepted and reported per request, because a container built
 // without a vault or a manifold has no discovery at all and must still serve
@@ -123,6 +174,7 @@ func NewDiscoveryUsecase(
 	uc := &discoveryUsecase{
 		pipeline: pipeline,
 		now:      time.Now,
+		grace:    subscriberGrace,
 		sessions: make(map[string]*session),
 	}
 	for _, opt := range opts {
@@ -156,6 +208,7 @@ func (d *discoveryUsecase) Start(
 		cancel:    cancel,
 		status:    JobRunning,
 		expiresAt: now.Add(jobGrace),
+		done:      make(chan struct{}),
 	}
 
 	d.mu.Lock()
@@ -201,6 +254,79 @@ func (d *discoveryUsecase) Cancel(
 	s.cancel()
 }
 
+func (d *discoveryUsecase) Attach(
+	id string,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	s, ok := d.sessions[id]
+	if !ok {
+		return
+	}
+	s.subscribers++
+	if s.idle != nil {
+		s.idle.Stop()
+		s.idle = nil
+	}
+}
+
+func (d *discoveryUsecase) Detach(
+	id string,
+) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	s, ok := d.sessions[id]
+	if !ok || s.subscribers == 0 {
+		return
+	}
+	s.subscribers--
+	if s.subscribers > 0 || s.status != JobRunning {
+		return
+	}
+	s.idle = time.AfterFunc(d.grace, func() { d.cancelIfAbandoned(s) })
+}
+
+func (d *discoveryUsecase) cancelIfAbandoned(
+	s *session,
+) {
+	d.mu.Lock()
+	abandoned := s.subscribers == 0 && s.status == JobRunning
+	d.mu.Unlock()
+
+	if abandoned {
+		s.cancel()
+	}
+}
+
+func (d *discoveryUsecase) Replay(
+	id string,
+) []StreamItem {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	s, ok := d.sessions[id]
+	if !ok {
+		return nil
+	}
+	return append([]StreamItem(nil), s.items...)
+}
+
+func (d *discoveryUsecase) Done(
+	id string,
+) <-chan struct{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if s, ok := d.sessions[id]; ok {
+		return s.done
+	}
+	closed := make(chan struct{})
+	close(closed)
+	return closed
+}
+
 func (d *discoveryUsecase) OnResult(
 	emit func(StreamItem),
 ) {
@@ -221,7 +347,7 @@ func (d *discoveryUsecase) run(
 ) {
 	defer s.cancel()
 
-	outcome, err := d.pipeline.Discover(ctx, s.query, d.emitter(s.id))
+	outcome, err := d.pipeline.Discover(ctx, s.query, d.emitter(s))
 	if err != nil {
 		slog.WarnContext(ctx, "discovery: pass failed", "job", s.id, "err", err)
 	}
@@ -231,18 +357,27 @@ func (d *discoveryUsecase) run(
 	s.status = JobCompleted
 	s.outcome = outcome
 	s.expiresAt = d.now().Add(jobGrace)
+	if s.idle != nil {
+		s.idle.Stop()
+	}
+	close(s.done)
 }
 
 func (d *discoveryUsecase) emitter(
-	id string,
+	s *session,
 ) func(discovery.Result) {
 	return func(result discovery.Result) {
 		d.mu.Lock()
+		item := StreamItem{
+			JobID:  s.id,
+			Seq:    uint64(len(s.items)) + 1,
+			Result: result,
+		}
+		s.items = append(s.items, item)
 		listeners := make([]func(StreamItem), len(d.listeners))
 		copy(listeners, d.listeners)
 		d.mu.Unlock()
 
-		item := StreamItem{JobID: id, Result: result}
 		for _, emit := range listeners {
 			emit(item)
 		}

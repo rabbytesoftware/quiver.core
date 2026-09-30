@@ -4,6 +4,7 @@ package kit
 
 import (
 	"encoding/json"
+	"io"
 	"testing"
 
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
@@ -87,6 +88,18 @@ func (tc *TypedClient) GetManifest(ns string) (dto.ArrowManifestDTO, int) {
 		tc.t.Fatalf("TypedClient.GetManifest: decode: %v", err)
 	}
 	return env.Data, resp.StatusCode
+}
+
+// GetSub returns the status code and raw body of one of an arrow's detail
+// sub-resources.
+func (tc *TypedClient) GetSub(ns, sub string) (int, []byte) {
+	resp := tc.raw.GetSub(ns, sub)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		tc.t.Fatalf("TypedClient.GetSub %s: read: %v", sub, err)
+	}
+	return resp.StatusCode, body
 }
 
 // Update patches the arrow manifest and returns the HTTP status code.
@@ -247,6 +260,29 @@ func (tc *TypedClient) Discover(query string) (dto.DiscoveryJobStartedDTO, int) 
 		tc.t.Fatalf("TypedClient.Discover: decode: %v", err)
 	}
 	return env.Data, resp.StatusCode
+}
+
+// Home returns the home shelves and the HTTP status code.
+func (tc *TypedClient) Home() (dto.HomeDTO, int) {
+	resp := tc.raw.Home()
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.HomeDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Home: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// RefreshHome asks for the home shelves to be rebuilt and returns the HTTP
+// status code and the response body, which is empty on success.
+func (tc *TypedClient) RefreshHome() (int, []byte) {
+	resp := tc.raw.RefreshHome()
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		tc.t.Fatalf("TypedClient.RefreshHome: read body: %v", err)
+	}
+	return resp.StatusCode, body
 }
 
 // DiscoveryJob returns the job summary and the HTTP status code.

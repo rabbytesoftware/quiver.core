@@ -49,6 +49,26 @@ func TestStepProgress_JSONRoundTrip_WithError(t *testing.T) {
 	assert.Nil(t, got.Step)
 }
 
+func TestStepProgress_JSONRoundTrip_WithNote(t *testing.T) {
+	note := "nothing exposed: no executable found"
+	data, err := json.Marshal(StepProgress{Index: 1, Status: StepStatusCompleted, Note: &note})
+	require.NoError(t, err)
+
+	var got StepProgress
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	require.NotNil(t, got.Note)
+	assert.Equal(t, note, *got.Note)
+	assert.Nil(t, got.Error)
+}
+
+func TestStepProgress_MarshalJSON_OmitsAbsentNote(t *testing.T) {
+	data, err := json.Marshal(StepProgress{Index: 1, Status: StepStatusCompleted})
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(data), "Note")
+}
+
 func TestStepProgress_JSONRoundTrip_NilStep(t *testing.T) {
 	original := StepProgress{
 		Index:  1,

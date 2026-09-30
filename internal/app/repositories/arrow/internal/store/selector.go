@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 // ExistsFunc reports whether identity already has a catalog row.
@@ -19,7 +21,8 @@ type ExistsFunc func(ctx context.Context, identity domain.Namespace) (bool, erro
 type InstallOption func(*installOpts)
 
 type installOpts struct {
-	exists ExistsFunc
+	exists  ExistsFunc
+	preview bool
 }
 
 // CacheWhenAbsent caches the resolved manifest under the identity, but only
@@ -29,6 +32,16 @@ func CacheWhenAbsent(
 ) InstallOption {
 	return func(o *installOpts) {
 		o.exists = exists
+	}
+}
+
+// Preview serves a read-only preview from a fresh vault entry at the ref the
+// selector points at, so a manifest discovery cached there is not fetched or
+// drafted again, and caches nothing itself. An install never takes it: it
+// reads the manifest at the exact commit it records.
+func Preview() InstallOption {
+	return func(o *installOpts) {
+		o.preview = true
 	}
 }
 
@@ -47,11 +60,11 @@ func (r *storeService) ResolveInstall(
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}
 
-	arrow, err := r.installAt(ctx, identity, kind, snap, o.exists)
+	arrow, err := r.installAt(ctx, identity, kind, snap, o)
 	if err == nil || ns.Ref() != "" || !errors.Is(err, apperrors.ErrNotFound) {
 		return identity, arrow, err
 	}
-	if fallback, arrow, ok := r.installFallback(ctx, ns, identity.Ref(), snap, o.exists); ok {
+	if fallback, arrow, ok := r.installFallback(ctx, ns, identity.Ref(), snap, o); ok {
 		return fallback, arrow, nil
 	}
 	return identity, nil, err
@@ -62,14 +75,14 @@ func (r *storeService) installAt(
 	identity domain.Namespace,
 	kind domain.SelectorKind,
 	snap domain.RefSnapshot,
-	exists ExistsFunc,
+	o installOpts,
 ) (*domain.Arrow, error) {
 	target, err := manifold.Target(kind, identity.Ref(), snap)
 	if err != nil {
 		return nil, fmt.Errorf("reader resolve install %s: %w: %w", identity, targetSentinel(kind), err)
 	}
 
-	arrow, err := r.fetchAtCommit(ctx, identity, target, exists)
+	arrow, err := r.readTarget(ctx, identity, target, o)
 	if err != nil {
 		return nil, fmt.Errorf("reader resolve install %s: %w", identity, err)
 	}
@@ -87,7 +100,7 @@ func (r *storeService) installFallback(
 	ns domain.Namespace,
 	tried string,
 	snap domain.RefSnapshot,
-	exists ExistsFunc,
+	o installOpts,
 ) (domain.Namespace, *domain.Arrow, bool) {
 	for _, selector := range fallbackSelectors(snap, tried) {
 		kind, err := manifold.ClassifySelector(selector, snap)
@@ -95,7 +108,7 @@ func (r *storeService) installFallback(
 			continue
 		}
 		identity := ns.WithRef(selector)
-		if arrow, err := r.installAt(ctx, identity, kind, snap, exists); err == nil {
+		if arrow, err := r.installAt(ctx, identity, kind, snap, o); err == nil {
 			return identity, arrow, true
 		}
 	}
@@ -107,7 +120,7 @@ func fallbackSelectors(
 	tried string,
 ) []string {
 	selectors := []string{tried}
-	for _, channel := range manifold.ChannelsOf(snap) {
+	for _, channel := range resolvers.NewestFirst(manifold.ChannelsOf(snap)) {
 		if !channel.IsDefaultBranchFallback && !slices.Contains(selectors, channel.Name) {
 			selectors = append(selectors, channel.Name)
 		}
@@ -182,6 +195,40 @@ func targetSentinel(
 		return apperrors.ErrNotFound
 	}
 	return apperrors.ErrInvalidNamespace
+}
+
+func (r *storeService) readTarget(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+	o installOpts,
+) (*domain.Arrow, error) {
+	if o.preview {
+		if cached, ok := r.cachedAt(ctx, identity.WithRef(target.Ref)); ok {
+			return cached, nil
+		}
+		return r.fetchAtCommit(ctx, identity, target, nil)
+	}
+	return r.fetchAtCommit(ctx, identity, target, o.exists)
+}
+
+// cachedAt is the manifest the vault holds, still fresh, for ns.
+func (r *storeService) cachedAt(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, bool) {
+	if r.vault == nil {
+		return nil, false
+	}
+	file, err := r.vault.GetArrow(ctx, ns)
+	if err != nil {
+		return nil, false
+	}
+	arrow, err := r.manifold.ParseArrow(file.Content)
+	if err != nil {
+		return nil, false
+	}
+	return arrow, true
 }
 
 // fetchAtCommit caches the manifest under the identity, not under the
@@ -292,5 +339,25 @@ func (r *storeService) CheckDrift(
 	if !outdated {
 		return nil, true
 	}
-	return &target, true
+	return r.verifyTarget(ctx, arrow.Namespace, target)
+}
+
+// verifyTarget offers target only once its manifest resolves: an update that
+// cannot be fetched is never offered. A definitive absence reads as up to
+// date; any other failure leaves the answer unknown.
+func (r *storeService) verifyTarget(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) (*domain.Available, bool) {
+	_, _, _, err := r.manifold.ResolveArrowAtCommit(ctx, identity, target.Ref, target.Commit)
+	if err == nil {
+		return &target, true
+	}
+	slog.DebugContext(ctx, "version drift: target does not resolve",
+		"ns", identity, "ref", target.Ref, "err", err)
+	if errors.Is(wrapManifoldErr("verify target", err), apperrors.ErrNotFound) {
+		return nil, true
+	}
+	return nil, false
 }

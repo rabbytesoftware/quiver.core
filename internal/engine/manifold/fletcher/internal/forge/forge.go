@@ -28,6 +28,7 @@ type Input struct {
 	Readme      string
 	Generator   domain.ArrowGenerator
 	Picks       map[domain.OS]picker.Pick
+	Unpinned    bool
 }
 
 func Render(

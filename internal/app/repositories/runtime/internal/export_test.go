@@ -57,3 +57,16 @@ func RecoverRunning(
 ) {
 	recoverRunning(ctx, ns, rt, axRuntime, w)
 }
+
+// SuperviseExecution exposes superviseExecution for tests.
+func SuperviseExecution(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	req wizardPkg.RunRequest,
+	executionID string,
+	hooks CatalogHooks,
+	w wizardPkg.Wizard,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) {
+	superviseExecution(ctx, exec, req, executionID, hooks, w, axRuntime)
+}

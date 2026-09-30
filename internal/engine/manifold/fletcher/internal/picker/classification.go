@@ -86,7 +86,8 @@ func (p *picker) classify(
 		return classification{}, false
 	}
 
-	family, ok := p.familyOf(name)
+	described := strings.TrimSpace(name + " " + strings.ToLower(asset.Label))
+	family, ok := p.familyOf(name, described)
 	if !ok {
 		return classification{}, false
 	}
@@ -96,7 +97,7 @@ func (p *picker) classify(
 	return classification{
 		asset:      asset,
 		family:     family,
-		arch:       p.archOf(name),
+		arch:       p.archOf(described),
 		format:     format,
 		musl:       strings.Contains(name, musl),
 		exe:        strings.HasSuffix(name, exeSuffix),
@@ -140,11 +141,12 @@ func (p *picker) formatOf(
 
 func (p *picker) familyOf(
 	name string,
+	described string,
 ) (string, bool) {
 	if implied, ok := firstMatch(p.impliedFamilies, name); ok {
 		return implied, true
 	}
-	matched := allMatches(p.families, name)
+	matched := allMatches(p.families, described)
 	if len(matched) != 1 {
 		return "", false
 	}
@@ -166,9 +168,20 @@ func (p *picker) productTokens(
 		if p.known.MatchString(token) || p.exoticArch.MatchString(token) || p.channel.MatchString(token) {
 			continue
 		}
-		tokens = append(tokens, token)
+		tokens = append(tokens, withoutInstallerWord(token))
 	}
 	return tokens
+}
+
+func withoutInstallerWord(
+	token string,
+) string {
+	for _, word := range []string{setupWord, installerWord} {
+		if trimmed, found := strings.CutSuffix(token, word); found && trimmed != "" {
+			return trimmed
+		}
+	}
+	return token
 }
 
 func (p *picker) companionsOf(

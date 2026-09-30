@@ -754,3 +754,69 @@ func TestCheckDrift_ReadsTheRemoteLive(t *testing.T) {
 	assert.Equal(t, &domain.Available{Ref: "nightly", Commit: "cnew"}, available)
 	assert.Zero(t, m.SnapshotCalls)
 }
+
+// An update whose manifest cannot be fetched is never offered.
+func TestCheckDrift_TargetMustResolve(t *testing.T) {
+	testCases := []struct {
+		name          string
+		fetchErr      error
+		wantAvailable *domain.Available
+		wantOK        bool
+	}{
+		{name: "resolves", wantAvailable: &domain.Available{Ref: "nightly", Commit: "cnew"}, wantOK: true},
+		{name: "definitively absent reads as current", fetchErr: manifoldresolver.ErrNotFound, wantOK: true},
+		{name: "unreachable is unknown", fetchErr: manifoldresolver.ErrFetchFailed},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked []commitFetch
+			m := &mocks.Manifold{
+				SnapshotResult: domain.RefSnapshot{Tags: map[string]string{"nightly": "cnew"}},
+				ResolveArrowAtCommitFn: func(
+					_ context.Context,
+					ns domain.Namespace,
+					ref string,
+					commit string,
+				) (*domain.Arrow, []byte, string, error) {
+					asked = append(asked, commitFetch{ns: ns, ref: ref, commit: commit})
+					return &domain.Arrow{}, nil, "", tc.fetchErr
+				},
+			}
+			r := newTestReaderWithVaultManifold(t, nil, m)
+			row := domain.Arrow{
+				Namespace:    selectorBare.WithRef("nightly"),
+				SelectorKind: domain.SelectorChannel,
+				Resolved:     domain.Resolved{Ref: "nightly", Commit: "cold"},
+			}
+
+			available, ok := r.CheckDrift(context.Background(), row)
+
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantAvailable, available)
+			assert.Equal(t, []commitFetch{{ns: row.Namespace, ref: "nightly", commit: "cnew"}}, asked)
+		})
+	}
+}
+
+// A preview reads the manifest at the selector's target through the vault, so
+// what discovery cached there is shown without another fetch.
+func TestResolveManifest_UncataloguedPreview_ReadsTheVaultAtTheTarget(t *testing.T) {
+	snap := selectorSnapshot()
+	v := &mocks.Vault{GetArrowFile: vault.ManifestFile{Content: []byte("cached")}}
+	m := &mocks.Manifold{
+		SnapshotResult:   snap,
+		ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "crowbar"}},
+		ResolveArrowAtCommitFn: func(context.Context, domain.Namespace, string, string) (*domain.Arrow, []byte, string, error) {
+			t.Fatal("a preview must not fetch at the commit")
+			return nil, nil, "", nil
+		},
+	}
+	r := newTestReaderWithVaultManifold(t, v, m)
+
+	arrow, err := r.ResolveManifest(context.Background(), selectorBare)
+
+	require.NoError(t, err)
+	assert.Equal(t, selectorBare.WithRef("stable"), arrow.Namespace)
+	assert.Equal(t, "crowbar", arrow.Name)
+	assert.Equal(t, domain.Resolved{Ref: "v2.0.0", Commit: "c200", Fingerprint: "c200"}, arrow.Resolved)
+}

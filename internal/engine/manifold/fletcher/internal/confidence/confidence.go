@@ -13,6 +13,7 @@ const (
 	WarningEmulated             = "emulated"
 	WarningWindowsExeUnverified = "windows_exe_unverified"
 	WarningNameMismatch         = "name_mismatch"
+	WarningUnpinnedRollingTag   = "unpinned_rolling_tag"
 )
 
 type Confidence string
@@ -25,19 +26,32 @@ const (
 
 func Assess(
 	picks map[domain.OS]picker.Pick,
-) (Confidence, []string) {
+	rolling bool,
+) Assessment {
+	kept, dropped := consistent(picks)
 	var raised []string
-	for platform, pick := range picks {
+	for platform, pick := range kept {
 		raised = append(raised, pickWarnings(platform, pick)...)
 	}
+	if dropped {
+		raised = append(raised, WarningNameMismatch)
+	}
+	if rolling {
+		raised = append(raised, WarningUnpinnedRollingTag)
+	}
 	warnings := ordered(raised)
-	return levelOf(warnings), warnings
+	return Assessment{
+		Level:    levelOf(len(kept), warnings),
+		Warnings: warnings,
+		Picks:    kept,
+	}
 }
 
 func levelOf(
+	kept int,
 	warnings []string,
 ) Confidence {
-	if slices.Contains(warnings, WarningNameMismatch) {
+	if kept == 0 {
 		return ConfidenceLow
 	}
 	if len(warnings) > 0 {
@@ -55,6 +69,7 @@ func ordered(
 		WarningEmulated,
 		WarningWindowsExeUnverified,
 		WarningNameMismatch,
+		WarningUnpinnedRollingTag,
 	} {
 		if slices.Contains(raised, warning) {
 			warnings = append(warnings, warning)

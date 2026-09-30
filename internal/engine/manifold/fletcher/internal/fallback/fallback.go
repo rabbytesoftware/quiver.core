@@ -37,21 +37,21 @@ func (f *fallback) Recover(
 	ctx context.Context,
 	ns domain.Namespace,
 	cause error,
-) ([]byte, string, error) {
+) ([]byte, string, string, error) {
 	if !errors.Is(cause, resolver.ErrManifestNotFound) || ns.BareNamespace().IsQuiverHosted() {
-		return nil, "", cause
+		return nil, "", "", cause
 	}
-	draft, err := f.draftAcrossTags(ctx, ns)
+	draft, ref, err := f.draftAcrossTags(ctx, ns)
 	if err != nil {
-		return nil, "", fmt.Errorf("fletcher: fallback %s: %w", ns, fetchFailure(err))
+		return nil, "", "", fmt.Errorf("fletcher: fallback %s: %w", ns, fetchFailure(err))
 	}
-	return draft, inferredFilename, nil
+	return draft, inferredFilename, ref, nil
 }
 
 func (f *fallback) draftAcrossTags(
 	ctx context.Context,
 	ns domain.Namespace,
-) ([]byte, error) {
+) ([]byte, string, error) {
 	ref := ns.Ref()
 	if ref == "" {
 		return f.draftFromReleases(ctx, ns, ref)
@@ -59,7 +59,7 @@ func (f *fallback) draftAcrossTags(
 
 	draft, err := f.drafter.Draft(ctx, ns, ref)
 	if !releaseMissing(err) || !f.isBranch(ctx, ns, ref) {
-		return draft, err
+		return draft, ref, err
 	}
 	return f.draftFromReleases(ctx, ns, ref)
 }
@@ -68,7 +68,7 @@ func (f *fallback) draftFromReleases(
 	ctx context.Context,
 	ns domain.Namespace,
 	tried string,
-) ([]byte, error) {
+) ([]byte, string, error) {
 	err := error(models.NotFletchableError{Reason: models.ReasonNoReleaseAssets})
 	var lookupErr error
 	seen := map[string]bool{"": true, tried: true}
@@ -83,15 +83,15 @@ func (f *fallback) draftFromReleases(
 
 		draft, runErr := f.drafter.Draft(ctx, ns, tag)
 		if !releaseMissing(runErr) {
-			return draft, runErr
+			return draft, tag, runErr
 		}
 		err = runErr
 	}
 
 	if lookupErr != nil {
-		return nil, lookupErr
+		return nil, "", lookupErr
 	}
-	return nil, err
+	return nil, "", err
 }
 
 func (f *fallback) releaseSources() []func(context.Context, domain.Namespace) (string, error) {

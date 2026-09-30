@@ -127,6 +127,11 @@ func TestDefaultChannel(t *testing.T) {
 			want: "rc",
 		},
 		{
+			name: "the newest channel over an alphabetically earlier one",
+			snap: domain.RefSnapshot{Tags: map[string]string{"v0.0.4-alpha.1": "a", "v0.0.44-beta.3": "b"}},
+			want: "beta",
+		},
+		{
 			name: "first pointer channel when only pointer tags exist",
 			snap: domain.RefSnapshot{Tags: map[string]string{"nightly": "b", "edge": "c"}, Branches: map[string]string{"main": "d"}, Head: "main"},
 			want: "edge",

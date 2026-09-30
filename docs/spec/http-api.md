@@ -198,11 +198,11 @@ The DTO (`ArrowDetailDTO`) carries: `namespace`, `name`, `description`, `license
 |---|---|
 | `generator` | Heuristics that produced the manifest, e.g. `fletcher/1` |
 | `confidence` | `high` \| `medium` \| `low` |
-| `warnings` | Omitted when empty; any of `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch` |
+| `warnings` | Omitted when empty; any of `assumed_arch`, `emulated`, `windows_exe_unverified`, `name_mismatch`, `unpinned_rolling_tag` |
 
 The arrow list items (`GET /arrow`) carry `origin` (always present) and `confidence` (omitted unless the arrow is inferred); discovery search results carry both, each omitted when empty. Search results from the vault lane (arrows Quiver has cached but not catalogued) report them too: the vault index stores the generator name and confidence.
 
-**Expose results.** Exposure is reported as ordinary steps of the run. An `_install` or `_update` of an arrow that declares `expose` entries ends with one step of type `expose` per entry (title `Expose <kind> <name>`): `completed` when the entry was placed, or when an `auto` entry resolved to nothing; `failed`, with the reason in `error`, when Quiver declined it — for example a name owned by another arrow or by the user. A failed `expose` step never fails the run. An `_uninstall` of such an arrow starts with one step of type `unexpose` (`Remove exposed entries`).
+**Expose results.** Exposure is reported as ordinary steps of the run. An `_install` or `_update` of an arrow that declares `expose` entries ends with one step of type `expose` per entry (title `Expose <kind> <name>`): `completed` when the entry was placed; `completed` with a `note` (for example `nothing exposed: no executable found`) and no `error` when an `auto` entry resolved to nothing — expected when a manifest declares both a `cli` and a `desktop` `auto` entry and the archive holds only one; `failed`, with the reason in `error`, when Quiver declined it — for example a name owned by another arrow or by the user. A failed `expose` step never fails the run. An `_uninstall` of such an arrow starts with one step of type `unexpose` (`Remove exposed entries`).
 
 An uncatalogued namespace resolves live, the way an add would, and reports state `absent` and the `selector_kind` an add would record (best-effort: a remote whose refs cannot be listed leaves it `pin`). Reading a catalogued row whose last version check is older than `arrows.version_check_ttl` launches a new check in the background; the response does not wait for it. Errors: 404 (not found), 422, 502 (fetch failed), 500.
 
@@ -305,7 +305,55 @@ Returns **202 Accepted** with the mutation envelope as soon as the use case laye
 
 Pure WebSocket endpoints — `dispatch` is not used because there is no REST equivalent. The handler upgrades unconditionally and pushes `ArrowRuntimeDTO` for matching events. The namespace path acts as a **glob filter** — `*` and `?` patterns are honoured by the broadcaster's filter system (see `internal/api/ws/filter.go`). The DTO carries `namespace`, `state`, `active_run`, and `last_return`. A plain (non-upgraded) `GET` answers the same DTO as a snapshot, and adds `settling: true` for a row whose update has not committed yet ([manifests/v0/versioning.md §8](manifests/v0/versioning.md)). `settling` is a REST-only field: WebSocket events never carry it, so an idle decision (such as the CLI stopping a daemon it booted) must use the REST runtime read. See [websocket.md](websocket.md) for connection semantics, ping/pong, and DTO field details.
 
-### 6.4 Health
+### 6.4 Search
+
+Registered from `internal/api/v0/endpoints/search/routes.go`.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/search?q=&limit=&os=` | Offline search over the catalog and the vault index ("Lane A") |
+| POST | `/search/discover` | Start a network discovery pass; **202** with a job id |
+| GET | `/search/discover/{job}` | Job summary; with `Upgrade: websocket`, the result stream ([websocket.md § 3.4](websocket.md)) |
+
+**Matching (Lane A, vault lane).** The query is split on whitespace. A vault row matches when every token appears, case-insensitively, as a substring of the arrow's namespace (so the owner and repository name count), name, description, or one of its tags. Trigram FTS only ranks the matches (name above tags above description, then stars); rows it cannot score rank after those it can. This is why a one- or two-character query, a multi-word query, or an arrow whose only match is its repository name is found, and why an arrow a discovery pass indexed is found again by the query that discovered it. The catalog lane still uses a single trigram phrase over name, description and tags.
+
+**Limit.** `limit` (default 25, cap 100) counts arrows, not refs: the vault lane keeps every ref of the best-ranked bare namespaces, and the merged answer is cut to `limit` only after ranking and grouping.
+
+**OS filter.** `os` selects arrows whose compiled targets include that platform, in both lanes. The discovery stream applies the same rule to its own results through `?os=` on the WebSocket, so passing the same value to both keeps them consistent.
+
+**Stream vs. re-query.** Every result a discovery pass streams has been written to the vault index before it is emitted, so the re-query for the same text (same `os`, `limit` large enough for the result set) returns it, keyed by the same bare `namespace`. The stream is unranked and its rows describe only what the pass knew; clients replace it with the re-query once the stream closes. A contract test (`internal/api/v0/dto/search_contract_test.go`) pins the shared key.
+
+#### 6.4.1 Home
+
+Registered from `internal/api/v0/endpoints/home/routes.go`. Query-less recommendations for the desktop home, served from a local snapshot.
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/home` | The shelves and whether a refresh is running |
+| POST | `/home/refresh` | Start a refresh; **202** with no body |
+
+`GET /home` answers from the local snapshot and the vault index and never reaches a git host, so it is instant and works offline. Body, wrapped like every query:
+
+```json
+{
+  "success": true,
+  "data": {
+    "shelves": [
+      {
+        "id": "popular",
+        "title": "Popular",
+        "refreshed_at": "2026-09-30T12:00:00Z",
+        "arrows": []
+      }
+    ],
+    "refreshing": false
+  }
+}
+```
+
+`arrows` holds one `SearchResultDTO` each, the same shape `GET /search` returns (`installed` says the catalog holds the arrow; `source` is provenance data, not a label). `refreshed_at` is `null` for a shelf that has never been filled. `shelves` is `[]` when `recommendation.enabled` is false. A client titles a shelf by `title` only and never names a host. `POST /home/refresh` joins a refresh already running; progress is read by polling `GET /home` while `refreshing` is true. Both answer **503** when the daemon was built without discovery. Configuration and refresh algorithm: [usecases.md § 2.5](usecases.md).
+
+### 6.5 Health
 
 A single liveness probe with no envelope. Used by container orchestrators and the Quiver electron client to verify the daemon is running.
 
@@ -313,7 +361,7 @@ A single liveness probe with no envelope. Used by container orchestrators and th
 |---|---|---|
 | GET | `/health` | **200 OK** with `{"status":"ok"}` (no envelope) |
 
-### 6.5 System
+### 6.6 System
 
 Registered from `internal/api/v0/endpoints/system/routes.go`.
 

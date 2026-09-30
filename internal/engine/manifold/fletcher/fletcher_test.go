@@ -68,10 +68,27 @@ func (h *pageHost) BlobFileURL(
 	return "https://github.com/acme/tool/blob/" + ref + "/" + file, nil
 }
 
+func (h *pageHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (h *pageHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return h.server.URL + pagePath
+}
+
+func (h *pageHost) DefaultBranches() []string {
+	return []string{"main"}
+}
+
+func (h *pageHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (h *pageHost) ReleaseAssets(
@@ -112,7 +129,7 @@ func manifestMissing() error {
 func TestNew_UnknownHostIsAMissingManifest(t *testing.T) {
 	fl := fletcher.New(nil, noReleases{}, time.Second)
 
-	raw, _, err := fl.Recover(context.Background(), domain.Namespace("example.org/acme/tool@v1.0.0"), manifestMissing())
+	raw, _, _, err := fl.Recover(context.Background(), domain.Namespace("example.org/acme/tool@v1.0.0"), manifestMissing())
 
 	assert.Nil(t, raw)
 	assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
@@ -126,7 +143,7 @@ func TestNew_AnyOtherFailurePassesThrough(t *testing.T) {
 	cause := fmt.Errorf("%w: HTTP 503", resolver.ErrFetchFailed)
 	fl := fletcher.New(nil, noReleases{}, time.Second)
 
-	_, _, err := fl.Recover(context.Background(), testNS, cause)
+	_, _, _, err := fl.Recover(context.Background(), testNS, cause)
 
 	assert.Same(t, cause, err)
 }
@@ -137,7 +154,7 @@ func TestNew_ExplicitTimeoutBoundsEveryFetch(t *testing.T) {
 	})
 	fl := fletcher.New(lookup, noReleases{}, 50*time.Millisecond)
 
-	raw, _, err := fl.Recover(context.Background(), testNS, manifestMissing())
+	raw, _, _, err := fl.Recover(context.Background(), testNS, manifestMissing())
 
 	assert.Nil(t, raw)
 	assert.ErrorIs(t, err, resolver.ErrFetchFailed)
@@ -150,7 +167,7 @@ func TestNew_ZeroTimeoutFallsBackToTheResolverDefault(t *testing.T) {
 	})
 	fl := fletcher.New(lookup, noReleases{}, 0)
 
-	raw, filename, err := fl.Recover(context.Background(), testNS, manifestMissing())
+	raw, filename, _, err := fl.Recover(context.Background(), testNS, manifestMissing())
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, raw)

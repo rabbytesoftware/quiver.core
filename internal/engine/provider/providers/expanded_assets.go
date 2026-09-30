@@ -79,9 +79,10 @@ func assetFromItem(
 		return domain.ReleaseAsset{}, false
 	}
 
-	name := path.Base(href)
-	if text != "" {
-		name = text
+	name := fileName(href)
+	label := ""
+	if text != name {
+		label = text
 	}
 
 	digest := ""
@@ -91,9 +92,20 @@ func assetFromItem(
 
 	return domain.ReleaseAsset{
 		Name:   name,
+		Label:  label,
 		URL:    resolveHref(base, href),
 		Digest: digest,
 	}, true
+}
+
+func fileName(
+	href string,
+) string {
+	name := path.Base(href)
+	if unescaped, err := url.PathUnescape(name); err == nil {
+		return unescaped
+	}
+	return name
 }
 
 func resolveHref(

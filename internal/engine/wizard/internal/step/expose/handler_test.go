@@ -65,7 +65,7 @@ func TestHandler_Expose_AppliesTheBlockInOnePass(t *testing.T) {
 
 	errs := NewHandler(sh).Expose(context.Background(), request(), steps)
 
-	assert.Equal(t, []error{nil, nil, nil}, errs)
+	assert.Equal(t, []Result{{}, {}, {}}, errs)
 	assert.Equal(t, domain.Namespace("github.com/acme/tool@v1"), sh.ns)
 	assert.Equal(t, "/ns/github.com/acme/tool@v1", sh.workdir)
 	assert.Equal(t, domain.ArrowMedia{Icon: "/media.png"}, sh.media)
@@ -91,11 +91,24 @@ func TestHandler_Expose_ReportsEachEntry(t *testing.T) {
 		applied  shelf.Applied
 		applyErr error
 		wantIs   []error
+		wantNote []string
 	}{
 		{
 			name:    "placed and absent entries succeed, refused ones fail",
 			applied: shelf.Applied{Entries: []shelf.AppliedEntry{placedTool}, Refused: []shelf.Refusal{refusedApp}},
 			wantIs:  []error{nil, ErrRefused, nil, ErrUnknownKind},
+		},
+		{
+			name: "a skipped auto entry succeeds with a note, a placed one carries none",
+			applied: shelf.Applied{
+				Entries: []shelf.AppliedEntry{placedTool},
+				Skipped: []shelf.Refusal{
+					{Kind: domain.ExposeKindDesktop, Index: 0, Name: "Tool", Reason: "no desktop application found"},
+					{Kind: domain.ExposeKindCLI, Index: 0, Name: "tool", Reason: "no executable found"},
+				},
+			},
+			wantIs:   []error{nil, nil, nil, ErrUnknownKind},
+			wantNote: []string{"", "nothing exposed: no desktop application found", "", ""},
 		},
 		{
 			name:     "a failed pass fails every entry it did not place",
@@ -109,15 +122,18 @@ func TestHandler_Expose_ReportsEachEntry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sh := &stubShelf{applied: tc.applied, applyErr: tc.applyErr}
 
-			errs := NewHandler(sh).Expose(context.Background(), request(), steps)
+			results := NewHandler(sh).Expose(context.Background(), request(), steps)
 
-			require.Len(t, errs, len(tc.wantIs))
+			require.Len(t, results, len(tc.wantIs))
 			for i, want := range tc.wantIs {
+				if tc.wantNote != nil {
+					assert.Equal(t, tc.wantNote[i], results[i].Note, "step %d", i)
+				}
 				if want == nil {
-					assert.NoError(t, errs[i], "step %d", i)
+					assert.NoError(t, results[i].Err, "step %d", i)
 					continue
 				}
-				assert.ErrorIs(t, errs[i], want, "step %d", i)
+				assert.ErrorIs(t, results[i].Err, want, "step %d", i)
 			}
 		})
 	}

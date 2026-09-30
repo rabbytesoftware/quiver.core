@@ -64,11 +64,12 @@ func (d *drafter) Draft(
 	return draft(forge.Input{
 		Repo:        repo,
 		Name:        repo,
-		Description: src.page.description,
+		Description: src.description(),
 		URL:         host.RepoPageURL(ns),
-		Media:       media.Resolve(ctx, d.fetch.prefixOf(maxProbeBytes), host, ns, tag, src.page.socialImage, src.readme, src.icon),
+		Media:       media.Resolve(ctx, d.fetch.prefixOf(maxProbeBytes), src.page.socialImage, src.icon, src.ownerAvatar()),
 		Readme:      readme.Transform(src.readme, readmeBase(host, ns, tag)),
 		Picks:       src.picks,
+		Unpinned:    isRolling(tag),
 	})
 }
 
@@ -91,6 +92,9 @@ func (d *drafter) pickAll(
 	assets, err := host.ReleaseAssets(ctx, ns, tag)
 	if err != nil {
 		return nil, fmt.Errorf("fletcher: release assets %s: %w", ns, err)
+	}
+	if isRolling(tag) {
+		assets = withStandInDigests(assets)
 	}
 	if len(assets) == 0 {
 		return nil, models.NotFletchableError{Reason: models.ReasonNoReleaseAssets}
@@ -151,14 +155,15 @@ func (d *drafter) usablePick(
 func draft(
 	in forge.Input,
 ) ([]byte, error) {
-	level, warnings := confidence.Assess(in.Picks)
-	if level == confidence.ConfidenceLow {
+	assessment := confidence.Assess(in.Picks, in.Unpinned)
+	if !assessment.KeepsAny() {
 		return nil, models.NotFletchableError{Reason: models.ReasonLowConfidence}
 	}
+	in.Picks = assessment.Picks
 	in.Generator = domain.ArrowGenerator{
 		Name:       heuristics,
-		Confidence: string(level),
-		Warnings:   warnings,
+		Confidence: string(assessment.Level),
+		Warnings:   assessment.Warnings,
 	}
 	manifest, err := forge.Render(in)
 	if err != nil {

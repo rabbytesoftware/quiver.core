@@ -51,7 +51,7 @@ func TestBeginUpdate_RefVariable(t *testing.T) {
 			arrow := updatableArrow(ns, tc.available)
 			getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
 			f := catToFuncs(&runtimeMocks.MockArrow{})
-			repo, err := runtime.New(getArrow, getArrow, ax, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+			repo, err := runtime.New(getArrow, getArrow, ax, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 			require.NoError(t, err)
 			seedReadyRuntime(t, ax, ns)
 
@@ -72,7 +72,7 @@ func TestBeginUpdate_CatalogReadFails_ReturnsError(t *testing.T) {
 	ns := domain.Namespace("github.com/user/crowbar@stable")
 	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return nil, assert.AnError }
 	f := catToFuncs(&runtimeMocks.MockArrow{})
-	repo, err := runtime.New(getArrow, getArrow, ax, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	repo, err := runtime.New(getArrow, getArrow, ax, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.NoError(t, err)
 	seedReadyRuntime(t, ax, ns)
 

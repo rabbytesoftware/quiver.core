@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 // ErrUnknownSelector reports a selector that names no channel, ref, glob or
@@ -54,8 +55,8 @@ func ClassifySelector(
 }
 
 // DefaultChannel names the channel a refless install follows: stable when it
-// has members, else the first listed channel, else the HEAD branch of a
-// repository with no tags.
+// has members, else the channel whose latest tag is newest, else the first
+// pointer channel, else the HEAD branch of a repository with no tags.
 func DefaultChannel(
 	snap domain.RefSnapshot,
 ) (string, error) {
@@ -63,7 +64,10 @@ func DefaultChannel(
 	if len(channels) == 0 {
 		return "", fmt.Errorf("default channel: %w", ErrUnknownSelector)
 	}
-	return channels[0].Name, nil
+	if channels[0].Name == StableChannel {
+		return StableChannel, nil
+	}
+	return resolvers.NewestFirst(channels)[0].Name, nil
 }
 
 // findChannel returns the channel named selector, preferring an ordered

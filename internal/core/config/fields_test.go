@@ -34,6 +34,12 @@ func changedConfig() ConfigData {
 			Unmarked:         SearchUnmarked{MinStars: 1, ProbeLimit: 1},
 		},
 		Auth: Auth{PairingCodeTTL: "1s", RedeemRateLimit: 1, RedeemRateWindow: "1s"},
+		Recommendation: Recommendation{
+			Enabled:         false,
+			RefreshInterval: "1s",
+			CandidateBudget: 1,
+			MinEntries:      1,
+		},
 	}
 }
 
@@ -64,6 +70,10 @@ func TestKeys_CoverEveryDocumentedSetting(t *testing.T) {
 		"auth.pairing_code_ttl",
 		"auth.redeem_rate_limit",
 		"auth.redeem_rate_window",
+		"recommendation.enabled",
+		"recommendation.refresh_interval",
+		"recommendation.candidate_budget",
+		"recommendation.min_entries",
 	}, Keys())
 }
 
@@ -277,6 +287,10 @@ func collectLeaves(t reflect.Type, prefix string, out *[]string) {
 
 		if f.Type.Kind() == reflect.Struct {
 			collectLeaves(f.Type, name, out)
+			continue
+		}
+
+		if f.Type.Kind() == reflect.Slice {
 			continue
 		}
 

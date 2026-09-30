@@ -32,18 +32,24 @@ func dispatch(rest, ws gin.HandlerFunc) gin.HandlerFunc {
 	}
 }
 
-// cancelOnLeave stops the pass once the subscriber is gone: the broadcaster's
-// handler blocks until the socket closes, and there is no point fetching
-// manifests nobody will see. Nothing is wasted — every result verified so far is
-// already in the vault, and the job stays readable for its grace period.
+// cancelOnLeave ties the pass to its audience: the broadcaster's handler blocks
+// until the socket closes, so the subscriber is attached for exactly that long.
+// The pass is cancelled only once the last subscriber has gone and a short
+// grace has passed, which lets a client that dropped and reconnected resume it.
+// Nothing is wasted either way — every result verified so far is already in the
+// vault, and the job stays readable for its grace period.
 func cancelOnLeave(
 	disc usecases.DiscoveryUsecase,
 	ws gin.HandlerFunc,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ws(c)
-		if disc != nil {
-			disc.Cancel(c.Request.Context(), c.Param("job"))
+		if disc == nil {
+			ws(c)
+			return
 		}
+		id := c.Param("job")
+		disc.Attach(id)
+		defer disc.Detach(id)
+		ws(c)
 	}
 }

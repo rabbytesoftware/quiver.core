@@ -39,6 +39,9 @@ const (
 	installerExeSource = `desktop|setup|install|nsis|squirrel`
 	guiPackageSource   = `\.(?:dmg|appimage)$`
 
+	setupWord     = "setup"
+	installerWord = "installer"
+
 	musl         = "musl"
 	portableWord = "portable"
 

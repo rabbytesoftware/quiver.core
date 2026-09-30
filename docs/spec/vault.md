@@ -37,7 +37,7 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 |--------|---------|
 | `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
-| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. |
+| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Staging a manifest (`arrow.RefreshToTarget`: an update's target, a restore, or the one-shot retry after a fetch checksum mismatch) deletes before it writes, so the next read never serves the replaced copy. |
 | `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` suffixes (catalog selectors) cached under the same bare namespace. |
 | `GetCollection(ctx, ns) (*CollectionVaultEntry, string, error)` | Read cached `Collection` aggregate JSON. Same `ErrStale` / `ErrNotCached` semantics. Returns the on-disk path. |
 | `PutCollection(ctx, ns, collection) (string, error)` | Write a collection envelope as `collection.json` inside the namespace workdir. Returns the path written. |
@@ -324,6 +324,7 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 | Manifest read from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
 | Manifest adopted from raw bytes (seed, collection-local arrow, core self-registration) | `DeleteArrow` → `PutArrow` | `arrow.Adopt` (`replaceCachedManifest`) |
 | Arrow proven by discovery (tagged or unmarked pass), at the search's default branch | `PutArrow` with `Meta` | `discovery.verifyOne` |
+| Discovery candidate that definitively has no manifest (including one Fletcher refuses to build) | `PutArrowNotFound` | `discovery.verifyOne` |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
 | Update staged / row advanced | `DeleteArrow(ns)` → `PutArrow(ns, manifest at target commit)` under the same identity | `arrow.RefreshToTarget`, `arrow.Advance` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |

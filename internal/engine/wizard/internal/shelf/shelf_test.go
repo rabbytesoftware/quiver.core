@@ -413,27 +413,32 @@ func TestShelf_Apply_AutoEntryThatResolvesToNothingIsSkipped(t *testing.T) {
 		file        string
 		expose      domain.Expose
 		wantRefused []Refusal
+		wantSkipped []domain.ExposeKind
 	}{
 		{
-			name:   "auto desktop on darwin without a bundle",
-			goos:   "darwin",
-			expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}},
+			name:        "auto desktop on darwin without a bundle",
+			goos:        "darwin",
+			expose:      domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}},
+			wantSkipped: []domain.ExposeKind{domain.ExposeKindDesktop},
 		},
 		{
-			name:   "auto desktop on linux without an appimage",
-			goos:   "linux",
-			expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}},
+			name:        "auto desktop on linux without an appimage",
+			goos:        "linux",
+			expose:      domain.Expose{Desktop: []domain.ExposeEntry{{Name: "tool", Path: domain.ExposeAuto}}},
+			wantSkipped: []domain.ExposeKind{domain.ExposeKindDesktop},
 		},
 		{
-			name:   "auto cli without an executable",
-			goos:   "linux",
-			expose: cliExpose("tool", domain.ExposeAuto),
+			name:        "auto cli without an executable",
+			goos:        "linux",
+			expose:      cliExpose("tool", domain.ExposeAuto),
+			wantSkipped: []domain.ExposeKind{domain.ExposeKindCLI},
 		},
 		{
-			name:   "auto cli named after a file without the exec bit",
-			goos:   "linux",
-			file:   "tool",
-			expose: cliExpose("tool", domain.ExposeAuto),
+			name:        "auto cli named after a file without the exec bit",
+			goos:        "linux",
+			file:        "tool",
+			expose:      cliExpose("tool", domain.ExposeAuto),
+			wantSkipped: []domain.ExposeKind{domain.ExposeKindCLI},
 		},
 		{
 			name:        "declared desktop that does not exist",
@@ -464,6 +469,12 @@ func TestShelf_Apply_AutoEntryThatResolvesToNothingIsSkipped(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, got.Entries)
 			assert.Equal(t, tc.wantRefused, got.Refused)
+			var skipped []domain.ExposeKind
+			for _, s := range got.Skipped {
+				assert.NotEmpty(t, s.Reason)
+				skipped = append(skipped, s.Kind)
+			}
+			assert.Equal(t, tc.wantSkipped, skipped)
 		})
 	}
 }

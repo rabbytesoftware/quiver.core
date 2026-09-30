@@ -89,3 +89,42 @@ func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/collection", nil))
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
+
+func TestContainer_Register_MountsHomeRoutes(t *testing.T) {
+	home := &mocks.HomeService{}
+	c, err := New(&app.Container{
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
+		Home:       home,
+	})
+	require.NoError(t, err)
+
+	r := gin.New()
+	c.Register(r.Group(""))
+
+	read := httptest.NewRecorder()
+	r.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/home", nil))
+	refresh := httptest.NewRecorder()
+	r.ServeHTTP(refresh, httptest.NewRequest(http.MethodPost, "/home/refresh", nil))
+
+	assert.Equal(t, http.StatusOK, read.Code)
+	assert.Equal(t, http.StatusAccepted, refresh.Code)
+}
+
+func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
+	c, err := New(&app.Container{
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
+	})
+	require.NoError(t, err)
+
+	r := gin.New()
+	c.Register(r.Group(""))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/home", nil))
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}

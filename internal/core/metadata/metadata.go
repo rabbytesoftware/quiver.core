@@ -81,6 +81,8 @@ type Platform struct {
 	SearchURL         string   `yaml:"search_url"`
 	ExpandedAssetsURL string   `yaml:"expanded_assets_url"`
 	RepoPageURL       string   `yaml:"repo_page_url"`
+	RepoAPIURL        string   `yaml:"repo_api_url"`
+	OwnerAvatarURL    string   `yaml:"owner_avatar_url"`
 	BlobURL           string   `yaml:"blob_url"`
 	ReleaseAPIURL     string   `yaml:"release_api_url"`
 	PackagesAPIURL    string   `yaml:"packages_api_url"`
@@ -306,6 +308,8 @@ func defaultMetadata() *Metadata {
 				SearchURL:         "https://api.github.com/search/repositories?q={query}",
 				ExpandedAssetsURL: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
 				RepoPageURL:       "https://github.com/{user}/{repo}",
+				RepoAPIURL:        "https://api.github.com/repos/{user}/{repo}",
+				OwnerAvatarURL:    "https://github.com/{user}.png",
 				BlobURL:           "https://github.com/{user}/{repo}/blob/{branch}/{file}",
 			},
 			"gitlab.com": {

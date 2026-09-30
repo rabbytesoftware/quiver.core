@@ -420,3 +420,85 @@ func TestRender_MSIInstallsAsPortableStep(t *testing.T) {
 		assert.Empty(t, target.Expose.Desktop)
 	}
 }
+
+func TestRender_UnpinnedOmitsTheFetchChecksum(t *testing.T) {
+	testCases := []struct {
+		name     string
+		unpinned bool
+		want     string
+	}{
+		{name: "pinned keeps the digest", unpinned: false, want: digest},
+		{name: "unpinned drops the digest", unpinned: true, want: ""},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInput()
+			in.Unpinned = tc.unpinned
+			data, err := forge.Render(in)
+			require.NoError(t, err)
+
+			arrow := parse(t, data)
+
+			require.NotEmpty(t, arrow.Targets)
+			for _, target := range arrow.Targets {
+				fetch := fetchStep(t, target.Lifecycle.Install[0])
+				assert.Equal(t, tc.want, fetch.Checksum.Default)
+			}
+		})
+	}
+}
+
+func TestRender_DarwinDottedProductArchiveExposesCLIAndDesktop(t *testing.T) {
+	testCases := []struct {
+		name  string
+		repo  string
+		asset string
+		os    domain.OS
+	}{
+		{name: "arm64 zip", repo: "desktop", asset: "GitHub.Desktop-arm64.zip", os: domain.OSDarwinARM64},
+		{name: "x64 zip", repo: "desktop", asset: "GitHub.Desktop-x64.zip", os: domain.OSDarwinAMD64},
+		{name: "tar.gz", repo: "some.app", asset: "Some.App-arm64.tar.gz", os: domain.OSDarwinARM64},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInput()
+			in.Repo = tc.repo
+			in.Picks = map[domain.OS]picker.Pick{tc.os: pickOf(tc.asset, picker.FormatArchive)}
+			data, err := forge.Render(in)
+			require.NoError(t, err)
+
+			target := parse(t, data).Targets[tc.os]
+			want := []domain.ExposeEntry{{Name: tc.repo, Path: domain.ExposeAuto}}
+			assert.Equal(t, want, target.Expose.CLI)
+			assert.Equal(t, want, target.Expose.Desktop)
+		})
+	}
+}
+
+func TestRender_GitHubDesktopReleaseInstallsAnArchiveExposedAsCLIAndDesktop(t *testing.T) {
+	release := []domain.ReleaseAsset{
+		{Name: "GitHub.Desktop-3.6.6-checksums.txt", Label: "GitHub Desktop 3.6.6 checksums", URL: "https://github.com/desktop/desktop/releases/download/release-3.6.6/GitHub.Desktop-3.6.6-checksums.txt", Digest: digest},
+		{Name: "GitHub.Desktop-arm64.zip", Label: "GitHub Desktop 3.6.6 macOS arm64", URL: "https://github.com/desktop/desktop/releases/download/release-3.6.6/GitHub.Desktop-arm64.zip", Digest: digest},
+		{Name: "GitHub.Desktop-x64.zip", Label: "GitHub Desktop 3.6.6 macOS x64", URL: "https://github.com/desktop/desktop/releases/download/release-3.6.6/GitHub.Desktop-x64.zip", Digest: digest},
+		{Name: "GitHubDesktopSetup-x64.msi", Label: "GitHub Desktop 3.6.6 Windows x64 MSI Installer", URL: "https://github.com/desktop/desktop/releases/download/release-3.6.6/GitHubDesktopSetup-x64.msi", Digest: digest},
+	}
+	in := baseInput()
+	in.Repo = "desktop"
+	in.Picks = map[domain.OS]picker.Pick{}
+	for _, os := range []domain.OS{domain.OSDarwinARM64, domain.OSDarwinAMD64} {
+		pick, ok := picker.New().Pick("desktop/desktop", release, os)
+		require.True(t, ok)
+		in.Picks[os] = pick
+	}
+	data, err := forge.Render(in)
+	require.NoError(t, err)
+
+	arrow := parse(t, data)
+	want := []domain.ExposeEntry{{Name: "desktop", Path: domain.ExposeAuto}}
+	for os, file := range map[domain.OS]string{domain.OSDarwinARM64: "GitHub.Desktop-arm64.zip", domain.OSDarwinAMD64: "GitHub.Desktop-x64.zip"} {
+		target := arrow.Targets[os]
+		assert.Equal(t, want, target.Expose.CLI, os)
+		assert.Equal(t, want, target.Expose.Desktop, os)
+		assert.Equal(t, "Download "+file, target.Lifecycle.Install[0].Title(), os)
+	}
+}

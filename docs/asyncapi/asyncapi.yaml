@@ -235,6 +235,9 @@ components:
           type:
             - string
             - "null"
+        note:
+          type: string
+          description: Present on a completed step that did nothing worth failing over, such as an auto expose entry that found nothing to expose.
 
     Execution:
       type: object

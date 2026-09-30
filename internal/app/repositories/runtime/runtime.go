@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -182,6 +183,7 @@ func New(
 	listArrows ListArrowsFn,
 	os domain.OS,
 	listRuntimeAggregates ListRuntimeAggregatesFn,
+	refreshManifest RefreshManifestFn,
 ) (Runtime, error) {
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
@@ -198,6 +200,8 @@ func New(
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
 		ReconcileVersionBadge: repo.reconcileBadge,
+		RefreshManifest:       refreshManifest,
+		Reassemble:            repo.reassemble,
 	}
 
 	if err := runtimeinternal.RegisterReactions(
@@ -207,6 +211,38 @@ func New(
 	}
 
 	return repo, nil
+}
+
+func (s *runtimeRepository) reassemble(
+	ctx context.Context,
+	ns domain.Namespace,
+	method string,
+	vars map[string]string,
+) ([]domainStep.Step, error) {
+	var opts []assembler.AssembleOption
+	if method == domain.MethodUpdate {
+		opts = append(opts, assembler.WithTargetRef(vars[domain.VarRef]))
+	}
+	resolved, err := s.assembler.Assemble(ctx, ns, method, answersOf(vars), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("reassemble %s: %w", method, err)
+	}
+	return resolved.Steps, nil
+}
+
+// answersOf keeps the values a run was given, dropping the ones Quiver
+// computed for it: a retry computes those again.
+func answersOf(
+	vars map[string]string,
+) map[string]string {
+	answers := make(map[string]string, len(vars))
+	for name, value := range vars {
+		if domain.IsReservedVariable(name) || strings.Contains(name, domain.NamespaceSeparator) {
+			continue
+		}
+		answers[name] = value
+	}
+	return answers
 }
 
 // plannedAssembler hands every assembled run to wizard.Plan, which adds the

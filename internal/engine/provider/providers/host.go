@@ -20,6 +20,7 @@ type host struct {
 	rawURL          string
 	blobURL         string
 	repoPageURL     string
+	ownerAvatarURL  string
 	defaultBranches []string
 	transport       transport
 }
@@ -32,6 +33,7 @@ func newHost(
 		rawURL:          cfg.RawURL,
 		blobURL:         cfg.BlobURL,
 		repoPageURL:     cfg.RepoPageURL,
+		ownerAvatarURL:  cfg.OwnerAvatarURL,
 		defaultBranches: cfg.DefaultBranches,
 		transport:       newTransport(cfg),
 	}
@@ -112,6 +114,20 @@ func (h host) RepoPageURL(
 	return page
 }
 
+func (h host) OwnerAvatarURL(
+	ns domain.Namespace,
+) string {
+	if h.ownerAvatarURL == "" {
+		return ""
+	}
+
+	avatar, err := fillRepoTemplate(h.ownerAvatarURL, ns, "", "")
+	if err != nil {
+		return ""
+	}
+	return avatar
+}
+
 func fillRepoTemplate(
 	template string,
 	ns domain.Namespace,
@@ -129,6 +145,13 @@ func fillRepoTemplate(
 		"{branch}", ref,
 		"{file}", file,
 	).Replace(template), nil
+}
+
+func (h host) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, fmt.Errorf("provider %s: %w", h.name, ErrNoRepoMetadata)
 }
 
 func (h host) ReleaseAssets(

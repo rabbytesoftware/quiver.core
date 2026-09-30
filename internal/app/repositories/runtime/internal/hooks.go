@@ -12,6 +12,7 @@ import (
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
@@ -32,14 +33,24 @@ type CatalogHooks struct {
 	// ReconcileVersionBadge re-derives the runtime state the badge is read
 	// from out of the catalog fact it projects. See reconcileVersionBadge.
 	ReconcileVersionBadge func(ctx context.Context, ns domain.Namespace) error
+	// RefreshManifest resolves the manifest again from its host, at the release
+	// method is running, and stages the result on the arrow.
+	RefreshManifest func(ctx context.Context, ns domain.Namespace, method string) error
+	// Reassemble rebuilds a method's steps from the arrow as it now stands.
+	Reassemble func(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		vars map[string]string,
+	) ([]domainStep.Step, error)
 }
 
 // drainExecution translates one wizard execution's events into commands on the
-// runtime aggregate. It writes only while the aggregate is still running that
-// execution: a stop or an update may take the arrow over mid-run, and from that
-// point the events of the superseded run describe a run nobody is waiting on.
-// Writing them anyway would land another execution's step progress — and its
-// end — on the one that replaced it.
+// runtime aggregate and then ends it. It writes only while the aggregate is still
+// running that execution: a stop or an update may take the arrow over mid-run,
+// and from that point the events of the superseded run describe a run nobody is
+// waiting on. Writing them anyway would land another execution's step progress
+// — and its end — on the one that replaced it.
 func drainExecution(
 	ctx context.Context,
 	exec wizardPkg.Execution,
@@ -49,24 +60,49 @@ func drainExecution(
 	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
-	superseded := false
+	report := drainEvents(ctx, exec, ns, executionID, axRuntime)
+	finishExecution(ctx, exec, report, ns, executionID, method, hooks, axRuntime)
+}
+
+func drainEvents(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	ns string,
+	executionID string,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) drainReport {
+	var report drainReport
 	for evt := range exec.Events() {
-		if superseded {
+		if report.superseded {
 			continue
 		}
+		report.observe(evt)
 		switch evt.Kind {
 		case wizardPkg.EventKindStepStarted:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusRunning, nil)
+			report.superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusRunning, nil, "")
 		case wizardPkg.EventKindStepCompleted:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusCompleted, nil)
+			report.superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusCompleted, nil, evt.Note)
 		case wizardPkg.EventKindStepFailed:
-			superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err)
+			report.superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err, "")
 		case wizardPkg.EventKindPID:
-			superseded = sendPID(ctx, axRuntime, ns, executionID, evt.PID)
+			report.superseded = sendPID(ctx, axRuntime, ns, executionID, evt.PID)
 		case wizardPkg.EventKindEnded:
 		}
 	}
-	if superseded {
+	return report
+}
+
+func finishExecution(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	report drainReport,
+	ns string,
+	executionID string,
+	method string,
+	hooks CatalogHooks,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) {
+	if report.superseded {
 		return
 	}
 	// onEnd fires AFTER the loop — exec.Outcome() is authoritative.
@@ -119,11 +155,16 @@ func sendStep(
 	stepIndex int,
 	status domainRuntime.StepStatus,
 	stepErr error,
+	note string,
 ) bool {
 	var errStr *string
 	if stepErr != nil {
 		s := stepErr.Error()
 		errStr = &s
+	}
+	var noteStr *string
+	if note != "" {
+		noteStr = &note
 	}
 	_, err := axRuntime.Send(ctx, runtimecmds.AdvanceStep{
 		Namespace:   domain.Namespace(ns),
@@ -131,6 +172,7 @@ func sendStep(
 		StepIndex:   stepIndex,
 		ToStatus:    status,
 		Error:       errStr,
+		Note:        noteStr,
 	})
 	if err == nil {
 		return false

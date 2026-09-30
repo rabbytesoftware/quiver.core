@@ -13,11 +13,6 @@ type RawBase struct {
 	Blob string
 }
 
-type Image struct {
-	Src  string
-	Line int
-}
-
 var mdLinkOrImagePattern = regexp.MustCompile(`(!?)\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)`)
 
 var htmlImgSrcPattern = regexp.MustCompile(`(<img\s+[^>]*?src=")([^"]+)(")`)
@@ -102,36 +97,4 @@ func rewriteLinks(
 		out[i] = rewriteLine(line, base)
 	}
 	return out
-}
-
-func imagesInLine(
-	line string,
-) []string {
-	var srcs []string
-	for _, sub := range mdLinkOrImagePattern.FindAllStringSubmatch(line, -1) {
-		if sub[1] == "!" {
-			srcs = append(srcs, sub[3])
-		}
-	}
-	for _, sub := range htmlImgSrcPattern.FindAllStringSubmatch(line, -1) {
-		srcs = append(srcs, sub[2])
-	}
-	return srcs
-}
-
-func Images(
-	raw []byte,
-) []Image {
-	lines := neutralizeFences(splitLines(raw))
-	inFence := fenceStates(lines)
-	var images []Image
-	for i, line := range lines {
-		if inFence[i] {
-			continue
-		}
-		for _, src := range imagesInLine(line) {
-			images = append(images, Image{Src: src, Line: i})
-		}
-	}
-	return images
 }

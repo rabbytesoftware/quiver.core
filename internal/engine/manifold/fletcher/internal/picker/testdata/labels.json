@@ -29,7 +29,7 @@
  {"repo": "sharkdp/bat", "os": "darwin/arm64", "want": "bat-v0.26.1-aarch64-apple-darwin.tar.gz"},
  {"repo": "oven-sh/bun", "os": "darwin/arm64", "want": "bun-darwin-aarch64.zip"},
  {"repo": "traefik/traefik", "os": "darwin/arm64", "want": "traefik_v3.7.13_darwin_arm64.tar.gz"},
- {"repo": "ghostty-org/ghostty", "os": "darwin/arm64", "want": "ghostty-macos-universal.zip"},
+ {"repo": "ghostty-org/ghostty", "os": "darwin/arm64", "want": "Ghostty.dmg"},
  {"repo": "usememos/memos", "os": "darwin/arm64", "want": "memos_0.31.0_darwin_arm64.tar.gz"},
  {"repo": "astral-sh/ruff", "os": "darwin/arm64", "want": "ruff-aarch64-apple-darwin.tar.gz"},
  {"repo": "openai/codex", "os": "darwin/arm64", "want": "codex-aarch64-apple-darwin.tar.gz"},

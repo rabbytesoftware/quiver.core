@@ -3,6 +3,8 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -537,7 +539,7 @@ func TestLifecycleNew_Success(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -590,7 +592,7 @@ func TestLifecycleNew_ShutdownAsynx_Error(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.Error(t, err)
 }
 
@@ -1011,7 +1013,7 @@ func newPlanningRuntime(
 	getDepArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
 		return nil, errors.New("no dependencies")
 	}
-	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil })
+	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.NoError(t, err)
 	return lc
 }
@@ -1868,4 +1870,144 @@ func TestForgetPreinstalled_ForgetCallFails_IsWrappedNotSwallowed(t *testing.T) 
 	err := runtime.ForgetPreinstalled(ax)(context.Background(), testNs())
 
 	require.ErrorIs(t, err, forgetErr)
+}
+
+type scriptedExecution struct {
+	events  chan wizardPkg.Event
+	done    chan struct{}
+	outcome domainRuntime.ExecutionOutcome
+}
+
+func newScriptedExecution(
+	outcome domainRuntime.ExecutionOutcome,
+	events ...wizardPkg.Event,
+) wizardPkg.Execution {
+	e := &scriptedExecution{
+		events:  make(chan wizardPkg.Event, len(events)),
+		done:    make(chan struct{}),
+		outcome: outcome,
+	}
+	for _, evt := range events {
+		e.events <- evt
+	}
+	close(e.events)
+	close(e.done)
+	return e
+}
+
+func (e *scriptedExecution) Events() <-chan wizardPkg.Event          { return e.events }
+func (e *scriptedExecution) Done() <-chan struct{}                   { return e.done }
+func (e *scriptedExecution) Outcome() domainRuntime.ExecutionOutcome { return e.outcome }
+
+func TestBeginInstall_ChecksumMismatch_RefreshesManifestAndRetriesWithItsSteps(t *testing.T) {
+	ns := testNs()
+	var mu sync.Mutex
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Targets: map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{
+				domainStep.NewFetchStep("fetch", "https://x/a", "a", "sha256:stale", "1m", true),
+			}}},
+		},
+	}
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		copied := *arrow
+		return &copied, nil
+	}
+	refreshed := make(chan domain.Namespace, 2)
+	refresh := func(_ context.Context, refreshedNs domain.Namespace, _ string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		arrow.Targets = map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{
+				domainStep.NewFetchStep("fetch", "https://x/a", "a", "sha256:fresh", "1m", true),
+			}}},
+		}
+		refreshed <- refreshedNs
+		return nil
+	}
+	runs := make(chan wizardPkg.RunRequest, 2)
+	w := &mocks.Wizard{StartFn: func(_ context.Context, req wizardPkg.RunRequest) wizardPkg.Execution {
+		runs <- req
+		if len(runs) == 1 {
+			return newScriptedExecution(
+				domainRuntime.ExecutionOutcomeFailed,
+				wizardPkg.Event{Kind: wizardPkg.EventKindStepFailed, StepIndex: 1, Err: wizardPkg.ErrChecksumMismatch},
+			)
+		}
+		return mocks.NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
+	}}
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	getDepArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		return nil, errors.New("no dependencies")
+	}
+	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
+	require.NoError(t, err)
+	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
+	require.NoError(t, err)
+	defer unsub()
+
+	require.NoError(t, lc.BeginInstall(context.Background(), ns, nil))
+
+	select {
+	case rt := <-ended:
+		require.NotNil(t, rt.LastReturn)
+		assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rt.LastReturn.Outcome)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "install never ended")
+	}
+	assert.Equal(t, ns, <-refreshed)
+	first, second := <-runs, <-runs
+	assert.Equal(t, "sha256:stale", first.Steps[1].(domainStep.FetchStep).Checksum.Default)
+	assert.Equal(t, "sha256:fresh", second.Steps[1].(domainStep.FetchStep).Checksum.Default)
+	assert.Len(t, runs, 0)
+}
+
+func TestBeginInstall_ChecksumMismatch_ArrowUnreadableAfterRefresh_FailsWithoutRetrying(t *testing.T) {
+	ns := testNs()
+	var refreshed atomic.Bool
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		if refreshed.Load() {
+			return nil, apperrors.ErrNotFound
+		}
+		return &domain.Arrow{
+			Namespace: ns,
+			Targets: map[domain.OS]domain.Target{
+				domain.OSDarwinARM64: {Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{
+					domainStep.NewFetchStep("fetch", "https://x/a", "a", "sha256:stale", "1m", true),
+				}}},
+			},
+		}, nil
+	}
+	var starts atomic.Int32
+	w := &mocks.Wizard{StartFn: func(context.Context, wizardPkg.RunRequest) wizardPkg.Execution {
+		starts.Add(1)
+		return newScriptedExecution(
+			domainRuntime.ExecutionOutcomeFailed,
+			wizardPkg.Event{Kind: wizardPkg.EventKindStepFailed, StepIndex: 1, Err: wizardPkg.ErrChecksumMismatch},
+		)
+	}}
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	refresh := func(context.Context, domain.Namespace, string) error {
+		refreshed.Store(true)
+		return nil
+	}
+	lc, err := runtime.New(getArrow, getArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
+	require.NoError(t, err)
+	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
+	require.NoError(t, err)
+	defer unsub()
+
+	require.NoError(t, lc.BeginInstall(context.Background(), ns, nil))
+
+	select {
+	case rt := <-ended:
+		require.NotNil(t, rt.LastReturn)
+		assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, rt.LastReturn.Outcome)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "install never ended")
+	}
+	assert.EqualValues(t, 1, starts.Load())
 }

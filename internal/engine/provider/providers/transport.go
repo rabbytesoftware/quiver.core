@@ -213,6 +213,24 @@ func withLimit(
 	return rawURL + separator + "per_page=" + strconv.Itoa(limit)
 }
 
+// withSort asks the host to order its answer by the named field, most first.
+// A name the host API does not define is dropped rather than forwarded, so a
+// typo costs the ordering and never the request.
+func withSort(
+	rawURL string,
+	sort string,
+) string {
+	if sort != "stars" && sort != "updated" {
+		return rawURL
+	}
+
+	separator := "?"
+	if strings.Contains(rawURL, "?") {
+		separator = "&"
+	}
+	return rawURL + separator + "sort=" + sort + "&order=desc"
+}
+
 func buildSearchURL(
 	template string,
 	query string,

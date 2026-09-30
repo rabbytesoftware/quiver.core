@@ -47,7 +47,6 @@ const acceptanceManifest = "name: Chromatic\n"
 
 func acceptanceArrow() *domain.Arrow {
 	return &domain.Arrow{
-		Namespace: domain.Namespace(acceptanceBareNS + "@" + acceptanceRef),
 		ArrowMeta: domain.ArrowMeta{
 			Name:        "Chromatic",
 			Description: "A chromatic browser",
@@ -213,10 +212,23 @@ func (p *blockingProvider) BlobFileURL(
 	return "", nil
 }
 
+func (p *blockingProvider) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (p *blockingProvider) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (p *blockingProvider) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (p *blockingProvider) ReleaseAssets(

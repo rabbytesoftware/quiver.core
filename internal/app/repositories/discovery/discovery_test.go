@@ -68,10 +68,23 @@ func (s *stubProvider) BlobFileURL(
 	return "", nil
 }
 
+func (s *stubProvider) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (s *stubProvider) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (s *stubProvider) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (s *stubProvider) ReleaseAssets(
@@ -95,6 +108,7 @@ type stubManifold struct {
 	mu        sync.Mutex
 	requested []domain.Namespace
 	resolve   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, []byte, string, error)
+	parse     func(raw []byte) (*domain.Arrow, error)
 }
 
 func (s *stubManifold) ResolveArrow(
@@ -136,9 +150,12 @@ func (s *stubManifold) ParseCollection(
 }
 
 func (s *stubManifold) ParseArrow(
-	_ []byte,
+	raw []byte,
 ) (*domain.Arrow, error) {
-	return nil, errors.New("not used")
+	if s.parse == nil {
+		return nil, errors.New("not used")
+	}
+	return s.parse(raw)
 }
 
 func (s *stubManifold) ListChannels(
@@ -321,6 +338,35 @@ func TestDiscover_ValidManifestWritesVaultAndEmits(t *testing.T) {
 	assert.Equal(t, "github.com", rows[0].Meta.Source)
 	assert.Equal(t, "master", rows[0].Meta.Branch)
 	assert.Equal(t, []domain.OS{domain.OSLinuxAMD64}, rows[0].Meta.OS)
+}
+
+func TestDiscover_ManifestDraftedFromAReleaseTag_LivesAtThatTag(t *testing.T) {
+	v := newVault(t)
+	p := &stubProvider{host: "github.com", candidates: []provider.Candidate{
+		candidate("github.com/acme/chromium", "dev"),
+	}}
+	drafted := resolvesTo("Chromium")
+	m := &stubManifold{resolve: func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Arrow, []byte, string, error) {
+		arrow, raw, filename, err := drafted(ctx, ns)
+		arrow.Namespace = ns.BareNamespace().WithRef("v1.2.0")
+		return arrow, raw, filename, err
+	}}
+
+	var got collector
+	_, err := newDiscovery(t, []provider.Provider{p}, m, v, neverKnown, nil).
+		Discover(context.Background(), "browser", got.emit)
+	require.NoError(t, err)
+
+	results := got.all()
+	require.Len(t, results, 1)
+	assert.Equal(t, domain.Namespace("github.com/acme/chromium@v1.2.0"), results[0].Arrow.Namespace)
+	_, err = v.GetArrow(context.Background(), "github.com/acme/chromium@v1.2.0")
+	require.NoError(t, err)
+	_, err = v.GetArrow(context.Background(), "github.com/acme/chromium@dev")
+	assert.Error(t, err)
 }
 
 func TestDiscover_UnparseableManifestIsSkippedNotEmitted(t *testing.T) {

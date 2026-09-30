@@ -103,3 +103,34 @@ func TestRules(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHelperFile(t *testing.T) {
+	testCases := []struct {
+		name string
+		file string
+		want bool
+	}{
+		{name: "sandbox", file: "chrome-sandbox", want: true},
+		{name: "crashpad", file: "chrome_crashpad_handler", want: true},
+		{name: "shared object", file: "libffmpeg.so", want: true},
+		{name: "versioned shared object", file: "libssl.so.3", want: true},
+		{name: "dylib", file: "libfoo.DYLIB", want: true},
+		{name: "app binary", file: "t3", want: false},
+		{name: "source lookalike", file: "solver", want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isHelperFile(tc.file))
+		})
+	}
+}
+
+func TestWalk_Descend_SkipsHelperDirs(t *testing.T) {
+	w := &walk{scan: Scan{Rule: ExecBits()}}
+
+	for _, dir := range []string{"node_modules", "resources", "lib", "LIB64", "locales"} {
+		assert.ErrorIs(t, w.descend(dir, 1), filepath.SkipDir, dir)
+	}
+	assert.NoError(t, w.descend("bin", 1))
+}

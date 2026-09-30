@@ -151,7 +151,7 @@ func TestRecover_NeverFletchesOnFailure(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
 			f := fallback.New(hosts.None, &stubReleases{}, drafter)
 
-			raw, filename, err := f.Recover(context.Background(), tc.ns, tc.err)
+			raw, filename, _, err := f.Recover(context.Background(), tc.ns, tc.err)
 
 			assert.ErrorIs(t, err, tc.err)
 			assert.Nil(t, raw)
@@ -165,7 +165,7 @@ func TestRecover_ManifestNotFound_ForgesInferredArrow(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
 	f := fallback.New(hosts.None, &stubReleases{}, drafter)
 
-	raw, filename, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"), manifestMissing())
+	raw, filename, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"), manifestMissing())
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"v1.2.0"}, drafter.fletchTags)
@@ -266,7 +266,7 @@ func TestRecover_TagFallbackChain(t *testing.T) {
 			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, branch: tc.branch, branchErr: tc.branchErr}
 			f := fallback.New(hostedBy(&stubHost{branches: tc.hostBranches}), releases, drafter)
 
-			raw, filename, err := f.Recover(context.Background(), tc.ns, manifestMissing())
+			raw, filename, ref, err := f.Recover(context.Background(), tc.ns, manifestMissing())
 
 			assert.Equal(t, tc.wantTags, drafter.fletchTags)
 			if tc.wantMissing {
@@ -280,6 +280,7 @@ func TestRecover_TagFallbackChain(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, inferredManifest(t), raw)
 			assert.Equal(t, "ARROW.md", filename)
+			assert.Equal(t, tc.good, ref)
 		})
 	}
 }
@@ -364,7 +365,7 @@ func TestRecover_FailuresSurface(t *testing.T) {
 			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, unstableErr: tc.listErr, branch: "main"}
 			f := fallback.New(hosts.None, releases, drafter)
 
-			_, _, err := f.Recover(context.Background(), cmp.Or(tc.ns, domain.Namespace("github.com/acme/tool@main")), manifestMissing())
+			_, _, _, err := f.Recover(context.Background(), cmp.Or(tc.ns, domain.Namespace("github.com/acme/tool@main")), manifestMissing())
 
 			require.Error(t, err)
 			assert.Equal(t, tc.wantTags, drafter.fletchTags)
@@ -388,7 +389,7 @@ func TestRecover_NoReleaseTagFletchesNothing(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "main")}
 	f := fallback.New(hosts.None, &stubReleases{branch: "main"}, drafter)
 
-	_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
+	_, _, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
 
 	assert.ErrorIs(t, err, models.ErrNotFletchable)
 	assert.ErrorIs(t, err, resolver.ErrManifestNotFound)
@@ -429,6 +430,14 @@ func TestRecover_ReleaseLookupPolicy(t *testing.T) {
 			wantTags: []string{"v3.0.0-beta.2"},
 		},
 		{
+			name: "the newest channel wins over an ancient alphabetically earlier one",
+			releases: &stubReleases{channels: []manifoldModels.ChannelInfo{
+				{Name: "alpha", Kind: "ordered", Latest: "v0.0.4-alpha.1"},
+				{Name: "beta", Kind: "ordered", Latest: "v0.0.44-beta.2"},
+			}},
+			wantTags: []string{"v0.0.44-beta.2"},
+		},
+		{
 			name: "only skipped channels is a miss",
 			releases: &stubReleases{channels: []manifoldModels.ChannelInfo{
 				{Name: "stable", Latest: "v2.0.0"},
@@ -441,7 +450,7 @@ func TestRecover_ReleaseLookupPolicy(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, "none")}
 			f := fallback.New(hosts.None, tc.releases, drafter)
 
-			_, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
+			_, _, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
 
 			require.Error(t, err)
 			assert.Equal(t, tc.wantTags, drafter.fletchTags)

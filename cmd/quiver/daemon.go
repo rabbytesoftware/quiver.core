@@ -54,6 +54,7 @@ func newDaemonCmd() *cobra.Command {
 				internal.WithChannel(channel),
 				internal.WithSelfUpdateTrigger(trigger),
 				internal.WithGateway(listener, scheme),
+				internal.WithRecommendations(),
 			)
 			if err != nil {
 				_ = listener.Close()

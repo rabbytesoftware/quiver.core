@@ -2,7 +2,9 @@ package ws
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	apiws "github.com/rabbytesoftware/quiver.core/internal/api/ws"
@@ -21,7 +23,32 @@ type Handler struct {
 	Discovery *apiws.Broadcaster[usecases.StreamItem]
 }
 
-func NewHandler() *Handler {
+// Option configures a Handler.
+type Option func(*options)
+
+type options struct {
+	jobs usecases.DiscoveryUsecase
+}
+
+// WithDiscoveryJobs gives the discovery stream the job registry it replays
+// from and learns completion from. Without it the stream is live-only and never
+// closes on its own.
+func WithDiscoveryJobs(
+	jobs usecases.DiscoveryUsecase,
+) Option {
+	return func(o *options) {
+		o.jobs = jobs
+	}
+}
+
+func NewHandler(
+	opts ...Option,
+) *Handler {
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	return &Handler{
 		Arrow: apiws.NewBroadcaster(apiws.StreamDef[apphub.ArrowEvent]{
 			Namespace: func(e apphub.ArrowEvent) string {
@@ -61,19 +88,69 @@ func NewHandler() *Handler {
 				return json.Marshal(dto.CollectionEventDTOFrom(e))
 			},
 		}),
-		Discovery: apiws.NewBroadcaster(apiws.StreamDef[usecases.StreamItem]{
-			KeyParam: "job",
-			// A job id is opaque, so it is compared literally. Globbing here
-			// would let /v0/search/discover/* read every job's results.
-			KeyMatch: apiws.ExactMatch,
-			Namespace: func(item usecases.StreamItem) string {
-				return item.JobID
-			},
-			Serialize: func(item usecases.StreamItem) ([]byte, error) {
-				return json.Marshal(dto.SearchResultDTOFromDiscovery(item.Result))
-			},
-		}),
+		Discovery: apiws.NewBroadcaster(discoveryDef(cfg.jobs)),
 	}
+}
+
+// discoveryDef describes the result stream of one job. Each result is delivered
+// exactly once and cannot be recovered from the wire afterwards, so a
+// subscriber too slow to hold it is disconnected rather than left with a silent
+// hole, and a reconnect is replayed from the job's own buffer.
+func discoveryDef(
+	jobs usecases.DiscoveryUsecase,
+) apiws.StreamDef[usecases.StreamItem] {
+	def := apiws.StreamDef[usecases.StreamItem]{
+		Overflow: apiws.OverflowDisconnect,
+		Seq: func(item usecases.StreamItem) uint64 {
+			return item.Seq
+		},
+		Filters: []apiws.FilterDef[usecases.StreamItem]{
+			{
+				Param: "os",
+				Extract: func(item usecases.StreamItem) string {
+					return strings.Join(streamedOS(item), ",")
+				},
+				Match: containsOS,
+			},
+		},
+		KeyParam: "job",
+		// A job id is opaque, so it is compared literally. Globbing here
+		// would let /v0/search/discover/* read every job's results.
+		KeyMatch: apiws.ExactMatch,
+		Namespace: func(item usecases.StreamItem) string {
+			return item.JobID
+		},
+		Serialize: func(item usecases.StreamItem) ([]byte, error) {
+			return json.Marshal(dto.SearchResultDTOFromDiscovery(item.Result))
+		},
+	}
+
+	if jobs != nil {
+		def.Replay = jobs.Replay
+		def.Done = jobs.Done
+	}
+	return def
+}
+
+func streamedOS(
+	item usecases.StreamItem,
+) []string {
+	oses := make([]string, 0, len(item.Result.Arrow.Targets))
+	for os := range item.Result.Arrow.Targets {
+		oses = append(oses, string(os))
+	}
+	return oses
+}
+
+// containsOS applies the platform filter to a streamed result under the same
+// rule GET /v0/search uses: an arrow is compatible with a platform when its
+// compiled targets include it, and a filter that names no known platform
+// selects nothing.
+func containsOS(
+	param string,
+	value string,
+) bool {
+	return slices.Contains(strings.Split(value, ","), param)
 }
 
 func (h *Handler) PushArrow(e apphub.ArrowEvent) {

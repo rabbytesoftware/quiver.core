@@ -65,6 +65,36 @@ type SearchUnmarked struct {
 	ProbeLimit int `yaml:"probe_limit" json:"probe_limit" validate:"min=1"`
 }
 
+// RecommendationSource is one query-less search a shelf is built from. Host
+// names a git host by its full name or its first label, and PushedWithin is a
+// duration that also accepts a day count such as 90d. Shelves are read from the
+// configuration file only: the settings API edits scalar fields and leaves the
+// list as written.
+type RecommendationSource struct {
+	Host         string `yaml:"host"          json:"host"`
+	Sort         string `yaml:"sort"          json:"sort"`
+	MinStars     int    `yaml:"min_stars"     json:"min_stars"`
+	MaxStars     int    `yaml:"max_stars"     json:"max_stars"`
+	PushedWithin string `yaml:"pushed_within" json:"pushed_within"`
+}
+
+type RecommendationShelf struct {
+	ID      string                 `yaml:"id"      json:"id"`
+	Title   string                 `yaml:"title"   json:"title"`
+	Limit   int                    `yaml:"limit"   json:"limit"`
+	Sources []RecommendationSource `yaml:"sources" json:"sources"`
+}
+
+// Recommendation configures the query-less listings the desktop home shows.
+// Hosts appear here and nowhere in the API.
+type Recommendation struct {
+	Enabled         bool                  `yaml:"enabled"          json:"enabled"`
+	RefreshInterval string                `yaml:"refresh_interval" json:"refresh_interval" validate:"duration"`
+	CandidateBudget int                   `yaml:"candidate_budget" json:"candidate_budget" validate:"min=1"`
+	MinEntries      int                   `yaml:"min_entries"      json:"min_entries"      validate:"min=0"`
+	Shelves         []RecommendationShelf `yaml:"shelves"          json:"shelves"`
+}
+
 type ArrowAutoRetry struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	Retries int  `yaml:"retries" json:"retries" validate:"min=0"`
@@ -97,6 +127,8 @@ type ConfigData struct {
 	Arrows    Arrows    `yaml:"arrows"    json:"arrows"`
 	Search    Search    `yaml:"search"    json:"search"`
 	Auth      Auth      `yaml:"auth"      json:"auth"`
+
+	Recommendation Recommendation `yaml:"recommendation" json:"recommendation"`
 }
 
 type Config struct {
@@ -184,6 +216,10 @@ func GetArrows() Arrows {
 
 func GetSearch() Search {
 	return Get().Config.Search
+}
+
+func GetRecommendation() Recommendation {
+	return Get().Config.Recommendation
 }
 
 func GetAuth() Auth {

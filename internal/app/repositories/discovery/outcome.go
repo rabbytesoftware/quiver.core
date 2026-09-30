@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 )
 
@@ -19,16 +20,21 @@ const (
 const (
 	PassTagged   = "tagged"
 	PassUnmarked = "unmarked"
+	PassBrowse   = "browse"
 )
 
 // Outcome summarises one discovery pass. Found counts the deduplicated
 // candidates considered, Verified those that proved to be arrows, and Skipped
 // those that did not.
+//
+// Order is set by a browse pass only: the candidates it kept, as bare
+// namespaces in the order the hosts ranked them.
 type Outcome struct {
 	Found     int
 	Verified  int
 	Skipped   int
 	Providers []ProviderOutcome
+	Order     []domain.Namespace
 }
 
 // ProviderOutcome is what one host contributed. Every provider failing is a

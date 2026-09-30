@@ -99,6 +99,8 @@ func configFor(
 	cfg.SearchURL = platform.SearchURL
 	cfg.ExpandedAssetsURL = platform.ExpandedAssetsURL
 	cfg.RepoPageURL = platform.RepoPageURL
+	cfg.RepoAPIURL = platform.RepoAPIURL
+	cfg.OwnerAvatarURL = platform.OwnerAvatarURL
 	cfg.BlobURL = platform.BlobURL
 	cfg.ReleaseAPIURL = platform.ReleaseAPIURL
 	cfg.PackagesAPIURL = platform.PackagesAPIURL

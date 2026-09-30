@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 
 	yaml "gopkg.in/yaml.v3"
 
@@ -94,7 +95,7 @@ func buildOverlay(
 	}
 
 	keep := make(map[string]bool)
-	for _, key := range Differing(def, data) {
+	for _, key := range append(Differing(def, data), differingLists(def, data)...) {
 		keep["config."+key] = true
 	}
 
@@ -103,6 +104,18 @@ func buildOverlay(
 	}
 
 	return &root, nil
+}
+
+// differingLists names the list settings on which two configurations disagree.
+// Lists are not addressable through the settings API, so Differing never sees
+// them; without this a save would silently drop the ones the user wrote by hand.
+func differingLists(
+	a, b ConfigData,
+) []string {
+	if reflect.DeepEqual(a.Recommendation.Shelves, b.Recommendation.Shelves) {
+		return nil
+	}
+	return []string{"recommendation.shelves"}
 }
 
 // prune drops every mapping entry that leads to no kept leaf.

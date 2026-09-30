@@ -27,6 +27,10 @@ type Manifold interface {
 	// ResolveArrow fetches and validates an ArrowManifest for the given namespace.
 	// The returned aggregate includes compiled OS-specific targets in manifest.Targets.
 	// Also returns the raw manifest bytes and the filename it was resolved from.
+	// The returned arrow carries no Namespace, except when Fletcher drafted it
+	// from a ref other than the one namespace named (a branch whose release
+	// assets live under a tag): then Namespace is the bare namespace at the
+	// ref actually drafted, which is the revision the arrow really is.
 	ResolveArrow(
 		ctx context.Context,
 		namespace domain.Namespace,
@@ -276,8 +280,9 @@ func (m *manifold) ResolveArrow(
 	namespace domain.Namespace,
 ) (*domain.Arrow, []byte, string, error) {
 	raw, filename, err := m.resolveArrowBytes(ctx, namespace)
+	draftedFrom := ""
 	if err != nil && m.fl != nil {
-		raw, filename, err = m.fl.Recover(ctx, namespace, err)
+		raw, filename, draftedFrom, err = m.fl.Recover(ctx, namespace, err)
 	}
 	if err != nil {
 		return nil, nil, "", err
@@ -286,6 +291,9 @@ func (m *manifold) ResolveArrow(
 	arrow, err := m.ParseArrow(raw)
 	if err != nil {
 		return nil, nil, "", err
+	}
+	if draftedFrom != "" {
+		arrow.Namespace = namespace.WithRef(draftedFrom)
 	}
 
 	return arrow, raw, filename, nil

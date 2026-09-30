@@ -398,7 +398,7 @@ func (r *storeService) ResolveManifest(
 	}
 
 	if ns.Ref() == "" {
-		identity, arrow, err := r.ResolveInstall(ctx, ns)
+		identity, arrow, err := r.ResolveInstall(ctx, ns, Preview())
 		if err != nil {
 			return nil, fmt.Errorf("reader resolve manifest: %w", err)
 		}
@@ -446,7 +446,7 @@ func (r *storeService) resolveAtRef(
 	if err == nil || r.manifold == nil {
 		return arrow, err
 	}
-	_, selected, selErr := r.ResolveInstall(ctx, ns)
+	_, selected, selErr := r.ResolveInstall(ctx, ns, Preview())
 	if selErr != nil {
 		return nil, err
 	}
