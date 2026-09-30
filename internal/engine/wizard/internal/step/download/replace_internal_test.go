@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,14 +92,19 @@ func TestReplaceFile(t *testing.T) {
 	}
 }
 
-func TestSweepStale_RemovesLeftoversOfThisDestinationOnly(t *testing.T) {
+func TestSweepStale_RemovesOldLeftoversOfThisDestinationOnly(t *testing.T) {
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "quiver-new")
+	old := time.Now().Add(-2 * staleAge)
 	for _, name := range []string{
 		"quiver-new", ".quiver-new" + stagingMarker + "dead", "quiver-new" + asideMarker + "old",
-		"other" + asideMarker + "old", "notes.txt",
+		"other" + asideMarker + "old", "notes.txt", ".quiver-new" + stagingMarker + "running",
 	} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, nil, 0o600))
+		if !strings.HasSuffix(name, "running") {
+			require.NoError(t, os.Chtimes(path, old, old))
+		}
 	}
 
 	sweepStale(dst)
@@ -109,7 +115,9 @@ func TestSweepStale_RemovesLeftoversOfThisDestinationOnly(t *testing.T) {
 	for _, e := range entries {
 		left = append(left, e.Name())
 	}
-	assert.ElementsMatch(t, []string{"quiver-new", "other" + asideMarker + "old", "notes.txt"}, left)
+	assert.ElementsMatch(t, []string{
+		"quiver-new", "other" + asideMarker + "old", "notes.txt", ".quiver-new" + stagingMarker + "running",
+	}, left, "a concurrent fetch's fresh staging file is never swept")
 }
 
 func TestSweepStale_MissingDirectoryIsANoOp(t *testing.T) {

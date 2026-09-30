@@ -945,7 +945,8 @@ image (writing into a running executable fails on Linux with "text file busy" â€
 second self-update in one daemon lifetime downloads over the binary it is running). Where
 the OS refuses to replace a file in use (a running executable on Windows), the old file is
 renamed aside first. Staging files a crashed download left and files moved aside are removed
-by the next fetch of the same `to`, once nothing uses them. A `to` naming a directory is
+by a later fetch of the same `to` once they are more than a day old and nothing uses them,
+so a concurrent fetch of the same `to` never loses the staging file it is writing. A `to` naming a directory is
 refused.
 
 #### `extract` â€” archive extraction

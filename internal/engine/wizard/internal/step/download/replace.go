@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -70,18 +71,27 @@ func keepMode(
 	_ = os.Chmod(staged, info.Mode().Perm())
 }
 
+// staleAge is how old a leftover must be before a fetch removes it: longer
+// than any download runs, so a concurrent fetch of the same destination never
+// loses the staging file it is still writing.
+const staleAge = 24 * time.Hour
+
 // sweepStale removes what earlier fetches of dst left behind: a staging file
 // of a download that never finished, and old targets moved aside. One still
-// in use cannot be removed yet and is left for the next fetch.
+// in use cannot be removed yet and is left for a later fetch.
 func sweepStale(dst string) {
 	dir, base := filepath.Split(dst)
 	entries, err := os.ReadDir(filepath.Clean(dir))
 	if err != nil {
 		return
 	}
+	cutoff := time.Now().Add(-staleAge)
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, "."+base+stagingMarker) || strings.HasPrefix(name, base+asideMarker) {
+		if !strings.HasPrefix(name, "."+base+stagingMarker) && !strings.HasPrefix(name, base+asideMarker) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
