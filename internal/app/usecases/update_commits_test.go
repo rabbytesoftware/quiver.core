@@ -338,3 +338,25 @@ func TestRuntimeOnUpdateEnded_CheckHeldDuringTheReconcile_ReconcilesAgain(t *tes
 	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge", "reconcile badge"}, log.all())
 	assert.False(t, uc.HoldBadge(rollingRow), "once settled, a check syncs the badge itself")
 }
+
+// A check held while the update ran is covered by the settle's own
+// reconcile, which reads the row after it: the row is released after one
+// reconcile, so a client that sees Ready can update again at once.
+func TestRuntimeOnUpdateEnded_CheckHeldDuringTheRun_ReleasesAfterOneReconcile(t *testing.T) {
+	a, rt, log := commitFixture(true, nil)
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+	settlingAtReconcile := []bool{}
+	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
+		log.add("reconcile badge")
+		settlingAtReconcile = append(settlingAtReconcile, uc.Settling(rollingRow))
+		return nil
+	}
+	uc.targets.put(rollingRow, rollingTarget())
+	require.True(t, uc.HoldBadge(rollingRow), "a detail read's check while the update runs is held")
+
+	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
+	assert.Equal(t, []bool{true}, settlingAtReconcile)
+	assert.False(t, uc.Settling(rollingRow), "released right after its one reconcile")
+}

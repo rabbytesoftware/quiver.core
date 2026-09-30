@@ -846,23 +846,28 @@ func (u *runtimeUsecase) HoldBadge(ns domain.Namespace) bool {
 	return true
 }
 
-// releaseSettled re-derives ns's badge from the row and lets the row go,
-// again for as long as a check was held in the meantime: a check that
-// recorded a newer Available after the reconcile read the row is never left
-// with a stale badge. Once the row is released, checks sync it themselves.
+// releaseSettled re-derives ns's badge from the row and lets the row go. A
+// check held before a reconcile is covered by it, since the reconcile reads
+// the row afterwards; only a check held while the reconcile ran may have
+// recorded something it did not read, and only then is it run again. Once
+// the row is released, checks sync the badge themselves.
 func (u *runtimeUsecase) releaseSettled(
 	ctx context.Context,
 	ns domain.Namespace,
 ) {
 	for {
+		u.holds.mu.Lock()
+		delete(u.holds.dirty, ns)
+		u.holds.mu.Unlock()
+
 		u.reconcileBadge(ctx, ns)
+
 		u.holds.mu.Lock()
 		if !u.holds.dirty[ns] {
 			u.commits.done(ns)
 			u.holds.mu.Unlock()
 			return
 		}
-		delete(u.holds.dirty, ns)
 		u.holds.mu.Unlock()
 	}
 }
