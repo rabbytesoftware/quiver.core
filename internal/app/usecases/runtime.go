@@ -497,8 +497,9 @@ func (u *runtimeUsecase) stageAndBegin(
 	if err != nil {
 		return fmt.Errorf("update: %w", err)
 	}
+	began := false
 	defer func() {
-		if err == nil {
+		if err == nil || began {
 			return
 		}
 		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
@@ -511,10 +512,29 @@ func (u *runtimeUsecase) stageAndBegin(
 	}
 	undo := u.remember(ns, available)
 	if err := u.runtime.BeginUpdate(ctx, ns, userVars, available.Ref); err != nil {
-		undo()
+		if began = ctx.Err() != nil && u.updateBegan(ctx, ns); !began {
+			undo()
+		}
 		return err
 	}
 	return nil
+}
+
+// updateBegan reports, after the caller gave up during BeginUpdate, whether
+// the update was accepted anyway: the runtime reads updating, or the run
+// already ended and its end took the remembered target. A run that began
+// owns the outcome, and its end settles the row.
+func (u *runtimeUsecase) updateBegan(
+	ctx context.Context,
+	ns domain.Namespace,
+) bool {
+	if !u.targets.pending(ns) {
+		return true
+	}
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+	defer cancel()
+	state, err := u.runtime.GetState(readCtx, ns)
+	return err == nil && state == domain.ArrowStateUpdating
 }
 
 // remember records the target an update begins toward, except for

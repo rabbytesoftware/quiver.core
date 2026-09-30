@@ -571,6 +571,56 @@ func TestRuntimeExecute_Update_FailureAfterStaging_RestoresTheInstalledManifest(
 	}
 }
 
+// The caller gave up while BeginUpdate was being accepted, but the run began:
+// restoring the installed manifest now would run the old recipe for the
+// target ${REF}. The run owns the outcome; its end settles the row.
+func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunBegan_RestoresNothing(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.runtime.BeginUpdateFn = func(ctx context.Context, _ domain.Namespace, _ map[string]string, _ string) error {
+		f.setState(domain.ArrowStateUpdating)
+		cancel()
+		return ctx.Err()
+	}
+	uc := f.usecase()
+
+	err := uc.Execute(ctx, rollingRow, domain.MethodUpdate, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, f.log.all(), "refresh to c1", "the installed manifest must not replace the one the run is using")
+	remembered, ok := uc.targets.take(rollingRow)
+	require.True(t, ok, "the run's end commits the target it began toward")
+	assert.Equal(t, target, remembered)
+}
+
+// The run began and already ended (its end took the target) before the
+// caller's BeginUpdate returned: the end settled the row, nothing is undone.
+func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunEnded_RestoresNothing(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+	}
+	uc := f.usecase()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.runtime.BeginUpdateFn = func(ctx context.Context, ns domain.Namespace, _ map[string]string, _ string) error {
+		_, _ = uc.targets.take(ns)
+		cancel()
+		return ctx.Err()
+	}
+
+	err := uc.Execute(ctx, rollingRow, domain.MethodUpdate, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, f.log.all(), "refresh to c1")
+}
+
 // ─── stopIfRunning ───────────────────────────────────────────────────────────
 
 func TestStopIfRunning(t *testing.T) {

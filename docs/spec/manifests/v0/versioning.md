@@ -583,7 +583,10 @@ sequenceDiagram
    step 7. A bracket that fails after step 4 but before its update began (a dependency the
    target gained fails to sync, `BeginUpdate` is refused, the caller gives up) restores the
    installed manifest the same way before it answers, inside the bracket and under a
-   context of its own: no run began, so nothing would end to restore it.
+   context of its own: no run began, so nothing would end to restore it. A caller that gives
+   up while `BeginUpdate` is being accepted is checked against the runtime first: if the run
+   began (the runtime reads `updating`, or its end already took the target), nothing is
+   restored or undone — the run owns the outcome and its end settles the row.
 
 The commit runs detached from the event handler that observes `runtime.ended`, because
 clearing the badge waits on the same runtime event queue the handler is delivered on.
