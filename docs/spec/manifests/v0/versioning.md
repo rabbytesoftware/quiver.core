@@ -87,8 +87,9 @@ tag literally named `stable` is shadowed by the `stable` channel; install it wit
 `crowbar@refs/tags/stable`.
 
 A commit selector is catalogued in lower case: `crowbar@ABCDEF1` and `crowbar@abcdef1` are
-one identity, `crowbar@abcdef1`, and either spelling names that row. Every other kind keeps
-its exact spelling. Adopting (§10.1) a namespace whose selector has an empty path component
+one identity, `crowbar@abcdef1`, and either spelling names that row: every verb, every
+catalog read (detail, manifest, readme) and a dependent's orphan cleanup of a dependency it
+declared in another case. Every other kind keeps its exact spelling. Adopting (§10.1) a namespace whose selector has an empty path component
 is refused with `ErrInvalidNamespace` (400), the same as step 1, so no seed or collection
 member can alias another identity's workdir.
 

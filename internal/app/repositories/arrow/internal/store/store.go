@@ -371,12 +371,11 @@ func (r *storeService) GetManifest(
 		return &vm.Metadata, nil
 	}
 
-	for _, vr := range vm.Versions {
-		if vr.Namespace.String() == ns.String() {
-			return &vr.Metadata, nil
-		}
+	vr, ok := findVersionRef(vm.Versions, ns)
+	if !ok {
+		return nil, apperrors.ErrNotFound
 	}
-	return nil, apperrors.ErrNotFound
+	return &vr.Metadata, nil
 }
 
 // ResolveManifest answers a catalogued identity from its row: the manifest
@@ -431,7 +430,7 @@ func cataloguedRow(
 		return nil, false
 	}
 	row := vr.Metadata
-	row.Namespace = ns
+	row.Namespace = vr.Namespace
 	return &row, true
 }
 
@@ -481,12 +480,9 @@ func (r *storeService) ResolveCatalogued(
 		return vm.Versions[0].Namespace, nil
 	}
 
-	for _, vr := range vm.Versions {
-		if vr.Namespace.String() == ns.String() || sameCommitSelector(vr, ns) {
-			return vr.Namespace, nil
-		}
+	if vr, ok := findVersionRef(vm.Versions, ns); ok {
+		return vr.Namespace, nil
 	}
-
 	return "", fmt.Errorf("reader resolve catalogued %s: %w", ns, apperrors.ErrNotFound)
 }
 
@@ -543,7 +539,7 @@ func findVersionRef(
 	ns domain.Namespace,
 ) (storage.VersionRef, bool) {
 	for _, vr := range versions {
-		if vr.Namespace.String() == ns.String() {
+		if vr.Namespace.String() == ns.String() || sameCommitSelector(vr, ns) {
 			return vr, true
 		}
 	}

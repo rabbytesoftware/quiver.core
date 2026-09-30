@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -101,4 +102,40 @@ func TestResolveCatalogued_PinDoesNotMatchAnotherCase(t *testing.T) {
 	_, err := r.ResolveCatalogued(context.Background(), "github.com/user/pkg@ABCDEF1")
 
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+// Every read of a catalogued commit row accepts any spelling of its commit
+// and answers with the row under its catalogued identity.
+func TestCommitRow_ReadsInAnyCase(t *testing.T) {
+	identity := domain.Namespace("github.com/user/pkg@abcdef1")
+	upper := domain.Namespace("github.com/user/pkg@ABCDEF1")
+	testCases := []struct {
+		name string
+		read func(store.Store) (*domain.Arrow, error)
+	}{
+		{name: "get", read: func(r store.Store) (*domain.Arrow, error) { return r.Get(context.Background(), upper) }},
+		{name: "get manifest", read: func(r store.Store) (*domain.Arrow, error) { return r.GetManifest(context.Background(), upper) }},
+		{name: "resolve manifest", read: func(r store.Store) (*domain.Arrow, error) {
+			return r.ResolveManifest(context.Background(), upper)
+		}},
+		{name: "get detail", read: func(r store.Store) (*domain.Arrow, error) {
+			view, err := r.GetDetail(context.Background(), upper)
+			if err != nil {
+				return nil, err
+			}
+			return &view.Metadata, nil
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestReader(t)
+			seedArrow(t, r, domain.Arrow{Namespace: identity, ArrowMeta: domain.ArrowMeta{Name: "Pinned commit"}, SelectorKind: domain.SelectorCommit})
+
+			got, err := tc.read(r)
+
+			require.NoError(t, err)
+			assert.Equal(t, "Pinned commit", got.Name)
+			assert.Equal(t, identity, got.Namespace)
+		})
+	}
 }

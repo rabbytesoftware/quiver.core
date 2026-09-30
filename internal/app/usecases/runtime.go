@@ -550,7 +550,7 @@ func (u *runtimeUsecase) Reset(
 	return nil
 }
 
-func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
+func (u *runtimeUsecase) syncDeps(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
@@ -596,35 +596,49 @@ func (u *runtimeUsecase) syncDeps( //nolint:gocyclo
 		}
 	}
 
-	for _, depNs := range syncInfo.RemovedDeps {
-		arrow, getErr := u.arrow.Get(ctx, depNs)
-		if getErr != nil || arrow == nil || arrow.UserInstalled {
-			continue
-		}
-		hasDeps, depsErr := u.graph.HasDependents(ctx, depNs, "")
-		if depsErr != nil || hasDeps {
-			continue
-		}
-		depState, stateErr := u.runtime.GetState(ctx, depNs)
-		if stateErr != nil {
-			continue
-		}
-		switch depState {
-		case domain.ArrowStateReady, domain.ArrowStateOutdated:
-			_ = u.runtime.BeginUninstall(ctx, depNs, nil)
-		case domain.ArrowStateRunning, domain.ArrowStateStopping:
-			_ = u.runtime.BeginStop(ctx, depNs)
-		case domain.ArrowStateAbsent,
-			domain.ArrowStateInstalling,
-			domain.ArrowStateUpdating,
-			domain.ArrowStateDraining,
-			domain.ArrowStateDetached,
-			domain.ArrowStateUninstalling,
-			domain.ArrowStateRemoved:
-		}
+	for _, declared := range syncInfo.RemovedDeps {
+		u.retireRemovedDep(ctx, declared)
 	}
 
 	return nil
+}
+
+// retireRemovedDep uninstalls, or stops, a dependency a row no longer
+// declares once nothing else needs it. The declaration is mapped onto the
+// row the catalog holds it under, since it may spell a commit in another case.
+func (u *runtimeUsecase) retireRemovedDep(
+	ctx context.Context,
+	declared domain.Namespace,
+) {
+	depNs, err := u.arrow.ResolveCatalogued(ctx, declared)
+	if err != nil {
+		return
+	}
+	arrow, getErr := u.arrow.Get(ctx, depNs)
+	if getErr != nil || arrow == nil || arrow.UserInstalled {
+		return
+	}
+	hasDeps, depsErr := u.graph.HasDependents(ctx, depNs, "")
+	if depsErr != nil || hasDeps {
+		return
+	}
+	depState, stateErr := u.runtime.GetState(ctx, depNs)
+	if stateErr != nil {
+		return
+	}
+	switch depState {
+	case domain.ArrowStateReady, domain.ArrowStateOutdated:
+		_ = u.runtime.BeginUninstall(ctx, depNs, nil)
+	case domain.ArrowStateRunning, domain.ArrowStateStopping:
+		_ = u.runtime.BeginStop(ctx, depNs)
+	case domain.ArrowStateAbsent,
+		domain.ArrowStateInstalling,
+		domain.ArrowStateUpdating,
+		domain.ArrowStateDraining,
+		domain.ArrowStateDetached,
+		domain.ArrowStateUninstalling,
+		domain.ArrowStateRemoved:
+	}
 }
 
 func (u *runtimeUsecase) RuntimeExists(
@@ -892,7 +906,10 @@ func (u *runtimeUsecase) onUninstallEnded(ctx context.Context, rt domainRuntime.
 	}
 
 	for _, entry := range plan {
-		depNs := entry.Namespace
+		depNs, catErr := u.arrow.ResolveCatalogued(ctx, entry.Namespace)
+		if catErr != nil {
+			continue
+		}
 		state, stateErr := u.runtime.GetState(ctx, depNs)
 		if stateErr != nil {
 			continue
