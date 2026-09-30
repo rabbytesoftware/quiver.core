@@ -80,7 +80,7 @@ func resolveStale(
 	}
 
 	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
-		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", putErr)
+		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", CacheError(putErr))
 	}
 	return fresh, nil
 }
@@ -102,7 +102,7 @@ func fetchAndCache(
 	}
 
 	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
-		return nil, fmt.Errorf("resolver: store manifest: %w", putErr)
+		return nil, fmt.Errorf("resolver: store manifest: %w", CacheError(putErr))
 	}
 	return fresh, nil
 }

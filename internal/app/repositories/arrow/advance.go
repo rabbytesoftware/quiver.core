@@ -193,7 +193,7 @@ func (s *arrowService) replaceCachedManifest(
 		return fmt.Errorf("purge cached manifest: %w", err)
 	}
 	if err := s.vault.PutArrow(ctx, ns, file); err != nil {
-		return fmt.Errorf("cache manifest: %w", err)
+		return arrowstore.CacheError(err)
 	}
 	return nil
 }

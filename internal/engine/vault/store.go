@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -294,6 +295,9 @@ func (s *store) DeleteWorkDir(
 		return ErrInvalidNamespace
 	}
 	dir, err := s.namespacePath(ns)
+	if errors.Is(err, ErrWorkDirCollision) {
+		return nil // ns owns no directory; the one at its path is another identity's
+	}
 	if err != nil {
 		return err
 	}

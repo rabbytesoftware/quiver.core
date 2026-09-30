@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -555,4 +556,16 @@ func hasUserInstalled(
 		}
 	}
 	return false
+}
+
+// CacheError reports a manifest the vault could not cache under ns. A
+// workdir another identity owns (a case-folded directory from an earlier
+// layout) is a conflict the user resolves by removing that identity.
+func CacheError(
+	err error,
+) error {
+	if errors.Is(err, vault.ErrWorkDirCollision) {
+		return fmt.Errorf("cache manifest: another identity's workdir occupies its path, remove that identity first: %w: %w", apperrors.ErrAlreadyExists, err)
+	}
+	return fmt.Errorf("cache manifest: %w", err)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -143,8 +142,7 @@ func (a *assemblerService) Assemble(
 	if a.vault != nil {
 		workDir, err = a.vault.WorkDir(ctx, ns)
 		if err != nil {
-			slog.WarnContext(ctx, "assembler: workdir unavailable", "ns", ns, "err", err)
-			// non-fatal: execution proceeds without a WorkDir
+			return ResolvedExecution{}, assemblerinternal.WorkDirError(ns, err)
 		}
 	}
 

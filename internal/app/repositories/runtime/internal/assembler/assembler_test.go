@@ -16,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -162,20 +163,39 @@ func TestAssemble_NilVault_NoWorkDir(t *testing.T) {
 	assert.NotEmpty(t, result.Steps)
 }
 
-func TestAssemble_VaultWorkDirError_NonFatal(t *testing.T) {
-	ns := testNs()
-	arrow := testArrowWithInstall()
-
-	getArrow := func(ctx context.Context, n domain.Namespace) (*domain.Arrow, error) {
-		return arrow, nil
+// A workdir the vault cannot give is fatal to every method: steps would
+// otherwise run in the daemon's own working directory. A workdir another
+// identity owns is a conflict (409), never a server error.
+func TestAssemble_VaultWorkDirError_IsFatal(t *testing.T) {
+	testCases := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{name: "collision with another identity", err: vault.ErrWorkDirCollision, wantErr: apperrors.ErrAlreadyExists},
+		{name: "any other failure", err: errors.New("disk gone"), wantErr: nil},
 	}
-	vault := &mocks.Vault{WorkDirErr: errors.New("vault error")}
-	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, vault, nil, testOs())
-	result, err := asm.Assemble(context.Background(), ns, domain.MethodInstall, nil)
-	require.NoError(t, err)
-	assert.Empty(t, result.WorkDir)
+	for _, tc := range testCases {
+		for _, method := range []string{domain.MethodInstall, domain.MethodUninstall, domain.MethodExecute} {
+			t.Run(tc.name+" "+method, func(t *testing.T) {
+				arrow := testArrowWithInstall()
+				lifecycle := arrow.Targets[testOs()].Lifecycle
+				lifecycle.Uninstall = domainStep.StepList{domainStep.NewRunStep("uninstall", "rm -rf data", false, "", true)}
+				lifecycle.Execute = domainStep.StepList{domainStep.NewRunStep("execute", "echo run", false, "", true)}
+				arrow.Targets[testOs()] = domain.Target{Lifecycle: lifecycle}
+				getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+				asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), &mocks.Vault{WorkDirErr: tc.err}, nil, testOs())
+
+				_, err := asm.Assemble(context.Background(), testNs(), method, nil)
+
+				require.ErrorIs(t, err, tc.err)
+				if tc.wantErr != nil {
+					assert.ErrorIs(t, err, tc.wantErr)
+				}
+			})
+		}
+	}
 }
 
 func TestAssemble_WithUserVars(t *testing.T) {

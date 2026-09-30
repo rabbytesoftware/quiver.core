@@ -426,6 +426,10 @@ func TestVault_CaseFoldedLegacyDirectory_IsNeverShared(t *testing.T) {
 
 	_, err = v.WorkDir(context.Background(), "github.com/u/r@v1.0")
 	require.ErrorIs(t, err, ErrWorkDirCollision)
+
+	require.NoError(t, v.DeleteWorkDir(context.Background(), "github.com/u/r@v1.0"),
+		"removing the identity that owns no directory must succeed")
+	assert.DirExists(t, legacy, "and must leave the other identity's files alone")
 }
 
 // A constraint identity catalogued before paths were escaped has its

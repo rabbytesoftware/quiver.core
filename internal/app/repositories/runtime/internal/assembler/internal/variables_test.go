@@ -677,8 +677,8 @@ func TestResolveVariables_VaultWorkDirError_Skipped(t *testing.T) {
 	}
 
 	target := arrow.Targets[os]
-	// Vault that fails on WorkDir
-	vault := &mocks.Vault{WorkDirErr: errors.New("vault unavailable")}
+	// Vault that fails on the dependency's WorkDir only
+	vault := depFailingVault{Vault: &mocks.Vault{}, own: ns}
 	axRuntime := newTestAsynxRuntimeForVars(t)
 
 	getArrow := func(ctx context.Context, n domain.Namespace) (*domain.Arrow, error) {
@@ -1135,4 +1135,29 @@ func TestResolveVariables_ComputedValuesNeverCarriedForward(t *testing.T) {
 	assert.NotContains(t, vars, "github.com/dep/tool.bin")
 	assert.Equal(t, "b", vars["CHANNEL_CHOICE"], "a declared answer is still remembered")
 	assert.Equal(t, "kept", vars["UNDECLARED_BUT_REMEMBERED"])
+}
+
+type depFailingVault struct {
+	*mocks.Vault
+	own domain.Namespace
+}
+
+func (v depFailingVault) WorkDir(_ context.Context, ns domain.Namespace) (string, error) {
+	if ns == v.own {
+		return "/work/own", nil
+	}
+	return "", errors.New("vault unavailable")
+}
+
+func TestResolveVariables_OwnWorkDirError_IsFatal(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{Namespace: ns}
+	boom := errors.New("disk gone")
+
+	_, err := assemblerinternal.ResolveVariables(
+		context.Background(), ns, arrow, domain.Target{}, domain.OSLinuxAMD64,
+		testGetArrow(arrow), newTestAsynxRuntimeForVars(t), &mocks.Vault{WorkDirErr: boom}, nil, nil, nil,
+	)
+
+	require.ErrorIs(t, err, boom)
 }

@@ -147,7 +147,13 @@ spelling. Every existence check reads directory entries, so a case-folded siblin
 is never mistaken for it. When the new path exists only through case folding — on macOS or
 Windows, `repo@v1.0` landing in the directory an earlier layout gave `repo@V1.0` — it is
 another identity's workdir, and `WorkDir` refuses it (`ErrWorkDirCollision`) rather than
-let one uninstall delete the other's files. A manifest cache entry written under the earlier filename is read
+let one uninstall delete the other's files. The app layer answers it as a conflict (409):
+adding, installing, running or uninstalling that identity is refused until the identity
+that owns the directory is removed. `DeleteWorkDir` of the refused identity succeeds and
+touches nothing (it owns no directory), so it can always be removed from the catalog. A
+workdir the vault cannot give is fatal to every lifecycle method, and the wizard never
+starts a `run` step without a workdir, so no step ever runs in the daemon's own working
+directory. A manifest cache entry written under the earlier filename is read
 the same way and deleted with the current one.
 
 `decodeNSDir` reverses either directory form when listing namespaces; a component that does

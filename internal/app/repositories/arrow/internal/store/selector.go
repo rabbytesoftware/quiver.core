@@ -214,7 +214,7 @@ func (r *storeService) fetchAtCommit(
 		return nil, fmt.Errorf("purge cached manifest: %w", err)
 	}
 	if err := r.vault.PutArrow(ctx, identity, Cacheable(arrow, raw, filename)); err != nil {
-		return nil, fmt.Errorf("cache manifest: %w", err)
+		return nil, CacheError(err)
 	}
 	return arrow, nil
 }

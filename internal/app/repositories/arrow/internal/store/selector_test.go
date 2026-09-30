@@ -377,6 +377,16 @@ func TestResolveInstall_Errors(t *testing.T) {
 			v:       &mocks.Vault{PutArrowErr: fetchErr},
 			wantErr: fetchErr,
 		},
+		{
+			name: "a workdir another identity owns is a conflict",
+			ns:   selectorBare.WithRef("stable"),
+			m: &mocks.Manifold{
+				SnapshotResult:             selectorSnapshot(),
+				ResolveArrowAtCommitResult: &domain.Arrow{},
+			},
+			v:       &mocks.Vault{PutArrowErr: vault.ErrWorkDirCollision},
+			wantErr: apperrors.ErrAlreadyExists,
+		},
 	}
 
 	for _, tc := range testCases {

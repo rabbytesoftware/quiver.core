@@ -14,6 +14,10 @@ import (
 
 var ErrNonZeroExit = errors.New("run: process exited with non-zero code")
 
+// ErrNoWorkDir means a run step was asked to start without a workdir: it
+// would run in the daemon's own working directory, so it never starts.
+var ErrNoWorkDir = errors.New("run: no workdir")
+
 type handler struct {
 	rt runtime.Runtime
 }
@@ -29,6 +33,9 @@ func (h *handler) Execute(
 	req wizstep.Request,
 	s domainstep.RunStep,
 ) error {
+	if req.WorkDir == "" {
+		return ErrNoWorkDir
+	}
 	stepCtx := ctx
 	var cancel context.CancelFunc
 	if ts := s.Timeout.Resolve(req.OSArch.String()); ts != "" {

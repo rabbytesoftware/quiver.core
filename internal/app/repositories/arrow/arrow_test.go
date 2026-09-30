@@ -33,6 +33,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -2502,6 +2503,11 @@ func TestAdvance_FetchOrCacheFailure_LeavesTheRowUnchanged(t *testing.T) {
 		{
 			name:  "the vault cache write fails",
 			vault: &mocks.Vault{PutArrowErr: errors.New("disk full")},
+		},
+		{
+			name:      "another identity owns the workdir",
+			vault:     &mocks.Vault{PutArrowErr: vault.ErrWorkDirCollision},
+			wantErrIs: apperrors.ErrAlreadyExists,
 		},
 	}
 
