@@ -521,6 +521,47 @@ func TestAdvanceArrow_ReplacesManifestAndResolved_PreservesRowState(t *testing.T
 	assert.Equal(t, domain.SelectorPin, got.SelectorKind)
 }
 
+// A check during an update may record a release newer than the one the
+// update installs; the commit must not erase it (versioning §8.2 step 7).
+func TestAdvanceArrow_Available(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"}
+	target := domain.Resolved{Ref: "v1.3.0", Commit: "c130", Fingerprint: "c130"}
+
+	testCases := []struct {
+		name      string
+		keep      bool
+		available *domain.Available
+		want      *domain.Available
+	}{
+		{name: "the advanced-to target is cleared", keep: true, available: &domain.Available{Ref: "v1.3.0", Commit: "c130"}, want: nil},
+		{name: "a newer release recorded during the update stays offered", keep: true, available: &domain.Available{Ref: "v1.4.0", Commit: "c140"}, want: &domain.Available{Ref: "v1.4.0", Commit: "c140"}},
+		{name: "the target's ref moved again stays offered", keep: true, available: &domain.Available{Ref: "v1.3.0", Commit: "c131"}, want: &domain.Available{Ref: "v1.3.0", Commit: "c131"}},
+		{name: "nothing recorded stays nothing", keep: true, available: nil, want: nil},
+		{name: "an adoption clears whatever was recorded", keep: false, available: &domain.Available{Ref: "v1.4.0", Commit: "c140"}, want: nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := domain.Namespace("github.com/user/repo@stable")
+			_, err := ax.Send(context.Background(), commands.AddArrow{Namespace: ns, SelectorKind: domain.SelectorOrderedChannel, Resolved: installed})
+			require.NoError(t, err)
+			if tc.available != nil {
+				_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: tc.available, JudgedResolved: installed})
+				require.NoError(t, err)
+			}
+
+			_, err = ax.Send(context.Background(), commands.AdvanceArrow{Namespace: ns, Resolved: target, KeepNewerAvailable: tc.keep})
+			require.NoError(t, err)
+
+			got, err := ax.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, target, got.Resolved)
+			assert.Equal(t, tc.want, got.Available)
+		})
+	}
+}
+
 func TestAdvanceArrow_PreservesStoredSelectorKind(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := domain.Namespace("github.com/user/repo@v1.*")

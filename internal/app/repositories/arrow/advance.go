@@ -51,7 +51,7 @@ func (s *arrowService) Advance(
 		Ref:         target.Ref,
 		Commit:      target.Commit,
 		Fingerprint: target.Commit,
-	})
+	}, true)
 }
 
 // Adopt parses manifest locally and records it, with resolved, as what ns
@@ -144,7 +144,7 @@ func (s *arrowService) adoptOnto(
 		return fmt.Errorf("adopt %s: %w", ns, err)
 	}
 	if advance {
-		return s.sendAdvance(ctx, ns, m, resolved)
+		return s.sendAdvance(ctx, ns, m, resolved, false)
 	}
 	err := s.sendRetryingConflicts(ctx, arrowcmds.RefreshManifest{
 		Namespace: ns,
@@ -199,21 +199,26 @@ func (s *arrowService) replaceCachedManifest(
 }
 
 // sendAdvance waits for the projections: an advance can change the
-// dependency edges, and the caller reads them back.
+// dependency edges, and the caller reads them back. keepNewer keeps an
+// Available that names something other than resolved, for an advance onto a
+// target a check judged; an adoption declares state nobody judged, and clears
+// it for the next check to judge.
 func (s *arrowService) sendAdvance(
 	ctx context.Context,
 	ns domain.Namespace,
 	m *domain.Arrow,
 	resolved domain.Resolved,
+	keepNewer bool,
 ) error {
 	err := s.sendRetryingConflicts(ctx, arrowcmds.AdvanceArrow{
-		Namespace: ns,
-		ArrowMeta: m.ArrowMeta,
-		Variables: m.Variables,
-		Netbridge: m.Netbridge,
-		Targets:   m.Targets,
-		Readme:    m.Readme,
-		Resolved:  resolved,
+		Namespace:          ns,
+		ArrowMeta:          m.ArrowMeta,
+		Variables:          m.Variables,
+		Netbridge:          m.Netbridge,
+		Targets:            m.Targets,
+		Readme:             m.Readme,
+		Resolved:           resolved,
+		KeepNewerAvailable: keepNewer,
 	})
 	return mapSendErr("advance", ns, err)
 }
