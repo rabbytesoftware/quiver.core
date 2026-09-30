@@ -87,11 +87,21 @@ func PreinstalledProbe(
 // ManifestRefresher exposes manifestRefresher for unit tests.
 func ManifestRefresher(
 	cat repoarrow.Arrow,
+	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) runtime.RefreshManifestFn {
-	return manifestRefresher(cat)
+	return manifestRefresher(cat, updateTarget)
 }
 
 // WireLifecycle exposes wireLifecycle for unit tests.
 func (c *Container) WireLifecycle() error {
 	return c.wireLifecycle()
+}
+
+// UpdateTargets exposes the late-bound update-target lookup for unit tests.
+func UpdateTargets() (
+	set func(func(domain.Namespace) (domain.Available, bool)),
+	lookup func(domain.Namespace) (domain.Available, bool),
+) {
+	targets := &updateTargets{}
+	return targets.set, targets.lookup
 }

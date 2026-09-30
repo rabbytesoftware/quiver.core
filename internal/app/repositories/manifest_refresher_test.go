@@ -38,22 +38,47 @@ func (a *refreshingArrow) RefreshToTarget(
 	return a.row, a.refreshErr
 }
 
-func TestManifestRefresher_StagesTheReleaseTheMethodRuns(t *testing.T) {
-	installed := domain.Resolved{Ref: "tip", Commit: "c1"}
-	ahead := &domain.Available{Ref: "tip", Commit: "c2"}
+func rememberedTarget(
+	target *domain.Available,
+) func(domain.Namespace) (domain.Available, bool) {
+	return func(domain.Namespace) (domain.Available, bool) {
+		if target == nil {
+			return domain.Available{}, false
+		}
+		return *target, true
+	}
+}
+
+func TestManifestRefresher_StagesTheReleaseTheRunBuilds(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.0.0", Commit: "c1"}
+	began := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
 	testCases := []struct {
-		name   string
-		method string
-		want   domain.Available
+		name      string
+		method    string
+		available *domain.Available
+		want      domain.Available
 	}{
-		{name: "install reads the installed release", method: domain.MethodInstall, want: domain.Available{Ref: "tip", Commit: "c1"}},
-		{name: "update reads the update target", method: domain.MethodUpdate, want: *ahead},
+		{
+			name:   "install reads the installed release",
+			method: domain.MethodInstall, available: began,
+			want: domain.Available{Ref: "v1.0.0", Commit: "c1"},
+		},
+		{
+			name:   "update reads the target it began toward",
+			method: domain.MethodUpdate, available: began,
+			want: *began,
+		},
+		{
+			name:   "a newer release recorded during the update is not the one the run builds",
+			method: domain.MethodUpdate, available: &domain.Available{Ref: "v1.2.0", Commit: "c3"},
+			want: *began,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cat := &refreshingArrow{row: &domain.Arrow{Resolved: installed, Available: ahead}}
+			cat := &refreshingArrow{row: &domain.Arrow{Resolved: installed, Available: tc.available}}
 
-			err := repositories.ManifestRefresher(cat)(context.Background(), "github.com/u/r@tip", tc.method)
+			err := repositories.ManifestRefresher(cat, rememberedTarget(began))(context.Background(), "github.com/u/r@stable", tc.method)
 
 			require.NoError(t, err)
 			assert.Equal(t, []domain.Available{tc.want}, cat.staged)
@@ -63,21 +88,36 @@ func TestManifestRefresher_StagesTheReleaseTheMethodRuns(t *testing.T) {
 
 func TestManifestRefresher_Failures(t *testing.T) {
 	errBoom := errors.New("boom")
+	target := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
 	testCases := []struct {
 		name    string
 		cat     *refreshingArrow
 		method  string
+		target  *domain.Available
 		wantErr error
 	}{
 		{name: "row cannot be read", cat: &refreshingArrow{getErr: errBoom}, method: domain.MethodInstall, wantErr: errBoom},
 		{name: "refresh fails", cat: &refreshingArrow{row: &domain.Arrow{}, refreshErr: errBoom}, method: domain.MethodInstall, wantErr: errBoom},
-		{name: "update with nothing ahead", cat: &refreshingArrow{row: &domain.Arrow{}}, method: domain.MethodUpdate, wantErr: apperrors.ErrStateViolation},
+		{name: "update began toward no remembered target", cat: &refreshingArrow{row: &domain.Arrow{Available: target}}, method: domain.MethodUpdate, wantErr: apperrors.ErrStateViolation},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := repositories.ManifestRefresher(tc.cat)(context.Background(), "github.com/u/r@tip", tc.method)
+			err := repositories.ManifestRefresher(tc.cat, rememberedTarget(tc.target))(context.Background(), "github.com/u/r@stable", tc.method)
 
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestUpdateTargets_AnswerOnlyOnceTheLifecycleIsSet(t *testing.T) {
+	set, lookup := repositories.UpdateTargets()
+	target := domain.Available{Ref: "v1.1.0", Commit: "c2"}
+
+	_, ok := lookup("github.com/u/r@stable")
+	assert.False(t, ok)
+
+	set(rememberedTarget(&target))
+	got, ok := lookup("github.com/u/r@stable")
+	assert.True(t, ok)
+	assert.Equal(t, target, got)
 }

@@ -136,5 +136,7 @@ func TestLifecycle_NothingSettling_HoldsNoBadgeAndDrainsAtOnce(t *testing.T) {
 
 	assert.False(t, lc.Settling(row))
 	assert.False(t, lc.HoldBadge(row))
+	_, updating := lc.UpdateTarget(row)
+	assert.False(t, updating)
 	require.NoError(t, lc.Drain(context.Background()))
 }

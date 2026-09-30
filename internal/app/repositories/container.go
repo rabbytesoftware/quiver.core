@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -130,7 +131,8 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates)
+	targets := &updateTargets{}
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates, targets.lookup)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -166,12 +168,15 @@ func New(
 		return nil, fmt.Errorf("repositories: device: %w", err)
 	}
 
+	lc := lifecycle.New(cat, rt, g)
+	targets.set(lc.UpdateTarget)
+
 	c := &Container{
 		Arrow:          cat,
 		Runtime:        rt,
 		Collection:     coll,
 		Graph:          g,
-		Lifecycle:      lifecycle.New(cat, rt, g),
+		Lifecycle:      lc,
 		Cascade:        fc,
 		Discovery:      disc,
 		Recommendation: rec,
@@ -202,6 +207,7 @@ func newRuntime(
 	g graph.Graph,
 	os domain.OS,
 	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
+	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) (runtime.Runtime, error) {
 	return runtime.New(
 		arrowGetter(axArrow),
@@ -216,16 +222,18 @@ func newRuntime(
 		catalogLister(cat),
 		os,
 		listRuntimeAggregates,
-		manifestRefresher(cat),
+		manifestRefresher(cat, updateTarget),
 	)
 }
 
-// manifestRefresher stages the manifest of the release a run is building, read
+// manifestRefresher stages the manifest of the release a run builds, read
 // again from its host: the row's installed release for an install, and for an
-// update the target the bracket recorded as available. A rolling release
-// re-published under the same tag drafts new digests this way.
+// update the target the update began toward — never the row's Available,
+// which a check may have moved past it since. A rolling release re-published
+// under the same tag drafts new digests this way.
 func manifestRefresher(
 	cat repoarrow.Arrow,
+	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) runtime.RefreshManifestFn {
 	return func(ctx context.Context, ns domain.Namespace, method string) error {
 		row, err := cat.Get(ctx, ns)
@@ -234,16 +242,39 @@ func manifestRefresher(
 		}
 		release := domain.Available{Ref: row.Resolved.Ref, Commit: row.Resolved.Commit}
 		if method == domain.MethodUpdate {
-			if row.Available == nil {
-				return fmt.Errorf("refresh manifest %s: no update target: %w", ns, apperrors.ErrStateViolation)
+			target, ok := updateTarget(ns)
+			if !ok {
+				return fmt.Errorf("refresh manifest %s: no update in flight: %w", ns, apperrors.ErrStateViolation)
 			}
-			release = *row.Available
+			release = target
 		}
 		if _, err := cat.RefreshToTarget(ctx, ns, release); err != nil {
 			return fmt.Errorf("refresh manifest %s: %w", ns, err)
 		}
 		return nil
 	}
+}
+
+// updateTargets hands the runtime, built before the lifecycle, the lifecycle's
+// remembered update targets once it exists.
+type updateTargets struct {
+	of atomic.Pointer[func(domain.Namespace) (domain.Available, bool)]
+}
+
+func (u *updateTargets) set(
+	of func(domain.Namespace) (domain.Available, bool),
+) {
+	u.of.Store(&of)
+}
+
+func (u *updateTargets) lookup(
+	ns domain.Namespace,
+) (domain.Available, bool) {
+	of := u.of.Load()
+	if of == nil {
+		return domain.Available{}, false
+	}
+	return (*of)(ns)
 }
 
 // arrowOptions assembles what the arrow repository needs from the runtime

@@ -68,6 +68,9 @@ type Lifecycle interface {
 	// HoldBadge tells a version check whether to leave ns's badge alone:
 	// while ns settles, the row still names the target about to be stamped.
 	HoldBadge(ns domain.Namespace) bool
+	// UpdateTarget reports the target the update of ns in flight began
+	// toward: the release its run builds, whatever the row records since.
+	UpdateTarget(ns domain.Namespace) (domain.Available, bool)
 	// Drain waits for every update commit in flight and refuses new ones,
 	// so a shutdown never closes the stores under a commit. When ctx ends
 	// first it aborts them and reports why: those rows stay outdated and
@@ -104,6 +107,7 @@ type Graph interface {
 
 type lifecycle struct {
 	runtime  Runtime
+	targets  bracket.Targets
 	commits  commits.Commits
 	settler  settle.Settler
 	deps     deps.Deps
@@ -123,6 +127,7 @@ func New(
 
 	return &lifecycle{
 		runtime:  runtime,
+		targets:  targets,
 		commits:  inFlight,
 		settler:  settler,
 		deps:     depsRunner,
@@ -191,6 +196,10 @@ func (l *lifecycle) Settling(ns domain.Namespace) bool {
 
 func (l *lifecycle) HoldBadge(ns domain.Namespace) bool {
 	return l.settler.HoldBadge(ns)
+}
+
+func (l *lifecycle) UpdateTarget(ns domain.Namespace) (domain.Available, bool) {
+	return l.targets.Peek(ns)
 }
 
 func (l *lifecycle) Drain(ctx context.Context) error {

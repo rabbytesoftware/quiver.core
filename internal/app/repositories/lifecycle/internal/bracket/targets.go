@@ -30,6 +30,9 @@ type Targets interface {
 		target domain.Available,
 	) func()
 	Take(ns domain.Namespace) (domain.Available, bool)
+	// Peek reports the target an update of ns began toward, leaving it for the
+	// end that takes it.
+	Peek(ns domain.Namespace) (domain.Available, bool)
 }
 
 type targets struct {
@@ -127,5 +130,14 @@ func (t *targets) Take(
 	defer t.mu.Unlock()
 	remembered, ok := t.targets[ns]
 	delete(t.targets, ns)
+	return remembered.target, ok
+}
+
+func (t *targets) Peek(
+	ns domain.Namespace,
+) (domain.Available, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	remembered, ok := t.targets[ns]
 	return remembered.target, ok
 }

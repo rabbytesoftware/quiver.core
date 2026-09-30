@@ -65,3 +65,20 @@ func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateTargets_PeekLeavesTheTargetForItsEnd(t *testing.T) {
+	target := domain.Available{Ref: "r", Commit: "c1"}
+	targets := NewTargets()
+
+	_, ok := targets.Peek(rollingRow)
+	assert.False(t, ok)
+
+	targets.Put(rollingRow, target)
+	peeked, ok := targets.Peek(rollingRow)
+	assert.True(t, ok)
+	assert.Equal(t, target, peeked)
+
+	taken, ok := targets.Take(rollingRow)
+	assert.True(t, ok)
+	assert.Equal(t, target, taken)
+}

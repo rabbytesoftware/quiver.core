@@ -1270,10 +1270,11 @@ type MockLifecycle struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (models.UpdateResult, error)
-	SettlingFn  func(ns domain.Namespace) bool
-	HoldBadgeFn func(ns domain.Namespace) bool
-	DrainFn     func(ctx context.Context) error
-	StartFn     func() error
+	SettlingFn     func(ns domain.Namespace) bool
+	HoldBadgeFn    func(ns domain.Namespace) bool
+	UpdateTargetFn func(ns domain.Namespace) (domain.Available, bool)
+	DrainFn        func(ctx context.Context) error
+	StartFn        func() error
 }
 
 func (m *MockLifecycle) Install(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
@@ -1337,6 +1338,13 @@ func (m *MockLifecycle) HoldBadge(ns domain.Namespace) bool {
 		return m.HoldBadgeFn(ns)
 	}
 	return false
+}
+
+func (m *MockLifecycle) UpdateTarget(ns domain.Namespace) (domain.Available, bool) {
+	if m.UpdateTargetFn != nil {
+		return m.UpdateTargetFn(ns)
+	}
+	return domain.Available{}, false
 }
 
 func (m *MockLifecycle) Drain(ctx context.Context) error {
