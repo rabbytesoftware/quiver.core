@@ -480,6 +480,10 @@ definitions:
       method:
         type: string
       outcome:
+        enum:
+        - success
+        - failed
+        - cancelled
         type: string
       steps:
         items:

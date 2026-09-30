@@ -7,7 +7,7 @@ type ReturnDTO struct {
 	// method are the same run exactly when their IDs match.
 	ExecutionID string            `json:"execution_id,omitempty" yaml:"execution_id,omitempty"`
 	Method      string            `json:"method" yaml:"method"`
-	Outcome     string            `json:"outcome" yaml:"outcome"`
+	Outcome     string            `json:"outcome" yaml:"outcome" enums:"success,failed,cancelled"`
 	Variables   map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
 	Steps       []StepProgressDTO `json:"steps" yaml:"steps"`
 }

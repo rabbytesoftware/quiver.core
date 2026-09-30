@@ -2584,7 +2584,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "outcome": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "success",
+                        "failed",
+                        "cancelled"
+                    ]
                 },
                 "steps": {
                     "type": "array",
