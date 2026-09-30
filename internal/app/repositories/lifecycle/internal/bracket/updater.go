@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
@@ -191,7 +189,7 @@ func (u *updater) stageAndBegin(
 	if err := u.deps.SyncTargetDeps(ctx, ns, current, target); err != nil {
 		return fmt.Errorf("update: %w", err)
 	}
-	undo := u.remember(ns, available)
+	undo := u.targets.Put(ns, available)
 	if err := u.runtime.BeginUpdate(ctx, ns, vars, available.Ref); err != nil {
 		if began = ctx.Err() != nil && u.updateBegan(ctx, ns); !began {
 			undo()
@@ -214,37 +212,17 @@ func (u *updater) rejudge(
 
 // updateBegan reports, after the caller gave up during BeginUpdate, whether
 // the update was accepted anyway: the runtime reads updating, or the run
-// already ended and its end took the remembered target. quiver.core's own
-// row remembers no target, so for it only the runtime answers. A run that
-// began owns the outcome, and its end settles the row.
+// already ended and its end took the remembered target. A run that began owns
+// the outcome, and its end settles the row.
 func (u *updater) updateBegan(
 	ctx context.Context,
 	ns domain.Namespace,
 ) bool {
-	if !isSelfNamespace(ns) && !u.targets.Pending(ns) {
+	if !u.targets.Pending(ns) {
 		return true
 	}
 	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
 	defer cancel()
 	state, err := u.runtime.GetState(readCtx, ns)
 	return err == nil && state == domain.ArrowStateUpdating
-}
-
-// remember records the target an update begins toward, except for
-// quiver.core's own row, whose end commits nothing from here.
-func (u *updater) remember(
-	ns domain.Namespace,
-	target domain.Available,
-) func() {
-	if isSelfNamespace(ns) {
-		return func() {}
-	}
-	return u.targets.Put(ns, target)
-}
-
-// isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow
-// namespace; the "@" matters, or any namespace merely starting with it would match.
-func isSelfNamespace(ns domain.Namespace) bool {
-	self, _ := metadata.GetSelfNamespaces()
-	return strings.HasPrefix(ns.String(), string(self)+"@")
 }

@@ -544,9 +544,8 @@ func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunEnded_RestoresNothing(t *
 	assert.NotContains(t, f.log.all(), "refresh to c1")
 }
 
-// quiver.core's own row remembers no target, so whether its update began is
-// read from the runtime alone: a self update the caller abandoned before it
-// was accepted restores the installed manifest like any other row's.
+// A self update the caller abandoned before it was accepted restores the
+// installed manifest like any other row's.
 func TestRuntimeExecute_Update_SelfRowAbandonedBeforeAcceptance_Restores(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
@@ -568,8 +567,24 @@ func TestRuntimeExecute_Update_SelfRowAbandonedBeforeAcceptance_Restores(t *test
 	assert.Contains(t, f.log.all(), "refresh to c1", "the staged target manifest is put back")
 }
 
-// quiver.core's relaunched binary adopts its own new state, so its update
-// remembers no target and its end advances nothing from here.
+// quiver.core's own update builds a release like any other, so a checksum
+// retry during it must find the target the run began toward.
+func TestRuntimeUpdate_SelfNamespace_RemembersTheTargetItsRunBuilds(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	selfRow := self.WithRef("nightly-latest")
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	uc := f.usecase()
+
+	require.NoError(t, uc.Execute(context.Background(), selfRow, domain.MethodUpdate, nil))
+
+	peeked, remembered := uc.targets.Peek(selfRow)
+	assert.True(t, remembered)
+	assert.Equal(t, target, peeked)
+}
+
+// quiver.core's relaunched binary adopts its own new state, so its update's
+// end advances nothing from here and releases the target it remembered.
 func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
