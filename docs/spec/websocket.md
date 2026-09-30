@@ -162,6 +162,8 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 | ActiveRun | `active_run` | `RunRecordDTO \| null` | `omitempty` — `null` when no execution is in progress. |
 | LastReturn | `last_return` | `ReturnDTO \| null` | `omitempty` — `null` when no execution has completed yet. |
 
+`settling` (an update that has not committed yet) is a REST-only field of `GET /v0/runtime[/{ns}]`: WebSocket events do not carry it, so idle decisions must use the REST runtime read ([http-api.md](http-api.md)).
+
 **`RunRecordDTO`** (active execution):
 
 | Field | JSON | Type | Notes |

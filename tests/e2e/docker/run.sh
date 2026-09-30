@@ -15,6 +15,9 @@
 # Environment:
 #   E2E_PHASES         phases to run, default "A B C"
 #   E2E_WAIT_SECONDS   deadline for any single wait, default 1500
+#   E2E_HOST_ARCH      the Docker host's architecture (amd64|arm64), set by
+#                      `make test-e2e-docker`; evidence that the container is
+#                      emulated when it differs from the container's own
 set -Eeuo pipefail
 
 readonly CROWBAR_REPO=https://github.com/char2cs/crowbar
@@ -229,6 +232,7 @@ phase_a() {
 	out=$(quiver arrow add "$CROWBAR")
 	expect_eq "add action" "$(jq -r .action <<<"$out")" add
 	if ! appimage_executable; then
+		require_emulation
 		phase_a_emulated "$remote_commit" "$asset_url"
 		return 0
 	fi
@@ -325,6 +329,46 @@ appimage_executable() {
 	"$probe" 2>/dev/null
 }
 
+# container_goarch prints this container's architecture as Go names it,
+# which is what quiver reports as ${PLATFORM}.
+container_goarch() {
+	case "$(uname -m)" in
+	x86_64) echo amd64 ;;
+	aarch64 | arm64) echo arm64 ;;
+	*) fail "unsupported architecture $(uname -m)" ;;
+	esac
+}
+
+# require_emulation runs once an AppImage-style ELF failed to exec, and lets
+# Phase A take its emulated branch only when emulation is CONFIRMED:
+#   1. a plain copy of /bin/true at the same path in $HOME execs, so the
+#      failure is the AppImage magic itself, not a noexec home, seccomp or a
+#      missing /bin/true; and
+#   2. something shows this container runs under binfmt emulation:
+#      E2E_HOST_ARCH (the Docker host's architecture, passed by the Makefile)
+#      differs from the container's own, or /proc/cpuinfo reports Rosetta's
+#      "VirtualApple" vendor, or a qemu-*/rosetta binfmt_misc entry is visible.
+# Anything else is a real exec failure on native hardware and fails loudly.
+require_emulation() {
+	local plain="$HOME/native-probe" arch
+	cp /bin/true "$plain"
+	"$plain" || fail "a plain ELF copied to $HOME does not exec: this host cannot run anything from its home"
+	arch=$(container_goarch)
+	if [[ -n "${E2E_HOST_ARCH:-}" && "$E2E_HOST_ARCH" != "$arch" ]]; then
+		ok "emulated: host $E2E_HOST_ARCH runs this linux/$arch container"
+		return 0
+	fi
+	if grep -q '^vendor_id.*VirtualApple' /proc/cpuinfo 2>/dev/null; then
+		ok "emulated: /proc/cpuinfo reports Rosetta (VirtualApple)"
+		return 0
+	fi
+	if compgen -G '/proc/sys/fs/binfmt_misc/qemu-*' >/dev/null || [[ -e /proc/sys/fs/binfmt_misc/rosetta ]]; then
+		ok "emulated: a qemu/rosetta binfmt_misc entry is registered"
+		return 0
+	fi
+	fail "an AppImage-style ELF does not exec, yet nothing shows linux/$arch is emulated (E2E_HOST_ARCH='${E2E_HOST_ARCH:-}'): a real exec failure"
+}
+
 # phase_a_emulated covers what an emulated host can: the real asset for this
 # platform downloaded through ${REF}=nightly, then the install failing exactly
 # at extraction, and the row cleaned up. It never counts as a full Phase A.
@@ -348,7 +392,7 @@ phase_a_emulated() {
 	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" nightly
 	expect_eq "resolved commit (vs git ls-remote)" "$(jq -r .installed_commit <<<"$detail")" "$remote_commit"
 	expect_eq "\${REF} the install ran with" "$(jq -r .last_return.variables.REF <<<"$detail")" nightly
-	expect_eq "platform" "$(jq -r .last_return.variables.PLATFORM <<<"$detail")" linux/amd64
+	expect_eq "platform" "$(jq -r .last_return.variables.PLATFORM <<<"$detail")" "linux/$(container_goarch)"
 
 	local install_path appimage remote_size
 	install_path=$(jq -r .last_return.variables.INSTALL_PATH <<<"$detail")
@@ -363,7 +407,7 @@ phase_a_emulated() {
 	[[ -z "$(listed "$CROWBAR")" ]] || fail "$CROWBAR is still listed after remove"
 	ok "$CROWBAR no longer listed"
 
-	phase_done "A*" "EMULATED: amd64 asset fetched via \${REF}=nightly at $remote_commit; extraction impossible under binfmt emulation"
+	phase_done "A*" "EMULATED: $(container_goarch) asset fetched via \${REF}=nightly at $remote_commit; extraction impossible under binfmt emulation"
 }
 
 # ─── Phase B: a moved rolling tag on a local git host ─────────────────────────
@@ -392,6 +436,17 @@ publish() {
 	git -C "$work" commit -qm "build 1"
 	git -C "$work" tag nightly
 	git clone -q --bare "$work" "$GIT_ROOT/tester/$name"
+	wait_served "https://localhost/tester/$name"
+}
+
+# wait_served URL waits until githost answers for URL: every phase that
+# publishes a repo depends on it, whichever phase runs first.
+wait_served() {
+	local deadline=$((SECONDS + 30))
+	until git ls-remote "$1" >/dev/null 2>&1; do
+		((SECONDS < deadline)) || fail "githost did not serve $1 within 30s"
+		sleep 0.2
+	done
 }
 
 # move_tag NAME FROM TO commits the fixture with build FROM rewritten to TO,
@@ -438,11 +493,6 @@ phase_b() {
 	publish "$name"
 	local c1
 	c1=$(git -C "$HOME/work/$name" rev-parse HEAD)
-	local deadline=$((SECONDS + 30))
-	until git ls-remote "$url" >/dev/null 2>&1; do
-		((SECONDS < deadline)) || fail "githost did not serve $url within 30s"
-		sleep 0.2
-	done
 	expect_eq "nightly on $url" "$(peeled_commit "$url" nightly)" "$c1"
 
 	step "install $ns"
@@ -531,10 +581,18 @@ phase_b() {
 
 # ─── Phase C: the CLI-booted daemon keeps an update's commit ─────────────────
 
-# expect_idle_stopped asserts the last CLI command stopped the daemon it had
-# booted: the idle-stop removes the PID file before the command exits.
+# expect_idle_stopped NS asserts the CLI stops the daemon it booted once
+# nothing is left to settle. The row reads advanced as soon as the commit's
+# Advance lands, a moment before the commit clears its badge and stops
+# settling, so each round runs another idle-capable read of NS; the idle-stop
+# removes the PID file before that command exits.
 expect_idle_stopped() {
-	[[ ! -e "$PID_FILE" ]] || fail "the CLI left its daemon running (pid $(cat "$PID_FILE"))"
+	local deadline=$((SECONDS + 60))
+	until [[ ! -e "$PID_FILE" ]]; do
+		((SECONDS < deadline)) || fail "the CLI left its daemon running (pid $(cat "$PID_FILE"))"
+		show "$1" >/dev/null
+		sleep 0.2
+	done
 	ok "the CLI idle-stopped its daemon"
 }
 
@@ -569,7 +627,7 @@ phase_c() {
 	# update still settling leaves the daemon up, so the commit is never cut
 	# off. A healthy commit lands in well under a second.
 	WAIT_SECONDS=60 wait_for "$ns" ".installed_commit == \"$c2\" and .available == null" "row advanced to $c2"
-	expect_idle_stopped
+	expect_idle_stopped "$ns"
 	local detail
 	detail=$(show "$ns")
 	expect_eq "after a fresh boot: installed_commit" "$(jq -r .installed_commit <<<"$detail")" "$c2"
@@ -587,7 +645,7 @@ phase_c() {
 	expect_eq "this update's steps had run when it returned" "$(cat "$workdir/build")" build-3
 	expect_eq "update steps run" "$(paste -sd, "$workdir/update-refs")" nightly,nightly
 	WAIT_SECONDS=60 wait_for "$ns" ".installed_commit == \"$c3\" and .available == null" "row advanced to $c3"
-	expect_idle_stopped
+	expect_idle_stopped "$ns"
 
 	step "uninstall + remove"
 	out=$(lifecycle uninstall "$ns" -y)

@@ -218,16 +218,18 @@ test-docker:
 # uninstalls github.com/char2cs/crowbar@nightly from GitHub, then force-moves a
 # rolling tag on a container-local git host under an installed row. Needs
 # network access; not part of pr-checks.
-#   E2E_PLATFORM    image/container platform (default linux/arm64; linux/amd64
-#                   runs under emulation on an arm64 host)
+#   E2E_PLATFORM    image/container platform (default: the Docker host's own
+#                   architecture, so the default run is native; the other one
+#                   runs under emulation)
 #   E2E_ARGS        extra `docker run` arguments, e.g. -e E2E_PHASES=B
-E2E_PLATFORM ?= linux/arm64
+E2E_HOST_ARCH = $(shell docker version -f '{{.Server.Arch}}' 2>/dev/null | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+E2E_PLATFORM ?= linux/$(or $(E2E_HOST_ARCH),amd64)
 E2E_ARGS     ?=
 test-e2e-docker:
 	@echo "$(BLUE)Running the docker end-to-end suite on $(E2E_PLATFORM)...$(NC)"
 	docker build --platform $(E2E_PLATFORM) -f tests/e2e/docker/Dockerfile \
 		--build-arg QUIVER_COMMIT=$(shell git rev-parse HEAD 2>/dev/null) -t quiver-e2e .
-	docker run --rm --platform $(E2E_PLATFORM) $(E2E_ARGS) quiver-e2e
+	docker run --rm --platform $(E2E_PLATFORM) -e E2E_HOST_ARCH=$(E2E_HOST_ARCH) $(E2E_ARGS) quiver-e2e
 	@echo "$(GREEN)End-to-end suite passed on $(E2E_PLATFORM)!$(NC)"
 
 # Run linting checks

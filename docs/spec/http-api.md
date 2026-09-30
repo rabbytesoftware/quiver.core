@@ -284,7 +284,7 @@ Returns **202 Accepted** with the mutation envelope as soon as the use case laye
 
 #### GET /runtime, GET /runtime/{ns} — WebSocket subscriptions
 
-Pure WebSocket endpoints — `dispatch` is not used because there is no REST equivalent. The handler upgrades unconditionally and pushes `ArrowRuntimeDTO` for matching events. The namespace path acts as a **glob filter** — `*` and `?` patterns are honoured by the broadcaster's filter system (see `internal/api/ws/filter.go`). The DTO carries `namespace`, `state`, `active_run`, and `last_return`. A plain (non-upgraded) `GET` answers the same DTO as a snapshot, and adds `settling: true` for a row whose update has not committed yet ([manifests/v0/versioning.md §8](manifests/v0/versioning.md)); streamed events omit it. See [websocket.md](websocket.md) for connection semantics, ping/pong, and DTO field details.
+Pure WebSocket endpoints — `dispatch` is not used because there is no REST equivalent. The handler upgrades unconditionally and pushes `ArrowRuntimeDTO` for matching events. The namespace path acts as a **glob filter** — `*` and `?` patterns are honoured by the broadcaster's filter system (see `internal/api/ws/filter.go`). The DTO carries `namespace`, `state`, `active_run`, and `last_return`. A plain (non-upgraded) `GET` answers the same DTO as a snapshot, and adds `settling: true` for a row whose update has not committed yet ([manifests/v0/versioning.md §8](manifests/v0/versioning.md)). `settling` is a REST-only field: WebSocket events never carry it, so an idle decision (such as the CLI stopping a daemon it booted) must use the REST runtime read. See [websocket.md](websocket.md) for connection semantics, ping/pong, and DTO field details.
 
 ### 6.4 Health
 
