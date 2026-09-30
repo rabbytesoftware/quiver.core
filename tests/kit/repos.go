@@ -931,6 +931,34 @@ func BuildManifestlessRepo(
 	return storer
 }
 
+// AddManifestlessReleaseToRepo commits the removal of the repository's
+// manifest, tags that commit and returns it: a release no update can install.
+// Run it inside FixtureRepos.Mutate when a daemon may be reading the repo.
+func AddManifestlessReleaseToRepo(t *testing.T, storer *memory.Storage, tag string) string {
+	t.Helper()
+	repo, err := gogit.Open(storer, memfs.New())
+	if err != nil {
+		t.Fatalf("AddManifestlessReleaseToRepo: open repo: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("AddManifestlessReleaseToRepo: worktree: %v", err)
+	}
+	if err := wt.Reset(&gogit.ResetOptions{Mode: gogit.HardReset}); err != nil {
+		t.Fatalf("AddManifestlessReleaseToRepo: checkout head: %v", err)
+	}
+	if _, err := wt.Remove("arrow.yaml"); err != nil {
+		t.Fatalf("AddManifestlessReleaseToRepo: remove manifest: %v", err)
+	}
+	commitFile(t, wt, noManifestMarker, []byte(tag+"\n"))
+	hash, err := wt.Commit(tag, &gogit.CommitOptions{Author: testAuthor()})
+	if err != nil {
+		t.Fatalf("AddManifestlessReleaseToRepo: commit %s: %v", tag, err)
+	}
+	createTag(t, repo, tag, hash)
+	return hash.String()
+}
+
 // TagHead tags the commit HEAD points at and returns it. Run it inside
 // FixtureRepos.Mutate when a daemon may be reading the repo.
 func TagHead(t *testing.T, storer *memory.Storage, tag string) string {

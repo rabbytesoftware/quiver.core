@@ -39,7 +39,7 @@ func (a *advancer) CheckAvailable(
 		if err != nil {
 			return nil, false, fmt.Errorf("%w: %w", apperrors.ErrNotFound, err)
 		}
-		if !outdated {
+		if !outdated || a.store.KnownAbsent(ctx, ns, target) {
 			return nil, true, nil
 		}
 		return &target, true, nil

@@ -95,3 +95,45 @@ func TestRefreshToTarget_AbsentTargetIsRecorded(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, []domain.Available{target}, r.RecordAbsentCalls)
 }
+
+// A re-check judges a target the way the periodic check does: one a fetch
+// already found no manifest at is not offered, so the update bracket judging
+// a row again after it could not stage the target stops offering it. Neither
+// fetches a manifest.
+func TestCheckAvailable_HoldsBackAKnownAbsentTarget(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.0.0", Commit: "c100"}
+	ahead := &domain.Available{Ref: "v1.1.0", Commit: "c110"}
+	testCases := []struct {
+		name     string
+		absentAt domain.Available
+		want     *domain.Available
+	}{
+		{name: "known empty at the target commit", absentAt: *ahead},
+		{name: "known empty at another commit", absentAt: domain.Available{Ref: "v1.1.0", Commit: "c109"}, want: ahead},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			axArrow := newTestAsynxArrow(t)
+			seedSelectorRow(t, axArrow, stableNs(), domain.SelectorChannel, installed)
+			fetches := 0
+			m := &mocks.Manifold{
+				SnapshotResult: stableSnapshot("v1.1.0", "c110"),
+				ResolveArrowAtCommitFn: func(context.Context, domain.Namespace, string, string) (*domain.Arrow, []byte, string, error) {
+					fetches++
+					return adoptedManifest("Fetched"), []byte("fetched"), "ARROW.md", nil
+				},
+			}
+			r := &arrowStoreMocks.MockCQRS{KnownAbsentFn: func(_ context.Context, _ domain.Namespace, target domain.Available) bool {
+				return target == tc.absentAt
+			}}
+			cat := newTestable(r, axArrow, &mocks.Vault{}, m)
+
+			got, err := cat.CheckAvailable(ctx, stableNs())
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+			assert.Zero(t, fetches)
+		})
+	}
+}

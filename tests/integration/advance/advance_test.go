@@ -125,6 +125,31 @@ func (s *AdvanceSuite) TestAdvance_StableChannel_KeepsIdentityAcrossReleases() {
 	s.Equal("v1.3.0", items[0].Versions[0].ResolvedRef)
 }
 
+// A release that ships no manifest is offered by the check, which reads refs
+// only; the update that cannot stage it answers not found and judges the row
+// again, and from then on neither the check nor another update offers it.
+func (s *AdvanceSuite) TestAdvance_ReleaseWithoutAManifest_StopsBeingOffered() {
+	f := s.newFixture("stable-no-manifest", "v1.2.0", s.stableManifest())
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := f.ns("stable")
+	s.install(env, tc, ns)
+
+	var v130 string
+	s.Repos.Mutate(func() { v130 = kit.AddManifestlessReleaseToRepo(s.T(), f.storer, "v1.3.0") })
+	available := s.checkAvailable(tc, ns)
+	s.Require().NotNil(available)
+	s.Equal(dto.AvailableDTO{Ref: "v1.3.0", Commit: v130}, *available)
+
+	s.Equal(http.StatusNotFound, tc.Execute(ns, domain.MethodUpdate, nil))
+	s.Nil(s.detail(tc, ns).Available, "the failed update judged the row again")
+	s.Nil(s.checkAvailable(tc, ns), "a re-check does not offer it again")
+	s.Equal(http.StatusOK, tc.Execute(ns, domain.MethodUpdate, nil), "nothing is ahead")
+	detail := s.detail(tc, ns)
+	s.Equal("v1.2.0", detail.ResolvedRef)
+	s.Equal(string(domain.ArrowStateReady), detail.State)
+}
+
 // The installed release's manifest writes its update runs elsewhere, so only
 // the target's own update steps can produce update-refs.
 func (s *AdvanceSuite) TestAdvance_UpdateStepsRunFromTheTargetManifest() {

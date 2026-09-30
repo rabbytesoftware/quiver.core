@@ -27,6 +27,7 @@ type MockCQRS struct {
 	CheckDriftFn        func(ctx context.Context, arrow domain.Arrow) (*domain.Available, bool)
 	CachedAtCommitFn    func(ctx context.Context, identity domain.Namespace, target domain.Available) (*domain.Arrow, vault.ManifestFile, bool)
 	RecordAbsentCalls   []domain.Available
+	KnownAbsentFn       func(ctx context.Context, identity domain.Namespace, target domain.Available) bool
 }
 
 func (m *MockCQRS) List(
@@ -171,6 +172,17 @@ func (m *MockCQRS) CachedAtCommit(
 		return m.CachedAtCommitFn(ctx, identity, target)
 	}
 	return nil, vault.ManifestFile{}, false
+}
+
+func (m *MockCQRS) KnownAbsent(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+) bool {
+	if m.KnownAbsentFn != nil {
+		return m.KnownAbsentFn(ctx, identity, target)
+	}
+	return false
 }
 
 func (m *MockCQRS) RecordAbsent(

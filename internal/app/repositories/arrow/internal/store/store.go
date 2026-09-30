@@ -72,6 +72,13 @@ type Store interface {
 		identity domain.Namespace,
 		target domain.Available,
 	) (*domain.Arrow, vault.ManifestFile, bool)
+	// KnownAbsent reports whether a fetch already found no manifest at
+	// target's commit: a local read, no request.
+	KnownAbsent(
+		ctx context.Context,
+		identity domain.Namespace,
+		target domain.Available,
+	) bool
 	// RecordAbsent marks target's ref as holding no manifest at target's
 	// commit, so a version check stops offering it.
 	RecordAbsent(

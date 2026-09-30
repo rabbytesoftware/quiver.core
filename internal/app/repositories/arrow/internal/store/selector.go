@@ -224,7 +224,7 @@ func (r *storeService) manifestAt(
 	if arrow, file, ok := r.CachedAtCommit(ctx, identity, target); ok {
 		return arrow, file.Content, file.Filename, nil
 	}
-	if r.knownAbsent(ctx, identity, target) {
+	if r.KnownAbsent(ctx, identity, target) {
 		return nil, nil, "", fmt.Errorf("resolver: fetch at commit: %w: no manifest at %s", apperrors.ErrNotFound, target.Commit)
 	}
 	return r.fetchManifestAt(ctx, identity, target)
@@ -300,9 +300,7 @@ func (r *storeService) holdsManifest(
 	return err == nil || errors.Is(err, vault.ErrStale)
 }
 
-// knownAbsent reports whether a fetch already found no manifest at target's
-// commit: a local read, no request.
-func (r *storeService) knownAbsent(
+func (r *storeService) KnownAbsent(
 	ctx context.Context,
 	identity domain.Namespace,
 	target domain.Available,
@@ -422,7 +420,7 @@ func (r *storeService) CheckDrift(
 	if err != nil {
 		return nil, false
 	}
-	if !outdated || r.knownAbsent(ctx, arrow.Namespace, target) {
+	if !outdated || r.KnownAbsent(ctx, arrow.Namespace, target) {
 		return nil, true
 	}
 	return &target, true
