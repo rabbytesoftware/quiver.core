@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -385,4 +387,73 @@ func TestHandler_Execute_ChecksumAlgorithmPrefix(t *testing.T) {
 			assert.True(t, os.IsNotExist(statErr))
 		})
 	}
+}
+
+// quiver.core's second self-update in one daemon lifetime downloads over the
+// binary the first one exec'd and is still running. Writing into a running
+// executable fails on Linux with "text file busy"; the fetch must replace it
+// instead, leaving the running process on its own image.
+func TestHandler_Execute_ReplacesARunningExecutable(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("no /bin/sleep; the Windows move-aside path is covered by TestReplaceFile")
+	}
+	sleepBin, err := exec.LookPath("sleep")
+	require.NoError(t, err)
+	running, err := os.ReadFile(sleepBin) // #nosec G304 -- the system's own sleep binary
+	require.NoError(t, err)
+	dst := filepath.Join(t.TempDir(), "quiver-new")
+	require.NoError(t, os.WriteFile(dst, running, 0o700)) // #nosec G306 -- it must be executable to run
+	cmd := exec.Command(dst, "30")                        // #nosec G204 -- a temp copy of sleep this test owns
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	next := []byte("the next build")
+	sum := sha256.Sum256(next)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(next)
+	}))
+	defer srv.Close()
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, hex.EncodeToString(sum[:]), "10s", true)
+
+	for range 2 {
+		require.NoError(t, newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: filepath.Dir(dst)}, s))
+	}
+
+	got, err := os.ReadFile(dst) // #nosec G304 -- a temp file this test owns
+	require.NoError(t, err)
+	assert.Equal(t, next, got)
+	assert.Nil(t, cmd.ProcessState, "the running process keeps its own image")
+	entries, err := os.ReadDir(filepath.Dir(dst))
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "no staging file is left behind")
+}
+
+// A download that fails its checksum never reaches the destination: what was
+// there before (the build that is running) stays.
+func TestHandler_Execute_ChecksumMismatch_KeepsThePreviousFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("tampered"))
+	}))
+	defer srv.Close()
+	dst := filepath.Join(t.TempDir(), "quiver-new")
+	require.NoError(t, os.WriteFile(dst, []byte("previous"), 0o600))
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, strings.Repeat("0", 64), "10s", true)
+
+	err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.ErrorIs(t, err, stepdownload.ErrChecksumMismatch)
+	got, readErr := os.ReadFile(dst) // #nosec G304 -- a temp file this test owns
+	require.NoError(t, readErr)
+	assert.Equal(t, "previous", string(got))
+	entries, dirErr := os.ReadDir(filepath.Dir(dst))
+	require.NoError(t, dirErr)
+	assert.Len(t, entries, 1, "the rejected download is not left beside it")
+}
+
+func TestHandler_Execute_DirectoryDestination_IsRefused(t *testing.T) {
+	s := domainstep.NewFetchStep("fetch", "http://127.0.0.1:1/never", t.TempDir(), "", "10s", true)
+
+	err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.ErrorIs(t, err, stepdownload.ErrDestinationIsDirectory)
 }

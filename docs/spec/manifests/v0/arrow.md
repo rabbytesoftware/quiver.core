@@ -936,6 +936,17 @@ removes the downloaded file when the two differ. Any other algorithm prefix (`sh
 mismatch. The download timeout is governed by the step's `timeout` and applied at the
 resolver layer.
 
+The download is written to a uniquely named file beside `to`, verified there, and only then
+renamed over `to` in one step. A download that fails (transport, timeout, checksum) never
+touches `to`, so whatever it held before stays. Renaming, rather than writing into `to`,
+also replaces a file that is being executed: a process running the old file keeps its own
+image (writing into a running executable fails on Linux with "text file busy" — quiver.core's
+second self-update in one daemon lifetime downloads over the binary it is running). Where
+the OS refuses to replace a file in use (a running executable on Windows), the old file is
+renamed aside first. Staging files a crashed download left and files moved aside are removed
+by the next fetch of the same `to`, once nothing uses them. A `to` naming a directory is
+refused.
+
 #### `extract` — archive extraction
 
 ```yaml
