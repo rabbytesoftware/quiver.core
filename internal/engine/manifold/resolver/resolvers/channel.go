@@ -43,7 +43,7 @@ const dateEpoch = 2000
 func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
-	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil && isKnownChannel(normalizeVersionPrefix(m[1])) {
+	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil && isKnownChannel(normalizeVersionPrefix(m[1])) && validDate(m[2], m[3], m[4]) {
 		return m[1], dateCore(m[2], m[3], m[4], m[5]), strings.TrimLeft(m[6], "-_."), true
 	}
 	if m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag); m != nil {
@@ -52,18 +52,33 @@ func parseTagFull(
 	return "", "", "", false
 }
 
+// validDate accepts a date of this century only: anything else behind a
+// channel word (stable-1999-01-01, stable-9999-99-99) is no date.
+func validDate(
+	year, month, day string,
+) bool {
+	y, _ := strconv.Atoi(year)
+	m, _ := strconv.Atoi(month)
+	d, _ := strconv.Atoi(day)
+	return y >= dateEpoch && y < dateEpoch+100 && m >= 1 && m <= 12 && d >= 1 && d <= 31
+}
+
 // dateCore writes a date and its patch as the core YY.MM.DD.patch.
 func dateCore(
 	year, month, day, patch string,
 ) string {
 	y, _ := strconv.Atoi(year)
-	if y >= dateEpoch {
-		y -= dateEpoch
-	}
+	y -= dateEpoch
 	if patch == "" {
 		patch = "0"
 	}
 	return strconv.Itoa(y) + "." + month + "." + day + "." + patch
+}
+
+// isDateCore reports a core parseTagFull wrote from a date: the only one
+// with four components.
+func isDateCore(core string) bool {
+	return strings.Count(core, ".") == 3
 }
 
 // knownChannels are prefixes that name a release channel whatever else the
@@ -127,6 +142,28 @@ type classifiedTag struct {
 	channel string
 	core    [4]int
 	ordinal int
+	dated   bool
+	// tier ranks a semantic version above every dated member of its channel.
+	tier int
+}
+
+// calendarMajor is the smallest major a calendar version (YY.M) carries; a
+// core below it is a semantic version, which dates are never ranked against.
+const calendarMajor = 20
+
+// tierAgainstDates ranks the semantic versions of a channel that also holds
+// dated tags above all of those dates: a third-party stable-2019-05-01 never
+// outranks v2.0.0. Calendar versions (26.10) keep ranking against dates on
+// one calendar.
+func tierAgainstDates(members []classifiedTag) {
+	if !slices.ContainsFunc(members, func(c classifiedTag) bool { return c.dated }) {
+		return
+	}
+	for i := range members {
+		if !members[i].dated && members[i].core[0] < calendarMajor {
+			members[i].tier = 1
+		}
+	}
 }
 
 // TagChannel is one ordered channel of a tag set: its classified name and
@@ -182,7 +219,7 @@ func classifyAll(
 	result := make([]classifiedTag, 0, len(entries))
 	for _, e := range entries {
 		channel, ordinal := classifyOne(e.suffix, e.prefix, prefixIsMeaningful)
-		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: semverParts(e.core), ordinal: ordinal})
+		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: semverParts(e.core), ordinal: ordinal, dated: isDateCore(e.core)})
 	}
 	return result
 }
@@ -232,7 +269,9 @@ func Outranks(
 	if !okA || !okB || rankA.channel != rankB.channel {
 		return false
 	}
-	return compareClassified(rankA, rankB) < 0
+	pair := []classifiedTag{rankA, rankB}
+	tierAgainstDates(pair)
+	return compareClassified(pair[0], pair[1]) < 0
 }
 
 // ConstraintOutranks reports whether tag a ranks above tag b in the order a
@@ -253,7 +292,7 @@ func rankOf(
 		return classifiedTag{}, false
 	}
 	channel, ordinal := classifyOne(suffix, normalizeVersionPrefix(prefix), false)
-	return classifiedTag{tag: tag, channel: channel, core: semverParts(core), ordinal: ordinal}, true
+	return classifiedTag{tag: tag, channel: channel, core: semverParts(core), ordinal: ordinal, dated: isDateCore(core)}, true
 }
 
 // GroupChannels classifies tags once and buckets them into ordered
@@ -269,6 +308,7 @@ func GroupChannels(
 	out := make([]TagChannel, 0, len(byChannel))
 	for _, name := range slices.Sorted(maps.Keys(byChannel)) {
 		candidates := byChannel[name]
+		tierAgainstDates(candidates)
 		slices.SortFunc(candidates, compareClassified)
 		members := make([]string, len(candidates))
 		for i, c := range candidates {
@@ -299,6 +339,9 @@ func SortInChannel(
 func compareClassified(
 	a, b classifiedTag,
 ) int {
+	if c := cmp.Compare(b.tier, a.tier); c != 0 {
+		return c
+	}
 	if c := compareCores(b.core, a.core); c != 0 {
 		return c
 	}

@@ -345,7 +345,10 @@ func TestOutranks(t *testing.T) {
 		{name: "equal rank", a: "v1.2", b: "v1.2.0", want: false},
 		{name: "no core on a", a: "nightly", b: "v1.0.0", want: false},
 		{name: "no core on b", a: "v1.0.0", b: "nightly", want: false},
-		{name: "a pre-2000 year is kept whole", a: "stable-1999-01-01", b: "stable-26.0", want: true},
+		{name: "a pre-2000 year is no date", a: "stable-1999-01-01", b: "stable-26.0", want: false},
+		{name: "a semantic version outranks a dated tag of its channel", a: "stable-2019-05-01", b: "v2.0.0", want: false},
+		{name: "a dated tag never outranks a semantic version", a: "v2.0.0", b: "stable-2019-05-01", want: true},
+		{name: "a calendar version still ranks against dates", a: "stable-2026-09-27", b: "stable-26.5.1", want: true},
 		{name: "a bare date carries no core", a: "2026-01-02", b: "v1.4.0", want: false},
 		{name: "a pre-release never outranks another channel's release", a: "v1.2.0-rc.1", b: "v1.2.0", want: false},
 		{name: "a dated stable patch outranks its date", a: "stable-2026-09-27.1", b: "stable-2026-09-27", want: true},
@@ -390,6 +393,48 @@ func TestConstraintOutranks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := ConstraintOutranks(tc.a, tc.b); got != tc.want {
 				t.Errorf("ConstraintOutranks(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGroupChannels_DatesNextToSemanticVersions(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "semantic versions rank above every date of their channel",
+			tags: []string{"v1.0.0", "v2.0.0", "stable-2019-05-01", "stable-2026-01-02"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"v2.0.0", "v1.0.0", "stable-2026-01-02", "stable-2019-05-01"}}},
+		},
+		{
+			name: "a dated-only channel orders by date",
+			tags: []string{"stable-2026-01-02", "stable-2025-12-31"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-2026-01-02", "stable-2025-12-31"}}},
+		},
+		{
+			name: "calendar versions and dates share one calendar",
+			tags: []string{"stable-26.5.1", "stable-2026-09-27", "stable-26.10"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-26.10", "stable-2026-09-27", "stable-26.5.1"}}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := GroupChannels(tc.tags); !equalGroups(got, tc.want) {
+				t.Errorf("GroupChannels(%v) = %v, want %v", tc.tags, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTagFull_InvalidDatesAreNoDates(t *testing.T) {
+	for _, tag := range []string{"stable-1999-01-01", "stable-2100-01-01", "stable-9999-99-99", "stable-2026-13-01", "stable-2026-00-10", "stable-2026-01-32", "beta-2026-02-00"} {
+		t.Run(tag, func(t *testing.T) {
+			_, _, _, ok := parseTagFull(tag)
+			if ok {
+				t.Errorf("%s parsed as a version", tag)
 			}
 		})
 	}

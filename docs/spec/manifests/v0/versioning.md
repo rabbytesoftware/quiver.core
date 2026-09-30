@@ -73,9 +73,11 @@ channel word — `alpha`, `beta`, `canary`, `dev`, `edge`, `hotfix`, `insiders`,
 unknown prefixes differ from tag to tag (a prefix every tag shares, such as `v` or a
 project name, is noise). Behind a channel word, a `YYYY-MM-DD` date stands in for a
 version core, with an optional `.N` patch after it, so a dated release groups under its
-channel instead of becoming a pointer channel of its own. A date with no channel word in
-front (`2026-01-02`, `snapshot-2026-01-02`) is not a version: it stays a standalone pointer
-channel and is never ranked against a repository's semver releases. The date is recognised before a dotted core, so the
+channel instead of becoming a pointer channel of its own. Only a real date of this century
+counts (year 2000–2099, month 1–12, day 1–31): `stable-1999-01-01` or `stable-9999-99-99`
+is no date. A date with no channel word in front (`2026-01-02`, `snapshot-2026-01-02`) is
+not a version either: it stays a standalone pointer channel and is never ranked against a
+repository's semver releases. The date is recognised before a dotted core, so the
 names quiver.core's own release workflows publish for a dated series
 (`.github/scripts/release-tag.sh`, pinned by `tests/releasetags`) all group correctly:
 `beta-2026-09-27`, `beta-2026-09-27-1` (a rebuild), `stable-2026-09-27`,
@@ -87,7 +89,10 @@ and `v1.2.0`) always settle the same way. A date core ranks as `YY.MM.DD.patch` 
 within the century — so it orders among calendar-versioned `YY.M` tags by release month,
 and a later date outranks every patch of an earlier one:
 `stable-26.5.1` < `stable-2026-09-27` < `stable-2026-09-27.1` < `stable-2026-10-01` <
-`stable-26.11`.
+`stable-26.11`. That shared calendar only covers calendar versions, whose major is a year
+(`YY`, 20 or more). In a channel that holds dated tags, a semantic version (major below
+20, such as `v2.0.0`) ranks above every date, so a third-party `stable-2019-05-01` never
+outranks `v2.0.0`; a dated-only channel orders by date.
 
 ### 2.2 Parse rule
 
