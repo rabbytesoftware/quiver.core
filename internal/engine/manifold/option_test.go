@@ -285,7 +285,7 @@ func TestSnapshotReleases(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m, ok := NewWithResolvers(&stubResolver{}, &stubConstraintResolver{refs: &tc.snap, refsErr: tc.snapErr}, nil).(*manifold)
 			require.True(t, ok)
-			releases := snapshotReleases{m: m}
+			releases := m
 			ns := domain.Namespace("github.com/acme/tool")
 
 			stable, err := releases.ResolveLatestStable(context.Background(), ns)

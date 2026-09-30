@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator"
 	v0 "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator/arrow/v0"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning"
 )
 
 type stubResolver struct {
@@ -112,27 +113,50 @@ func TestNew_CustomTimeout(t *testing.T) {
 
 func TestNewWithClock_UsesInjectedClock(t *testing.T) {
 	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	m, ok := NewWithClock(time.Second, nil, 0, func() time.Time { return fixed }).(*manifold)
-	if !ok {
+	if _, ok := NewWithClock(time.Second, nil, 0, func() time.Time { return fixed }).(*manifold); !ok {
 		t.Fatal("NewWithClock(...).(*manifold) assertion failed")
 	}
-	if got := m.clock(); !got.Equal(fixed) {
-		t.Errorf("clock() = %v, want %v", got, fixed)
-	}
+	crs := &stubConstraintResolver{}
+	clock := &fakeClock{now: fixed}
+	assertCacheExpiresAfter(t, newManifold(time.Second, nil, crs, 0, clock.Now, nil), crs, clock, defaultManifoldCacheTTL)
 }
 
 func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
 	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	crs := &stubConstraintResolver{}
-	m, ok := NewWithResolversAndClock(&stubResolver{}, crs, nil, func() time.Time { return fixed }).(*manifold)
-	if !ok {
-		t.Fatal("NewWithResolversAndClock(...).(*manifold) assertion failed")
+	clock := &fakeClock{now: fixed}
+	m := NewWithResolversAndClock(&stubResolver{}, crs, nil, clock.Now)
+	assertCacheExpiresAfter(t, m, crs, clock, defaultManifoldCacheTTL)
+}
+
+// assertCacheExpiresAfter proves m's snapshot cache reads the injected clock
+// and expires after exactly ttl.
+func assertCacheExpiresAfter(
+	t *testing.T,
+	m Manifold,
+	crs *stubConstraintResolver,
+	clock *fakeClock,
+	ttl time.Duration,
+) {
+	t.Helper()
+	ns := domain.Namespace("github.com/u/r")
+	start := clock.now
+	if _, err := m.Snapshot(context.Background(), ns); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := m.clock(); !got.Equal(fixed) {
-		t.Errorf("clock() = %v, want %v", got, fixed)
+	clock.now = start.Add(ttl)
+	if _, err := m.Snapshot(context.Background(), ns); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if m.cacheTTL != defaultManifoldCacheTTL {
-		t.Errorf("cacheTTL = %v, want the default %v", m.cacheTTL, defaultManifoldCacheTTL)
+	if crs.refsCall != 1 {
+		t.Fatalf("refsCall = %d at the TTL, want 1 (still cached)", crs.refsCall)
+	}
+	clock.now = start.Add(ttl + time.Nanosecond)
+	if _, err := m.Snapshot(context.Background(), ns); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if crs.refsCall != 2 {
+		t.Errorf("refsCall = %d past the TTL, want 2 (expired)", crs.refsCall)
 	}
 }
 
@@ -144,41 +168,33 @@ func TestNewWithResolversAndClock_UsesInjectedClock(t *testing.T) {
 // notice).
 func TestNew_ZeroOrNegativeCacheTTL_FallsBackToDefault(t *testing.T) {
 	for _, ttl := range []time.Duration{0, -time.Second} {
-		m, ok := New(time.Second, nil, ttl).(*manifold)
-		if !ok {
+		if _, ok := New(time.Second, nil, ttl).(*manifold); !ok {
 			t.Fatalf("New(...).(*manifold) assertion failed for ttl=%v", ttl)
 		}
-		if m.cacheTTL != defaultManifoldCacheTTL {
-			t.Errorf("cacheTTL = %v for input %v, want the default %v", m.cacheTTL, ttl, defaultManifoldCacheTTL)
-		}
+		crs := &stubConstraintResolver{}
+		clock := &fakeClock{now: time.Now()}
+		assertCacheExpiresAfter(t, newManifold(time.Second, nil, crs, ttl, clock.Now, nil), crs, clock, defaultManifoldCacheTTL)
 	}
 }
 
 // TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry is the fix this whole
 // round is about: New's cacheTTL parameter must actually be what governs
 // cache expiry, not a hardcoded constant that happens to be reachable some
-// other way. Proven in two parts: first that the constructor stores exactly
-// the value it was given (no silent substitution), then — swapping in a
-// fake clock and constraint resolver after construction, entirely legal
-// same-package white-box testing, to avoid a real sleep — that a short TTL
-// actually expires a cache entry at that short duration, not at whatever
-// the old hardcoded default used to be.
+// other way. Built through the constructor path New takes, with a fake
+// clock and constraint resolver to avoid a real sleep, a short TTL actually
+// expires a cache entry at that short duration, not at whatever the old
+// hardcoded default used to be.
 func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
 	const shortTTL = 50 * time.Millisecond
 
-	built, ok := New(time.Second, nil, shortTTL).(*manifold)
-	if !ok {
+	if _, ok := New(time.Second, nil, shortTTL).(*manifold); !ok {
 		t.Fatal("New(...).(*manifold) assertion failed")
-	}
-	if built.cacheTTL != shortTTL {
-		t.Fatalf("cacheTTL = %v, want the exact constructor param %v (not a hardcoded default)", built.cacheTTL, shortTTL)
 	}
 
 	crs := &stubConstraintResolver{listTags: []string{"v1.0.0"}}
 	now := time.Now()
 	clock := &fakeClock{now: now}
-	built.constraint = crs
-	built.clock = clock.Now
+	built := newManifold(time.Second, nil, crs, shortTTL, clock.Now, nil)
 
 	ns := domain.Namespace("github.com/u/r")
 	first, err := built.ListChannels(context.Background(), ns)
@@ -2253,6 +2269,17 @@ func TestListChannels_DifferentNamespaces_CachedIndependently(t *testing.T) {
 	}
 }
 
+func TestListChannels_SnapshotError_Propagates(t *testing.T) {
+	refsErr := errors.New("dial tcp: connection refused")
+	crs := &stubConstraintResolver{refsErr: refsErr}
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
+
+	_, err := m.ListChannels(context.Background(), domain.Namespace("github.com/u/r"))
+	if !errors.Is(err, refsErr) {
+		t.Errorf("err = %v, want %v", err, refsErr)
+	}
+}
+
 // TestListChannels_CacheExpiresAfterTTL_RefetchesLive proves the cache
 // eventually re-checks the remote: past its TTL, a third call must hit
 // ListTags again, and must pick up a tag added in the meantime.
@@ -2262,12 +2289,10 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 	now := time.Now()
 	clock := &fakeClock{now: now}
 	m := &manifold{
-		trs:        translator.NewTranslator(),
-		cmp:        compiler.New(),
-		rls:        ruleset.New(),
-		constraint: crs,
-		clock:      clock.Now,
-		cacheTTL:   testTTL,
+		trs:       translator.NewTranslator(),
+		cmp:       compiler.New(),
+		rls:       ruleset.New(),
+		snapshots: versioning.New(crs, clock.Now, testTTL),
 	}
 	ns := domain.Namespace("github.com/u/r")
 
@@ -2448,5 +2473,68 @@ func TestResolveArrowAtCommit_InvalidManifestAtCommit_DoesNotFallBack(t *testing
 	}
 	if len(rsv.arrowRequests) != 1 {
 		t.Errorf("requests = %v, want only the commit", rsv.arrowRequests)
+	}
+}
+
+func TestFreshSnapshot_DelegatesToVersioning(t *testing.T) {
+	snap := domain.RefSnapshot{Tags: map[string]string{"v1.0.0": "c100"}}
+	crs := &stubConstraintResolver{refs: &snap}
+	m := NewWithResolvers(&stubResolver{}, crs, nil)
+
+	for range 2 {
+		got, err := m.FreshSnapshot(context.Background(), domain.Namespace("github.com/u/r"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(got, snap) {
+			t.Fatalf("FreshSnapshot = %+v, want %+v", got, snap)
+		}
+	}
+	if crs.refsCall != 2 {
+		t.Errorf("refsCall = %d, want 2 (every fresh read goes live)", crs.refsCall)
+	}
+}
+
+func TestVersioningReExports_Delegate(t *testing.T) {
+	snap := domain.RefSnapshot{Tags: map[string]string{"v1.0.0": "c100", "v1.1.0": "c110"}}
+	resolved := domain.Resolved{Ref: "v1.0.0", Commit: "c100"}
+	kind := domain.SelectorOrderedChannel
+
+	gotKind, gotErr := ClassifySelector("stable", snap)
+	wantKind, wantErr := versioning.ClassifySelector("stable", snap)
+	assertSame(t, "ClassifySelector", []any{gotKind, gotErr}, []any{wantKind, wantErr})
+
+	gotChannel, gotErr := DefaultChannel(snap)
+	wantChannel, wantErr := versioning.DefaultChannel(snap)
+	assertSame(t, "DefaultChannel", []any{gotChannel, gotErr}, []any{wantChannel, wantErr})
+
+	gotCommit, gotOK := RefCommit(kind, "stable", "v1.0.0", snap)
+	wantCommit, wantOK := versioning.RefCommit(kind, "stable", "v1.0.0", snap)
+	assertSame(t, "RefCommit", []any{gotCommit, gotOK}, []any{wantCommit, wantOK})
+
+	assertSame(t, "HasEmptyComponent", []any{HasEmptyComponent("a//b")}, []any{versioning.HasEmptyComponent("a//b")})
+
+	gotTarget, gotErr := Target(kind, "stable", snap)
+	wantTarget, wantErr := versioning.Target(kind, "stable", snap)
+	assertSame(t, "Target", []any{gotTarget, gotErr}, []any{wantTarget, wantErr})
+
+	gotTarget, gotOutdated, gotErr := Drift(kind, "stable", resolved, snap)
+	wantTarget, wantOutdated, wantErr := versioning.Drift(kind, "stable", resolved, snap)
+	assertSame(t, "Drift", []any{gotTarget, gotOutdated, gotErr}, []any{wantTarget, wantOutdated, wantErr})
+
+	gotTarget, gotErr = Admit(kind, "stable", "v1.0.0", snap)
+	wantTarget, wantErr = versioning.Admit(kind, "stable", "v1.0.0", snap)
+	assertSame(t, "Admit", []any{gotTarget, gotErr}, []any{wantTarget, wantErr})
+}
+
+func assertSame(
+	t *testing.T,
+	name string,
+	got []any,
+	want []any,
+) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("%s = %v, want %v", name, got, want)
 	}
 }

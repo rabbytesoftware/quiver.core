@@ -1,4 +1,4 @@
-package manifold
+package drift
 
 import (
 	"strings"
@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
 )
 
 // coreReleaseTags is quiver.core's own tag list on 2026-09-30, before and
@@ -22,24 +25,6 @@ func coreReleaseTags(extra ...string) domain.RefSnapshot {
 		tags[tag] = "c-" + tag
 	}
 	return domain.RefSnapshot{Tags: tags, Branches: map[string]string{"develop": "d", "master": "m"}, Head: "develop"}
-}
-
-func TestChannelsOf_DatedTagsGroupUnderTheirChannel(t *testing.T) {
-	channels := ChannelsOf(coreReleaseTags("stable-2026-09-27"))
-
-	byName := map[string]ChannelInfo{}
-	for _, c := range channels {
-		byName[c.Name] = c
-	}
-	require.Contains(t, byName, "beta")
-	require.Contains(t, byName, "stable")
-	assert.NotContains(t, byName, "beta-2026-09-27", "a dated beta is a beta, not a channel of its own")
-	assert.NotContains(t, byName, "stable-2026-09-27")
-	assert.Equal(t, "beta-2026-09-27", byName["beta"].Latest)
-	assert.Equal(t, "stable-2026-09-27", byName["stable"].Latest)
-	assert.Equal(t, []string{"stable-2026-09-27", "stable-26.5.1", "stable-26.5"}, byName["stable"].Members)
-	assert.Equal(t, "hotfix-26.5.2", byName["hotfix"].Latest)
-	assert.Equal(t, "pointer", byName["nightly-latest"].Kind)
 }
 
 func TestDrift_ChannelNeverOffersADowngrade(t *testing.T) {
@@ -140,17 +125,17 @@ func TestDrift_OrderedChannelRegroupedByLaterTags_FollowsItsInstalledTag(t *test
 		},
 		{
 			name: "an installed tag no channel holds has no answer", kind: domain.SelectorOrderedChannel,
-			resolved: domain.Resolved{Ref: "release-0.9", Commit: "c09"}, wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "release-0.9", Commit: "c09"}, wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "nothing installed has no answer", kind: domain.SelectorOrderedChannel,
-			resolved: domain.Resolved{}, wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{}, wantErr: sel.ErrUnknownSelector,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			target, outdated, err := Drift(tc.kind, StableChannel, tc.resolved, regrouped)
+			target, outdated, err := Drift(tc.kind, resolvers.StableChannel, tc.resolved, regrouped)
 			if tc.wantErr != nil {
 				assert.ErrorIs(t, err, tc.wantErr)
 				return
@@ -160,30 +145,6 @@ func TestDrift_OrderedChannelRegroupedByLaterTags_FollowsItsInstalledTag(t *test
 			assert.Equal(t, tc.wantTarget, target)
 		})
 	}
-}
-
-// The names release-tag.sh publishes for a dated series (pinned by
-// tests/releasetags): patches count .1, .2 after the date, rebuilds -1, -2.
-func TestChannelsOf_DatedSeriesAsTheWorkflowsNameIt(t *testing.T) {
-	snap := coreReleaseTags("stable-2026-09-27", "stable-2026-09-27.1", "hotfix-2026-09-27.1", "hotfix-2026-09-27.1-1", "beta-2026-09-27-1")
-
-	byName := map[string]ChannelInfo{}
-	for _, c := range ChannelsOf(snap) {
-		byName[c.Name] = c
-	}
-
-	assert.ElementsMatch(t, []string{"stable", "beta", "hotfix", "nightly-latest"}, keys(byName), "no bogus channel from a date")
-	assert.Equal(t, []string{"stable-2026-09-27.1", "stable-2026-09-27", "stable-26.5.1", "stable-26.5"}, byName["stable"].Members)
-	assert.Equal(t, []string{"hotfix-2026-09-27.1-1", "hotfix-2026-09-27.1", "hotfix-26.5.2"}, byName["hotfix"].Members)
-	assert.Equal(t, "beta-2026-09-27-1", byName["beta"].Latest)
-}
-
-func keys(m map[string]ChannelInfo) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }
 
 // A stable row, the core's own (channel:ordered, adopted at the build's
@@ -199,12 +160,12 @@ func TestDrift_DatedStableSeries_OfferedInOrder(t *testing.T) {
 				snap := coreReleaseTags(steps[1 : i+2]...)
 				resolved := domain.Resolved{Ref: installed, Commit: snap.Tags[installed]}
 
-				target, outdated, err := Drift(kind, StableChannel, resolved, snap)
+				target, outdated, err := Drift(kind, resolvers.StableChannel, resolved, snap)
 
 				require.NoError(t, err)
 				require.True(t, outdated, "%s must be offered %s", installed, next)
 				assert.Equal(t, next, target.Ref)
-				_, again, err := Drift(kind, StableChannel, domain.Resolved{Ref: next, Commit: target.Commit}, snap)
+				_, again, err := Drift(kind, resolvers.StableChannel, domain.Resolved{Ref: next, Commit: target.Commit}, snap)
 				require.NoError(t, err)
 				assert.False(t, again, "%s is the head", next)
 			}
@@ -215,7 +176,7 @@ func TestDrift_DatedStableSeries_OfferedInOrder(t *testing.T) {
 func TestTarget_HotfixChannelOfADatedSeries(t *testing.T) {
 	snap := coreReleaseTags("stable-2026-09-27", "hotfix-2026-09-27.1")
 
-	kind, err := ClassifySelector("hotfix", snap)
+	kind, err := sel.ClassifySelector("hotfix", snap)
 	require.NoError(t, err)
 	target, err := Target(kind, "hotfix", snap)
 
@@ -240,17 +201,17 @@ func TestChannelsOf_BareDateStaysAStandalonePointer(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			snap := domain.RefSnapshot{Tags: tc.tags}
-			byName := map[string]ChannelInfo{}
-			for _, c := range ChannelsOf(snap) {
+			byName := map[string]models.ChannelInfo{}
+			for _, c := range sel.ChannelsOf(snap) {
 				byName[c.Name] = c
 			}
-			assert.Equal(t, tc.wantStable, byName[StableChannel].Latest)
+			assert.Equal(t, tc.wantStable, byName[resolvers.StableChannel].Latest)
 			for tag := range tc.tags {
 				if tag != tc.wantStable && !strings.HasPrefix(tag, "v") {
 					assert.Equal(t, "pointer", byName[tag].Kind, "%s is a standalone pointer", tag)
 				}
 			}
-			_, outdated, err := Drift(domain.SelectorOrderedChannel, StableChannel,
+			_, outdated, err := Drift(domain.SelectorOrderedChannel, resolvers.StableChannel,
 				domain.Resolved{Ref: tc.wantStable, Commit: tc.tags[tc.wantStable]}, snap)
 			require.NoError(t, err)
 			assert.False(t, outdated, "the release head is never offered a dated snapshot")

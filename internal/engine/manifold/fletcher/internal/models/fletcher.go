@@ -19,19 +19,8 @@ type Fletcher interface {
 	) ([]byte, string, string, error)
 }
 
-type Releases interface {
-	ResolveLatestStable(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
-
-	ListChannels(
-		ctx context.Context,
-		ns domain.Namespace,
-	) ([]manifoldModels.ChannelInfo, error)
-
-	ResolveDefaultBranch(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (branch, hash string, err error)
+type Releases struct {
+	LatestStable  func(ctx context.Context, ns domain.Namespace) (string, error)
+	Channels      func(ctx context.Context, ns domain.Namespace) ([]manifoldModels.ChannelInfo, error)
+	DefaultBranch func(ctx context.Context, ns domain.Namespace) (branch, hash string, err error)
 }

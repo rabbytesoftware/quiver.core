@@ -1,4 +1,4 @@
-package manifold
+package drift
 
 import (
 	"testing"
@@ -7,6 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
+)
+
+const (
+	fullSHA  = "9dd0b183177a64ec71a2672d1cd7cf0c70bb4877"
+	shortSHA = "9dd0b18"
 )
 
 func releaseSnapshot() domain.RefSnapshot {
@@ -21,6 +27,20 @@ func releaseSnapshot() domain.RefSnapshot {
 		Branches: map[string]string{"main": "cm"},
 		Head:     "main",
 	}
+}
+
+func withTag(
+	snap domain.RefSnapshot,
+	tag string,
+	commit string,
+) domain.RefSnapshot {
+	tags := make(map[string]string, len(snap.Tags)+1)
+	for k, v := range snap.Tags {
+		tags[k] = v
+	}
+	tags[tag] = commit
+	snap.Tags = tags
+	return snap
 }
 
 func TestDrift(t *testing.T) {
@@ -130,13 +150,13 @@ func TestDrift(t *testing.T) {
 				Branches: map[string]string{"main": "cm", "nightly": "branch-tip"},
 				Head:     "main",
 			},
-			wantErr: ErrUnknownSelector,
+			wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "default-branch channel whose branch is gone", kind: domain.SelectorChannel, selector: "main",
 			resolved: domain.Resolved{Ref: "main", Commit: "cm"},
 			snap:     domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c1"}, Head: "main"},
-			wantErr:  ErrUnknownSelector,
+			wantErr:  sel.ErrUnknownSelector,
 		},
 		{
 			name: "vanished ordered channel never falls back to a same-name branch", kind: domain.SelectorChannel, selector: "stable",
@@ -146,27 +166,27 @@ func TestDrift(t *testing.T) {
 				Branches: map[string]string{"stable": "cs"},
 				Head:     "stable",
 			},
-			wantErr: ErrUnknownSelector,
+			wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "channel absent from snapshot", kind: domain.SelectorChannel, selector: "beta",
-			resolved: domain.Resolved{Ref: "v2.0.0-beta.1", Commit: "cb1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v2.0.0-beta.1", Commit: "cb1"}, snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "constraint matching nothing", kind: domain.SelectorConstraint, selector: "v9.*",
-			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "malformed constraint", kind: domain.SelectorConstraint, selector: "v1.[",
-			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "pinned ref deleted", kind: domain.SelectorPin, selector: "v0.9.0",
-			resolved: domain.Resolved{Ref: "v0.9.0", Commit: "c0"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v0.9.0", Commit: "c0"}, snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 		{
 			name: "invalid kind", kind: domain.SelectorKind("bogus"), selector: "v1.2.0",
-			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: ErrUnknownSelector,
+			resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector,
 		},
 	}
 
@@ -202,8 +222,8 @@ func TestTarget(t *testing.T) {
 		{name: "escaped tag reaches the shadowed tag", kind: domain.SelectorPin, selector: "refs/tags/stable", snap: stableCollision, want: domain.Available{Ref: "stable", Commit: "c-stable-tag"}},
 		{name: "escaped branch", kind: domain.SelectorPin, selector: "refs/heads/main", snap: releaseSnapshot(), want: domain.Available{Ref: "main", Commit: "cm"}},
 		{name: "default branch fallback channel", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Branches: map[string]string{"main": "cm"}, Head: "main"}, want: domain.Available{Ref: "main", Commit: "cm"}},
-		{name: "a default branch that is no longer a listed channel is no install target", kind: domain.SelectorChannel, selector: "main", snap: releaseSnapshot(), wantErr: ErrUnknownSelector},
-		{name: "channel whose latest has no commit", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Head: "main"}, wantErr: ErrUnknownSelector},
+		{name: "a default branch that is no longer a listed channel is no install target", kind: domain.SelectorChannel, selector: "main", snap: releaseSnapshot(), wantErr: sel.ErrUnknownSelector},
+		{name: "channel whose latest has no commit", kind: domain.SelectorChannel, selector: "main", snap: domain.RefSnapshot{Head: "main"}, wantErr: sel.ErrUnknownSelector},
 	}
 
 	for _, tc := range testCases {

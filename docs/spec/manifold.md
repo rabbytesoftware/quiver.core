@@ -36,7 +36,7 @@ The `Manifold` interface is the only surface the app layer imports.
 
 `Snapshot` reads every tag (annotated tags peeled to their commit), every branch and the `HEAD` branch of a repository in one ref advertisement (`git ls-remote`, in-memory `gogit.Remote.ListContext`) and returns them as one `domain.RefSnapshot`. It is cached per bare namespace for the manifold's cache TTL, which production wiring ties to `arrows.version_check_ttl`; `FreshSnapshot` bypasses and refreshes that cache for decisions that must not act on a view up to a TTL old (version checks, the update commit). `ListChannels` is `ChannelsOf` over a `Snapshot`.
 
-Everything else is a pure function of a snapshot, exported from the package:
+Everything else is a pure function of a snapshot, re-exported from the package root:
 
 | Function | Purpose |
 |---|---|
@@ -50,6 +50,8 @@ Everything else is a pure function of a snapshot, exported from the package:
 A snapshot is the only remote view any of them sees, so a decision can never combine two inconsistent reads. There is no latest-release permalink lookup: a refless namespace is decided from the tag snapshot alone, on any git host. See [manifests/v0/versioning.md §2, §5 and §6](./manifests/v0/versioning.md).
 
 Fletcher's ref selection (§4.1) reads the same snapshot: its latest stable release is the `stable` channel's latest tag, its unstable fallback the first other listed channel that is not the default-branch fallback, and its default branch the snapshot's `HEAD`.
+
+**Layout.** Snapshots, selectors, drift and admission are the versioning subengine (`internal/engine/manifold/versioning`), shaped like Fletcher: its root is only the public API — `versioning.go` (`New`, which builds the TTL-bounded `Snapshots` cache over a `RefLister`, and the pure functions above plus `Admit`, `LatestStable` and `DefaultBranch`) and `errors.go` (`ErrUnknownSelector`, `ErrNotAdmitted`). The implementation is in `versioning/internal/`: `snapshot` (the cache), `selector` (channels, classification, ref lookup), `drift` (`Target`, `Drift`) and `admit` (`Admit`). Manifold builds it itself from its constraint resolver, clock and cache TTL; its `Snapshot`/`FreshSnapshot`/`ListChannels` methods and the root functions (`manifold.Drift`, `manifold.ClassifySelector`, …) only delegate to it. Versioning imports neither the manifold root nor Fletcher.
 
 The constructor `New(fetchTimeout time.Duration)` builds a default Manifold with HTTP+git fetchers and the v0 translator registries. `NewWithResolvers` exists for tests that need to inject stub resolvers.
 
@@ -176,11 +178,13 @@ questions Fletcher asks manifold; `New`) and `errors.go` (`NotFletchableError`, 
 selection, error mapping), `gather` (the per-tag build: sources, repo page, README, fetch bounds,
 draft), `confidence`, `picker`, `readme`, `forge`, `media` and `models`. Manifold builds its
 Fletcher itself when constructed with `manifold.WithFletcher(true)`, from its own host lookup and
-fetch timeout (0 means 30 s, as for the resolver), and answers `Releases` from its own ref
-snapshot (`manifold/fletcher_releases.go`): `ResolveLatestStable` is the `stable` channel's latest
-tag, `ListChannels` is `ChannelsOf`, and `ResolveDefaultBranch` is the snapshot's `HEAD`;
-nothing outside manifold builds one. `Fletcher` and `Releases` are declared in
-`fletcher/internal/models` and aliased from the root.
+fetch timeout (0 means 30 s, as for the resolver). `Releases` is a struct of three functions
+Fletcher calls; manifold fills it with its own methods, each answering from its ref snapshot
+through the versioning subengine (§2.1): `LatestStable` is `ResolveLatestStable` (the `stable`
+channel's latest tag), `Channels` is `ListChannels` (`ChannelsOf`), and `DefaultBranch` is
+`ResolveDefaultBranch` (the snapshot's `HEAD`); nothing outside manifold builds one. `Fletcher` and
+`Releases` are declared in `fletcher/internal/models` and aliased from the root. Fletcher imports
+neither the manifold root nor versioning.
 
 **When it runs.** `ResolveArrow` falls back to Fletcher only when all of these hold:
 
@@ -587,7 +591,7 @@ After all compiled rules run, the manifold ruleset adds one more check: `len(man
 | Parsing | Wrapped `fmt.Errorf` from YAML unmarshal, schema-line extraction, codeblock extraction, JSON Schema validation, mapper errors | Translator |
 | Validation | `aerrors.ErrInvalidManifest` (via `RuleError.Unwrap`); also `aerrors.ErrNoSupportedPlatform` | Ruleset |
 | Assembly/compile | Wrapped errors from selector (`AmbiguousTargetError`, `ErrNoTargetForOS`) and base-chain walk | Compiler / selector |
-| Selector | `manifold.ErrUnknownSelector` — a selector that names no channel, ref, glob or commit, a constraint no tag matches, or a target absent from the snapshot; transport failures while listing refs are wrapped | `selector.go`, `drift.go`, ref lister |
+| Selector | `manifold.ErrUnknownSelector` — a selector that names no channel, ref, glob or commit, a constraint no tag matches, or a target absent from the snapshot; transport failures while listing refs are wrapped | `versioning/internal/{selector,drift,admit}`, ref lister |
 | Synthesis | `fletcher.NotFletchableError` wrapped in `resolver.ErrManifestNotFound` (§4.1); transient failures as `resolver.ErrFetchFailed` | Fletcher |
 
 Callers use `errors.Is` for the sentinels and `errors.As` for `RuleErrors` / `AmbiguousTargetError` to extract structured detail.

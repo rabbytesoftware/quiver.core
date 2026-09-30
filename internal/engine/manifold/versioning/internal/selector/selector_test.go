@@ -1,4 +1,4 @@
-package manifold
+package selector
 
 import (
 	"testing"
@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 )
 
 const (
@@ -119,7 +120,7 @@ func TestDefaultChannel(t *testing.T) {
 		{
 			name: "stable when an ordered stable member exists",
 			snap: sharedSnapshot(),
-			want: StableChannel,
+			want: resolvers.StableChannel,
 		},
 		{
 			name: "first listed channel when there is no stable member",
@@ -157,6 +158,30 @@ func TestDefaultChannel(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestPinnedRef(t *testing.T) {
+	testCases := []struct {
+		name       string
+		kind       domain.SelectorKind
+		selector   string
+		wantRef    string
+		wantCommit string
+		wantOK     bool
+	}{
+		{name: "tag pin", kind: domain.SelectorTagPin, selector: "v1.2.0", wantRef: "v1.2.0", wantCommit: "c-v1.2.0", wantOK: true},
+		{name: "branch escape", kind: domain.SelectorPin, selector: "refs/heads/develop", wantRef: "develop", wantCommit: "c-develop", wantOK: true},
+		{name: "missing tag", kind: domain.SelectorTagPin, selector: "develop", wantRef: "develop"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, commit, ok := PinnedRef(tc.kind, tc.selector, sharedSnapshot())
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.wantRef, ref)
+			assert.Equal(t, tc.wantCommit, commit)
 		})
 	}
 }

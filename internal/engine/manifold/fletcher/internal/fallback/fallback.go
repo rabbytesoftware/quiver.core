@@ -109,7 +109,7 @@ func (f *fallback) isBranch(
 	if host, ok := f.lookup(ns); ok && slices.Contains(host.DefaultBranches(), ref) {
 		return true
 	}
-	branch, _, err := f.releases.ResolveDefaultBranch(ctx, ns.BareNamespace())
+	branch, _, err := f.releases.DefaultBranch(ctx, ns.BareNamespace())
 	return err == nil && branch == ref
 }
 

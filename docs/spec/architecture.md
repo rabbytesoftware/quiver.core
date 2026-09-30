@@ -68,7 +68,7 @@ Engines are independent business components. The `engine.Container` holds one in
 
 Engines that need event sourcing (`netbridge`) hold their own private Asynx aggregate inside their `internal/` subtree. The other engines are stateless, save for the on-disk cache in `vault`.
 
-`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), the ref lister behind ref snapshots, and pure selector / channel / drift functions over a snapshot. `wizard` decomposes into a runtime layer (process spawn, signal, alive checks), per-step-type handlers, and the shelf (OS entry placement and `PATH`), reached only through its `expose`/`unexpose` steps and `PathStatus`/`SetupPath`.
+`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), the ref lister behind ref snapshots, and two subengines with a thin public root each: `versioning` (the ref-snapshot cache and pure selector / channel / drift / admission functions over a snapshot) and `fletcher` (manifests synthesized from release assets). `wizard` decomposes into a runtime layer (process spawn, signal, alive checks), per-step-type handlers, and the shelf (OS entry placement and `PATH`), reached only through its `expose`/`unexpose` steps and `PathStatus`/`SetupPath`.
 
 ---
 
