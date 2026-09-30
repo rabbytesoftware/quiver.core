@@ -3,6 +3,7 @@ package wizard
 import (
 	"context"
 	"fmt"
+	"os"
 	goruntime "runtime"
 	"sync"
 	"time"
@@ -224,6 +225,9 @@ func (w *wizard) Start(
 	return exec
 }
 
+// Probe runs req's steps as a yes/no question. A probe that has no workdir
+// yet (a preinstalled check, before anything exists for its namespace) runs
+// in a scratch directory of its own, never the daemon's working directory.
 func (w *wizard) Probe(
 	ctx context.Context,
 	req RunRequest,
@@ -236,6 +240,15 @@ func (w *wizard) Probe(
 		return err
 	}
 	defer w.wg.Done()
+
+	if req.WorkDir == "" {
+		scratch, err := os.MkdirTemp("", "quiver-probe-*")
+		if err != nil {
+			return fmt.Errorf("probe: scratch directory: %w", err)
+		}
+		defer os.RemoveAll(scratch) //nolint:errcheck // a leftover empty temp directory is harmless
+		req.WorkDir = scratch
+	}
 
 	runCtx, cancel := context.WithTimeout(ctx, maxProbeDuration)
 	defer cancel()

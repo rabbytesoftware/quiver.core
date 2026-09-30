@@ -153,7 +153,8 @@ that owns the directory is removed. `DeleteWorkDir` of the refused identity succ
 touches nothing (it owns no directory), so it can always be removed from the catalog. A
 workdir the vault cannot give is fatal to every lifecycle method, and the wizard never
 starts a `run` step without a workdir, so no step ever runs in the daemon's own working
-directory. A manifest cache entry written under the earlier filename is read
+directory. A `preinstalled:` probe, which runs before any workdir exists for its namespace,
+gets a scratch directory of its own that is removed once it answered. A manifest cache entry written under the earlier filename is read
 the same way and deleted with the current one.
 
 `decodeNSDir` reverses either directory form when listing namespaces; a component that does
