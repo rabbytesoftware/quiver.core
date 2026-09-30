@@ -473,11 +473,13 @@ func (s *AdvanceSuite) TestAdvance_RunningArrowIsStoppedBeforeAdvance() {
 
 	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, wait)
-	env.WaitForActivePID(s.T(), ns, wait)
-	running := s.detail(tc, ns)
-	s.Require().NotNil(running.ActiveRun)
+	// The stream's last PID may still be the install run's; wait for the
+	// served process's own.
+	running := kit.WaitForDetail(s.T(), tc, ns, "the served process recorded its PID", wait,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.ActiveRun != nil && d.ActiveRun.Method == domain.MethodExecute && d.ActiveRun.PID > 0
+		})
 	pid := running.ActiveRun.PID
-	s.Require().Positive(pid)
 
 	s.update(tc, ns)
 	advanced := s.waitAdvanced(tc, ns, moved)

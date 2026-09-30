@@ -205,7 +205,12 @@ func (s *AdvanceSuite) TestAdversarial_FailedUpdateThenReinstall_RecipeMatchesRe
 	s.Require().Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, wait)
 	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
-	env.WaitForState(s.T(), ns, domain.ArrowStateReady, wait)
+	// v1.3.0 is still ahead of the reinstalled row, so the runtime may pass
+	// ready on its way to outdated: wait for the install's own return.
+	kit.WaitForDetail(s.T(), tc, ns, "the reinstall ended", wait, func(d dto.ArrowDetailDTO, status int) bool {
+		return status == http.StatusOK && d.LastReturn != nil &&
+			d.LastReturn.Method == domain.MethodInstall && d.LastReturn.Outcome == "success"
+	})
 	s.runtimeSettled(env, ns)
 
 	log, ok := s.workFile(env, ns, "install-log")
