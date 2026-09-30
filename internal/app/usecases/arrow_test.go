@@ -11,10 +11,16 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
+
+// newArrowUC wires the usecase to a real lifecycle over the same mocks.
+func newArrowUC(a *ucmocks.MockArrow, g *ucmocks.MockGraph, rt *ucmocks.MockRuntime) ArrowUsecase {
+	return NewArrowUsecase(a, g, rt, lifecycle.New(a, rt, g))
+}
 
 // --- tests ---
 
@@ -25,7 +31,7 @@ func TestArrowRemove_StateViolationGuard(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, rt)
+	uc := newArrowUC(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, rt)
 	err := uc.Remove(context.Background(), "test/arrow@v1")
 
 	if !errors.Is(err, apperrors.ErrStateViolation) {
@@ -48,7 +54,7 @@ func TestArrowRemove_SuccessWhenAbsent(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, rt)
 	err := uc.Remove(context.Background(), "test/arrow@v1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -76,7 +82,7 @@ func TestArrowHasDependents_DelegatesToGraph(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	got, err := uc.HasDependents(context.Background(), target, exclude)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -104,7 +110,7 @@ func TestArrowGetDependents_DelegatesToGraph(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	got, err := uc.GetDependents(context.Background(), target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -125,7 +131,7 @@ func TestArrowGetDependents_PropagatesError(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	_, err := uc.GetDependents(context.Background(), "test/arrow@v1")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
@@ -147,7 +153,7 @@ func TestArrowGetDependencies_DelegatesToGraph(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	got, err := uc.GetDependencies(context.Background(), target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -168,7 +174,7 @@ func TestArrowGetDependencies_PropagatesError(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, &ucmocks.MockRuntime{})
 	_, err := uc.GetDependencies(context.Background(), "test/arrow@v1")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
@@ -190,7 +196,7 @@ func TestArrowList_DelegatesToArrow(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	dtos, err := uc.List(context.Background(), &userInstalled)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -213,7 +219,7 @@ func TestArrowGet_DelegatesToArrow(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	result, err := uc.Get(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -231,7 +237,7 @@ func TestArrowAdd_Success(t *testing.T) {
 			return nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if err := uc.Add(context.Background(), "test/arrow@v1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -245,7 +251,7 @@ func TestArrowAdd_PropagatesError(t *testing.T) {
 	a := &ucmocks.MockArrow{
 		AddFn: func(_ context.Context, _ domain.Namespace) error { return expected },
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if err := uc.Add(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
@@ -258,7 +264,7 @@ func TestArrowRemove_GetStateError(t *testing.T) {
 			return "", expected
 		},
 	}
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, rt)
+	uc := newArrowUC(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, rt)
 	if err := uc.Remove(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
@@ -276,7 +282,7 @@ func TestArrowRemove_HasDependentsError(t *testing.T) {
 			return false, expected
 		},
 	}
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, rt)
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, rt)
 	if err := uc.Remove(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
@@ -293,7 +299,7 @@ func TestArrowRemove_HasDependents_Blocked(t *testing.T) {
 			return true, nil
 		},
 	}
-	uc := NewArrowUsecase(&ucmocks.MockArrow{}, g, rt)
+	uc := newArrowUC(&ucmocks.MockArrow{}, g, rt)
 	if err := uc.Remove(context.Background(), "test/arrow@v1"); !errors.Is(err, apperrors.ErrDependentsExist) {
 		t.Fatalf("expected ErrDependentsExist, got %v", err)
 	}
@@ -306,7 +312,7 @@ func TestArrowList_PropagatesError(t *testing.T) {
 			return nil, expected
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.List(context.Background(), nil); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
@@ -332,7 +338,7 @@ func TestArrowGetDetail_WithRuntime(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, mockRT)
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, mockRT)
 	dto, err := uc.GetDetail(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -369,7 +375,7 @@ func TestArrowGetDetail_BareNamespace_ResolvesRuntimeAgainstTrackedRef(t *testin
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, mockRT)
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, mockRT)
 	dto, err := uc.GetDetail(context.Background(), bareNs)
 	require.NoError(t, err)
 	require.NotNil(t, dto)
@@ -392,7 +398,7 @@ func TestArrowGetDetail_WithoutRuntime(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, mockRT)
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, mockRT)
 	dto, err := uc.GetDetail(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -409,7 +415,7 @@ func TestArrowGetDetail_GetDetailError(t *testing.T) {
 			return nil, expected
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.GetDetail(context.Background(), "test/arrow@v1"); !errors.Is(err, expected) {
 		t.Fatalf("expected %v, got %v", expected, err)
 	}
@@ -422,7 +428,7 @@ func TestArrowGetManifest_Success(t *testing.T) {
 			return &domain.Arrow{Namespace: ns}, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	dto, err := uc.GetManifest(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -439,7 +445,7 @@ func TestArrowGetReadme_Success(t *testing.T) {
 			return &domain.Arrow{Namespace: ns, Readme: "# Docs"}, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	readme, err := uc.GetReadme(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -456,7 +462,7 @@ func TestArrowGetReadme_EmptyReadme_NotFound(t *testing.T) {
 			return &domain.Arrow{Namespace: ns}, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.GetReadme(context.Background(), ns); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
@@ -469,7 +475,7 @@ func TestArrowGetReadme_ResolveManifestError(t *testing.T) {
 			return nil, resolveErr
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.GetReadme(context.Background(), "test/arrow"); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolveErr, got %v", err)
 	}
@@ -496,7 +502,7 @@ func TestArrowSeed_AdoptsAPinOfItsOwnRef(t *testing.T) {
 			return nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 
 	require.NoError(t, uc.Seed(context.Background(), "test/arrow/x@v1", []byte("data")))
 
@@ -514,7 +520,7 @@ func TestArrowValidateManifest_DelegatesToArrow(t *testing.T) {
 			return result, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	got, err := uc.ValidateManifest(context.Background(), []byte("manifest"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -541,7 +547,7 @@ func TestArrowListChannels_DelegatesToArrow(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	got, err := uc.ListChannels(context.Background(), target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -562,7 +568,7 @@ func TestArrowListChannels_PropagatesError(t *testing.T) {
 		},
 	}
 
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	_, err := uc.ListChannels(context.Background(), "test/arrow@v1")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected %v, got %v", wantErr, err)
@@ -578,7 +584,7 @@ func TestArrowGetManifest_ResolveManifestError(t *testing.T) {
 			return nil, resolveErr
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 	if _, err := uc.GetManifest(context.Background(), "test/arrow"); !errors.Is(err, resolveErr) {
 		t.Fatalf("expected resolveErr, got %v", err)
 	}
@@ -610,7 +616,7 @@ func TestArrowUsecase_Remove_BareNamespaceResolvesToCataloguedRef(t *testing.T) 
 		},
 	}
 
-	uc := NewArrowUsecase(arrow, gr, rt)
+	uc := newArrowUC(arrow, gr, rt)
 
 	if err := uc.Remove(context.Background(), "github.com/u/r"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -630,7 +636,7 @@ func TestArrowGetManifest_ExplicitRef_Resolves(t *testing.T) {
 			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Crowbar"}}, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 
 	got, err := uc.GetManifest(context.Background(), ns)
 	if err != nil {
@@ -651,7 +657,7 @@ func TestArrowGetReadme_ExplicitRef_Resolves(t *testing.T) {
 			return &domain.Arrow{Namespace: ns, Readme: "hello"}, nil
 		},
 	}
-	uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{})
 
 	got, err := uc.GetReadme(context.Background(), ns)
 	if err != nil {
@@ -689,7 +695,7 @@ func TestArrowAdoptInstalled_DelegatesAndLeavesTheRuntimeAlone(t *testing.T) {
 					return "", nil
 				},
 			}
-			uc := NewArrowUsecase(a, &ucmocks.MockGraph{}, rt)
+			uc := newArrowUC(a, &ucmocks.MockGraph{}, rt)
 
 			err := uc.AdoptInstalled(context.Background(), "github.com/u/r@stable", "v1.2.0")
 
@@ -701,4 +707,20 @@ func TestArrowAdoptInstalled_DelegatesAndLeavesTheRuntimeAlone(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestArrowUsecase_Update_RechecksThroughTheLifecycle(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@stable")
+	want := models.UpdateResult{Available: &domain.Available{Ref: "stable", Commit: "c2"}}
+	lc := &ucmocks.MockLifecycle{
+		RecheckFn: func(_ context.Context, got domain.Namespace) (models.UpdateResult, error) {
+			assert.Equal(t, ns, got)
+			return want, nil
+		},
+	}
+
+	got, err := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{}, lc).Update(context.Background(), ns)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }

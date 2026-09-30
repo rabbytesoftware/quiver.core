@@ -22,15 +22,7 @@ func NewTestable(
 	m manifold.Manifold,
 	opts ...Option,
 ) Arrow {
-	o := resolveOptions(opts)
-	return &arrowService{
-		store:               r,
-		axArrow:             axArrow,
-		vault:               v,
-		manifold:            m,
-		preinstalled:        o.preinstalled,
-		versionOutdatedSync: o.versionOutdatedSync,
-	}
+	return newService(r, axArrow, v, m, nil, resolveOptions(opts))
 }
 
 // NewTestableProjecting builds an arrowService with its subscribers registered,
@@ -43,16 +35,7 @@ func NewTestableProjecting(
 	hub apphub.WebSocketHub,
 	opts ...Option,
 ) (Arrow, error) {
-	o := resolveOptions(opts)
-	s := &arrowService{
-		store:               r,
-		axArrow:             axArrow,
-		vault:               v,
-		manifold:            m,
-		hub:                 hub,
-		preinstalled:        o.preinstalled,
-		versionOutdatedSync: o.versionOutdatedSync,
-	}
+	s := newService(r, axArrow, v, m, hub, resolveOptions(opts))
 
 	if err := s.registerProjections(); err != nil {
 		return nil, err

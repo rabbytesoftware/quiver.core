@@ -187,7 +187,7 @@ Read/write surface over the catalog. Composes `arrow` + `graph` + `runtime` repo
 | `Add(ctx, ns)` | `arrow.Add` | Resolves the selector (a refless namespace gets the repository's default channel), fetches the manifest at the target commit, writes the row as `UserInstalled = true`. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrAlreadyExists`, `ErrFetchFailed`. |
 | `AdoptInstalled(ctx, ns, resolvedRef)` | `arrow.AdoptInstalled` | Settles `ns`'s identity as `Add` does, admits `resolvedRef` against a fresh snapshot as a ref the selector could resolve to, fetches the manifest at its commit and hands it to `arrow.Adopt`: a new user-installed row, an in-place advance, or nothing. The runtime is not touched. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrInvalidManifest`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `Remove(ctx, ns)` | `runtime.GetState` → `graph.HasDependents` → `arrow.Remove` | Refuses if state is active (`ArrowState.IsActive()`) or any other arrow depends on this one. | `ErrStateViolation`, `ErrDependentsExist`, `ErrNotFound`. |
-| `Update(ctx, ns)` | `arrow.ResolveCatalogued`, `arrow.Get`, `arrow.CheckAvailable`, `runtime.GetState`, `arrow.Advance`, `graph.DiffDeps` | Re-resolves the selector and records `Available`. Nothing ahead: empty result. An installed row stays where it is and the result carries `Available` — only the runtime update runs update steps. A row nothing is installed from is advanced at once and the result is the dep diff `UpdateResult{AddedDeps, RemovedFromManifest, ConstrainedDeps}`. | `ErrNotFound`, `ErrFetchFailed`, `ErrStateViolation`. |
+| `Update(ctx, ns)` | `lifecycle.Recheck` → `arrow.ResolveCatalogued`, `arrow.Get`, `arrow.CheckAvailable`, `runtime.GetState`, `arrow.Advance`, `graph.DiffDeps` | Re-resolves the selector and records `Available`. Nothing ahead: empty result. An installed row stays where it is and the result carries `Available` — only the runtime update runs update steps. A row nothing is installed from is advanced at once and the result is the dep diff `UpdateResult{AddedDeps, RemovedFromManifest, ConstrainedDeps}`. | `ErrNotFound`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `List(ctx, userInstalled)` | `arrow.List` → `runtime.GetState` per version | Hydrates each version's `State` from the runtime aggregate. | — |
 | `Get(ctx, ns)` | `arrow.Get` | Bare metadata fetch of the row `ns` names: exactly that identity when it carries a ref (another row of the same repository is never substituted), the preferred row when it has none. | `ErrNotFound`. |
 | `GetDetail(ctx, ns)` | `arrow.GetDetail` → `runtime.GetRuntime` | Merges runtime state, active execution, last return into the detail view. | `ErrNotFound`. |
@@ -198,25 +198,27 @@ Read/write surface over the catalog. Composes `arrow` + `graph` + `runtime` repo
 
 ### 3.2 RuntimeUsecase — `usecases/runtime.go`
 
-The execution lifecycle layer. Composes `arrow` + `runtime` + `graph` repositories.
+The execution lifecycle surface. Each verb rejects reserved variables and hands the rest to the `lifecycle` repository (`repositories/lifecycle`), which composes the `arrow`, `runtime` and `graph` repositories through interfaces it declares itself; the table below describes what the lifecycle does. `GetRuntime` and `ListRuntimes` read the `arrow` and `runtime` repositories directly.
 
 | Method | Engines / repositories | Behaviour | Errors |
 |--------|------------------------|-----------|--------|
 | `Install(ctx, ns, userVars)` | `arrow.ResolveCatalogued`, `arrow.Exists`, `graph.Resolve`, `arrow.AddDependency`, `runtime.BeginInstall` (per dep, then root), `runtime.ListenEnded` (sync wait), `runtime.BeginExecution` for service deps. | Resolves the dep plan; catalogues every declared dependency that has no row yet (as a non-user-installed row keyed by its declared selector) before installing any; installs each dep synchronously by sending `BeginInstall` and waiting on `runtime.ended.<dep>`; auto-starts service deps; finally sends `BeginInstall` for the root. Idempotent — skips deps already in non-absent states. | `ErrNotFound`, `ErrFetchFailed`, plus dep-install failures. |
 | `Uninstall(ctx, ns, userVars)` | `graph.HasDependents`, `runtime.BeginUninstall` | Refuses if any other installed arrow depends on `ns`. The `runtime.ended.<ns>` reaction (`onUninstallEnded`) handles cascading orphan cleanup of non-user-installed deps. | `ErrDependentsExist`, `ErrStateViolation`. |
-| `Execute(ctx, ns, method, userVars)` | `runtime.BeginExecution` (default) or `executeUpdate` (when `method == _update`) | For `_update` on a `ready`, `outdated` or `running` row, runs the update bracket: re-resolve and record `Available` (nothing ahead: no-op; `Update` reports it as not started, which the API answers with 200), stop if running, stage the target manifest (`arrow.RefreshToTarget`), mark and sync dependency changes, then `BeginUpdate`, which runs the target's `update:` steps — or, for a target that declares none (every manifest Fletcher drafts), its `install:` steps again, in place. `onUpdateEnded` commits it (see below). A second bracket for a row whose previous one is unsettled is refused. For all other methods, plain `BeginExecution`. | `ErrStateViolation`. |
-| `Stop(ctx, ns)` | `runtime.BeginStop` | Direct passthrough — the wizard cancellation happens inside the runtime repository's drain machinery. | `ErrStateViolation`. |
+| `Execute(ctx, ns, method, userVars)` | `runtime.BeginExecution` (default) or the lifecycle's update bracket (when `method == _update`) | For `_update` on a `ready`, `outdated` or `running` row, runs the update bracket: re-resolve and record `Available` (nothing ahead: no-op; `Update` reports it as not started, which the API answers with 200), stop if running, stage the target manifest (`arrow.RefreshToTarget`), mark and sync dependency changes, then `BeginUpdate`, which runs the target's `update:` steps — or, for a target that declares none (every manifest Fletcher drafts), its `install:` steps again, in place. The settling of its end commits it (see below). A second bracket for a row whose previous one is unsettled is refused. For all other methods, plain `BeginExecution`. | `ErrStateViolation`. |
+| `Stop(ctx, ns)` | `arrow.ResolveCatalogued`, `runtime.BeginStop` | The wizard cancellation happens inside the runtime repository's drain machinery. | `ErrStateViolation`. |
 | `RuntimeExists(ctx, ns)` | `runtime.RuntimeExists` | — | — |
 | `Start(ctx)` | `runtime.Start` | Triggers `RecoverTransients`. Called by `app.Container.Start`. | — |
-| `Settling(ns)` | — | True from the moment an update of `ns` begins until its commit has landed or been given up, including after its steps ended while the runtime already reads `ready`/`outdated`. Surfaced as `settling` on `GET /v0/runtime` reads; the CLI never idle-stops a daemon with a settling row. | — |
-| `Drain(ctx)` | — | Refuses every later update commit and waits for the ones in flight. When `ctx` ends first it aborts them and returns the context error: those rows stay outdated and their next update runs again. Called by `app.Container.Shutdown` (and `DrainUpdates`) before any aggregate drains. | context error on timeout. |
+| `Settling(ns)` | `lifecycle.Settling` | True from the moment an update of `ns` begins until its commit has landed or been given up, including after its steps ended while the runtime already reads `ready`/`outdated`. Surfaced as `settling` on `GET /v0/runtime` reads; the CLI never idle-stops a daemon with a settling row. | — |
+| `Drain(ctx)` | `lifecycle.Drain` | Refuses every later update commit and waits for the ones in flight. When `ctx` ends first it aborts them and returns the context error: those rows stay outdated and their next update runs again. Called by `app.Container.Shutdown` (and `DrainUpdates`) before any aggregate drains. | context error on timeout. |
 | `Shutdown(ctx)` | `runtime.Shutdown` | Drains in-flight executions, then shuts down Asynx. Called by `app.Container.Shutdown`. | — |
 
-#### Reactive callbacks wired in `usecases.New`
+#### Reactive callbacks subscribed by the lifecycle
+
+`repositories.New` starts them through `wireLifecycle` (`lifecycle.Start`); no usecase subscribes to anything.
 
 | Source event | Handler | Behaviour |
 |--------------|---------|-----------|
-| `runtime.ended.*` | `onRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps; `_update` closes the update bracket (`onUpdateEnded`): on success, and only if the target ref still stands at the target commit, `arrow.Advance` then `runtime.ClearVersionBadge`, detached from the handler but tracked so a graceful shutdown waits for it (`Drain`); otherwise nothing is stamped. quiver.core's own row is skipped — its relaunched build adopts its new state on boot. |
+| `runtime.ended.*` | `lifecycle/internal/deps` `OnRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps; `_update` closes the update bracket (`lifecycle/internal/settle` `OnUpdateEnded`): on success, and only if the target ref still stands at the target commit, `arrow.Advance` then `runtime.ReconcileVersionBadge`, detached from the handler but tracked so a graceful shutdown waits for it (`Drain`); otherwise nothing is stamped. quiver.core's own row is skipped — its relaunched build adopts its new state on boot. |
 
 ### 3.3 CollectionUsecase — `usecases/collection.go`
 
@@ -309,7 +311,8 @@ See [subscriptions.md](subscriptions.md) for the broader coordinator/subscriptio
 4. Creates an in-process `Hub`.
 5. Builds `repositories.Container` (`Arrow`, `Runtime`, `Collection`, `Graph`) and wires their cross-callbacks (`OnArrowAdded` / `OnArrowUpdated` → `Graph.SyncDependencies`; `OnArrowRemoved` → `Graph.RemoveDependencies` + `Runtime.Forget`).
 6. Calls `repos.RegisterHubProjections(hub)`.
-7. Builds `usecases.Container` (`Arrow`, `Runtime`, `Collection`) and wires its reactive callback (`OnRuntimeEnded` → `runtimeUsecase.onRuntimeEnded`).
+   It also builds `lifecycle` over the arrow, runtime and graph repositories and wires it (`wireLifecycle`): the arrow repository's version check asks it whether to hold a settling row's badge, and its `OnRuntimeEnded` reaction is subscribed.
+7. Builds `usecases.Container` (`Arrow`, `Runtime`, `Collection`, …) over the repositories, `Lifecycle` included. It wires nothing.
 
 ```mermaid
 flowchart TB

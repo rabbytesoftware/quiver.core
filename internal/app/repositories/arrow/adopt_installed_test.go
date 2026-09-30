@@ -2,7 +2,6 @@ package arrow_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,8 +10,6 @@ import (
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
-	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
-	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -186,40 +183,6 @@ func TestAdoptInstalled_Refusals_WriteNothing(t *testing.T) {
 			assert.Empty(t, a.vault.ArrowOps)
 		})
 	}
-}
-
-// A remote that cannot be read is a gateway failure, the same as for Add.
-func TestAdoptInstalled_UnclassifiedResolveFailure_IsAFetchFailure(t *testing.T) {
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveAdoptionFn: func(context.Context, domain.Namespace, string) (arrowstore.Adoption, error) {
-			return arrowstore.Adoption{}, errors.New("connection reset")
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), &mocks.Vault{}, &mocks.Manifold{})
-
-	err := cat.AdoptInstalled(context.Background(), adoptBare.WithRef("stable"), "v1.2.0")
-
-	require.ErrorIs(t, err, apperrors.ErrFetchFailed)
-}
-
-func TestAdoptInstalled_ManifestThatDoesNotParse_IsAnInvalidManifest(t *testing.T) {
-	r := &arrowStoreMocks.MockCQRS{
-		ResolveAdoptionFn: func(_ context.Context, ns domain.Namespace, ref string) (arrowstore.Adoption, error) {
-			return arrowstore.Adoption{
-				Identity: ns,
-				Kind:     domain.SelectorChannel,
-				Resolved: domain.Resolved{Ref: ref, Commit: "c120"},
-				Manifest: []byte("not a manifest"),
-				Filename: "ARROW.md",
-			}, nil
-		},
-	}
-	m := &mocks.Manifold{ParseArrowErr: errors.New("bad yaml")}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), &mocks.Vault{}, m)
-
-	err := cat.AdoptInstalled(context.Background(), adoptBare.WithRef("stable"), "v1.2.0")
-
-	require.ErrorIs(t, err, apperrors.ErrInvalidManifest)
 }
 
 // Two spellings of one commit selector are one row, so they can never share

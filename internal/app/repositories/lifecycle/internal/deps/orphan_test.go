@@ -1,4 +1,4 @@
-package usecases
+package deps
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
-	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -21,9 +21,9 @@ const (
 
 // orphanFixture catalogues a commit dependency in lower case while its
 // dependent declares it in upper case, and records every uninstall.
-func orphanFixture(parent domain.Namespace, pending *domainRuntime.DepSyncInfo) (*runtimeUsecase, *[]domain.Namespace) {
+func orphanFixture(parent domain.Namespace, pending *domainRuntime.DepSyncInfo) (*harness, *[]domain.Namespace) {
 	var uninstalled []domain.Namespace
-	a := &ucmocks.MockArrow{
+	a := &mocks.MockArrow{
 		ResolveCataloguedFn: func(_ context.Context, ns domain.Namespace) (domain.Namespace, error) {
 			if ns == declaredCommitDep {
 				return cataloguedCommitDep, nil
@@ -34,7 +34,7 @@ func orphanFixture(parent domain.Namespace, pending *domainRuntime.DepSyncInfo) 
 			return &domain.Arrow{Namespace: ns}, nil
 		},
 	}
-	rt := &ucmocks.MockRuntime{
+	rt := &mocks.MockRuntime{
 		GetStateFn: func(_ context.Context, ns domain.Namespace) (domain.ArrowState, error) {
 			if ns == cataloguedCommitDep {
 				return domain.ArrowStateReady, nil
@@ -49,10 +49,10 @@ func orphanFixture(parent domain.Namespace, pending *domainRuntime.DepSyncInfo) 
 			return nil
 		},
 	}
-	g := &ucmocks.MockGraph{
-		ResolveFn: func(_ context.Context, ns domain.Namespace) (graph.Plan, error) {
+	g := &mocks.MockGraph{
+		ResolveFn: func(_ context.Context, ns domain.Namespace) (models.Plan, error) {
 			if ns == parent {
-				return graph.Plan{{Namespace: declaredCommitDep, Type: domain.ToolDep}}, nil
+				return models.Plan{{Namespace: declaredCommitDep, Type: domain.ToolDep}}, nil
 			}
 			return nil, nil
 		},
@@ -84,19 +84,19 @@ func TestRuntimeOnUninstallEnded_CommitDepInAnotherCase_IsUninstalled(t *testing
 func TestRuntimeOrphanChecks_UncataloguedDep_RetireNothing(t *testing.T) {
 	testCases := []struct {
 		name string
-		run  func(*runtimeUsecase)
+		run  func(*harness)
 	}{
-		{name: "dropped by a target", run: func(uc *runtimeUsecase) {
+		{name: "dropped by a target", run: func(uc *harness) {
 			require.NoError(t, uc.syncDeps(context.Background(), rollingRow))
 		}},
-		{name: "dependent uninstalled", run: func(uc *runtimeUsecase) {
+		{name: "dependent uninstalled", run: func(uc *harness) {
 			uc.onUninstallEnded(context.Background(), domainRuntime.ArrowRuntime{Ref: rollingRow})
 		}},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			uc, uninstalled := orphanFixture(rollingRow, &domainRuntime.DepSyncInfo{RemovedDeps: []domain.Namespace{declaredCommitDep}})
-			uc.arrow.(*ucmocks.MockArrow).ResolveCataloguedFn = func(context.Context, domain.Namespace) (domain.Namespace, error) {
+			uc.arrow.(*mocks.MockArrow).ResolveCataloguedFn = func(context.Context, domain.Namespace) (domain.Namespace, error) {
 				return "", apperrors.ErrNotFound
 			}
 

@@ -63,7 +63,7 @@ func (c BeginExecution) Validate(current *domainRuntime.ArrowRuntime) error {
 // isVersionDriftOutdated reports Outdated caused only by a passive version
 // check, not by a PendingDepSync: the arrow itself is unchanged and still
 // runnable, so this must not gate execution. A PendingDepSync does gate it —
-// runtimeUsecase.syncDeps needs the aggregate to still be Outdated to consume
+// the lifecycle's dependency sync needs the aggregate to still be Outdated to consume
 // it, so starting from there would strand the sync at Ready.
 func isVersionDriftOutdated(current *domainRuntime.ArrowRuntime) bool {
 	return current.State == domain.ArrowStateOutdated && current.PendingDepSync == nil

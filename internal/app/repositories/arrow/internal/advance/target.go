@@ -1,4 +1,4 @@
-package arrow
+package advance
 
 import (
 	"context"
@@ -17,11 +17,11 @@ import (
 // CheckAvailable re-resolves ns against a live snapshot, records the answer
 // as the row's Available and syncs the runtime badge to it. Unlike the
 // passive check it reports failures, and records nothing when it fails.
-func (s *arrowService) CheckAvailable(
+func (a *advancer) CheckAvailable(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Available, error) {
-	exists, err := s.axArrow.Exists(ctx, ns.String())
+	exists, err := a.axArrow.Exists(ctx, ns.String())
 	if err != nil {
 		return nil, fmt.Errorf("check available %s: %w", ns, err)
 	}
@@ -29,12 +29,12 @@ func (s *arrowService) CheckAvailable(
 		return nil, fmt.Errorf("check available %s: %w", ns, apperrors.ErrNotFound)
 	}
 
-	snap, err := s.manifold.FreshSnapshot(ctx, ns)
+	snap, err := a.manifold.FreshSnapshot(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("check available %s: %w", ns, mapResolveErr(err))
+		return nil, fmt.Errorf("check available %s: %w", ns, MapResolveErr(err))
 	}
 
-	available, _, err := s.recordAvailable(ctx, ns, func(current domain.Arrow) (*domain.Available, bool, error) {
+	available, _, err := a.RecordAvailable(ctx, ns, func(current domain.Arrow) (*domain.Available, bool, error) {
 		target, outdated, err := manifold.Drift(current.SelectorKind, ns.Ref(), current.Resolved, snap)
 		if err != nil {
 			return nil, false, fmt.Errorf("%w: %w", apperrors.ErrNotFound, err)
@@ -48,7 +48,7 @@ func (s *arrowService) CheckAvailable(
 		return nil, mapSendErr("check available", ns, err)
 	}
 
-	s.syncBadgeFromRow(ctx, ns)
+	a.syncBadge(ctx, ns)
 	return available, nil
 }
 
@@ -56,18 +56,18 @@ func (s *arrowService) CheckAvailable(
 // on the remote right now, reading the ref where the row's kind says it
 // lives: an escaped branch pin reads its branch even when a same-name tag
 // exists.
-func (s *arrowService) TargetUnmoved(
+func (a *advancer) TargetUnmoved(
 	ctx context.Context,
 	ns domain.Namespace,
 	target domain.Available,
 ) (bool, error) {
-	current, err := s.axArrow.Get(ctx, ns.String())
+	current, err := a.axArrow.Get(ctx, ns.String())
 	if err != nil {
-		return false, fmt.Errorf("target unmoved %s: %w", ns, mapGetErr(err))
+		return false, fmt.Errorf("target unmoved %s: %w", ns, MapGetErr(err))
 	}
-	snap, err := s.manifold.FreshSnapshot(ctx, ns)
+	snap, err := a.manifold.FreshSnapshot(ctx, ns)
 	if err != nil {
-		return false, fmt.Errorf("target unmoved %s: %w", ns, mapResolveErr(err))
+		return false, fmt.Errorf("target unmoved %s: %w", ns, MapResolveErr(err))
 	}
 	commit, ok := manifold.RefCommit(current.SelectorKind, ns.Ref(), target.Ref, snap)
 	return ok && commit == target.Commit, nil
@@ -76,7 +76,7 @@ func (s *arrowService) TargetUnmoved(
 // RefreshToTarget stages target's manifest on ns's row, so an update runs the
 // target's own update steps. Resolved and Available are left for the advance
 // that commits the update.
-func (s *arrowService) RefreshToTarget(
+func (a *advancer) RefreshToTarget(
 	ctx context.Context,
 	ns domain.Namespace,
 	target domain.Available,
@@ -85,7 +85,7 @@ func (s *arrowService) RefreshToTarget(
 		return nil, fmt.Errorf("refresh to target %s: target has no commit: %w", ns, apperrors.ErrInvalidNamespace)
 	}
 
-	exists, err := s.axArrow.Exists(ctx, ns.String())
+	exists, err := a.axArrow.Exists(ctx, ns.String())
 	if err != nil {
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, err)
 	}
@@ -93,15 +93,15 @@ func (s *arrowService) RefreshToTarget(
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, apperrors.ErrNotFound)
 	}
 
-	m, raw, filename, err := s.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
+	m, raw, filename, err := a.manifold.ResolveArrowAtCommit(ctx, ns, target.Ref, target.Commit)
 	if err != nil {
-		return nil, fmt.Errorf("refresh to target %s: %w", ns, mapResolveErr(err))
+		return nil, fmt.Errorf("refresh to target %s: %w", ns, MapResolveErr(err))
 	}
-	if err := s.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
+	if err := a.replaceCachedManifest(ctx, ns, arrowstore.Cacheable(m, raw, filename)); err != nil {
 		return nil, fmt.Errorf("refresh to target %s: %w", ns, err)
 	}
 
-	err = s.sendRetryingConflicts(ctx, arrowcmds.RefreshManifest{
+	err = a.sendRetryingConflicts(ctx, arrowcmds.RefreshManifest{
 		Namespace: ns,
 		ArrowMeta: m.ArrowMeta,
 		Variables: m.Variables,
@@ -121,16 +121,16 @@ func (s *arrowService) RefreshToTarget(
 // returns its identity. A declaration resolves the same way an install does,
 // so a bare one lands on its repository's default channel. A row that
 // already exists is left exactly as it is.
-func (s *arrowService) AddDependency(
+func (a *advancer) AddDependency(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (domain.Namespace, error) {
-	identity, arrow, err := s.store.ResolveInstall(ctx, ns, arrowstore.CacheWhenAbsent(s.identityExists))
+	identity, arrow, err := a.store.ResolveInstall(ctx, ns, arrowstore.CacheWhenAbsent(a.identityExists))
 	if err != nil {
-		return "", fmt.Errorf("add dependency %s: %w", ns, mapResolveErr(err))
+		return "", fmt.Errorf("add dependency %s: %w", ns, MapResolveErr(err))
 	}
 
-	exists, err := s.axArrow.Exists(ctx, identity.String())
+	exists, err := a.axArrow.Exists(ctx, identity.String())
 	if err != nil {
 		return "", fmt.Errorf("add dependency %s: %w", identity, err)
 	}
@@ -138,7 +138,7 @@ func (s *arrowService) AddDependency(
 		return identity, nil
 	}
 
-	_, err = s.axArrow.SendWait(ctx, arrowcmds.AddArrow{
+	_, err = a.axArrow.SendWait(ctx, arrowcmds.AddArrow{
 		Namespace:    identity,
 		ArrowMeta:    arrow.ArrowMeta,
 		Variables:    arrow.Variables,

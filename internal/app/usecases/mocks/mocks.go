@@ -71,7 +71,12 @@ type MockArrow struct {
 	CheckInstalledVersionsFn func(
 		ctx context.Context,
 	)
-	CheckVersionNowFn func(
+	HoldBadgeWhileFn func(
+		settling func(ns domain.Namespace) bool,
+	)
+	WatchVersionsFn        func(ctx context.Context)
+	StopWatchingVersionsFn func()
+	CheckVersionNowFn      func(
 		ctx context.Context,
 		ns domain.Namespace,
 	)
@@ -294,8 +299,25 @@ func (m *MockArrow) CheckVersionNow(
 }
 
 func (m *MockArrow) HoldBadgeWhile(
-	_ func(ns domain.Namespace) bool,
+	settling func(ns domain.Namespace) bool,
 ) {
+	if m.HoldBadgeWhileFn != nil {
+		m.HoldBadgeWhileFn(settling)
+	}
+}
+
+func (m *MockArrow) WatchVersions(
+	ctx context.Context,
+) {
+	if m.WatchVersionsFn != nil {
+		m.WatchVersionsFn(ctx)
+	}
+}
+
+func (m *MockArrow) StopWatchingVersions() {
+	if m.StopWatchingVersionsFn != nil {
+		m.StopWatchingVersionsFn()
+	}
 }
 
 func (m *MockArrow) CheckInstalledVersions(
@@ -1211,5 +1233,122 @@ func (m *MockRecommendation) Shutdown(
 func (m *MockRecommendation) OnHomeRefreshed(
 	_ func(ctx context.Context),
 ) error {
+	return nil
+}
+
+type MockLifecycle struct {
+	InstallFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) (bool, error)
+	UninstallFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
+	ExecuteFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		vars map[string]string,
+	) error
+	UpdateFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) (bool, error)
+	StopFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	ResetFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	RecheckFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (models.UpdateResult, error)
+	SettlingFn  func(ns domain.Namespace) bool
+	HoldBadgeFn func(ns domain.Namespace) bool
+	DrainFn     func(ctx context.Context) error
+	StartFn     func() error
+}
+
+func (m *MockLifecycle) Install(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
+	if m.InstallFn != nil {
+		return m.InstallFn(ctx, ns, vars)
+	}
+	return false, nil
+}
+
+func (m *MockLifecycle) Uninstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+	if m.UninstallFn != nil {
+		return m.UninstallFn(ctx, ns, vars)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Execute(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
+	if m.ExecuteFn != nil {
+		return m.ExecuteFn(ctx, ns, method, vars)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Update(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
+	if m.UpdateFn != nil {
+		return m.UpdateFn(ctx, ns, vars)
+	}
+	return false, nil
+}
+
+func (m *MockLifecycle) Stop(ctx context.Context, ns domain.Namespace) error {
+	if m.StopFn != nil {
+		return m.StopFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Reset(ctx context.Context, ns domain.Namespace) error {
+	if m.ResetFn != nil {
+		return m.ResetFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Recheck(ctx context.Context, ns domain.Namespace) (models.UpdateResult, error) {
+	if m.RecheckFn != nil {
+		return m.RecheckFn(ctx, ns)
+	}
+	return models.UpdateResult{}, nil
+}
+
+func (m *MockLifecycle) Settling(ns domain.Namespace) bool {
+	if m.SettlingFn != nil {
+		return m.SettlingFn(ns)
+	}
+	return false
+}
+
+func (m *MockLifecycle) HoldBadge(ns domain.Namespace) bool {
+	if m.HoldBadgeFn != nil {
+		return m.HoldBadgeFn(ns)
+	}
+	return false
+}
+
+func (m *MockLifecycle) Drain(ctx context.Context) error {
+	if m.DrainFn != nil {
+		return m.DrainFn(ctx)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Start() error {
+	if m.StartFn != nil {
+		return m.StartFn()
+	}
 	return nil
 }

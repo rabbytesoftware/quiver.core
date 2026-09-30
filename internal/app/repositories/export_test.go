@@ -90,3 +90,8 @@ func ManifestRefresher(
 ) runtime.RefreshManifestFn {
 	return manifestRefresher(cat)
 }
+
+// WireLifecycle exposes wireLifecycle for unit tests.
+func (c *Container) WireLifecycle() error {
+	return c.wireLifecycle()
+}

@@ -1,4 +1,4 @@
-package app
+package watch
 
 import (
 	"context"
@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func newWatch(interval time.Duration, sweep func(context.Context)) *watch {
+	return New(interval, sweep).(*watch)
+}
 
 func noJitter(time.Duration) time.Duration { return 0 }
 
@@ -24,35 +28,35 @@ func waitClosed(t *testing.T, ch <-chan struct{}, what string) {
 func TestVersionWatch_SweepsAtStartThenEveryInterval(t *testing.T) {
 	var sweeps atomic.Int32
 	twice := make(chan struct{})
-	w := newVersionWatch(time.Millisecond, func(context.Context) {
+	w := newWatch(time.Millisecond, func(context.Context) {
 		if sweeps.Add(1) == 2 {
 			close(twice)
 		}
 	})
 	w.jitter = noJitter
 
-	w.start(context.Background())
+	w.Start(context.Background())
 	waitClosed(t, twice, "the watch never swept twice")
-	w.stop()
+	w.Stop()
 	after := sweeps.Load()
 
-	w.stop()
+	w.Stop()
 	assert.Equal(t, after, sweeps.Load(), "a stopped watch sweeps no more")
 }
 
 func TestVersionWatch_StopWaitsForTheSweepInProgress(t *testing.T) {
 	entered := make(chan struct{})
 	finished := make(chan struct{})
-	w := newVersionWatch(time.Hour, func(ctx context.Context) {
+	w := newWatch(time.Hour, func(ctx context.Context) {
 		close(entered)
 		<-ctx.Done()
 		close(finished)
 	})
 	w.jitter = noJitter
 
-	w.start(context.Background())
+	w.Start(context.Background())
 	waitClosed(t, entered, "the first sweep never began")
-	w.stop()
+	w.Stop()
 
 	select {
 	case <-finished:
@@ -63,10 +67,10 @@ func TestVersionWatch_StopWaitsForTheSweepInProgress(t *testing.T) {
 
 func TestVersionWatch_EndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	w := newVersionWatch(time.Hour, func(context.Context) {})
+	w := newWatch(time.Hour, func(context.Context) {})
 	w.jitter = func(time.Duration) time.Duration { return time.Hour }
 
-	w.start(ctx)
+	w.Start(ctx)
 	cancel()
 
 	waitClosed(t, w.done, "the watch outlived its context")
@@ -74,26 +78,26 @@ func TestVersionWatch_EndsWithItsContext(t *testing.T) {
 
 func TestVersionWatch_OffOrNeverStarted_DoesNothing(t *testing.T) {
 	var sweeps atomic.Int32
-	w := newVersionWatch(0, func(context.Context) { sweeps.Add(1) })
+	w := newWatch(0, func(context.Context) { sweeps.Add(1) })
 
-	w.stop()
-	w.start(context.Background())
-	w.stop()
+	w.Stop()
+	w.Start(context.Background())
+	w.Stop()
 
 	assert.Nil(t, w.done, "an interval of zero starts no goroutine")
 	assert.Zero(t, sweeps.Load())
 }
 
 func TestVersionWatch_StartTwice_RunsOneWatch(t *testing.T) {
-	w := newVersionWatch(time.Hour, func(context.Context) {})
+	w := newWatch(time.Hour, func(context.Context) {})
 	w.jitter = func(time.Duration) time.Duration { return time.Hour }
 
-	w.start(context.Background())
+	w.Start(context.Background())
 	first := w.done
-	w.start(context.Background())
+	w.Start(context.Background())
 
 	assert.Equal(t, first, w.done)
-	w.stop()
+	w.Stop()
 }
 
 func TestRandomJitter_StaysBelowItsLimit(t *testing.T) {
@@ -130,9 +134,8 @@ func TestResolveVersionCheckInterval_ReadsTheConfiguredValue(t *testing.T) {
 }
 
 func TestAppOpts_CheckInterval_OptionWinsOverConfig(t *testing.T) {
-	var o appOpts
-	WithVersionCheckInterval(0)(&o)
+	off := time.Duration(0)
 
-	assert.Zero(t, o.checkInterval())
-	assert.Equal(t, resolveVersionCheckInterval(), appOpts{}.checkInterval())
+	assert.Zero(t, Interval(&off))
+	assert.Equal(t, resolveVersionCheckInterval(), Interval(nil))
 }

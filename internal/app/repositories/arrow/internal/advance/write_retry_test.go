@@ -1,47 +1,18 @@
-package arrow_test
+package advance_test
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 
-	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/advance"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
-
-// conflictingAsynx is a real arrow aggregate whose next SendWait calls lose a
-// version-conflict race, the way a concurrent append to the row makes them.
-type conflictingAsynx struct {
-	asynx.Asynx[domain.Arrow]
-	conflicts int32
-	sends     atomic.Int32
-}
-
-func (c *conflictingAsynx) SendWait(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Arrow],
-) (asynxModels.Event[domain.Arrow], error) {
-	if c.sends.Add(1) <= c.conflicts {
-		return asynxModels.Event[domain.Arrow]{}, versionConflict()
-	}
-	return c.Asynx.SendWait(ctx, cmd)
-}
-
-func targetManifold() *mocks.Manifold {
-	return &mocks.Manifold{
-		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _, _ string) (*domain.Arrow, []byte, string, error) {
-			return &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Target"}}, []byte("raw"), "arrow.yaml", nil
-		},
-	}
-}
 
 // A final write that loses a race to another append of the row is sent
 // again: the vault cache was already swapped, and leaving the row behind it
@@ -53,7 +24,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 	testCases := []struct {
 		name      string
 		conflicts int32
-		write     func(ctx context.Context, cat arrowRepo.Arrow, ns domain.Namespace) error
+		write     func(ctx context.Context, cat advance.Advancer, ns domain.Namespace) error
 		wantSends int32
 		wantErr   error
 		want      func(t *testing.T, row domain.Arrow)
@@ -61,7 +32,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 		{
 			name:      "advance: a conflict the retry wins",
 			conflicts: 1,
-			write: func(ctx context.Context, cat arrowRepo.Arrow, ns domain.Namespace) error {
+			write: func(ctx context.Context, cat advance.Advancer, ns domain.Namespace) error {
 				return cat.Advance(ctx, ns, target)
 			},
 			wantSends: 2,
@@ -73,7 +44,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 		{
 			name:      "advance: conflicts that never stop",
 			conflicts: 99,
-			write: func(ctx context.Context, cat arrowRepo.Arrow, ns domain.Namespace) error {
+			write: func(ctx context.Context, cat advance.Advancer, ns domain.Namespace) error {
 				return cat.Advance(ctx, ns, target)
 			},
 			wantSends: 3,
@@ -86,7 +57,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 		{
 			name:      "refresh to target: a conflict the retry wins",
 			conflicts: 2,
-			write: func(ctx context.Context, cat arrowRepo.Arrow, ns domain.Namespace) error {
+			write: func(ctx context.Context, cat advance.Advancer, ns domain.Namespace) error {
 				_, err := cat.RefreshToTarget(ctx, ns, target)
 				return err
 			},
@@ -99,7 +70,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 		{
 			name:      "refresh to target: conflicts that never stop",
 			conflicts: 99,
-			write: func(ctx context.Context, cat arrowRepo.Arrow, ns domain.Namespace) error {
+			write: func(ctx context.Context, cat advance.Advancer, ns domain.Namespace) error {
 				_, err := cat.RefreshToTarget(ctx, ns, target)
 				return err
 			},
@@ -118,7 +89,7 @@ func TestWrites_VersionConflict_AreSentAgain(t *testing.T) {
 			real := newTestAsynxArrow(t)
 			seedSelectorRow(t, real, ns, domain.SelectorChannel, installed)
 			ax := &conflictingAsynx{Asynx: real, conflicts: tc.conflicts}
-			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, targetManifold())
+			cat := newTestable(&arrowStoreMocks.MockCQRS{}, ax, &mocks.Vault{}, targetManifold())
 
 			err := tc.write(ctx, cat, ns)
 

@@ -17,8 +17,10 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/advance"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/watch"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -165,6 +167,15 @@ type Arrow interface {
 	CheckInstalledVersions(
 		ctx context.Context,
 	)
+	// WatchVersions runs CheckInstalledVersions soon after it is called and
+	// then every arrows.version_check_interval, until StopWatchingVersions
+	// or ctx ends.
+	WatchVersions(
+		ctx context.Context,
+	)
+	// StopWatchingVersions ends the watch and waits for a check in progress,
+	// so no check writes to a store a shutdown is about to close.
+	StopWatchingVersions()
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -214,6 +225,9 @@ type arrowService struct {
 	// badgeHeld is registered once at startup and read by concurrent checks.
 	badgeHeld atomic.Pointer[func(ns domain.Namespace) bool]
 
+	advance advance.Advancer
+	watch   watch.Watch
+
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
 	// Callbacks are held here and invoked by the single projection instead, in
@@ -237,7 +251,22 @@ func New(
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}
 
-	o := resolveOptions(opts)
+	s := newService(r, axArrow, v, m, hub, resolveOptions(opts))
+	if err := s.registerProjections(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func newService(
+	r arrowstore.Store,
+	axArrow asynx.Asynx[domain.Arrow],
+	v vault.Vault,
+	m manifold.Manifold,
+	hub apphub.WebSocketHub,
+	o options,
+) *arrowService {
 	s := &arrowService{
 		store:               r,
 		axArrow:             axArrow,
@@ -247,12 +276,17 @@ func New(
 		preinstalled:        o.preinstalled,
 		versionOutdatedSync: o.versionOutdatedSync,
 	}
+	s.advance = advance.New(r, axArrow, v, m, s.syncBadgeFromRow)
+	s.watch = watch.New(watch.Interval(o.versionCheckInterval), s.CheckInstalledVersions)
+	return s
+}
 
-	if err := s.registerProjections(); err != nil {
-		return nil, err
-	}
-
-	return s, nil
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(
+	d time.Duration,
+) Option {
+	return func(o *options) { o.versionCheckInterval = &d }
 }
 
 // registerProjections claims one subscriber per arrow topic. Everything an
@@ -483,7 +517,7 @@ func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) {
-	_, answered, err := s.recordAvailable(ctx, arrow.Namespace,
+	_, answered, err := s.advance.RecordAvailable(ctx, arrow.Namespace,
 		func(current domain.Arrow) (*domain.Available, bool, error) {
 			available, ok := s.store.CheckDrift(ctx, current)
 			return available, ok, nil
@@ -521,78 +555,6 @@ func (s *arrowService) HoldBadgeWhile(
 	settling func(ns domain.Namespace) bool,
 ) {
 	s.badgeHeld.Store(&settling)
-}
-
-// maxWriteAttempts bounds how often a write to a row another writer changed
-// under it is judged or sent again.
-const maxWriteAttempts = 3
-
-// availableFn judges what is ahead of current; answered is false when it has
-// no trustworthy answer.
-type availableFn func(current domain.Arrow) (available *domain.Available, answered bool, err error)
-
-// recordAvailable records judge's answer about ns's row. The answer is
-// written only while the row still holds the Resolved it was judged against:
-// the command refuses it otherwise, and a concurrent append to the row fails
-// it with a version conflict. Either way the row is re-read and judged
-// again, a bounded number of times, so an answer about a Resolved the row has
-// already left (a row outdated right after its update) is never recorded.
-func (s *arrowService) recordAvailable(
-	ctx context.Context,
-	ns domain.Namespace,
-	judge availableFn,
-) (*domain.Available, bool, error) {
-	for attempt := 1; ; attempt++ {
-		current, err := s.axArrow.Get(ctx, ns.String())
-		if err != nil {
-			return nil, false, mapGetErr(err)
-		}
-		available, answered, err := judge(current)
-		if err != nil || !answered {
-			return nil, answered, err
-		}
-		if sameAvailable(current.Available, available) {
-			return available, true, nil
-		}
-
-		_, err = s.axArrow.SendWait(ctx, arrowcmds.RecordAvailable{
-			Namespace:      ns,
-			Available:      available,
-			JudgedResolved: current.Resolved,
-		})
-		if err == nil {
-			return available, true, nil
-		}
-		if !retryableWrite(err) || attempt == maxWriteAttempts {
-			return available, true, err
-		}
-	}
-}
-
-// mapGetErr classifies a failed read of a row found moments earlier: one
-// forgotten in between is not found.
-func mapGetErr(err error) error {
-	if errors.Is(err, asynxModels.ErrNotFound) {
-		return fmt.Errorf("row forgotten: %w", apperrors.ErrNotFound)
-	}
-	return err
-}
-
-// retryableWrite reports whether a rejected write is worth judging again:
-// the row changed under it, either by a concurrent append or before a
-// command's own check against what the writer read.
-func retryableWrite(err error) bool {
-	return errors.Is(err, asynxModels.ErrPipelineFailed) || errors.Is(err, asynxModels.ErrValidation)
-}
-
-func sameAvailable(
-	a *domain.Available,
-	b *domain.Available,
-) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
 }
 
 // CheckVersionNow launches a version-drift check for ns immediately,
@@ -655,6 +617,73 @@ func (s *arrowService) checkClaimed(
 	s.runVersionCheck(checkCtx, arrow)
 }
 
+func (s *arrowService) WatchVersions(
+	ctx context.Context,
+) {
+	s.watch.Start(ctx)
+}
+
+func (s *arrowService) StopWatchingVersions() {
+	s.watch.Stop()
+}
+
+func (s *arrowService) Advance(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) error {
+	return s.advance.Advance(ctx, ns, target)
+}
+
+func (s *arrowService) Adopt(
+	ctx context.Context,
+	ns domain.Namespace,
+	kind domain.SelectorKind,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	return s.advance.Adopt(ctx, ns, kind, resolved, manifest, filename)
+}
+
+func (s *arrowService) AdoptInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	return s.advance.AdoptInstalled(ctx, ns, resolvedRef)
+}
+
+func (s *arrowService) CheckAvailable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	return s.advance.CheckAvailable(ctx, ns)
+}
+
+func (s *arrowService) TargetUnmoved(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (bool, error) {
+	return s.advance.TargetUnmoved(ctx, ns, target)
+}
+
+func (s *arrowService) RefreshToTarget(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, error) {
+	return s.advance.RefreshToTarget(ctx, ns, target)
+}
+
+func (s *arrowService) AddDependency(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	return s.advance.AddDependency(ctx, ns)
+}
+
 func (s *arrowService) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -683,56 +712,6 @@ func (s *arrowService) Search(
 	return s.store.Search(ctx, q)
 }
 
-// appSentinels are the app-layer classifications an error may already carry.
-// mapResolveErr consults them so a precise classification made downstream is
-// not overwritten by this one.
-var appSentinels = []error{
-	apperrors.ErrNotFound,
-	apperrors.ErrAlreadyExists,
-	apperrors.ErrStateViolation,
-	apperrors.ErrMethodNotFound,
-	apperrors.ErrFetchFailed,
-	apperrors.ErrInvalidNamespace,
-	apperrors.ErrDependentsExist,
-	apperrors.ErrInvalidManifest,
-	apperrors.ErrPlatformNotSupported,
-	apperrors.ErrMissingVariable,
-	apperrors.ErrReservedVariable,
-	apperrors.ErrInvalidConfig,
-}
-
-// mapResolveErr classifies a manifest-resolution failure.
-//
-// manifold attaches no app sentinel to its own errors, so without this every
-// rejected manifest and every unreachable remote arrives at the API carrying
-// nothing errors.Is can match — and apierr.StatusAndMessage answers every one
-// of them with 500 "internal error", discarding the chain that said what was
-// actually wrong.
-//
-// The remaining default is deliberate: reaching a manifest is I/O against a
-// remote, so an unclassified failure there is a gateway problem rather than a
-// server fault.
-func mapResolveErr(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	switch {
-	case errors.Is(err, ruleset.ErrNoSupportedPlatform):
-		return fmt.Errorf("%w: %w", apperrors.ErrPlatformNotSupported, err)
-	case errors.Is(err, ruleset.ErrInvalidManifest):
-		return fmt.Errorf("%w: %w", apperrors.ErrInvalidManifest, err)
-	}
-
-	for _, sentinel := range appSentinels {
-		if errors.Is(err, sentinel) {
-			return err
-		}
-	}
-
-	return fmt.Errorf("%w: %w", apperrors.ErrFetchFailed, err)
-}
-
 // Add resolves ns against its remote and writes it into the catalog as
 // user-installed.
 //
@@ -747,7 +726,7 @@ func (s *arrowService) Add(
 ) error {
 	identity, arrow, err := s.store.ResolveInstall(ctx, ns, arrowstore.CacheWhenAbsent(s.identityExists))
 	if err != nil {
-		return fmt.Errorf("add: %w", mapResolveErr(err))
+		return fmt.Errorf("add: %w", advance.MapResolveErr(err))
 	}
 	arrow.UserInstalled = true
 	if err := s.markIfPreinstalled(ctx, identity, arrow); err != nil {

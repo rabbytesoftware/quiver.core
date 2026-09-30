@@ -202,13 +202,15 @@ type fooUsecase struct { dep1 ..., dep2 ... }
 func NewFooUsecase(dep1, dep2) FooUsecase { return &fooUsecase{...} }
 ```
 
+A usecase is the thin last bridge before the API: validate input → one repository call → map the error. Orchestration (locks, goroutines, event subscriptions, multi-step flows) lives in a repository — the runtime verbs and the update bracket in `repositories/lifecycle`.
+
 ### 5.3 Error wrapping
 
 Every call site wraps with context: `fmt.Errorf("operation: dep call %s: %w", ns, err)`. Chain reads outward from the error: `"install: add dep to catalog github.com/u/r@v1: not found"`.
 
 ### 5.4 Repository callback wiring
 
-Cross-repository reactions wire in `repositories/container.go` via a `wireCallbacks()` helper. Pattern: `c.Arrow.OnArrowAdded(func(...) { c.Graph.SyncDependencies(...) })`. All wiring errors use the prefix `repositories: wire <EventName>: %w`.
+Cross-repository reactions wire in `repositories/container.go` via a `wireCallbacks()` helper. Pattern: `c.Arrow.OnArrowAdded(func(...) { c.Graph.SyncDependencies(...) })`. All wiring errors use the prefix `repositories: wire <EventName>: %w`. A repository never imports a sibling repository: one that needs others (`lifecycle`) declares the small interfaces it uses in its own package and is handed the concrete repositories by the container (`wireLifecycle` also starts its `runtime.ended` reaction and lets the arrow repository's version check hold a settling row's badge).
 
 ### 5.5 Hub broadcast registration
 
@@ -267,6 +269,8 @@ repositories/<name>/
     recovery.go          ← crash recovery (runtime only)
     mocks/               ← test doubles for this repository
 ```
+
+`repositories/lifecycle/` owns no aggregate: it orchestrates the runtime verbs over the arrow, runtime and graph repositories. `lifecycle.go` holds the interface, the consumer-side `Arrow`/`Runtime`/`Graph` interfaces it is handed and the constructor; `internal/bracket/` the per-row bracket (remembered targets, the update bracket, the catalog advance), `internal/commits/` the detached update commits a shutdown drains, `internal/settle/` the settling of an ended update (commit or restore, badge holds), `internal/deps/` installs with their dependencies, dependency sync and the stop/uninstall cascades. In the arrow repository, `internal/advance/` holds advancing, adoption and `Available` records, and `internal/watch/` the periodic version check.
 
 ---
 
@@ -381,15 +385,15 @@ Handler validates namespace + `{"resolved_ref"}` → ArrowUsecase.AdoptInstalled
 
 ### Install arrow (POST /v0/runtime/:ns/install)
 
-RuntimeUsecase.Install → dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
 
 ### Update arrow (advance)
 
-`PATCH /v0/arrow/:ns` → ArrowUsecase.Update: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
 
 ### Runtime reaction flow
 
-The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the arrow's cached manifest is dropped and resolved again at its own ref (`arrow.RefreshManifest` + `UpdateManifest`), the steps are re-assembled, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
+The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the manifest of the release the run builds (the row's `Resolved` for an install, the `Available` target the bracket staged for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
 
 ### WebSocket broadcast
 
@@ -503,27 +507,33 @@ The shelf root (`shelf.go`) only orchestrates; each OS is a strategy composed on
 
 ### 15.12 Arrow catalog — `app/repositories/arrow`
 
-Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `AdoptInstalled` (declared installed state, admitted against the selector), `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
+Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `AdoptInstalled` (declared installed state, admitted against the selector), `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, `HoldBadgeWhile`, `CheckInstalledVersions`, `WatchVersions` / `StopWatchingVersions` (the periodic version check, `arrows.version_check_interval`, started by `app.Container.Start` and stopped first on shutdown), and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
 
 **Do NOT:** call `asynx.Send` directly from usecases, read `domain.Arrow` from Asynx directly.
 
 ### 15.13 Runtime execution state — `app/repositories/runtime`
 
-Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
+Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, `ReconcileVersionBadge`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
 
 **Do NOT:** check process state via `os.FindProcess`, subscribe to Asynx topics for runtime events from usecases.
 
-### 15.14 WebSocket broadcasts — `app/hub`
+### 15.14 Runtime verbs + update bracket — `app/repositories/lifecycle`
+
+Injected into usecases. Methods: `Install` (with dependencies), `Uninstall`, `Execute`, `Update`, `Stop`, `Reset`, `Recheck` (PATCH re-check / catalog advance), `Settling`, `HoldBadge`, `Drain`, `Start` (subscribes its `runtime.ended` reaction; called by `repositories.New` through `wireLifecycle`). Read the interface in `internal/app/repositories/lifecycle/lifecycle.go`.
+
+**Do NOT:** orchestrate runtime verbs, take per-row locks or start goroutines in usecases; import the arrow, runtime or graph repository packages from `lifecycle` (declare the interface it needs in `lifecycle.go`).
+
+### 15.15 WebSocket broadcasts — `app/hub`
 
 Injected into repositories. Fire-and-forget. Three broadcast methods, each accepting a typed event wrapper. `CatalogUpserted` = add/update, `CatalogRemoved` = delete/unfollow. Registered in `repositories/container.go → RegisterHubProjections`.
 
 **Do NOT:** write to WS connections directly from repositories or usecases, call broadcasts from usecases.
 
-### 15.15 Error type → HTTP status — `api/libs/apierr`
+### 15.16 Error type → HTTP status — `api/libs/apierr`
 
 `apierr.StatusAndMessage(err)` maps app-layer sentinel errors to HTTP status codes. Always use this — don't hard-code status codes in handlers. Read `internal/api/libs/apierr/` for the current mapping.
 
-### 15.16 Summary table
+### 15.17 Summary table
 
 | Task | Package |
 |------|---------|
@@ -541,6 +551,7 @@ Injected into repositories. Fire-and-forget. Three broadcast methods, each accep
 | Expose entries / `PATH` setup | `internal/engine/wizard` (`expose`/`unexpose` steps from `wizard.Plan`, per-OS strategies in `shelf/internal/platform`; `PathStatus`/`SetupPath` from `PathUsecase` only) |
 | Read/write arrow catalog | `internal/app/repositories/arrow` |
 | Read/write runtime state | `internal/app/repositories/runtime` |
+| Install/update/stop orchestration, update bracket | `internal/app/repositories/lifecycle` |
 | Broadcast to WS clients | `internal/app/hub` |
 | Error type → HTTP status | `internal/api/libs/apierr` |
 

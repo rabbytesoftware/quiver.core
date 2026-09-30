@@ -1,116 +1,23 @@
-package usecases
+package bracket
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
-	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/deptree"
 )
-
-const rollingRow = domain.Namespace("github.com/char2cs/crowbar@nightly-latest")
-
-func rollingTarget() domain.Available {
-	return domain.Available{Ref: "nightly-latest", Commit: "c2"}
-}
-
-// callLog records the order the bracket's steps run in.
-type callLog struct {
-	mu    sync.Mutex
-	calls []string
-}
-
-func (l *callLog) add(call string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.calls = append(l.calls, call)
-}
-
-func (l *callLog) all() []string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return append([]string(nil), l.calls...)
-}
-
-// bracketFixture wires the mocks an update bracket touches, logging each step.
-type bracketFixture struct {
-	log       *callLog
-	arrow     *ucmocks.MockArrow
-	runtime   *ucmocks.MockRuntime
-	graph     *ucmocks.MockGraph
-	state     domain.ArrowState
-	available *domain.Available
-	stateMu   sync.Mutex
-}
-
-func newBracketFixture(state domain.ArrowState, available *domain.Available) *bracketFixture {
-	f := &bracketFixture{log: &callLog{}, state: state, available: available}
-	f.arrow = &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-		CheckAvailableFn: func(context.Context, domain.Namespace) (*domain.Available, error) {
-			f.log.add("check available")
-			return f.available, nil
-		},
-		RefreshToTargetFn: func(_ context.Context, ns domain.Namespace, target domain.Available) (*domain.Arrow, error) {
-			f.log.add("refresh to " + target.Commit)
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-	}
-	f.runtime = &ucmocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return f.currentState(), nil
-		},
-		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
-			return &domainRuntime.ArrowRuntime{Ref: ns, State: f.currentState()}, nil
-		},
-		ListenEndedFn: func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
-			ch := make(chan domainRuntime.ArrowRuntime, 1)
-			ch <- domainRuntime.ArrowRuntime{}
-			return ch, func() {}, nil
-		},
-		BeginStopFn: func(context.Context, domain.Namespace) error {
-			f.log.add("stop")
-			f.setState(domain.ArrowStateReady)
-			return nil
-		},
-		BeginUpdateFn: func(context.Context, domain.Namespace, map[string]string, string) error {
-			f.log.add("begin update")
-			return nil
-		},
-	}
-	f.graph = &ucmocks.MockGraph{}
-	return f
-}
-
-func (f *bracketFixture) currentState() domain.ArrowState {
-	f.stateMu.Lock()
-	defer f.stateMu.Unlock()
-	return f.state
-}
-
-func (f *bracketFixture) setState(state domain.ArrowState) {
-	f.stateMu.Lock()
-	defer f.stateMu.Unlock()
-	f.state = state
-}
-
-func (f *bracketFixture) usecase() *runtimeUsecase {
-	return newUC(f.arrow, f.runtime, f.graph)
-}
-
-// ─── executeUpdate ───────────────────────────────────────────────────────────
 
 func TestRuntimeExecute_Update_OutdatedRow_RunsTheBracketInOrder(t *testing.T) {
 	testCases := []struct {
@@ -140,7 +47,7 @@ func TestRuntimeExecute_Update_OutdatedRow_RunsTheBracketInOrder(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, f.log.all())
 			assert.Equal(t, map[string]string{"TOKEN": "x"}, vars)
-			recorded, ok := uc.targets.take(rollingRow)
+			recorded, ok := uc.targets.Take(rollingRow)
 			require.True(t, ok, "the update remembers the target it began toward")
 			assert.Equal(t, target, recorded)
 		})
@@ -172,7 +79,7 @@ func TestRuntimeExecute_Update_NewerAvailableDuringStaging_KeepsTheStagedTarget(
 	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
 
 	assert.Equal(t, staged.Ref, targetRef)
-	remembered, ok := uc.targets.take(rollingRow)
+	remembered, ok := uc.targets.Take(rollingRow)
 	require.True(t, ok)
 	assert.Equal(t, staged, remembered)
 }
@@ -185,7 +92,7 @@ func TestRuntimeExecute_Update_CurrentRow_DoesNothing(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"check available"}, f.log.all(), "a current row is neither stopped nor updated")
-	_, ok := uc.targets.take(rollingRow)
+	_, ok := uc.targets.Take(rollingRow)
 	assert.False(t, ok)
 }
 
@@ -244,11 +151,6 @@ func TestRuntimeUpdate_Failures_StartNothing(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "a reserved variable",
-			vars:    map[string]string{domain.VarRef: "x"},
-			wantErr: apperrors.ErrReservedVariable,
-		},
-		{
 			name: "a rejected bracket keeps its state violation",
 			prepare: func(f *bracketFixture) {
 				f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
@@ -283,8 +185,8 @@ func TestRuntimeExecute_Update_TargetGainsADependency_InstallsItFirst(t *testing
 	dep := domain.Namespace("github.com/user/tool@v1.*")
 	f := newBracketFixture(domain.ArrowStateReady, &target)
 	var pending *domainRuntime.DepSyncInfo
-	f.graph.DiffDepsFn = func(_, _ *domain.Arrow) graph.DepDiff {
-		return graph.DepDiff{Added: []domain.DependencyEdge{{Namespace: dep, Constraint: "v1.*"}}}
+	f.graph.DiffDepsFn = func(_, _ *domain.Arrow) models.DepDiff {
+		return models.DepDiff{Added: []domain.DependencyEdge{{Namespace: dep, Constraint: "v1.*"}}}
 	}
 	f.runtime.MarkOutdatedFn = func(_ context.Context, _ domain.Namespace, added, removed []domain.Namespace) error {
 		f.log.add("mark outdated")
@@ -397,8 +299,8 @@ func TestRuntimeExecute_Update_Failures(t *testing.T) {
 		{
 			name: "dependency change cannot be recorded",
 			arrange: func(f *bracketFixture) {
-				f.graph.DiffDepsFn = func(_, _ *domain.Arrow) graph.DepDiff {
-					return graph.DepDiff{Removed: []domain.DependencyEdge{{Namespace: "github.com/user/old@v1"}}}
+				f.graph.DiffDepsFn = func(_, _ *domain.Arrow) models.DepDiff {
+					return models.DepDiff{Removed: []domain.DependencyEdge{{Namespace: "github.com/user/old@v1"}}}
 				}
 				f.runtime.MarkOutdatedFn = func(context.Context, domain.Namespace, []domain.Namespace, []domain.Namespace) error {
 					return boom
@@ -457,7 +359,7 @@ func TestRuntimeExecute_Update_Failures(t *testing.T) {
 			} else {
 				assert.Equal(t, tc.wantLog, f.log.all())
 			}
-			_, kept := uc.targets.take(rollingRow)
+			_, kept := uc.targets.Take(rollingRow)
 			assert.False(t, kept, "an update that never began leaves no target behind")
 		})
 	}
@@ -496,8 +398,8 @@ func TestRuntimeExecute_Update_FailureAfterStaging_RestoresTheInstalledManifest(
 		{
 			name: "a dependency change cannot be recorded",
 			arrange: func(f *bracketFixture, _ context.CancelFunc) {
-				f.graph.DiffDepsFn = func(_, _ *domain.Arrow) graph.DepDiff {
-					return graph.DepDiff{Added: []domain.DependencyEdge{{Namespace: "github.com/user/new@v1"}}}
+				f.graph.DiffDepsFn = func(_, _ *domain.Arrow) models.DepDiff {
+					return models.DepDiff{Added: []domain.DependencyEdge{{Namespace: "github.com/user/new@v1"}}}
 				}
 				f.runtime.MarkOutdatedFn = func(context.Context, domain.Namespace, []domain.Namespace, []domain.Namespace) error {
 					return boom
@@ -593,7 +495,7 @@ func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunBegan_RestoresNothing(t *
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NotContains(t, f.log.all(), "refresh to c1", "the installed manifest must not replace the one the run is using")
-	remembered, ok := uc.targets.take(rollingRow)
+	remembered, ok := uc.targets.Take(rollingRow)
 	require.True(t, ok, "the run's end commits the target it began toward")
 	assert.Equal(t, target, remembered)
 }
@@ -610,7 +512,7 @@ func TestRuntimeExecute_Update_CallerGivesUpAfterTheRunEnded_RestoresNothing(t *
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	f.runtime.BeginUpdateFn = func(ctx context.Context, ns domain.Namespace, _ map[string]string, _ string) error {
-		_, _ = uc.targets.take(ns)
+		_, _ = uc.targets.Take(ns)
 		cancel()
 		return ctx.Err()
 	}
@@ -645,292 +547,6 @@ func TestRuntimeExecute_Update_SelfRowAbandonedBeforeAcceptance_Restores(t *test
 	assert.Contains(t, f.log.all(), "refresh to c1", "the staged target manifest is put back")
 }
 
-// ─── stopIfRunning ───────────────────────────────────────────────────────────
-
-func TestStopIfRunning(t *testing.T) {
-	boom := errors.New("boom")
-
-	testCases := []struct {
-		name      string
-		state     domain.ArrowState
-		stateErr  error
-		listenErr error
-		stopErr   error
-		cancel    bool
-		wantStop  bool
-		wantErr   error
-	}{
-		{name: "idle is left alone", state: domain.ArrowStateReady},
-		{name: "running is stopped and awaited", state: domain.ArrowStateRunning, wantStop: true},
-		{name: "state cannot be read", stateErr: boom, wantErr: boom},
-		{name: "cannot listen", state: domain.ArrowStateRunning, listenErr: boom, wantErr: boom},
-		{name: "stop is rejected", state: domain.ArrowStateRunning, stopErr: boom, wantStop: true, wantErr: boom},
-		{name: "caller gives up", state: domain.ArrowStateRunning, cancel: true, wantStop: true, wantErr: context.Canceled},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			stopped := false
-			rt := &ucmocks.MockRuntime{
-				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-					return tc.state, tc.stateErr
-				},
-				ListenEndedFn: func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
-					ch := make(chan domainRuntime.ArrowRuntime, 1)
-					if !tc.cancel {
-						ch <- domainRuntime.ArrowRuntime{}
-					}
-					return ch, func() {}, tc.listenErr
-				},
-				BeginStopFn: func(context.Context, domain.Namespace) error {
-					stopped = true
-					if tc.cancel {
-						cancel()
-					}
-					return tc.stopErr
-				},
-			}
-
-			err := stopIfRunning(ctx, rt, rollingRow)
-
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tc.wantStop, stopped)
-		})
-	}
-}
-
-// ─── onUpdateEnded ───────────────────────────────────────────────────────────
-
-func updateEnded(ns domain.Namespace, outcome domainRuntime.ExecutionOutcome) domainRuntime.ArrowRuntime {
-	return domainRuntime.ArrowRuntime{
-		Ref:        ns,
-		LastReturn: &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: outcome},
-	}
-}
-
-// commitFixture logs every step onUpdateEnded may take. The row has c1
-// installed.
-func commitFixture(unmoved bool, unmovedErr error) (*ucmocks.MockArrow, *ucmocks.MockRuntime, *callLog) {
-	log := &callLog{}
-	a := &ucmocks.MockArrow{
-		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
-		},
-		TargetUnmovedFn: func(_ context.Context, _ domain.Namespace, target domain.Available) (bool, error) {
-			log.add("re-resolve " + target.Commit)
-			return unmoved, unmovedErr
-		},
-		AdvanceFn: func(_ context.Context, _ domain.Namespace, target domain.Available) error {
-			log.add("advance " + target.Commit)
-			return nil
-		},
-		RefreshToTargetFn: func(_ context.Context, ns domain.Namespace, target domain.Available) (*domain.Arrow, error) {
-			log.add("restore " + target.Commit)
-			return &domain.Arrow{Namespace: ns}, nil
-		},
-	}
-	rt := &ucmocks.MockRuntime{
-		ReconcileVersionBadgeFn: func(context.Context, domain.Namespace) error {
-			log.add("reconcile badge")
-			return nil
-		},
-	}
-	return a, rt, log
-}
-
-func TestRuntimeOnUpdateEnded_TargetUnchanged_AdvancesThenReconcilesTheBadge(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
-
-	uc.onRuntimeEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
-}
-
-func TestRuntimeOnUpdateEnded_StampsNothing(t *testing.T) {
-	testCases := []struct {
-		name       string
-		rt         domainRuntime.ArrowRuntime
-		record     bool
-		unmoved    bool
-		unmovedErr error
-		wantLog    []string
-	}{
-		{
-			name:    "target moved during the update",
-			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
-			record:  true,
-			wantLog: []string{"re-resolve c2", "restore c1", "reconcile badge"},
-		},
-		{
-			name:       "target cannot be re-resolved",
-			rt:         updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
-			record:     true,
-			unmovedErr: errors.New("remote down"),
-			wantLog:    []string{"re-resolve c2", "restore c1", "reconcile badge"},
-		},
-		{
-			name:    "update steps failed",
-			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed),
-			record:  true,
-			unmoved: true,
-			wantLog: []string{"restore c1", "reconcile badge"},
-		},
-		{
-			name:    "no return recorded",
-			rt:      domainRuntime.ArrowRuntime{Ref: rollingRow},
-			record:  true,
-			unmoved: true,
-			wantLog: []string{"restore c1", "reconcile badge"},
-		},
-		{
-			name:    "no update began toward a target",
-			rt:      updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess),
-			unmoved: true,
-			wantLog: []string{"reconcile badge"},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			a, rt, log := commitFixture(tc.unmoved, tc.unmovedErr)
-			uc := newUC(a, rt, &ucmocks.MockGraph{})
-			if tc.record {
-				uc.targets.put(rollingRow, rollingTarget())
-			}
-
-			uc.onUpdateEnded(context.Background(), tc.rt)
-
-			assert.Equal(t, tc.wantLog, log.all())
-		})
-	}
-}
-
-// Every end releases the row's remembered target, whatever its outcome, so
-// the guard against an unhandled end can never wedge the row: a failed
-// update is followed by an admitted one.
-func TestRuntimeOnUpdateEnded_FailedUpdateReleasesTheRow(t *testing.T) {
-	target := rollingTarget()
-	f := newBracketFixture(domain.ArrowStateReady, &target)
-	uc := f.usecase()
-	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
-
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed))
-
-	_, remembered := uc.targets.take(rollingRow)
-	assert.False(t, remembered)
-	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
-	assert.Equal(t, []string{
-		"check available", "refresh to c2", "begin update",
-		"check available", "refresh to c2", "begin update",
-	}, f.log.all())
-}
-
-// A version check during the update may record a newer target on the row;
-// the commit stamps the target the update actually ran.
-func TestRuntimeOnUpdateEnded_CommitsTheTargetTheUpdateRan(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	a.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-		return &domain.Arrow{Namespace: ns, Available: &domain.Available{Ref: "nightly-latest", Commit: "c3"}}, nil
-	}
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
-
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
-}
-
-func TestRuntimeOnUpdateEnded_AdvanceFails_BadgeStays(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	a.AdvanceFn = func(context.Context, domain.Namespace, domain.Available) error {
-		log.add("advance failed")
-		return errors.New("fetch failed")
-	}
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
-
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-
-	assert.Equal(t, []string{"re-resolve c2", "advance failed", "restore c1", "reconcile badge"}, log.all())
-}
-
-// A failed update leaves the row reporting what it had installed, and the
-// manifest on the row must be that release's again: an install or execution
-// that follows must never run the failed target's steps for the installed
-// release's ${REF}.
-func TestRuntimeOnUpdateEnded_NothingStamped_RestoresTheInstalledManifest(t *testing.T) {
-	testCases := []struct {
-		name    string
-		row     *domain.Arrow
-		getErr  error
-		restore error
-		wantLog []string
-	}{
-		{
-			name:    "installed release restaged",
-			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120"}},
-			wantLog: []string{"restore v1.2.0@c120"},
-		},
-		{
-			name:    "a row with no recorded commit keeps the staged manifest",
-			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0"}},
-			wantLog: nil,
-		},
-		{
-			name:    "a row that cannot be read restores nothing",
-			getErr:  errors.New("event store down"),
-			wantLog: nil,
-		},
-		{
-			name:    "a restore that fails is only logged",
-			row:     &domain.Arrow{Resolved: domain.Resolved{Ref: "v1.2.0", Commit: "c120"}},
-			restore: errors.New("fetch failed"),
-			wantLog: []string{"restore v1.2.0@c120"},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			log := &callLog{}
-			a := &ucmocks.MockArrow{
-				GetFn: func(context.Context, domain.Namespace) (*domain.Arrow, error) { return tc.row, tc.getErr },
-				RefreshToTargetFn: func(_ context.Context, _ domain.Namespace, target domain.Available) (*domain.Arrow, error) {
-					log.add("restore " + target.Ref + "@" + target.Commit)
-					return nil, tc.restore
-				},
-			}
-			uc := newUC(a, &ucmocks.MockRuntime{}, &ucmocks.MockGraph{})
-			uc.targets.put(rollingRow, rollingTarget())
-
-			uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeFailed))
-
-			assert.Equal(t, tc.wantLog, log.all())
-		})
-	}
-}
-
-func TestRuntimeOnUpdateEnded_ReconcileBadgeFails_IsOnlyLogged(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
-		log.add("reconcile badge failed")
-		return errors.New("event store down")
-	}
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
-
-	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-
-	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge failed"}, log.all())
-}
-
 // quiver.core's relaunched binary adopts its own new state, so its update
 // remembers no target and its end advances nothing from here.
 func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
@@ -948,37 +564,9 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	uc.onUpdateEnded(context.Background(), updateEnded(selfRow, domainRuntime.ExecutionOutcomeSuccess))
 
 	assert.Contains(t, f.log.all(), "begin update")
-	_, remembered := uc.targets.take(selfRow)
+	_, remembered := uc.targets.Take(selfRow)
 	assert.False(t, remembered)
 	assert.Equal(t, []string{"reconcile badge"}, log.all(), "nothing is committed; the badge follows the row")
-}
-
-// A failed update of quiver.core's own row leaves the running build in
-// charge, so its manifest is put back like any other row's; a succeeded one
-// is left to the relaunched build.
-func TestRuntimeOnUpdateEnded_SelfNamespace_RestoresOnlyAfterFailure(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	selfRow := self.WithRef("stable")
-
-	testCases := []struct {
-		name    string
-		outcome domainRuntime.ExecutionOutcome
-		want    []string
-	}{
-		{name: "failed", outcome: domainRuntime.ExecutionOutcomeFailed, want: []string{"restore c1", "reconcile badge"}},
-		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"reconcile badge"}},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			a, rt, log := commitFixture(true, nil)
-			uc := newUC(a, rt, &ucmocks.MockGraph{})
-
-			uc.onUpdateEnded(context.Background(), updateEnded(selfRow, tc.outcome))
-
-			assert.Equal(t, tc.want, log.all())
-		})
-	}
 }
 
 // quiver.core's own update is no exception to the bracket: a self row that is
@@ -995,74 +583,9 @@ func TestRuntimeUpdate_SelfNamespace_CurrentRowRunsNoSteps(t *testing.T) {
 	assert.Equal(t, []string{"check available"}, f.log.all())
 }
 
-// The commit leaves the runtime aggregate's ordered delivery before it
-// clears that aggregate's badge, which would otherwise wait for itself: the
-// handler must return before the commit does anything.
-func TestRuntimeOnUpdateEnded_CommitsOffTheDeliveringGoroutine(t *testing.T) {
-	a, rt, _ := commitFixture(true, nil)
-	handlerReturned := make(chan struct{})
-	a.TargetUnmovedFn = func(context.Context, domain.Namespace, domain.Available) (bool, error) {
-		<-handlerReturned
-		return true, nil
-	}
-	cleared := make(chan struct{})
-	rt.ReconcileVersionBadgeFn = func(context.Context, domain.Namespace) error {
-		close(cleared)
-		return nil
-	}
-	uc := newRuntimeUsecase(a, rt, &ucmocks.MockGraph{})
-	uc.targets.put(rollingRow, rollingTarget())
-
-	returned := make(chan struct{})
-	go func() {
-		uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-		close(returned)
-	}()
-	select {
-	case <-returned:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the handler waited for the commit")
-	}
-	close(handlerReturned)
-
-	select {
-	case <-cleared:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the detached commit never reconciled the badge")
-	}
-}
-
-// A commit whose remote hangs gives up instead of holding its goroutine
-// forever.
-func TestRuntimeOnUpdateEnded_CommitHasADeadline(t *testing.T) {
-	a, rt, log := commitFixture(true, nil)
-	a.TargetUnmovedFn = func(ctx context.Context, _ domain.Namespace, _ domain.Available) (bool, error) {
-		<-ctx.Done()
-		return false, ctx.Err()
-	}
-	uc := newUC(a, rt, &ucmocks.MockGraph{})
-	uc.commitTimeout = 20 * time.Millisecond
-	uc.targets.put(rollingRow, rollingTarget())
-
-	done := make(chan struct{})
-	go func() {
-		uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the commit never gave up on a hung remote")
-	}
-	assert.Equal(t, []string{"restore c1", "reconcile badge"}, log.all(),
-		"nothing is stamped when the re-check times out, but the row is restored and its badge follows it")
-}
-
-// ─── concurrent brackets on one identity ─────────────────────────────────────
-
 // holdFirstBracket starts an update that stays inside its bracket until the
 // returned release is called, and reports a second bracket waiting on it.
-func holdFirstBracket(t *testing.T, f *bracketFixture, uc *runtimeUsecase) (waiting <-chan struct{}, release func(), firstErr func() error) {
+func holdFirstBracket(t *testing.T, f *bracketFixture, uc *harness) (waiting <-chan struct{}, release func(), firstErr func() error) {
 	t.Helper()
 	entered := make(chan struct{})
 	unblock := make(chan struct{})
@@ -1109,7 +632,7 @@ func TestRuntimeExecute_Update_SecondBracketWaitsForTheFirst(t *testing.T) {
 	require.NoError(t, firstErr())
 	require.ErrorIs(t, <-secondErr, apperrors.ErrStateViolation)
 	assert.Equal(t, []string{"check available", "refresh to c2", "begin update"}, f.log.all())
-	remembered, ok := uc.targets.take(rollingRow)
+	remembered, ok := uc.targets.Take(rollingRow)
 	require.True(t, ok)
 	assert.Equal(t, first, remembered)
 }
@@ -1167,8 +690,8 @@ func TestRuntimeExecute_Update_CommitInFlightRejectsTheNextBracket(t *testing.T)
 	target := rollingTarget()
 	f := newBracketFixture(domain.ArrowStateReady, &target)
 	uc := f.usecase()
-	require.True(t, uc.commits.begin(rollingRow))
-	defer uc.commits.done(rollingRow)
+	require.True(t, uc.commits.Begin(rollingRow))
+	defer uc.commits.Done(rollingRow)
 
 	err := uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil)
 
@@ -1177,60 +700,236 @@ func TestRuntimeExecute_Update_CommitInFlightRejectsTheNextBracket(t *testing.T)
 	assert.True(t, uc.Settling(rollingRow))
 }
 
-func TestUpdateTargets_UndoOnlyRemovesItsOwnEntry(t *testing.T) {
-	first := domain.Available{Ref: "r", Commit: "c1"}
-	second := domain.Available{Ref: "r", Commit: "c2"}
-
-	testCases := []struct {
-		name   string
-		act    func(targets *updateTargets)
-		want   domain.Available
-		wantOK bool
-	}{
-		{
-			name: "undo restores what the put replaced",
-			act: func(targets *updateTargets) {
-				targets.put(rollingRow, first)
-				targets.put(rollingRow, second)()
-			},
-			want:   first,
-			wantOK: true,
-		},
-		{
-			name: "undo on an empty slot leaves it empty",
-			act: func(targets *updateTargets) {
-				targets.put(rollingRow, first)()
-			},
-		},
-		{
-			name: "undo after a newer put leaves the newer entry",
-			act: func(targets *updateTargets) {
-				undo := targets.put(rollingRow, first)
-				targets.put(rollingRow, second)
-				undo()
-			},
-			want:   second,
-			wantOK: true,
-		},
-		{
-			name: "undo after the entry was taken changes nothing",
-			act: func(targets *updateTargets) {
-				undo := targets.put(rollingRow, first)
-				targets.take(rollingRow)
-				undo()
-			},
+func TestRuntimeExecute_Normal(t *testing.T) {
+	called := false
+	rt := &mocks.MockRuntime{
+		BeginExecutionFn: func(_ context.Context, _ domain.Namespace, method string, _ map[string]string) error {
+			called = true
+			if method != "start" {
+				t.Errorf("expected method 'start', got %q", method)
+			}
+			return nil
 		},
 	}
+	uc := newUC(&mocks.MockArrow{}, rt, &mocks.MockGraph{})
+	if err := uc.Execute(context.Background(), "test/arrow@v1", "start", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected BeginExecution to be called")
+	}
+}
 
+func TestRuntimeExecute_Update_GetStateError_ReturnsError(t *testing.T) {
+	stateErr := errors.New("state error")
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return "", stateErr
+		},
+	}
+	uc := newUC(&mocks.MockArrow{}, rt, &mocks.MockGraph{})
+	if err := uc.Execute(context.Background(), "test/arrow@v1", domain.MethodUpdate, nil); !errors.Is(err, stateErr) {
+		t.Fatalf("expected stateErr, got %v", err)
+	}
+}
+
+func TestRuntimeUsecase_Reset_ForgetsRuntime(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &mocks.MockRuntime{}
+	uc := newUC(&mocks.MockArrow{}, rt, &mocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.NoError(t, err)
+	if len(rt.ForgottenNamespaces) == 0 || rt.ForgottenNamespaces[0] != ns {
+		t.Fatalf("expected Reset to call Forget with %s, got %v", ns, rt.ForgottenNamespaces)
+	}
+}
+
+func TestRuntimeUsecase_Reset_PropagatesForgetError(t *testing.T) {
+	ns := domain.Namespace("github.com/u/stuck@main")
+	rt := &mocks.MockRuntime{
+		ForgetErr: assert.AnError,
+	}
+	uc := newUC(&mocks.MockArrow{}, rt, &mocks.MockGraph{})
+
+	err := uc.Reset(context.Background(), ns)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+const (
+	cycleX = domain.Namespace("github.com/user/x@stable")
+	cycleY = domain.Namespace("github.com/user/y@stable")
+)
+
+// depRows is an in-memory runtime for rows whose updates gain dependencies.
+type depRows struct {
+	mu       sync.Mutex
+	state    map[domain.Namespace]domain.ArrowState
+	pending  map[domain.Namespace]*domainRuntime.DepSyncInfo
+	installs []domain.Namespace
+	updates  []domain.Namespace
+}
+
+func newDepRows(rows ...domain.Namespace) *depRows {
+	d := &depRows{
+		state:   make(map[domain.Namespace]domain.ArrowState),
+		pending: make(map[domain.Namespace]*domainRuntime.DepSyncInfo),
+	}
+	for _, ns := range rows {
+		d.state[ns] = domain.ArrowStateReady
+	}
+	return d
+}
+
+func (d *depRows) runtime() *mocks.MockRuntime {
+	return &mocks.MockRuntime{
+		GetStateFn: func(_ context.Context, ns domain.Namespace) (domain.ArrowState, error) {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			return d.state[ns], nil
+		},
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			return &domainRuntime.ArrowRuntime{Ref: ns, State: d.state[ns], PendingDepSync: d.pending[ns]}, nil
+		},
+		MarkOutdatedFn: func(_ context.Context, ns domain.Namespace, added, removed []domain.Namespace) error {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.state[ns] = domain.ArrowStateOutdated
+			d.pending[ns] = &domainRuntime.DepSyncInfo{AddedDeps: added, RemovedDeps: removed}
+			return nil
+		},
+		ListenEndedFn: func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+			ch := make(chan domainRuntime.ArrowRuntime, 1)
+			ch <- domainRuntime.ArrowRuntime{}
+			return ch, func() {}, nil
+		},
+		BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.installs = append(d.installs, ns)
+			return nil
+		},
+		BeginUpdateFn: func(_ context.Context, ns domain.Namespace, _ map[string]string, _ string) error {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			d.updates = append(d.updates, ns)
+			d.state[ns] = domain.ArrowStateUpdating
+			return nil
+		},
+	}
+}
+
+// depArrows answers the catalog side of an update whose target adds the
+// dependency adds names for the row.
+func depArrows(adds map[domain.Namespace]domain.Namespace, staged func(domain.Namespace)) (*mocks.MockArrow, *mocks.MockGraph) {
+	target := rollingTarget()
+	a := &mocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+		CheckAvailableFn: func(context.Context, domain.Namespace) (*domain.Available, error) {
+			return &target, nil
+		},
+		RefreshToTargetFn: func(_ context.Context, ns domain.Namespace, _ domain.Available) (*domain.Arrow, error) {
+			staged(ns)
+			return &domain.Arrow{Namespace: ns}, nil
+		},
+		AddDependencyFn: func(_ context.Context, declared domain.Namespace) (domain.Namespace, error) {
+			return declared.WithRef("stable"), nil
+		},
+	}
+	g := &mocks.MockGraph{
+		DiffDepsFn: func(_, next *domain.Arrow) models.DepDiff {
+			return models.DepDiff{Added: []domain.DependencyEdge{{Namespace: adds[next.Namespace]}}}
+		},
+	}
+	return a, g
+}
+
+// failOnBracketWait makes any wait on a row's bracket fail the test and end
+// every caller: an update installing its dependencies must never wait on a
+// bracket, or two of them can wait on each other forever.
+func failOnBracketWait(t *testing.T, uc *harness, cancel context.CancelFunc) {
+	t.Helper()
+	uc.targets.onWait = func(ns domain.Namespace) {
+		t.Errorf("an update waited on the bracket of %s", ns)
+		cancel()
+	}
+}
+
+// A target that adds a dependency on the row being updated is refused
+// before anything is installed, instead of waiting on the row's own bracket.
+func TestRuntimeUpdate_TargetDependsOnItsOwnRow_IsRefused(t *testing.T) {
+	rows := newDepRows(cycleX)
+	a, g := depArrows(map[domain.Namespace]domain.Namespace{cycleX: cycleX.BareNamespace()}, func(domain.Namespace) {})
+	uc := newUC(a, rows.runtime(), g)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	failOnBracketWait(t, uc, cancel)
+
+	_, err := uc.Update(ctx, cycleX, nil)
+
+	require.ErrorIs(t, err, apperrors.ErrInvalidManifest)
+	assert.Empty(t, rows.installs)
+	assert.Empty(t, rows.updates)
+}
+
+// Two rows whose targets add each other update concurrently. Neither waits on
+// the other's bracket; a cycle the graph already sees refuses both, and one
+// it does not see yet lets both begin.
+func TestRuntimeUpdate_TargetsAddEachOther_NeverWaitOnEachOther(t *testing.T) {
+	testCases := []struct {
+		name        string
+		resolveErr  error
+		wantErr     error
+		wantUpdates int
+	}{
+		{name: "the graph sees the cycle", resolveErr: &deptree.CycleError{Path: []domain.Namespace{cycleX, cycleY, cycleX}}, wantErr: apperrors.ErrInvalidManifest},
+		{name: "the graph does not see it yet", wantUpdates: 2},
+	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			targets := newUpdateTargets()
+			rows := newDepRows(cycleX, cycleY)
+			bothStaged := make(chan struct{})
+			var stagedOnce sync.WaitGroup
+			stagedOnce.Add(2)
+			go func() { stagedOnce.Wait(); close(bothStaged) }()
+			a, g := depArrows(map[domain.Namespace]domain.Namespace{cycleX: cycleY, cycleY: cycleX}, func(domain.Namespace) {
+				stagedOnce.Done()
+				<-bothStaged
+			})
+			g.ResolveFn = func(context.Context, domain.Namespace) (models.Plan, error) {
+				return nil, tc.resolveErr
+			}
+			uc := newUC(a, rows.runtime(), g)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			failOnBracketWait(t, uc, cancel)
 
-			tc.act(targets)
+			errs := make(chan error, 2)
+			for _, ns := range []domain.Namespace{cycleX, cycleY} {
+				go func() {
+					_, err := uc.Update(ctx, ns, nil)
+					errs <- err
+				}()
+			}
 
-			got, ok := targets.take(rollingRow)
-			assert.Equal(t, tc.wantOK, ok)
-			assert.Equal(t, tc.want, got)
+			for range 2 {
+				err := <-errs
+				if tc.wantErr == nil {
+					require.NoError(t, err)
+					continue
+				}
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			assert.Len(t, rows.updates, tc.wantUpdates)
+			assert.Empty(t, rows.installs, fmt.Sprintf("installed rows are never installed again: %v", rows.installs))
 		})
 	}
 }

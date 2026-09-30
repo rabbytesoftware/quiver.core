@@ -1,4 +1,4 @@
-package usecases
+package bracket
 
 import (
 	"context"
@@ -8,10 +8,31 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// updateTargets remembers, per row, the target an update began toward. The
-// row's own Available cannot stand in for it: a version check during the
-// update may record a newer target the update never ran.
-type updateTargets struct {
+// Targets remembers, per row, the target an update began toward. The row's
+// own Available cannot stand in for it: a version check during the update may
+// record a newer target the update never ran.
+type Targets interface {
+	// Open serializes what moves or begins one row (update brackets,
+	// installs, catalog advances) and returns the call that closes this one.
+	// A caller whose ctx ends while it waits gives up.
+	Open(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (func(), error)
+	// Pending reports whether an update of ns began and its end has not been
+	// handled yet.
+	Pending(ns domain.Namespace) bool
+	// Put remembers target for ns and returns the undo for a bracket that
+	// fails to begin: it restores what this put replaced, and only while the
+	// entry is still this put's own.
+	Put(
+		ns domain.Namespace,
+		target domain.Available,
+	) func()
+	Take(ns domain.Namespace) (domain.Available, bool)
+}
+
+type targets struct {
 	mu       sync.Mutex
 	next     uint64
 	targets  map[domain.Namespace]rememberedTarget
@@ -27,17 +48,14 @@ type rememberedTarget struct {
 	token  uint64
 }
 
-func newUpdateTargets() *updateTargets {
-	return &updateTargets{
+func NewTargets() Targets {
+	return &targets{
 		targets:  make(map[domain.Namespace]rememberedTarget),
 		brackets: make(map[domain.Namespace]chan struct{}),
 	}
 }
 
-// open serializes what moves or begins one row (update brackets, installs,
-// catalog advances) and returns the call that closes this one. A caller
-// whose ctx ends while it waits gives up.
-func (t *updateTargets) open(
+func (t *targets) Open(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (func(), error) {
@@ -68,9 +86,7 @@ func (t *updateTargets) open(
 	}
 }
 
-// pending reports whether an update of ns began and its end has not been
-// handled yet.
-func (t *updateTargets) pending(
+func (t *targets) Pending(
 	ns domain.Namespace,
 ) bool {
 	t.mu.Lock()
@@ -79,10 +95,7 @@ func (t *updateTargets) pending(
 	return ok
 }
 
-// put remembers target for ns and returns the undo for a bracket that fails
-// to begin: it restores what this put replaced, and only while the entry is
-// still this put's own.
-func (t *updateTargets) put(
+func (t *targets) Put(
 	ns domain.Namespace,
 	target domain.Available,
 ) func() {
@@ -107,7 +120,7 @@ func (t *updateTargets) put(
 	}
 }
 
-func (t *updateTargets) take(
+func (t *targets) Take(
 	ns domain.Namespace,
 ) (domain.Available, bool) {
 	t.mu.Lock()
