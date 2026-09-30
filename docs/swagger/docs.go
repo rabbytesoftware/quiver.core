@@ -2885,6 +2885,9 @@ const docTemplate = `{
                 "self_update_channel": {
                     "type": "string"
                 },
+                "version_check_interval": {
+                    "type": "string"
+                },
                 "version_check_ttl": {
                     "type": "string"
                 }

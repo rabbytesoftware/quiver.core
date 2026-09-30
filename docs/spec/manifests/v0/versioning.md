@@ -336,6 +336,7 @@ searched, and a constraint no tag matches is rejected.
 | `PATCH /v0/arrow/{ns}` | fresh | `Available`; may advance an uninstalled row (§8.1) |
 | Opening an update bracket (§8.2) | fresh | `Available` |
 | Core boot (`CheckVersionNow` on its own row, §10.2) | fresh | `Available`, detached |
+| Periodic: within a minute of daemon start, then every `arrows.version_check_interval` (default `6h`, each run pushed back by up to a tenth of it; `0s` turns it off), for every installed row under the same TTL claim as a detail read — a row checked within `version_check_ttl` is skipped (`Arrow.CheckInstalledVersions`) | fresh, one row at a time | `Available`; the badge follows |
 
 A check records its answer only when it differs from the row's current `Available`, and
 only while the row still holds the `Resolved` the answer was judged against:

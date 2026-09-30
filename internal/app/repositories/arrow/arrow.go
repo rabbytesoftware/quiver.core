@@ -150,6 +150,13 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	)
+	// CheckInstalledVersions runs the passive version check of every
+	// installed row, one at a time and under the same TTL claim a detail
+	// read takes, so a row checked recently is skipped. It returns when all
+	// were checked or ctx is done.
+	CheckInstalledVersions(
+		ctx context.Context,
+	)
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -587,6 +594,45 @@ func (s *arrowService) CheckVersionNow(
 		defer cancel()
 		s.runVersionCheck(checkCtx, arrow)
 	}()
+}
+
+func (s *arrowService) CheckInstalledVersions(
+	ctx context.Context,
+) {
+	views, err := s.store.List(ctx, nil)
+	if err != nil {
+		slog.WarnContext(ctx, "arrow version check: list installed rows", "err", err)
+		return
+	}
+	for _, view := range views {
+		for _, version := range view.Versions {
+			if ctx.Err() != nil {
+				return
+			}
+			if !version.Metadata.InstalledAt.IsZero() {
+				s.checkClaimed(ctx, version.Namespace)
+			}
+		}
+	}
+}
+
+// checkClaimed runs ns's version check in line if the TTL claim is won: a
+// row a detail read or an update checked within the TTL is left alone.
+func (s *arrowService) checkClaimed(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	needs, err := s.store.NeedsVersionCheck(ctx, ns, time.Time{})
+	if err != nil || !needs {
+		return
+	}
+	arrow, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
+	defer cancel()
+	s.runVersionCheck(checkCtx, arrow)
 }
 
 func (s *arrowService) GetManifest(

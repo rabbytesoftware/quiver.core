@@ -20,6 +20,11 @@ func validDuration(s string) bool {
 	return err == nil && d > 0
 }
 
+func isZeroDuration(s string) bool {
+	d, err := time.ParseDuration(s)
+	return err == nil && d == 0
+}
+
 func validLogLevel(s string) bool {
 	switch strings.ToLower(s) {
 	case "debug", "trace", "info", "warn", "warning", "error", "fatal", "panic":

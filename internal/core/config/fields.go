@@ -193,6 +193,9 @@ func newValidator() *validator.Validate {
 	_ = v.RegisterValidation("duration", func(fl validator.FieldLevel) bool {
 		return validDuration(fl.Field().String())
 	})
+	_ = v.RegisterValidation("durationoroff", func(fl validator.FieldLevel) bool {
+		return validDuration(fl.Field().String()) || isZeroDuration(fl.Field().String())
+	})
 	_ = v.RegisterValidation("loglevel", func(fl validator.FieldLevel) bool {
 		return validLogLevel(fl.Field().String())
 	})
@@ -226,6 +229,8 @@ func describe(
 		return fmt.Sprintf("must be at most %s, got %v", fe.Param(), fe.Value())
 	case "duration":
 		return fmt.Sprintf("must be a positive duration such as 30s or 5m, got %v", fe.Value())
+	case "durationoroff":
+		return fmt.Sprintf("must be a positive duration such as 6h, or 0s to turn it off, got %v", fe.Value())
 	case "loglevel":
 		return fmt.Sprintf(
 			"must be one of debug, trace, info, warn, warning, error, fatal, panic, got %v",

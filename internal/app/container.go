@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -50,6 +51,7 @@ type Container struct {
 	commit   string
 	channel  string
 	homeDir  string
+	versions *versionWatch
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
@@ -69,6 +71,9 @@ func (c *Container) Start(ctx context.Context) {
 	channel := selfarrow.Channel(config.GetArrows().SelfUpdateChannel, c.channel)
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
+	}
+	if c.versions != nil {
+		c.versions.start(ctx)
 	}
 }
 
@@ -95,6 +100,10 @@ func (c *Container) promoteRunningBinary(ctx context.Context) {
 // one's own queue.
 func (c *Container) Shutdown(ctx context.Context) error {
 	var errs []error
+
+	if c.versions != nil {
+		c.versions.stop()
+	}
 
 	if err := c.DrainUpdates(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("app container: %w", err))
@@ -169,11 +178,12 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 }
 
 type appOpts struct {
-	homeDir           string
-	version           string
-	commit            string
-	channel           string
-	selfUpdateTrigger *selfupdate.Trigger
+	homeDir              string
+	version              string
+	commit               string
+	channel              string
+	selfUpdateTrigger    *selfupdate.Trigger
+	versionCheckInterval *time.Duration
 }
 
 type Option func(*appOpts)
@@ -205,6 +215,12 @@ func WithChannel(c string) Option {
 // the repositories, fired when quiver.core's own update lifecycle succeeds.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
 	return func(o *appOpts) { o.selfUpdateTrigger = trig }
+}
+
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(d time.Duration) Option {
+	return func(o *appOpts) { o.versionCheckInterval = &d }
 }
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
@@ -313,7 +329,15 @@ func New(
 		commit:     cfg.commit,
 		channel:    cfg.channel,
 		homeDir:    cfg.homeDir,
+		versions:   newVersionWatch(cfg.checkInterval(), repos.Arrow.CheckInstalledVersions),
 	}, nil
+}
+
+func (o appOpts) checkInterval() time.Duration {
+	if o.versionCheckInterval != nil {
+		return *o.versionCheckInterval
+	}
+	return resolveVersionCheckInterval()
 }
 
 // resolveStorePath mirrors every other homeDir/homeDirAt path pair in this

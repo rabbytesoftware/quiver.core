@@ -67,6 +67,9 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	CheckInstalledVersionsFn func(
+		ctx context.Context,
+	)
 	CheckVersionNowFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -286,6 +289,14 @@ func (m *MockArrow) CheckVersionNow(
 ) {
 	if m.CheckVersionNowFn != nil {
 		m.CheckVersionNowFn(ctx, ns)
+	}
+}
+
+func (m *MockArrow) CheckInstalledVersions(
+	ctx context.Context,
+) {
+	if m.CheckInstalledVersionsFn != nil {
+		m.CheckInstalledVersionsFn(ctx)
 	}
 }
 

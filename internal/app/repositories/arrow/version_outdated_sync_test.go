@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/char2cs/asynx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowStoreMocks "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/mocks"
@@ -245,4 +247,81 @@ func TestRunVersionCheck_ResolutionFailed_DoesNotTouchRuntime(t *testing.T) {
 	arrowRepo.RunVersionCheckForTest(failing, context.Background(), arrow)
 
 	assert.Equal(t, domain.ArrowStateOutdated, runtimeState(t, axRuntime, ns))
+}
+
+// ─── CheckInstalledVersions ──────────────────────────────────────────────────
+
+func TestCheckInstalledVersions(t *testing.T) {
+	installed := domain.Namespace("github.com/user/installed@stable")
+	claimedElsewhere := domain.Namespace("github.com/user/recent@stable")
+	catalogued := domain.Namespace("github.com/user/catalogued@stable")
+	at := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	views := []models.ArrowView{
+		{Versions: []models.VersionView{
+			{Namespace: installed, Metadata: domain.Arrow{InstalledAt: at}},
+			{Namespace: catalogued},
+		}},
+		{Versions: []models.VersionView{{Namespace: claimedElsewhere, Metadata: domain.Arrow{InstalledAt: at}}}},
+	}
+
+	testCases := []struct {
+		name    string
+		listErr error
+		cancel  bool
+		want    []domain.Namespace
+	}{
+		{name: "every installed row whose claim is won", want: []domain.Namespace{installed}},
+		{name: "the catalog cannot be listed", listErr: errors.New("db closed"), want: nil},
+		{name: "a stopped sweep checks nothing", cancel: true, want: nil},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			for _, ns := range []domain.Namespace{installed, claimedElsewhere, catalogued} {
+				seedCatalogued(t, axArrow, ns)
+			}
+			var checked []domain.Namespace
+			r := &arrowStoreMocks.MockCQRS{
+				ListFn: func(context.Context, *bool) ([]models.ArrowView, error) { return views, tc.listErr },
+				NeedsVersionCheckFn: func(_ context.Context, ns domain.Namespace, _ time.Time) (bool, error) {
+					return ns != claimedElsewhere, nil
+				},
+				CheckDriftFn: func(_ context.Context, a domain.Arrow) (*domain.Available, bool) {
+					checked = append(checked, a.Namespace)
+					return nil, true
+				},
+			}
+			cat := arrowRepo.NewTestable(r, axArrow, nil, nil)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+
+			cat.CheckInstalledVersions(ctx)
+
+			assert.Equal(t, tc.want, checked)
+		})
+	}
+}
+
+func TestCheckInstalledVersions_RowGoneSinceListing_IsSkipped(t *testing.T) {
+	gone := domain.Namespace("github.com/user/gone@stable")
+	checks := 0
+	r := &arrowStoreMocks.MockCQRS{
+		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+			return []models.ArrowView{{Versions: []models.VersionView{{Namespace: gone, Metadata: domain.Arrow{InstalledAt: time.Now()}}}}}, nil
+		},
+		NeedsVersionCheckFn: func(context.Context, domain.Namespace, time.Time) (bool, error) { return true, nil },
+		CheckDriftFn: func(context.Context, domain.Arrow) (*domain.Available, bool) {
+			checks++
+			return nil, true
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, nil)
+
+	cat.CheckInstalledVersions(context.Background())
+
+	assert.Zero(t, checks)
 }

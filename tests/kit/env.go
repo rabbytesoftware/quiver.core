@@ -310,6 +310,7 @@ func BuildEnv(
 		app.WithVersion(cfg.build.version),
 		app.WithCommit(cfg.build.commit),
 		app.WithChannel(cfg.build.channel),
+		app.WithVersionCheckInterval(0),
 	)
 	require.NoError(t, err)
 
