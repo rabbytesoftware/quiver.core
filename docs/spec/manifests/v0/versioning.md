@@ -207,7 +207,7 @@ independently. There is no conflict resolution and no SAT solving.
 |---|---|
 | Arrow aggregate (`asynx`) | Full `namespace@selector` (`Namespace.String()`) |
 | Vault manifest cache | Full `namespace@selector`, percent-encoded into one flat filename (§12) |
-| Vault workdir | Full `namespace@selector`, expanded as a directory tree under `namespacesPath` (§12) |
+| Vault workdir | Full `namespace@selector`, the selector as one directory segment under `namespacesPath` (§12) |
 | Runtime aggregate | Full `namespace@selector` — each row has its own lifecycle state |
 | Dep edge graph | `(from_namespace, from_version, to_namespace, to_version)` tuples, versions being selectors |
 | Catalog read model | Bare namespace key, with one version row per selector for grouping |
@@ -692,23 +692,26 @@ options, and `POST /v0/arrow/{ns}`'s channel option.
 
 ---
 
-## 12. Windows-safe identities
+## 12. Path-safe identities
 
-A selector can carry characters a filesystem cannot hold (`v1.*`), so every path component
-derived from an identity is percent-encoded before it reaches the disk
-(`internal/engine/vault/pathsafe.go`):
+A selector can carry characters a filesystem cannot hold (`v1.*`), and two identities must
+never share a path or nest one inside the other, so every path component derived from an
+identity is encoded before it reaches the disk (`internal/engine/vault/pathsafe.go`,
+[vault.md §4.1](../../vault.md)):
 
 | Where | Encoding |
 |---|---|
-| Manifest cache filename (`vaultPath/`) | `url.PathEscape` of the bare namespace, `@`, then the escaped selector with `:` also escaped — `github.com%2Fchar2cs%2Fcrowbar@v1.%2A.md` |
-| Workdir directory (`namespacesPath/`) | The selector split on `/` (nesting is kept), each component escaping the Windows-reserved characters `<>:"|?*\`, `%` itself, control characters, a trailing `.` or space, and a component that is a Windows device name (`CON`, `NUL`, `COM1`, …) after the first |
+| Manifest cache filename (`vaultPath/`) | `url.PathEscape` of the bare namespace, `@`, then the selector as one identity segment — `github.com%2Fchar2cs%2Fcrowbar@v1.%2A.md` |
+| Workdir directory (`namespacesPath/`) | The bare namespace as directories; the last is `repo@<selector as one identity segment>` — `crowbar@release%2F1.0` |
 
-`git check-ref-format` already forbids every character rewritten here, so the on-disk
-layout of every plain tag or branch is unchanged; only selector identities such as `v1.*`
-are affected. Escaping `%` keeps decoding unambiguous, and escaping a trailing `.` is what
-keeps `.` and `..` from ever reaching the filesystem.
-
----
+The identity segment percent-encodes `/` (so `@release/1.0` is never inside `@release`'s
+workdir, and uninstalling one never deletes the other's files), upper-case letters and
+non-ASCII bytes (so `@Nightly` and `@nightly` stay apart on case-insensitive filesystems),
+the Windows-reserved characters `<>:"|?*\`, `%`, `~`, control characters and a trailing `.`
+or space. A name over 200 bytes is cut and suffixed with a digest of the full identity.
+A plain lower-case tag or branch keeps its spelling, so its layout is unchanged; a workdir
+or cache entry an earlier layout created (a selector with `/` nested as directories, or one
+with upper-case letters) is still found where it is, so no installed arrow loses its files.
 
 ## 13. Worked examples
 

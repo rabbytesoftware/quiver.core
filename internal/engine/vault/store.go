@@ -3,8 +3,10 @@ package vault
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -169,13 +171,36 @@ func (s *store) namespaceLock(key string) *sync.Mutex {
 	return m
 }
 
+const metaSuffix = ".meta.json"
+
 func (s *store) metaFilePath(ns domain.Namespace) string {
-	return filepath.Join(s.vaultPath, encodeNS(ns)+".meta.json")
+	return filepath.Join(s.vaultPath, encodeNS(ns)+metaSuffix)
 }
 
 func (s *store) manifestFilePath(ns domain.Namespace, filename string) string {
-	ext := filepath.Ext(filename)
-	return filepath.Join(s.vaultPath, encodeNS(ns)+ext)
+	return filepath.Join(s.vaultPath, encodeNS(ns)+filepath.Ext(filename))
+}
+
+// cacheNames lists the names ns's manifest cache has had, current first: an
+// entry an earlier layout wrote is still read, and deleted with the rest.
+func cacheNames(ns domain.Namespace) []string {
+	current, legacy := encodeNS(ns), legacyEncodeNS(ns)
+	if current == legacy || len(legacy+metaSuffix) > maxComponentLen {
+		return []string{current}
+	}
+	return []string{current, legacy}
+}
+
+// cachedNamespace reads the namespace a cache entry belongs to from its
+// meta file name, or from the meta itself when the name was capped.
+func (s *store) cachedNamespace(metaName string) (domain.Namespace, bool) {
+	encoded := strings.TrimSuffix(metaName, metaSuffix)
+	if isHashed(encoded) {
+		meta, err := readMeta(filepath.Join(s.vaultPath, metaName))
+		return meta.Namespace, err == nil && meta.Namespace != ""
+	}
+	decoded, err := url.PathUnescape(encoded)
+	return domain.Namespace(decoded), err == nil
 }
 
 func (s *store) WorkDir(

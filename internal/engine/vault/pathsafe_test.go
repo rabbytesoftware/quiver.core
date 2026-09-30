@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,10 +83,8 @@ func TestEncodeNS(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := encodeNS(tc.ns)
-			if !strings.Contains(tc.ns.Ref(), ":") {
-				assert.Equal(t, url.PathEscape(string(tc.ns)), got, "layout must stay byte-for-byte")
-			}
 			assert.False(t, strings.ContainsAny(got, `<>:"|?*\/`), "reserved character in %q", got)
+			assert.False(t, strings.HasSuffix(got, "."), "trailing dot in %q", got)
 			decoded, err := url.PathUnescape(got)
 			require.NoError(t, err)
 			assert.Equal(t, string(tc.ns), decoded)
@@ -148,7 +147,6 @@ func TestVault_OrdinaryIdentity_WorkDirLayoutUnchanged(t *testing.T) {
 	}{
 		{name: "tag", ns: "github.com/u/r@v1.2.0"},
 		{name: "rolling tag", ns: "github.com/u/r@nightly"},
-		{name: "branch with slash", ns: "github.com/u/r@feat/x"},
 		{name: "bare", ns: "github.com/u/r"},
 	}
 	for _, tc := range testCases {
@@ -196,4 +194,205 @@ func TestVault_SelectorCollection_RoundTrips(t *testing.T) {
 	t.Cleanup(func() { _ = later.Close() })
 	later.(*store).sweepQuivers()
 	assert.NoFileExists(t, path)
+}
+
+func TestEncodeNS_PlainRefLayoutUnchanged(t *testing.T) {
+	for _, ns := range []domain.Namespace{"github.com/u/r@v1.2.0", "github.com/u/r@stable", "github.com/u/r@nightly-latest", "github.com/u/r"} {
+		assert.Equal(t, url.PathEscape(string(ns)), encodeNS(ns), "a plain lower-case ref keeps its cache name: %s", ns)
+		assert.Equal(t, legacyEncodeNS(ns), encodeNS(ns))
+	}
+}
+
+func TestEncodeRefSegment(t *testing.T) {
+	testCases := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{name: "tag unchanged", ref: "v1.2.0", want: "v1.2.0"},
+		{name: "slash is one segment", ref: "release/1.0", want: "release%2F1.0"},
+		{name: "upper case is escaped", ref: "Nightly", want: "%4Eightly"},
+		{name: "non-ascii is escaped", ref: "caf\xc3\xa9", want: "caf%C3%A9"},
+		{name: "tilde is escaped", ref: "a~b", want: "a%7Eb"},
+		{name: "percent is escaped", ref: "50%", want: "50%25"},
+		{name: "trailing dot", ref: "v1.", want: "v1%2E"},
+		{name: "dot dot", ref: "..", want: ".%2E"},
+		{name: "wildcard", ref: "v1.*", want: "v1.%2A"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := encodeRefSegment(tc.ref)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.ref, decodeNSDir("h/u/r@"+got).Ref())
+		})
+	}
+}
+
+func TestCapName(t *testing.T) {
+	long := domain.Namespace("github.com/u/r@release-" + strings.Repeat("x", 240))
+	other := domain.Namespace("github.com/u/r@release-" + strings.Repeat("x", 239) + "y")
+	escaped := domain.Namespace("github.com/u/r@" + strings.Repeat("X", 120))
+
+	testCases := []struct {
+		name string
+		ns   domain.Namespace
+	}{
+		{name: "long plain selector", ns: long},
+		{name: "long selector differing only at the end", ns: other},
+		{name: "long escaped selector never splits an escape", ns: escaped},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := encodeNS(tc.ns)
+			assert.LessOrEqual(t, len(got), maxNameLen)
+			assert.True(t, isHashed(got))
+			prefix, _, _ := strings.Cut(got, hashedMarker)
+			_, err := url.PathUnescape(prefix)
+			assert.NoError(t, err, "the cut keeps every escape whole: %q", prefix)
+		})
+	}
+	assert.NotEqual(t, encodeNS(long), encodeNS(other))
+	assert.False(t, isHashed(encodeNS("github.com/u/r@v1.2.0")))
+}
+
+func TestVault_LongSelector_CachesListsAndSweeps(t *testing.T) {
+	vaultDir, nsDir := t.TempDir(), t.TempDir()
+	base := time.Now()
+	v, err := NewWithClock(vaultDir, nsDir, time.Hour, func() time.Time { return base })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	ns := domain.Namespace("github.com/u/r@release-" + strings.Repeat("x", 240))
+
+	require.NoError(t, v.PutArrow(context.Background(), ns, testManifest))
+	got, err := v.GetArrow(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, testManifest.Content, got.Content)
+	versions, err := v.ListVersions(context.Background(), ns.BareNamespace())
+	require.NoError(t, err)
+	assert.Equal(t, []string{ns.Ref()}, versions)
+
+	dir, err := v.WorkDir(context.Background(), ns)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(filepath.Base(dir)), maxNameLen)
+
+	later, err := NewWithClock(vaultDir, nsDir, time.Hour, func() time.Time { return base.Add(2 * time.Hour) })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = later.Close() })
+	later.(*store).sweepArrows()
+	_, err = later.GetArrow(context.Background(), ns)
+	assert.ErrorIs(t, err, ErrNotCached)
+}
+
+// An install made under an earlier layout keeps its workdir: a slash or an
+// upper-case selector was laid out differently, and moving the files would
+// lose what the arrow installed.
+func TestVault_LegacyWorkDir_StillUsed(t *testing.T) {
+	testCases := []struct {
+		name   string
+		ns     domain.Namespace
+		legacy string
+	}{
+		{name: "branch with slash", ns: "github.com/u/r@feat/x", legacy: "github.com/u/r@feat/x"},
+		{name: "upper case tag", ns: "github.com/u/r@Nightly", legacy: "github.com/u/r@Nightly"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nsDir := t.TempDir()
+			v, err := New(t.TempDir(), nsDir, time.Hour)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = v.Close() })
+			legacy := filepath.Join(nsDir, filepath.FromSlash(tc.legacy))
+			require.NoError(t, os.MkdirAll(legacy, 0o700))
+
+			dir, err := v.WorkDir(context.Background(), tc.ns)
+			require.NoError(t, err)
+			assert.Equal(t, legacy, dir)
+		})
+	}
+}
+
+func TestVault_NewWorkDir_IsOneFlatSegment(t *testing.T) {
+	nsDir := t.TempDir()
+	v, err := New(t.TempDir(), nsDir, time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	dir, err := v.WorkDir(context.Background(), "github.com/u/r@feat/x")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(nsDir, "github.com", "u", "r@feat%2Fx"), dir)
+}
+
+// Another identity's directory that differs only by case is not a legacy
+// workdir of this one, even where the filesystem folds case.
+func TestVault_LegacyWorkDir_CaseFoldedSiblingIsNotAdopted(t *testing.T) {
+	nsDir := t.TempDir()
+	v, err := New(t.TempDir(), nsDir, time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	lower, err := v.WorkDir(context.Background(), "github.com/u/r@nightly")
+	require.NoError(t, err)
+
+	upper, err := v.WorkDir(context.Background(), "github.com/u/r@Nightly")
+	require.NoError(t, err)
+	assert.False(t, strings.EqualFold(lower, upper))
+}
+
+func TestVault_LegacyCacheEntry_ReadAndDeleted(t *testing.T) {
+	vaultDir := t.TempDir()
+	v, err := New(vaultDir, t.TempDir(), time.Hour)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	ns := domain.Namespace("github.com/u/r@Nightly")
+	legacy := legacyEncodeNS(ns)
+	require.NotEqual(t, encodeNS(ns), legacy)
+	meta := []byte(`{"cached_at":"` + time.Now().UTC().Format(time.RFC3339) + `","filename":"ARROW.md"}`)
+	require.NoError(t, os.WriteFile(filepath.Join(vaultDir, legacy+metaSuffix), meta, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(vaultDir, legacy+".md"), []byte("# legacy"), 0o600))
+
+	got, err := v.GetArrow(context.Background(), ns)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("# legacy"), got.Content)
+
+	require.NoError(t, v.DeleteArrow(context.Background(), ns))
+	assert.NoFileExists(t, filepath.Join(vaultDir, legacy+metaSuffix))
+	assert.NoFileExists(t, filepath.Join(vaultDir, legacy+".md"))
+}
+
+func TestVault_BareNamespaceClimbingOut_LegacyLayoutRejected(t *testing.T) {
+	v := newTestVault(t)
+	_, err := v.WorkDir(context.Background(), "../../x@A/b")
+	require.ErrorIs(t, err, ErrInvalidNamespace)
+}
+
+func TestVault_LongSelectorCollection_ListsAndSweeps(t *testing.T) {
+	nsDir := t.TempDir()
+	base := time.Now()
+	v, err := NewWithClock(t.TempDir(), nsDir, time.Hour, func() time.Time { return base })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+	ns := domain.Namespace("github.com/u/c@release-" + strings.Repeat("x", 240))
+
+	path, err := v.PutCollection(context.Background(), ns, &domain.Collection{Namespace: ns})
+	require.NoError(t, err)
+
+	listed, err := v.ListCachedCollections(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []domain.Namespace{ns}, listed)
+
+	later, err := NewWithClock(t.TempDir(), nsDir, time.Hour, func() time.Time { return base.Add(2 * time.Hour) })
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = later.Close() })
+	later.(*store).sweepQuivers()
+	assert.NoFileExists(t, path)
+}
+
+func TestCollectionNamespace_UnreadableCappedFileFallsBackToTheName(t *testing.T) {
+	dir := t.TempDir()
+	rel := "github.com/u/c@x" + hashedMarker + "abc"
+	missing := filepath.Join(dir, "missing.json")
+	corrupt := filepath.Join(dir, "corrupt.json")
+	require.NoError(t, os.WriteFile(corrupt, []byte("{"), 0o600))
+
+	assert.Equal(t, decodeNSDir(rel), collectionNamespace(rel, missing))
+	assert.Equal(t, decodeNSDir(rel), collectionNamespace(rel, corrupt))
 }

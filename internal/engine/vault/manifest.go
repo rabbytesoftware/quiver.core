@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	meta, err := readMeta(s.metaFilePath(ns))
+	meta, name, err := readCachedMeta(s, ns)
 	if errors.Is(err, os.ErrNotExist) {
 		return ManifestFile{}, ErrNotCached
 	}
@@ -39,7 +38,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, ErrConfirmedAbsent
 	}
 
-	content, err := os.ReadFile(s.manifestFilePath(ns, meta.Filename)) // #nosec G304 -- path derived from URL-encoded namespace
+	content, err := os.ReadFile(filepath.Join(s.vaultPath, name+filepath.Ext(meta.Filename))) // #nosec G304 -- path derived from URL-encoded namespace
 	if errors.Is(err, os.ErrNotExist) {
 		return ManifestFile{}, ErrNotCached
 	}
@@ -64,6 +63,20 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 // entry (see getArrow), so a namespace whose ref later gains a manifest —
 // possible for a branch, though not for an immutable tag — is eventually
 // re-checked.
+// readCachedMeta reads ns's meta under the first cache name that has one,
+// and returns that name.
+func readCachedMeta(s *store, ns domain.Namespace) (VaultMetadata, string, error) {
+	err := os.ErrNotExist
+	for _, name := range cacheNames(ns) {
+		var meta VaultMetadata
+		meta, err = readMeta(filepath.Join(s.vaultPath, name+metaSuffix))
+		if !errors.Is(err, os.ErrNotExist) {
+			return meta, name, err
+		}
+	}
+	return VaultMetadata{}, "", err
+}
+
 func putArrowNotFound(s *store, ns domain.Namespace) error {
 	mu := s.namespaceLock(string(ns))
 	mu.Lock()
@@ -74,8 +87,9 @@ func putArrowNotFound(s *store, ns domain.Namespace) error {
 	}
 
 	metaData, err := json.Marshal(VaultMetadata{
-		CachedAt: s.clock(),
-		NotFound: true,
+		CachedAt:  s.clock(),
+		NotFound:  true,
+		Namespace: ns,
 	})
 	if err != nil {
 		return err
@@ -105,8 +119,9 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 
 	// Write meta sidecar.
 	metaData, err := json.Marshal(VaultMetadata{
-		CachedAt: s.clock(),
-		Filename: file.Filename,
+		CachedAt:  s.clock(),
+		Filename:  file.Filename,
+		Namespace: ns,
 	})
 	if err != nil {
 		return err
@@ -132,7 +147,17 @@ func deleteArrow(s *store, ns domain.Namespace) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	meta, err := readMeta(s.metaFilePath(ns))
+	for _, name := range cacheNames(ns) {
+		if err := deleteCacheEntry(s, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteCacheEntry(s *store, name string) error {
+	metaPath := filepath.Join(s.vaultPath, name+metaSuffix)
+	meta, err := readMeta(metaPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // idempotent
 	}
@@ -140,10 +165,10 @@ func deleteArrow(s *store, ns domain.Namespace) error {
 		return err
 	}
 
-	if err := os.Remove(s.manifestFilePath(ns, meta.Filename)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(filepath.Join(s.vaultPath, name+filepath.Ext(meta.Filename))); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("vault delete: remove manifest: %w", err)
 	}
-	if err := os.Remove(s.metaFilePath(ns)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(metaPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("vault delete: remove meta: %w", err)
 	}
 	return nil
@@ -162,18 +187,12 @@ func listVersions(s *store, ns domain.Namespace) ([]string, error) {
 
 	var versions []string
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".meta.json") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), metaSuffix) {
 			continue
 		}
 
-		encoded := strings.TrimSuffix(e.Name(), ".meta.json")
-		decoded, err := url.PathUnescape(encoded)
-		if err != nil {
-			continue
-		}
-
-		candidate := domain.Namespace(decoded)
-		if candidate.BareNamespace() != bare {
+		candidate, ok := s.cachedNamespace(e.Name())
+		if !ok || candidate.BareNamespace() != bare {
 			continue
 		}
 
@@ -348,8 +367,7 @@ func listCachedQuivers(s *store) ([]domain.Namespace, error) {
 func findQuiversUnder(dir, relPath string) ([]domain.Namespace, error) {
 	quiverPath := filepath.Join(dir, quiverFilename)
 	if _, err := os.Stat(quiverPath); err == nil {
-		ns := decodeNSDir(filepath.ToSlash(relPath))
-		return []domain.Namespace{ns}, nil
+		return []domain.Namespace{collectionNamespace(filepath.ToSlash(relPath), quiverPath)}, nil
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -389,4 +407,24 @@ func deleteCollection(s *store, ns domain.Namespace) error {
 		return err
 	}
 	return nil
+}
+
+// collectionNamespace names the collection cached at rel: decoded from the
+// directory, or read from the file when the directory name was capped.
+func collectionNamespace(
+	rel string,
+	quiverPath string,
+) domain.Namespace {
+	if !isHashed(rel) {
+		return decodeNSDir(rel)
+	}
+	data, err := os.ReadFile(quiverPath) // #nosec G304 -- path comes from a walk under namespacesPath
+	if err != nil {
+		return decodeNSDir(rel)
+	}
+	var onDisk quiverOnDisk
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Collection == nil || onDisk.Collection.Namespace == "" {
+		return decodeNSDir(rel)
+	}
+	return onDisk.Collection.Namespace
 }

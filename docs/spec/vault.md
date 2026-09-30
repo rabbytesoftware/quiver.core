@@ -21,7 +21,7 @@ Package: `internal/engine/vault`
 |------|----------------|
 | `vault.go` | `Vault` interface + `quiverFilename` constant |
 | `store.go` | `store` struct, constructors `New` / `NewWithClock`, all interface dispatch, per-namespace locking, workdir handling |
-| `pathsafe.go` | Windows-safe percent-encoding of identity-derived filenames and directories (§4.1) |
+| `pathsafe.go` | Identity-safe percent-encoding of identity-derived filenames and directories (§4.1) |
 | `manifest.go` | Arrow manifest read/write/delete, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
 | `vault_entry.go` | `ManifestFile`, `CollectionVaultEntry`, `VaultMetadata` |
 | `sweep.go` | TTL sweep over arrow meta files and collection JSON files |
@@ -93,6 +93,7 @@ The engine accepts `engine.WithHomeDir(dir)` for tests and isolated environments
           linux32/
         steamcmd@v1.2.3/                                     ← parallel workdir
         steamcmd@v1.%2A/                                     ← workdir for steamcmd@v1.*
+        steamcmd@release%2F1.0/                              ← workdir for steamcmd@release/1.0 — a sibling, never nested
       char2cs/
         gaming.collection/
           collection.json                                    ← collection envelope
@@ -104,17 +105,48 @@ Two distinct keying strategies coexist:
 
 | Concern | Key | Encoding | Location |
 |---------|-----|----------|----------|
-| Arrow manifest cache | full `Namespace` (bare + `@selector`) | `url.PathEscape` of the bare namespace, a literal `@`, then the `url.PathEscape`d selector with `:` also escaped — one flat filename | `vaultPath/` |
-| Arrow workdir | full `Namespace` (bare + `@selector`) | `filepath.FromSlash`; the selector keeps `/` as nesting, and each of its components escapes what Windows cannot hold (see below) | `namespacesPath/<ns-path>/` |
+| Arrow manifest cache | full `Namespace` (bare + `@selector`) | `url.PathEscape` of the bare namespace, a literal `@`, then the selector as one identity segment (see below) — one flat filename | `vaultPath/` |
+| Arrow workdir | full `Namespace` (bare + `@selector`) | `filepath.FromSlash` of the bare namespace; the last directory is `repo@<selector as one identity segment>` (see below) | `namespacesPath/<ns-path>/` |
 | Collection envelope | full `Namespace` (collections are unversioned in practice) | `filepath.FromSlash` | `namespacesPath/<ns-path>/collection.json` |
 
 The flat layout for the manifest cache exists because two manifest filenames (`arrow.yaml` vs `ARROW.md`) cannot collide inside the same directory — encoding the namespace into the filename and keeping the original extension solves both ambiguity and case-insensitive filesystems.
 
 Different selectors (`@v1.2.3`, `@stable`) of the same bare namespace share a parent directory inside `namespacesPath/` and produce distinct sibling subdirectories whose name embeds the selector. The key is the catalog identity, which never changes for the life of a row: an update advances the row in place, replaces the cached manifest under the same key, and leaves the workdir where it is.
 
-### 4.1 Windows-safe path components
+### 4.1 Identity-safe path components
 
-A selector can carry characters no filesystem path can (`v1.*`), so `pathsafe.go` percent-encodes every identity-derived path component before it reaches the disk. Each workdir component of the selector escapes the Windows-reserved characters `<>:"|?*\`, `%` itself (so decoding back is unambiguous), control characters, a trailing `.` or space (which Windows silently strips — and which is what keeps `.` and `..` from ever reaching the filesystem), and a component after the first that is a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`). `git check-ref-format` already forbids everything rewritten here, so the layout of every plain tag or branch is unchanged. `decodeNSDir` reverses the directory form when listing namespaces; a component that does not decode predates the encoding and is kept verbatim. `namespacePath` additionally refuses any namespace whose bare segments would resolve outside `namespacesPath`.
+A selector can carry characters no filesystem path can (`v1.*`), and two identities must
+never share a path or nest one inside the other, so `pathsafe.go` encodes a selector into
+**one** path segment (`encodeRefSegment`) before it reaches the disk. It percent-encodes
+(upper-case hex):
+
+- the Windows-reserved characters `<>:"|?*\`, and `%` itself (so decoding back is unambiguous);
+- `/`, so `@release/1.0` is the sibling `repo@release%2F1.0`, never a directory inside
+  `@release`'s workdir that removing `@release` would delete;
+- upper-case ASCII letters and every non-ASCII byte, so `@Nightly` (`repo@%4Eightly`) and
+  `@nightly` stay two paths on a case-insensitive or normalizing filesystem (macOS, Windows);
+- `~` (which git forbids in a ref) and control characters;
+- a trailing `.` or space, which Windows silently strips — and which is what keeps `.` and
+  `..` from ever reaching the filesystem.
+
+A plain lower-case tag or branch name without `/` (`v1.2.0`, `nightly-latest`, `stable`)
+keeps its spelling, so its workdir and cache name are the same as before. A name longer
+than 200 bytes (a legal git ref can be far longer than the 255-byte component limit) is cut
+without splitting an escape and suffixed with `~` and 32 hex characters of the SHA-256 of
+the full identity, so two long identities never share it. A capped name cannot be decoded,
+so the manifest meta records its `namespace` and a capped collection directory is named by
+the `collection.json` inside it.
+
+Existing data keeps working without a move. A workdir created under the earlier layout
+(the selector split on `/` into nested directories, each component escaping only what
+Windows refuses) is used when the new path does not exist and the old one does with exactly
+that spelling — the check reads directory entries, so a case-folded sibling identity is
+never mistaken for it. A manifest cache entry written under the earlier filename is read
+the same way and deleted with the current one.
+
+`decodeNSDir` reverses either directory form when listing namespaces; a component that does
+not decode predates the encoding and is kept verbatim. `namespacePath` additionally refuses
+any namespace whose bare segments would resolve outside `namespacesPath`.
 
 ---
 
