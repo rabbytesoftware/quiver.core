@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/compiler"
@@ -873,10 +876,23 @@ func (s *stubHost) BlobFileURL(
 	return "", nil
 }
 
+func (s *stubHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (s *stubHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (s *stubHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (s *stubHost) ReleaseAssets(
@@ -2778,3 +2794,32 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
+
+func TestResolveLatestStable_SecondCall_AsksTheHostOnce(t *testing.T) {
+	host := &stubHost{ref: "v2.0.0"}
+	m := NewWithResolvers(&stubResolver{}, &stubConstraintResolver{}, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	first, err := m.ResolveLatestStable(context.Background(), ns)
+	require.NoError(t, err)
+	second, err := m.ResolveLatestStable(context.Background(), ns)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v2.0.0", first)
+	assert.Equal(t, first, second)
+	assert.Equal(t, 1, host.called)
+}
+
+func TestResolveLatestStable_Error_NotCached(t *testing.T) {
+	host := &stubHost{err: errors.New("no latest release")}
+	crs := &stubConstraintResolver{err: errors.New("no tags")}
+	m := NewWithResolvers(&stubResolver{}, crs, hostedBy(host))
+	ns := domain.Namespace("github.com/u/r")
+
+	_, firstErr := m.ResolveLatestStable(context.Background(), ns)
+	_, secondErr := m.ResolveLatestStable(context.Background(), ns)
+
+	require.Error(t, firstErr)
+	require.Error(t, secondErr)
+	assert.Equal(t, 2, host.called)
+}

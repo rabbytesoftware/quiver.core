@@ -301,15 +301,71 @@ func TestPicker_Pick_Rules(t *testing.T) {
 			os:     domain.OSDarwinARM64,
 		},
 		{
-			name:      "archive beats dmg",
+			name:      "dmg without a portable twin beats a universal archive",
 			repo:      "u/app",
 			assets:    assets("app-macos-universal.zip", "App.dmg"),
 			os:        domain.OSDarwinARM64,
 			wantOK:    true,
-			wantAsset: "app-macos-universal.zip",
+			wantAsset: "App.dmg",
+			wantFmt:   FormatDMG,
+			wantMatch: MatchAssumed,
+			wantName:  true,
+		},
+		{
+			name:      "archive beats a dmg it shares a stem with",
+			repo:      "u/app",
+			assets:    assets("app-darwin-arm64.tar.gz", "app-darwin-arm64.dmg"),
+			os:        domain.OSDarwinARM64,
+			wantOK:    true,
+			wantAsset: "app-darwin-arm64.tar.gz",
 			wantFmt:   FormatArchive,
 			wantMatch: MatchExact,
 			wantName:  true,
+		},
+		{
+			name:      "linux appimage wins over a differently named archive when the release ships gui packaging",
+			repo:      "zen-browser/desktop",
+			assets:    assets("zen-x86_64.AppImage", "zen.linux-x86_64.tar.xz", "zen.macos-universal.dmg"),
+			os:        domain.OSLinuxAMD64,
+			wantOK:    true,
+			wantAsset: "zen-x86_64.AppImage",
+			wantFmt:   FormatAppImage,
+			wantMatch: MatchExact,
+			wantName:  false,
+		},
+		{
+			name:      "repo named asset wins over another product in the same release",
+			repo:      "u/tool",
+			assets:    assets("tool-x86_64.AppImage", "other.linux-x86_64.tar.xz"),
+			os:        domain.OSLinuxAMD64,
+			wantOK:    true,
+			wantAsset: "tool-x86_64.AppImage",
+			wantFmt:   FormatAppImage,
+			wantMatch: MatchExact,
+			wantName:  true,
+		},
+		{
+			name:   "same product different archives stay ambiguous",
+			repo:   "u/desk",
+			assets: assets("zen.linux-x86_64.tar.xz", "zen-linux-x86_64-gnu.tar.gz"),
+			os:     domain.OSLinuxAMD64,
+		},
+		{
+			name:      "sole product with a companion token the repo lacks is not accepted",
+			repo:      "u/widget",
+			assets:    assets("gadget-cli-linux-x86_64.tar.gz"),
+			os:        domain.OSLinuxAMD64,
+			wantOK:    true,
+			wantAsset: "gadget-cli-linux-x86_64.tar.gz",
+			wantFmt:   FormatArchive,
+			wantMatch: MatchExact,
+			wantName:  false,
+		},
+		{
+			name:   "monorepo shipping unrelated products stays refused",
+			repo:   "u/mono",
+			assets: assets("alpha-linux-x86_64.tar.gz", "beta-linux-x86_64.tar.gz"),
+			os:     domain.OSLinuxAMD64,
 		},
 		{
 			name:   "digest-less assets excluded",
@@ -835,6 +891,28 @@ func TestPicker_Pick_Rules(t *testing.T) {
 			assert.Equal(t, tc.wantFmt, got.Format)
 			assert.Equal(t, tc.wantMatch, got.Match)
 			assert.Equal(t, tc.wantName, got.NameMatch)
+		})
+	}
+}
+
+func TestPicker_Pick_AcceptedReflectsCompanionTokens(t *testing.T) {
+	testCases := []struct {
+		name   string
+		repo   string
+		assets []domain.ReleaseAsset
+		want   bool
+	}{
+		{name: "no companion", repo: "zen-browser/desktop", assets: assets("zen-linux-x86_64.tar.gz"), want: true},
+		{name: "companion the repo lacks", repo: "u/widget", assets: assets("gadget-cli-linux-x86_64.tar.gz"), want: false},
+		{name: "companion the repo has", repo: "u/gadget-cli", assets: assets("gadget-cli-linux-x86_64.tar.gz"), want: true},
+	}
+	p := New()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := p.Pick(tc.repo, tc.assets, domain.OSLinuxAMD64)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.want, got.Accepted)
 		})
 	}
 }

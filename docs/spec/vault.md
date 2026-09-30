@@ -36,7 +36,7 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 |--------|---------|
 | `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
-| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. |
+| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Also how a manifest refresh (`arrow.RefreshManifest`, used by `update` and by the one-shot retry after a fetch checksum mismatch) forces the next resolve to go back to the host instead of serving the cached copy for the rest of its TTL. |
 | `RenameArrow(ctx, oldNs, newNs) error` | Move manifest + meta from one namespace key to another (used during version upgrades). |
 | `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` values cached under the same bare namespace. |
 | `GetCollection(ctx, ns) (*CollectionVaultEntry, string, error)` | Read cached `Collection` aggregate JSON. Same `ErrStale` / `ErrNotCached` semantics. Returns the on-disk path. |
@@ -274,6 +274,7 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 | Arrow added from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
 | Manifest seeded from raw bytes | `PutArrow(ARROW.md)` | `arrow.Seed` |
 | Arrow proven by discovery (tagged or unmarked pass), at the search's default branch | `PutArrow` with `Meta` | `discovery.verifyOne` |
+| Discovery candidate that definitively has no manifest (including one Fletcher refuses to build) | `PutArrowNotFound` | `discovery.verifyOne` |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
 | Arrow upgraded | `DeleteArrow(newNs)` → `RenameArrow(oldNs, newNs)` → `PutArrow(newNs, …)` | `arrow.UpgradeVersion` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |

@@ -16,7 +16,7 @@ type Handler interface {
 		ctx context.Context,
 		req wizstep.Request,
 		steps []domainstep.ExposeStep,
-	) []error
+	) []Result
 	Execute(
 		ctx context.Context,
 		req wizstep.Request,
@@ -34,6 +34,13 @@ func NewHandler(
 	return &handler{shelf: s}
 }
 
+// Result is one expose step's outcome. A non-empty Note on a nil Err marks an
+// auto entry that found nothing to expose, which is not a failure.
+type Result struct {
+	Err  error
+	Note string
+}
+
 type slot struct {
 	kind  domain.ExposeKind
 	index int
@@ -46,18 +53,23 @@ func (h *handler) Expose(
 	ctx context.Context,
 	req wizstep.Request,
 	steps []domainstep.ExposeStep,
-) []error {
+) []Result {
+	results := make([]Result, len(steps))
 	errs := make([]error, len(steps))
 	block, slots, media := collect(steps, errs)
 
 	applied, err := h.shelf.Apply(ctx, domain.Namespace(req.NSKey), req.WorkDir, block, media)
 	for k, sl := range slots {
 		if errs[k] != nil {
+			results[k] = Result{Err: errs[k]}
 			continue
 		}
-		errs[k] = outcome(applied, sl, err)
+		results[k] = Result{Err: outcome(applied, sl, err)}
+		if results[k].Err == nil {
+			results[k].Note = skipNote(applied, sl)
+		}
 	}
-	return errs
+	return results
 }
 
 func (h *handler) Execute(
@@ -110,6 +122,21 @@ func outcome(
 		return nil
 	}
 	return applyErr
+}
+
+func skipNote(
+	applied shelf.Applied,
+	sl slot,
+) string {
+	if placed(applied, sl) {
+		return ""
+	}
+	for _, s := range applied.Skipped {
+		if s.Kind == sl.kind && s.Index == sl.index {
+			return "nothing exposed: " + s.Reason
+		}
+	}
+	return ""
 }
 
 func placed(

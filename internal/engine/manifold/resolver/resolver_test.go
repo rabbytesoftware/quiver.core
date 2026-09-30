@@ -447,10 +447,23 @@ func (h rawHost) BlobFileURL(
 	return "", nil
 }
 
+func (h rawHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (h rawHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (h rawHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (h rawHost) ReleaseAssets(

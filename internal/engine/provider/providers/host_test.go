@@ -539,6 +539,26 @@ func TestHost_RepoPageURL(t *testing.T) {
 	}
 }
 
+func TestHost_OwnerAvatarURL(t *testing.T) {
+	testCases := []struct {
+		name           string
+		ownerAvatarURL string
+		ns             domain.Namespace
+		want           string
+	}{
+		{name: "fills the template", ownerAvatarURL: "https://h.test/{user}.png", ns: "h.test/u/r@v1", want: "https://h.test/u.png"},
+		{name: "no template", ns: "h.test/u/r"},
+		{name: "invalid namespace", ownerAvatarURL: "https://h.test/{user}.png", ns: "only-two"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewBitbucket(Config{Host: "h.test", OwnerAvatarURL: tc.ownerAvatarURL})
+
+			assert.Equal(t, tc.want, p.OwnerAvatarURL(tc.ns))
+		})
+	}
+}
+
 func TestHost_ReleaseAssets_PublishesNothing(t *testing.T) {
 	assets, err := NewBitbucket(Config{Host: "bitbucket.org"}).
 		ReleaseAssets(context.Background(), domain.Namespace("bitbucket.org/u/r"), "v1")

@@ -22,6 +22,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
@@ -39,15 +40,17 @@ import (
 )
 
 type Container struct {
-	Arrow       repoarrow.Arrow
-	Runtime     runtime.Runtime
-	Collection  collection.Collection
-	Graph       graph.Graph
-	Cascade     cascade.Cascade
-	Discovery   discovery.Discovery
-	Config      repoconfig.Config
-	PairingCode pairingcode.PairingCode
-	Device      device.Device
+	Arrow      repoarrow.Arrow
+	Runtime    runtime.Runtime
+	Collection collection.Collection
+	Graph      graph.Graph
+	Cascade    cascade.Cascade
+	Discovery  discovery.Discovery
+	// Recommendation is nil when Discovery is: it refreshes through it.
+	Recommendation recommendation.Recommendation
+	Config         repoconfig.Config
+	PairingCode    pairingcode.PairingCode
+	Device         device.Device
 }
 
 type repoOpts struct {
@@ -114,20 +117,7 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	rt, err := runtime.New(
-		arrowGetter(axArrow),
-		cat.Get,
-		axRuntime,
-		w,
-		v,
-		cat.MarkInstalled,
-		cat.MarkUninstalled,
-		cat.MarkLastUsed,
-		dependentsChecker(g),
-		catalogLister(cat),
-		os,
-		listRuntimeAggregates,
-	)
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -145,6 +135,12 @@ func New(
 		return nil, fmt.Errorf("repositories: discovery: %w", err)
 	}
 
+	rec, err := newRecommendation(db, disc, v, cat)
+	if err != nil {
+		discardCollection(coll)
+		return nil, fmt.Errorf("repositories: recommendation: %w", err)
+	}
+
 	pc, err := pairingcode.New(axPairingCode)
 	if err != nil {
 		discardCollection(coll)
@@ -158,15 +154,16 @@ func New(
 	}
 
 	c := &Container{
-		Arrow:       cat,
-		Runtime:     rt,
-		Collection:  coll,
-		Graph:       g,
-		Cascade:     fc,
-		Discovery:   disc,
-		Config:      repoconfig.New(),
-		PairingCode: pc,
-		Device:      dev,
+		Arrow:          cat,
+		Runtime:        rt,
+		Collection:     coll,
+		Graph:          g,
+		Cascade:        fc,
+		Discovery:      disc,
+		Recommendation: rec,
+		Config:         repoconfig.New(),
+		PairingCode:    pc,
+		Device:         dev,
 	}
 
 	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
@@ -175,6 +172,48 @@ func New(
 	}
 
 	return c, nil
+}
+
+func newRuntime(
+	cat repoarrow.Arrow,
+	axArrow asynx.Asynx[domain.Arrow],
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	w wizardPkg.Wizard,
+	v vault.Vault,
+	g graph.Graph,
+	os domain.OS,
+	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
+) (runtime.Runtime, error) {
+	return runtime.New(
+		arrowGetter(axArrow),
+		cat.Get,
+		axRuntime,
+		w,
+		v,
+		cat.MarkInstalled,
+		cat.MarkUninstalled,
+		cat.MarkLastUsed,
+		dependentsChecker(g),
+		catalogLister(cat),
+		os,
+		listRuntimeAggregates,
+		manifestRefresher(cat),
+	)
+}
+
+func manifestRefresher(
+	cat repoarrow.Arrow,
+) runtime.RefreshManifestFn {
+	return func(ctx context.Context, ns domain.Namespace) error {
+		arrow, err := cat.RefreshManifest(ctx, ns)
+		if err != nil {
+			return fmt.Errorf("refresh manifest %s: %w", ns, err)
+		}
+		if err := cat.UpdateManifest(ctx, ns, arrow); err != nil {
+			return fmt.Errorf("apply refreshed manifest %s: %w", ns, err)
+		}
+		return nil
+	}
 }
 
 // arrowOptions assembles what the arrow repository needs from the runtime
@@ -298,6 +337,55 @@ func newDiscovery(
 	})
 }
 
+// newRecommendation reads the recommendation settings once, per CLAUDE.md
+// §15.2. It refreshes through discovery, so a container without discovery has no
+// recommendation rather than one that can never fill.
+func newRecommendation(
+	db *gormdb.DB,
+	disc discovery.Discovery,
+	v vault.Vault,
+	cat repoarrow.Arrow,
+) (recommendation.Recommendation, error) {
+	if disc == nil {
+		return nil, nil
+	}
+
+	cfg := config.GetRecommendation()
+
+	return recommendation.New(db, disc, v, catalogHas(cat), recommendation.Config{
+		Enabled:         cfg.Enabled,
+		RefreshInterval: cfg.RefreshInterval,
+		CandidateBudget: cfg.CandidateBudget,
+		MinEntries:      cfg.MinEntries,
+		Shelves:         shelvesOf(cfg.Shelves),
+	})
+}
+
+func shelvesOf(
+	configured []config.RecommendationShelf,
+) []recommendation.ShelfConfig {
+	shelves := make([]recommendation.ShelfConfig, 0, len(configured))
+	for _, shelf := range configured {
+		sources := make([]recommendation.SourceConfig, 0, len(shelf.Sources))
+		for _, source := range shelf.Sources {
+			sources = append(sources, recommendation.SourceConfig{
+				Host:         source.Host,
+				Sort:         source.Sort,
+				MinStars:     source.MinStars,
+				MaxStars:     source.MaxStars,
+				PushedWithin: source.PushedWithin,
+			})
+		}
+		shelves = append(shelves, recommendation.ShelfConfig{
+			ID:      shelf.ID,
+			Title:   shelf.Title,
+			Limit:   shelf.Limit,
+			Sources: sources,
+		})
+	}
+	return shelves
+}
+
 func catalogHas(
 	cat repoarrow.Arrow,
 ) discovery.KnownFn {
@@ -347,6 +435,7 @@ func discardCollection(coll collection.Collection) {
 // entirely — right before the adapters close the databases under them.
 func (c *Container) Shutdown(ctx context.Context) error {
 	return shutdown.Split(ctx, "repositories", []shutdown.Phase{
+		{Name: "recommendation shutdown", Run: c.shutdownRecommendation},
 		{Name: "cascade shutdown", Run: c.Cascade.Shutdown},
 		{Name: "runtime shutdown", Run: c.Runtime.Shutdown},
 		{Name: "collection shutdown", Run: c.Collection.Shutdown},
@@ -354,6 +443,29 @@ func (c *Container) Shutdown(ctx context.Context) error {
 		{Name: "pairingcode shutdown", Run: c.PairingCode.Shutdown},
 		{Name: "device shutdown", Run: c.Device.Shutdown},
 	})
+}
+
+// shutdownRecommendation stops the refresh loop first: it reads through
+// discovery and the vault, which must outlive it.
+func (c *Container) shutdownRecommendation(
+	ctx context.Context,
+) error {
+	if c.Recommendation == nil {
+		return nil
+	}
+	return c.Recommendation.Shutdown(ctx)
+}
+
+// StartRecommendation launches the home refresh loop. It returns at once and the
+// loop ends when ctx is cancelled. A container without recommendation does
+// nothing.
+func (c *Container) StartRecommendation(
+	ctx context.Context,
+) {
+	if c.Recommendation == nil {
+		return
+	}
+	c.Recommendation.Start(ctx)
 }
 
 // RecoverForgetCascade finishes any forget cascade a prior crash left pending.

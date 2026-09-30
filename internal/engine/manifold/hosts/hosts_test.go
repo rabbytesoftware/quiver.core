@@ -31,6 +31,12 @@ func (stubHost) BlobFileURL(
 	return "https://example.test/blob", nil
 }
 
+func (stubHost) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (stubHost) RepoPageURL(
 	_ domain.Namespace,
 ) string {
@@ -44,6 +50,13 @@ func (stubHost) LatestRelease(
 	_ domain.Namespace,
 ) (string, error) {
 	return "v1.0.0", nil
+}
+
+func (stubHost) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (stubHost) ReleaseAssets(

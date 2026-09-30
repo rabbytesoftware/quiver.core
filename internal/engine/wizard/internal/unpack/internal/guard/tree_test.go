@@ -161,6 +161,28 @@ func TestGuard_Apps_ListsTopLevelEntriesBySuffix(t *testing.T) {
 	}, g.Apps(dest, ".exe", false))
 }
 
+func TestGuard_Apps_FindsBundlesOneWrapperDeep(t *testing.T) {
+	g, dest := openGuard(t)
+	for _, dir := range []string{"wrap/Tool.app/Contents", "wrap/Deep/Skip.app", "Top.app/Inner.app", "Empty"} {
+		require.NoError(t, g.Dir(dir, 0o755))
+	}
+	require.NoError(t, g.File(context.Background(), "wrap/notes.app", 0o644, strings.NewReader("x")))
+	require.NoError(t, g.File(context.Background(), "file.txt", 0o644, strings.NewReader("x")))
+
+	assert.Equal(t, []models.App{
+		{Name: "Top", Entry: filepath.Join(dest, "Top.app")},
+		{Name: "Tool", Entry: filepath.Join(dest, "wrap", "Tool.app")},
+	}, g.Apps(dest, ".app", true))
+}
+
+func TestGuard_Apps_NestedWrapperVanished(t *testing.T) {
+	g, dest := openGuard(t)
+	require.NoError(t, g.Dir("wrap/Tool.app", 0o755))
+	require.NoError(t, os.RemoveAll(filepath.Join(dest, "wrap")))
+
+	assert.Empty(t, g.Apps(dest, ".app", true))
+}
+
 func TestWithNameRules_AppliesToEveryEntryKind(t *testing.T) {
 	testCases := []struct {
 		name    string

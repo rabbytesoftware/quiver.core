@@ -1977,3 +1977,41 @@ func TestCheckVersionDrift_BranchTrackedWithChannel_UsesChannelResolution(t *tes
 	assert.Equal(t, "nightly-rolling-abc123", recommendedRef,
 		"a Channel present must route through checkTagDrift, never checkBranchDrift")
 }
+
+func TestCheckVersionDrift_BranchTracked_PrefersTheNewestNonStableChannel(t *testing.T) {
+	r := newTestReaderWithVaultManifold(t, nil, &mocks.Manifold{
+		ResolveLatestStableErr: manifold.ErrNoLatestStable,
+		DefaultBranchRef:       "develop",
+		DefaultBranchHash:      "aaa111",
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "alpha", Kind: "ordered", Latest: "v0.0.4-alpha.1"},
+			{Name: "beta", Kind: "ordered", Latest: "v0.0.44-beta.3"},
+		},
+	})
+
+	outdated, recommendedRef, ok := r.CheckVersionDrift(context.Background(), branchTrackedArrow())
+	require.True(t, ok)
+	assert.True(t, outdated)
+	assert.Equal(t, "v0.0.44-beta.3", recommendedRef)
+}
+
+func TestResolveForInstall_Refless_NoStable_PrefersTheNewestChannelOverAnAlphabeticallyEarlierOne(t *testing.T) {
+	m, asked := branchServingManifold("v0.0.44-beta.3")
+	m.ResolveLatestInChannelRef = ""
+	m.ListChannelsResult = []manifold.ChannelInfo{
+		{Name: "alpha", Kind: "ordered", Latest: "v0.0.4-alpha.1"},
+		{Name: "beta", Kind: "ordered", Latest: "v0.0.44-beta.3"},
+	}
+
+	r := newTestReaderWithVaultManifold(t, nil, m)
+
+	resolvedNs, got, _, err := r.ResolveForInstall(
+		context.Background(),
+		domain.Namespace("github.com/char2cs/crowbar"),
+		"",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/char2cs/crowbar@v0.0.44-beta.3"), resolvedNs)
+	assert.Equal(t, "beta", got.Channel)
+	assert.Equal(t, []domain.Namespace{"github.com/char2cs/crowbar@v0.0.44-beta.3"}, *asked)
+}

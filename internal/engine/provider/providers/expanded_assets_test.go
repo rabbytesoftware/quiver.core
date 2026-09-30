@@ -103,3 +103,33 @@ func TestResolveHref_UnparseableHref_ReturnsItUnchanged(t *testing.T) {
 
 	assert.Equal(t, "://bad href", resolveHref(base, "://bad href"))
 }
+
+func TestParseExpandedAssets_GitHubDesktopKeepsFileNamesAndLabels(t *testing.T) {
+	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_github_desktop.html"), "https://github.com/desktop/desktop/releases/expanded_assets/release-3.6.6")
+	require.NoError(t, err)
+
+	byName := map[string]domain.ReleaseAsset{}
+	for _, a := range assets {
+		byName[a.Name] = a
+	}
+	arm := byName["GitHub.Desktop-arm64.zip"]
+	assert.Equal(t, "GitHub Desktop 3.6.6 macOS arm64", arm.Label)
+	assert.Equal(t, "https://github.com/desktop/desktop/releases/download/release-3.6.6/GitHub.Desktop-arm64.zip", arm.URL)
+	assert.Equal(t, "GitHub Desktop 3.6.6 macOS x64", byName["GitHub.Desktop-x64.zip"].Label)
+	assert.Equal(t, "GitHub Desktop 3.6.6 Windows x64 MSI Installer", byName["GitHubDesktopSetup-x64.msi"].Label)
+	assert.Contains(t, byName, "GitHub.Desktop-3.6.6-checksums.txt")
+}
+
+func TestParseExpandedAssets_LabelOnlyWhenItDiffersFromTheFileName(t *testing.T) {
+	assets, err := parseExpandedAssets(readTestdata(t, "expanded_assets_ripgrep.html"), ripgrepExpandedAssetsURL)
+	require.NoError(t, err)
+
+	for _, a := range assets {
+		assert.Empty(t, a.Label, a.Name)
+	}
+}
+
+func TestFileName_EscapedAndMalformedBasenames(t *testing.T) {
+	assert.Equal(t, "My App.zip", fileName("/u/r/releases/download/v1/My%20App.zip"))
+	assert.Equal(t, "bad%zz.zip", fileName("/u/r/releases/download/v1/bad%zz.zip"))
+}

@@ -37,7 +37,7 @@ func newExposeSandbox(
 	return exposeSandbox{home: home, bin: bin, w: w}
 }
 
-func (s exposeSandbox) workdir(
+func (s exposeSandbox) emptyWorkdir(
 	t *testing.T,
 	ns domain.Namespace,
 ) string {
@@ -46,6 +46,15 @@ func (s exposeSandbox) workdir(
 	require.NoError(t, err)
 	dir := filepath.Join(nsDir, filepath.FromSlash(ns.String()))
 	require.NoError(t, os.MkdirAll(dir, 0o750))
+	return dir
+}
+
+func (s exposeSandbox) workdir(
+	t *testing.T,
+	ns domain.Namespace,
+) string {
+	t.Helper()
+	dir := s.emptyWorkdir(t, ns)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "tool"), []byte("#!/bin/sh\n"), 0o700)) // #nosec G306 -- fixture executable
 	return dir
 }
@@ -87,6 +96,23 @@ func TestStart_ExposeSteps_ReportEachEntryWithoutFailingTheRun(t *testing.T) {
 	assert.Equal(t, []int{0, 1}, rec.Completed)
 	assert.Equal(t, []int{2}, rec.Failed)
 	assert.Equal(t, filepath.Join(wd, "tool"), s.link(t, "tool"))
+}
+
+func TestStart_ExposeAutoStepThatFindsNothing_CompletesWithANote(t *testing.T) {
+	s := newExposeSandbox(t)
+	ns := domain.Namespace("github.com/acme/tool@v1")
+	wd := s.emptyWorkdir(t, ns)
+
+	rec := s.run(ns, domain.MethodInstall, wd,
+		domainstep.NewExposeStep("desktop", "Tool", domain.ExposeAuto),
+		domainstep.NewExposeStep("cli", "tool", domain.ExposeAuto),
+	)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	assert.Equal(t, []int{0, 1}, rec.Completed)
+	assert.Empty(t, rec.Failed)
+	assert.Contains(t, rec.Notes, 0)
+	assert.Contains(t, rec.Notes, 1)
 }
 
 func TestStart_ExposeStepsAfterAFatalFailure_NeverRun(t *testing.T) {

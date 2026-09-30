@@ -46,14 +46,15 @@ func onBegun(
 		return
 	}
 
-	exec := w.Start(context.WithoutCancel(ctx), wizardPkg.RunRequest{
+	request := wizardPkg.RunRequest{
 		Namespace: rt.Ref,
 		Method:    rt.Execution.Method,
 		Steps:     stepsFromProgress(rt.Execution.Steps),
 		Variables: rt.Execution.Variables,
 		WorkDir:   rt.Execution.WorkDir,
 		PID:       rt.Execution.PID,
-	})
+	}
+	exec := w.Start(context.WithoutCancel(ctx), request)
 
 	done, ok := tryAddDrain(rt.Execution.Method)
 	if !ok {
@@ -61,13 +62,13 @@ func onBegun(
 	}
 	go func() {
 		defer done()
-		drainExecution(
+		superviseExecution(
 			context.WithoutCancel(ctx),
 			exec,
-			rt.Ref.String(),
+			request,
 			rt.Execution.ID,
-			rt.Execution.Method,
 			hooks,
+			w,
 			axRuntime,
 		)
 	}()

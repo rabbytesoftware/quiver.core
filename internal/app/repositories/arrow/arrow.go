@@ -1082,7 +1082,7 @@ func (s *arrowService) UpgradeVersion(
 ) (*domain.Arrow, error) {
 	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
 	if err != nil {
-		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", err)
+		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", mapResolveErr(err))
 	}
 
 	if !runtimeAlreadyExists { //nolint:nestif

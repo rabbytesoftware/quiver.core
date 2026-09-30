@@ -169,15 +169,22 @@ func replaceFTS(
 	return nil
 }
 
-// search matches rows by trigram FTS, ranked by bm25 with name weighted above
-// tags above description. Rows past row_expire_at are excluded even if the
-// sweep has not yet removed them.
+// search returns every ref of the best-ranked namespaces matching q.Text.
+//
+// A row matches when each whitespace-separated token of the query appears,
+// case-insensitively, in its namespace, name, description or one of its tags;
+// see termMatchClause. Trigram FTS only supplies the ranking (bm25, name above
+// tags above description), and rows it does not score sort after those it does,
+// so a query too short for a trigram, or an arrow whose only match is its
+// repository name, is still found. Rows past row_expire_at are excluded even if
+// the sweep has not yet removed them. q.Limit counts namespaces, not rows: it
+// is applied after grouping, so an arrow cached under many refs costs one slot.
 func (i *index) search(
 	q IndexQuery,
 	now time.Time,
 ) ([]IndexRow, error) {
-	text := strings.TrimSpace(q.Text)
-	if text == "" {
+	tokens := strings.Fields(q.Text)
+	if len(tokens) == 0 {
 		return []IndexRow{}, nil
 	}
 	limit := q.Limit
@@ -185,27 +192,7 @@ func (i *index) search(
 		limit = defaultSearchLimit
 	}
 
-	sql := `
-		SELECT a.namespace, a.ref, a.name, a.description, a.license, a.url,
-		       a.icon, a.banner, a.stars, a.source, a.branch, a.seen_at,
-		       a.generator, a.confidence
-		FROM vault_arrows_fts f
-		JOIN vault_arrows a ON a.namespace = f.namespace AND a.ref = f.ref
-		WHERE vault_arrows_fts MATCH ?
-		  AND a.row_expire_at > ?`
-	args := []any{ftsPhrase(text), now.Unix()}
-
-	if q.OS != "" {
-		sql += ` AND EXISTS (
-			SELECT 1 FROM vault_arrow_os o
-			WHERE o.namespace = a.namespace AND o.ref = a.ref AND o.os = ?
-		)`
-		args = append(args, string(q.OS))
-	}
-
-	// bm25 weights are positional per FTS5 column order; unindexed columns get 0.
-	sql += ` ORDER BY bm25(vault_arrows_fts, 0.0, 0.0, 10.0, 2.0, 5.0) LIMIT ?`
-	args = append(args, limit)
+	sql, args := searchSQL(tokens, q.OS, now)
 
 	// Scanning into the row type leaves filename and row_expire_at zero: the
 	// projection is deliberately narrower than the table.
@@ -214,13 +201,7 @@ func (i *index) search(
 		return nil, fmt.Errorf("vault index: search: %w", err)
 	}
 
-	return i.hydrate(scanned)
-}
-
-// ftsPhrase wraps text as a single FTS5 quoted phrase, so punctuation that is
-// query syntax to FTS5 (-, ", *, OR) is matched literally instead of parsed.
-func ftsPhrase(text string) string {
-	return `"` + strings.ReplaceAll(text, `"`, `""`) + `"`
+	return i.hydrate(firstNamespaces(scanned, limit))
 }
 
 func (i *index) hydrate(scanned []arrowIndexRow) ([]IndexRow, error) {

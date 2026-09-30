@@ -25,6 +25,7 @@ type testRecord struct {
 	Completed []int
 	Failed    []int
 	PIDs      []int
+	Notes     map[int]string
 	Outcome   domainRuntime.ExecutionOutcome
 }
 
@@ -38,6 +39,12 @@ func collectEvents(
 			rec.Started = append(rec.Started, e.StepIndex)
 		case EventKindStepCompleted:
 			rec.Completed = append(rec.Completed, e.StepIndex)
+			if e.Note != "" {
+				if rec.Notes == nil {
+					rec.Notes = map[int]string{}
+				}
+				rec.Notes[e.StepIndex] = e.Note
+			}
 		case EventKindStepFailed:
 			rec.Failed = append(rec.Failed, e.StepIndex)
 		case EventKindPID:

@@ -52,6 +52,24 @@ func TestExposer_Find(t *testing.T) {
 			want: &models.Candidate{Name: "Tool", Target: "Tool.app", Depth: 1},
 		},
 		{
+			name:      "bundle inside a wrapper directory",
+			dirs:      []string{"Tool-1.0/Tool.app"},
+			entryName: "tool",
+			want:      &models.Candidate{Name: "Tool", Target: "Tool-1.0/Tool.app", Depth: 2},
+		},
+		{
+			name:      "sole bundle whose name matches neither the entry nor the repo",
+			dirs:      []string{"GitHub Desktop.app"},
+			entryName: "desktop",
+			want:      &models.Candidate{Name: "GitHub Desktop", Target: "GitHub Desktop.app", Depth: 1},
+		},
+		{
+			name:      "sole bundle in a wrapper whose name matches neither the entry nor the repo",
+			dirs:      []string{"GitHub.Desktop-arm64/GitHub Desktop.app"},
+			entryName: "desktop",
+			want:      &models.Candidate{Name: "GitHub Desktop", Target: "GitHub.Desktop-arm64/GitHub Desktop.app", Depth: 2},
+		},
+		{
 			name:       "several bundles without a match",
 			dirs:       []string{"One.app", "Two.app"},
 			wantReason: models.ReasonAmbiguous,

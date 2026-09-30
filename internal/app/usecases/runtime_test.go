@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -3471,4 +3472,96 @@ func TestRuntimeExecute_Update_NotReady_FallsThroughToBeginExecution(t *testing.
 
 	require.NoError(t, uc.Execute(context.Background(), "github.com/u/r@v1.0.0", domain.MethodUpdate, nil))
 	assert.Equal(t, domain.MethodUpdate, gotMethod)
+}
+
+func TestRuntimeInstall_OutdatedUpgrade_ManifestUnresolvable_InstallsCurrentRef(t *testing.T) {
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{name: "not found", err: apperrors.ErrNotFound},
+		{name: "fetch failed", err: apperrors.ErrFetchFailed},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var began domain.Namespace
+			a := &ucmocks.MockArrow{
+				ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+				GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+					return &domain.Arrow{Outdated: true, RecommendedRef: "v1.3.1"}, nil
+				},
+				UpgradeVersionFn: func(
+					_ context.Context,
+					_ domain.Namespace,
+					_ domain.Namespace,
+					_ string,
+					_ string,
+					_ bool,
+					_ bool,
+					_ bool,
+					_ string,
+				) (*domain.Arrow, error) {
+					return nil, fmt.Errorf("upgrade version: fetch manifest: %w", tc.err)
+				},
+			}
+			g := &ucmocks.MockGraph{
+				ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+					return graph.Plan{}, nil
+				},
+			}
+			rt := &ucmocks.MockRuntime{
+				GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+					return domain.ArrowStateAbsent, nil
+				},
+				BeginInstallFn: func(_ context.Context, ns domain.Namespace, _ map[string]string) error {
+					began = ns
+					return nil
+				},
+			}
+			uc := newUC(a, rt, g)
+
+			_, err := uc.Install(context.Background(), "test/arrow@tip", nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, domain.Namespace("test/arrow@tip"), began)
+		})
+	}
+}
+
+func TestRuntimeInstall_OutdatedUpgrade_StateError_Fails(t *testing.T) {
+	a := &ucmocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Outdated: true, RecommendedRef: "v1.3.1"}, nil
+		},
+		UpgradeVersionFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			_ domain.Namespace,
+			_ string,
+			_ string,
+			_ bool,
+			_ bool,
+			_ bool,
+			_ string,
+		) (*domain.Arrow, error) {
+			return nil, apperrors.ErrStateViolation
+		},
+	}
+	g := &ucmocks.MockGraph{
+		ResolveFn: func(_ context.Context, _ domain.Namespace) (graph.Plan, error) {
+			return graph.Plan{}, nil
+		},
+	}
+	rt := &ucmocks.MockRuntime{
+		GetStateFn: func(_ context.Context, _ domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateAbsent, nil
+		},
+	}
+	uc := newUC(a, rt, g)
+
+	_, err := uc.Install(context.Background(), "test/arrow@tip", nil)
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
 }

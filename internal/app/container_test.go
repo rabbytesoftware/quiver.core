@@ -14,6 +14,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -328,6 +329,18 @@ func TestContainer_StartAndShutdown(t *testing.T) {
 	c.Start(ctx)
 
 	require.NoError(t, c.Shutdown(ctx))
+}
+
+// StartRecommendation must reach the repository's scheduler; it is not part of
+// Start so that a container built for a test never refreshes against a real host.
+func TestContainer_StartRecommendation_StartsTheRepositoryScheduler(t *testing.T) {
+	c := newContainer(t)
+	rec := &ucmocks.MockRecommendation{}
+	c.repos.Recommendation = rec
+
+	c.StartRecommendation(context.Background())
+
+	assert.Equal(t, 1, rec.StartCalls)
 }
 
 // TestContainer_Start_PromotesRunningBinaryToSelfPath verifies the boot

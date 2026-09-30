@@ -18,6 +18,7 @@ type Container struct {
 	collectionSvc usecases.CollectionUsecase
 	searchSvc     usecases.SearchUsecase
 	discoverySvc  usecases.DiscoveryUsecase
+	homeSvc       usecases.HomeUsecase
 	configSvc     usecases.ConfigUsecase
 	authSvc       usecases.AuthUsecase
 	pathSvc       usecases.PathUsecase
@@ -37,7 +38,12 @@ func New(
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
 	}
-	wsHandler := wshandler.NewHandler()
+
+	var wsOpts []wshandler.Option
+	if appContainer.Discovery != nil {
+		wsOpts = append(wsOpts, wshandler.WithDiscoveryJobs(appContainer.Discovery))
+	}
+	wsHandler := wshandler.NewHandler(wsOpts...)
 
 	// Discovery results are not domain aggregates and have no projection behind
 	// them, so they reach clients straight from the usecase rather than through
@@ -59,6 +65,7 @@ func New(
 		collectionSvc: appContainer.Collection,
 		searchSvc:     appContainer.Search,
 		discoverySvc:  appContainer.Discovery,
+		homeSvc:       appContainer.Home,
 		configSvc:     appContainer.Config,
 		authSvc:       appContainer.Auth,
 		pathSvc:       appContainer.Path,

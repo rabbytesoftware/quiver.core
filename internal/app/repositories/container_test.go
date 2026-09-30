@@ -20,8 +20,10 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -694,10 +696,23 @@ func (s *stubSearchProvider) BlobFileURL(
 	return "", nil
 }
 
+func (s *stubSearchProvider) OwnerAvatarURL(
+	_ domain.Namespace,
+) string {
+	return ""
+}
+
 func (s *stubSearchProvider) RepoPageURL(
 	_ domain.Namespace,
 ) string {
 	return ""
+}
+
+func (s *stubSearchProvider) RepoMetadata(
+	_ context.Context,
+	_ domain.Namespace,
+) (domain.RepoMetadata, error) {
+	return domain.RepoMetadata{}, nil
 }
 
 func (s *stubSearchProvider) ReleaseAssets(
@@ -1606,4 +1621,73 @@ func TestPreinstalledProbe_WizardFailure_IsReportedAsNotDetected(t *testing.T) {
 	err := repositories.PreinstalledProbe(w)(context.Background(), "github.com/user/repo@v1.0.0", nil, nil)
 
 	require.ErrorIs(t, err, probeErr)
+}
+
+func TestNew_WithoutDiscovery_HasNoRecommendation(t *testing.T) {
+	assert.Nil(t, newTestContainer(t).Recommendation)
+}
+
+func TestNew_WithDiscovery_BuildsRecommendation(t *testing.T) {
+	c, _ := newDiscoverableContainer(t, nil)
+
+	require.NotNil(t, c.Recommendation)
+	_, err := c.Recommendation.Home(context.Background())
+	require.NoError(t, err)
+}
+
+func TestShelvesOf_MapsEveryField(t *testing.T) {
+	got := repositories.ShelvesOf([]config.RecommendationShelf{{
+		ID:    "popular",
+		Title: "Popular",
+		Limit: 24,
+		Sources: []config.RecommendationSource{
+			{Host: "github", Sort: "stars", MinStars: 500, MaxStars: 20000, PushedWithin: "90d"},
+		},
+	}})
+
+	assert.Equal(t, []recommendation.ShelfConfig{{
+		ID:    "popular",
+		Title: "Popular",
+		Limit: 24,
+		Sources: []recommendation.SourceConfig{
+			{Host: "github", Sort: "stars", MinStars: 500, MaxStars: 20000, PushedWithin: "90d"},
+		},
+	}}, got)
+}
+
+func TestShelvesOf_NoShelves_IsEmpty(t *testing.T) {
+	assert.Empty(t, repositories.ShelvesOf(nil))
+}
+
+func TestContainer_Shutdown_StopsRecommendationFirst(t *testing.T) {
+	var order []string
+	c := shutdownRecorder(&order, nil)
+	rec := &ucmocks.MockRecommendation{}
+	c.Recommendation = rec
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	assert.Equal(t, 1, rec.ShutdownCalls)
+	assert.Equal(t, "cascade", order[0])
+}
+
+func TestContainer_Shutdown_RecommendationFailure_IsReported(t *testing.T) {
+	var order []string
+	c := shutdownRecorder(&order, nil)
+	boom := errors.New("scheduler stuck")
+	c.Recommendation = &ucmocks.MockRecommendation{ShutdownErr: boom}
+
+	err := c.Shutdown(context.Background())
+
+	require.ErrorIs(t, err, boom)
+	assert.Len(t, order, 6, "every other phase still runs")
+}
+
+func TestContainer_StartRecommendation_StartsTheSchedulerOnlyWhenThereIsOne(t *testing.T) {
+	rec := &ucmocks.MockRecommendation{}
+
+	(&repositories.Container{Recommendation: rec}).StartRecommendation(context.Background())
+	(&repositories.Container{}).StartRecommendation(context.Background())
+
+	assert.Equal(t, 1, rec.StartCalls)
 }

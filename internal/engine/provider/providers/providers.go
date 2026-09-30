@@ -56,6 +56,12 @@ type Provider interface {
 		ns domain.Namespace,
 	) string
 
+	// OwnerAvatarURL is the stable, unmetered address of the repository
+	// owner's avatar, or "" on a host that has none.
+	OwnerAvatarURL(
+		ns domain.Namespace,
+	) string
+
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
@@ -65,6 +71,14 @@ type Provider interface {
 		ns domain.Namespace,
 		tag string,
 	) ([]domain.ReleaseAsset, error)
+
+	// RepoMetadata is the repository's description and owner avatar. It is the
+	// one metered request the provider makes per repository, memoized, and
+	// returns ErrNoRepoMetadata on a host that offers none.
+	RepoMetadata(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RepoMetadata, error)
 }
 
 // DoFunc issues one HTTP request. It exists so tests can supply canned
@@ -89,6 +103,8 @@ type Config struct {
 	SearchURL         string
 	ExpandedAssetsURL string
 	RepoPageURL       string
+	RepoAPIURL        string
+	OwnerAvatarURL    string
 	BlobURL           string
 	ReleaseAPIURL     string
 	PackagesAPIURL    string

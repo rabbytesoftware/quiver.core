@@ -11,7 +11,39 @@ import (
 // stream keyed by something other than a namespace existed.
 const defaultKeyParam = "ns"
 
+// OverflowPolicy is what a broadcaster does when a subscriber's send buffer is
+// full.
+type OverflowPolicy int
+
+const (
+	// OverflowDrop discards the frame and logs it. It suits streams whose
+	// subscribers reconcile through REST, where the next event supersedes the
+	// lost one.
+	OverflowDrop OverflowPolicy = iota
+	// OverflowDisconnect closes the subscriber with 1013 (try again later).
+	// It suits streams that carry each item exactly once and can replay: a
+	// reconnect recovers everything that was missed, whereas a silent drop
+	// would leave the client with a hole it cannot detect.
+	OverflowDisconnect
+)
+
 type StreamDef[T any] struct {
+	// Overflow selects what happens to a subscriber that cannot keep up. The
+	// zero value is OverflowDrop.
+	Overflow OverflowPolicy
+	// Seq numbers a stream's events, strictly increasing per key. It is only
+	// consulted alongside Replay, to stitch the replay to the live feed
+	// without a duplicate or a gap.
+	Seq func(T) uint64
+	// Replay returns what a key has already emitted, oldest first, and is
+	// called once per connection, after the subscriber is registered for live
+	// events. A stream without it delivers only what is pushed after connect.
+	Replay func(key string) []T
+	// Done reports that a key will emit nothing more. When it closes, the
+	// broadcaster flushes the subscriber and closes the socket with a normal
+	// closure (1000, "completed"): the close frame is the stream's terminal
+	// signal, so the stream keeps carrying exactly one payload type.
+	Done func(key string) <-chan struct{}
 	// KeyParam names the route parameter carrying the stream key, and defaults
 	// to "ns". A stream keyed by anything else sets it rather than naming its
 	// route parameter :ns and pretending the key is a namespace.

@@ -39,6 +39,14 @@ func (s *stubPipeline) Discover(
 	return s.fn(ctx, text, emit)
 }
 
+func (s *stubPipeline) Browse(
+	_ context.Context,
+	_ discovery.BrowseRequest,
+	_ func(discovery.Result),
+) (discovery.Outcome, error) {
+	return discovery.Outcome{}, nil
+}
+
 // testClock is read by the usecase goroutine and written by the test, so it
 // carries its own lock rather than relying on the usecase's.
 type testClock struct {

@@ -12,6 +12,11 @@ import (
 
 const maxScanDepth = 4
 
+var (
+	helperDirs  = map[string]bool{"node_modules": true, "resources": true, "lib": true, "lib64": true, "locales": true}
+	helperFiles = map[string]bool{"chrome-sandbox": true, "chrome_crashpad_handler": true, "crashpad_handler": true}
+)
+
 type Rule interface {
 	Executable(
 		name string,
@@ -127,7 +132,7 @@ func (w *walk) visit(
 	}
 
 	name := w.scan.Rule.Stem(d.Name())
-	if !w.scan.Rule.Executable(d.Name(), info.Mode()) || !fsguard.SafeName(name) {
+	if isHelperFile(d.Name()) || !w.scan.Rule.Executable(d.Name(), info.Mode()) || !fsguard.SafeName(name) {
 		return nil
 	}
 
@@ -139,8 +144,18 @@ func (w *walk) descend(
 	name string,
 	depth int,
 ) error {
-	if depth >= maxScanDepth || w.scan.opaque(name) || strings.HasPrefix(name, ".") {
+	if depth >= maxScanDepth || w.scan.opaque(name) || strings.HasPrefix(name, ".") || helperDirs[strings.ToLower(name)] {
 		return filepath.SkipDir
 	}
 	return nil
+}
+
+func isHelperFile(
+	name string,
+) bool {
+	lower := strings.ToLower(name)
+	if helperFiles[lower] || strings.HasSuffix(lower, ".dylib") || strings.HasSuffix(lower, ".so") {
+		return true
+	}
+	return strings.Contains(lower, ".so.")
 }

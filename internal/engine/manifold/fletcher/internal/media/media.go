@@ -4,75 +4,32 @@ import (
 	"context"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/readme"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/hosts"
 )
-
-const readmeIconLineLimit = 60
 
 type Fetch func(
 	ctx context.Context,
 	url string,
 ) ([]byte, error)
 
-type source struct {
-	fetch Fetch
-	urls  fileURLs
-}
-
-func newSource(
-	fetch Fetch,
-	host hosts.Host,
-	ns domain.Namespace,
-	ref string,
-) source {
-	return source{
-		fetch: fetch,
-		urls:  fileURLsOf(host, ns, ref),
-	}
-}
-
+// Resolve settles an arrow's media: the repository's own icon when one was
+// found, else the owner's avatar, and the social preview as banner when it is
+// banner-shaped. Media never fails a draft, so a miss is an empty field.
 func Resolve(
 	ctx context.Context,
 	fetch Fetch,
-	host hosts.Host,
-	ns domain.Namespace,
-	ref string,
 	socialImage string,
-	readmeRaw []byte,
-	probedIcon string,
+	repoIcon string,
+	avatar string,
 ) domain.ArrowMedia {
-	src := newSource(fetch, host, ns, ref)
-	return domain.ArrowMedia{
-		Icon:   resolveIcon(ctx, src, readmeRaw, probedIcon),
-		Banner: resolveBanner(ctx, src, socialImage, readmeRaw),
+	icon := repoIcon
+	if icon == "" {
+		icon = avatar
 	}
-}
-
-func resolveIcon(
-	ctx context.Context,
-	src source,
-	readmeRaw []byte,
-	probedIcon string,
-) string {
-	if probedIcon != "" {
-		return probedIcon
+	banner := ""
+	if isBannerImage(ctx, fetch, socialImage) {
+		banner = socialImage
 	}
-	icon, _ := readmeIcon(ctx, src, readmeRaw)
-	return icon
-}
-
-func resolveBanner(
-	ctx context.Context,
-	src source,
-	socialImage string,
-	readmeRaw []byte,
-) string {
-	if isBannerImage(ctx, src.fetch, socialImage) {
-		return socialImage
-	}
-	banner, _ := readmeBanner(ctx, src, readmeRaw)
-	return banner
+	return domain.ArrowMedia{Icon: icon, Banner: banner}
 }
 
 func isBannerImage(
@@ -91,63 +48,6 @@ func isBannerImage(
 	return ok && isBannerShaped(dim)
 }
 
-func readmeIcon(
-	ctx context.Context,
-	src source,
-	readmeRaw []byte,
-) (string, bool) {
-	for _, img := range readme.Images(readmeRaw) {
-		if img.Line >= readmeIconLineLimit || readme.IsBadgeSrc(img.Src) {
-			continue
-		}
-		if url, ok := tryImageCandidate(ctx, src, img.Src, isSquareDim); ok {
-			return url, true
-		}
-	}
-	return "", false
-}
-
-func readmeBanner(
-	ctx context.Context,
-	src source,
-	readmeRaw []byte,
-) (string, bool) {
-	for _, img := range readme.Images(readmeRaw) {
-		if readme.IsBadgeSrc(img.Src) {
-			continue
-		}
-		if url, ok := tryImageCandidate(ctx, src, img.Src, isBannerShaped); ok {
-			return url, true
-		}
-	}
-	return "", false
-}
-
-func tryImageCandidate(
-	ctx context.Context,
-	src source,
-	imageSrc string,
-	accept func(dimensions) bool,
-) (string, bool) {
-	path, ok := src.urls.resolve(imageSrc)
-	if !ok {
-		return "", false
-	}
-	url, ok := src.urls.pinned(path)
-	if !ok {
-		return "", false
-	}
-	data, ok := fetchProbe(ctx, src.fetch, url)
-	if !ok {
-		return "", false
-	}
-	dim, ok := sniff(data)
-	if !ok || !accept(dim) {
-		return "", false
-	}
-	return url, true
-}
-
 func fetchProbe(
 	ctx context.Context,
 	fetch Fetch,
@@ -155,12 +55,6 @@ func fetchProbe(
 ) ([]byte, bool) {
 	data, err := fetch(ctx, url)
 	return data, err == nil
-}
-
-func isSquareDim(
-	dim dimensions,
-) bool {
-	return dim.Width == dim.Height
 }
 
 func isBannerShaped(

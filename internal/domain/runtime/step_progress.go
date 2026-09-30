@@ -20,6 +20,7 @@ type StepProgress struct {
 	Index  int
 	Status StepStatus
 	Error  *string
+	Note   *string
 	Step   step.Step
 }
 
@@ -27,6 +28,7 @@ type stepProgressJSON struct {
 	Index  int           `json:"Index"`
 	Status StepStatus    `json:"Status"`
 	Error  *string       `json:"Error"`
+	Note   *string       `json:"Note,omitempty"`
 	Step   step.StepList `json:"Step"`
 }
 
@@ -39,6 +41,7 @@ func (sp StepProgress) MarshalJSON() ([]byte, error) {
 		Index:  sp.Index,
 		Status: sp.Status,
 		Error:  sp.Error,
+		Note:   sp.Note,
 		Step:   steps,
 	})
 }
@@ -51,6 +54,7 @@ func (sp *StepProgress) UnmarshalJSON(data []byte) error {
 	sp.Index = raw.Index
 	sp.Status = raw.Status
 	sp.Error = raw.Error
+	sp.Note = raw.Note
 	if len(raw.Step) > 0 {
 		sp.Step = raw.Step[0]
 	}

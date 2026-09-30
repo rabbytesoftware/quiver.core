@@ -25,7 +25,7 @@ func (f *fallback) latestUnstable(
 	if err != nil {
 		return "", lookupFailure(err)
 	}
-	for _, channel := range channels {
+	for _, channel := range resolvers.NewestFirst(channels) {
 		if channel.Name == resolvers.StableChannel || channel.IsDefaultBranchFallback {
 			continue
 		}

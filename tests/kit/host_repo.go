@@ -3,6 +3,7 @@
 package kit
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -14,6 +15,10 @@ type HostRepo struct {
 	Binary      string
 	Asset       string
 	Tags        []string
+
+	APIDescription string
+	AvatarURL      string
+	Files          map[string][]byte
 }
 
 func (r HostRepo) assetName(
@@ -34,6 +39,7 @@ func expandAsset(
 
 func (r HostRepo) script(
 	tag string,
+	revision int,
 ) []byte {
-	return []byte("#!/bin/sh\necho " + r.Binary + " " + tag + "\n")
+	return []byte("#!/bin/sh\necho " + r.Binary + " " + tag + "\n# revision " + strconv.Itoa(revision) + "\n")
 }

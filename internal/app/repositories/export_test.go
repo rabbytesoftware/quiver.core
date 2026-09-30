@@ -10,7 +10,9 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -52,6 +54,13 @@ func CatalogLister(
 	return catalogLister(cat)
 }
 
+// ShelvesOf exposes shelvesOf for unit tests.
+func ShelvesOf(
+	configured []config.RecommendationShelf,
+) []recommendation.ShelfConfig {
+	return shelvesOf(configured)
+}
+
 // DiscardCollection exposes discardCollection for unit tests.
 func DiscardCollection(
 	coll collection.Collection,
@@ -73,4 +82,11 @@ func PreinstalledProbe(
 	w wizardPkg.Wizard,
 ) repoarrow.PreinstalledProbeFn {
 	return preinstalledProbe(w)
+}
+
+// ManifestRefresher exposes manifestRefresher for unit tests.
+func ManifestRefresher(
+	cat repoarrow.Arrow,
+) runtime.RefreshManifestFn {
+	return manifestRefresher(cat)
 }

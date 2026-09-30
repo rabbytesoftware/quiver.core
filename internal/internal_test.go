@@ -379,3 +379,34 @@ func TestNew_WithGateway_StartReusesTheProvidedListener(t *testing.T) {
 
 	require.NoError(t, c.Start(ctx, "not-a-uri"), "Start must reuse the pre-bound listener rather than resolving host at all")
 }
+
+func TestWithRecommendations_SetsOption(t *testing.T) {
+	cfg := internalOpts{}
+
+	WithRecommendations()(&cfg)
+
+	assert.True(t, cfg.recommendations)
+}
+
+func TestNew_WithoutRecommendations_DoesNotLaunchTheRefreshLoop(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	assert.False(t, c.recommendations, "a container built without the option never reaches a git host")
+}
+
+// The context is already cancelled, so the loop the option launches stops before
+// it can search anything: this covers the wiring without a network call.
+func TestContainer_Start_WithRecommendations_LaunchesTheLoopAndShutsDownCleanly(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()), WithRecommendations())
+	require.NoError(t, err)
+	require.True(t, c.recommendations)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
+}

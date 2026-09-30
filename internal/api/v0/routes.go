@@ -7,6 +7,7 @@ import (
 	authendpoint "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/auth"
 	quivers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/collections"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/health"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/home"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/search"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/system"
@@ -26,6 +27,7 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	runtime.Register(protected, c.runtimeSvc, c.wsHandler.Runtime.Handle)
 	quivers.Register(protected, c.collectionSvc, c.wsHandler.Collection.Handle)
 	search.Register(protected, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
+	home.Register(protected, c.homeSvc)
 	system.Register(protected, c.configSvc, c.pathSvc)
 	health.Register(rg)
 	authendpoint.Register(rg, c.authSvc, c.AuthGate, c.rateLimiter)

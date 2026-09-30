@@ -35,6 +35,13 @@ type Host interface {
 		ns domain.Namespace,
 	) string
 
+	// OwnerAvatarURL is the stable address of the repository owner's avatar,
+	// served without spending any metered API quota. It is "" on a host that
+	// has none.
+	OwnerAvatarURL(
+		ns domain.Namespace,
+	) string
+
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
@@ -45,6 +52,14 @@ type Host interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (string, error)
+
+	// RepoMetadata is what the host says about the repository itself. It may
+	// cost a metered request, so an implementation asks at most once per
+	// repository; an error is a miss the caller degrades past.
+	RepoMetadata(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RepoMetadata, error)
 
 	// An absent or empty release is an empty list; an error means the host
 	// could not be asked.

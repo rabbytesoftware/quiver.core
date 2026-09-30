@@ -21,6 +21,10 @@ type DiscoveryService struct {
 	startQuery string
 	getID      string
 	cancelled  []string
+	attached   []string
+	detached   []string
+	replay     []usecases.StreamItem
+	done       chan struct{}
 	listeners  []func(usecases.StreamItem)
 }
 
@@ -52,6 +56,73 @@ func (m *DiscoveryService) Cancel(
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cancelled = append(m.cancelled, id)
+}
+
+func (m *DiscoveryService) Attach(
+	id string,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.attached = append(m.attached, id)
+}
+
+func (m *DiscoveryService) Detach(
+	id string,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detached = append(m.detached, id)
+}
+
+func (m *DiscoveryService) Replay(
+	_ string,
+) []usecases.StreamItem {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]usecases.StreamItem(nil), m.replay...)
+}
+
+// Done returns a channel Finish closes, so a test decides when the stream ends.
+func (m *DiscoveryService) Done(
+	_ string,
+) <-chan struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.done == nil {
+		m.done = make(chan struct{})
+	}
+	return m.done
+}
+
+// Finish marks the job done.
+func (m *DiscoveryService) Finish() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.done == nil {
+		m.done = make(chan struct{})
+	}
+	close(m.done)
+}
+
+// SetReplay fixes what Replay returns.
+func (m *DiscoveryService) SetReplay(
+	items []usecases.StreamItem,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.replay = items
+}
+
+func (m *DiscoveryService) Attached() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.attached...)
+}
+
+func (m *DiscoveryService) Detached() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.detached...)
 }
 
 func (m *DiscoveryService) OnResult(

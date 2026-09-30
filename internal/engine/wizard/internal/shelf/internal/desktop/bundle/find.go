@@ -38,6 +38,11 @@ func (e *exposer) candidates(
 	if err != nil || len(found) > 0 {
 		return found, err
 	}
+
+	nested, err := discover.Nested(req.Workdir, models.BundleExt)
+	if err != nil || len(nested) > 0 {
+		return nested, err
+	}
 	return e.placed(req), nil
 }
 
