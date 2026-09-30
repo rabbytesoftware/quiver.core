@@ -61,18 +61,33 @@ func Drift(
 	if target.Ref == resolved.Ref && target.Commit == resolved.Commit {
 		return domain.Available{}, false, nil
 	}
-	if isOrdered(kind) && target.Ref != resolved.Ref && resolvers.Outranks(resolved.Ref, target.Ref) {
+	if isDowngrade(kind, resolved, target, snap) {
 		return domain.Available{}, false, nil
 	}
 	return target, true, nil
 }
 
-func isOrdered(
+// isDowngrade reports a target the selector's own order ranks below the
+// installed tag: a channel compares tags of one channel, a constraint uses
+// the order it picks its target in. An installed tag the snapshot no longer
+// holds (a yanked release) is no rank at all, so the current head is offered.
+func isDowngrade(
 	kind domain.SelectorKind,
+	resolved domain.Resolved,
+	target domain.Available,
+	snap domain.RefSnapshot,
 ) bool {
+	if target.Ref == resolved.Ref {
+		return false
+	}
+	if _, installed := snap.Tags[resolved.Ref]; !installed {
+		return false
+	}
 	switch kind {
-	case domain.SelectorChannel, domain.SelectorOrderedChannel, domain.SelectorConstraint:
-		return true
+	case domain.SelectorChannel, domain.SelectorOrderedChannel:
+		return resolvers.Outranks(resolved.Ref, target.Ref)
+	case domain.SelectorConstraint:
+		return resolvers.ConstraintOutranks(resolved.Ref, target.Ref)
 	case domain.SelectorPin, domain.SelectorTagPin, domain.SelectorBranchPin,
 		domain.SelectorPointerChannel, domain.SelectorBranchChannel, domain.SelectorCommit:
 	}

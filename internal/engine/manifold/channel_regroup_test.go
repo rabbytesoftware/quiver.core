@@ -57,8 +57,9 @@ func TestDrift_ChannelNeverOffersADowngrade(t *testing.T) {
 			resolved: domain.Resolved{Ref: "stable-2026-09-27", Commit: "c-stable-2026-09-27"}, snap: coreReleaseTags("stable-2026-09-27"),
 		},
 		{
-			name: "a dated stable build whose tag is not visible yet is never offered stable-26.5.1", kind: domain.SelectorOrderedChannel, selector: "stable",
-			resolved: domain.Resolved{Ref: "stable-2026-09-27", Commit: "sdate"}, snap: coreReleaseTags(),
+			name: "a yanked head (installed tag deleted) is offered the channel's current head", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-26.5.2", Commit: "yanked"}, snap: coreReleaseTags(),
+			wantTarget: domain.Available{Ref: "stable-26.5.1", Commit: "s2651"}, wantOutdated: true,
 		},
 		{
 			name: "a dated beta build is never offered beta-26.5-4", kind: domain.SelectorOrderedChannel, selector: "beta",
@@ -75,8 +76,24 @@ func TestDrift_ChannelNeverOffersADowngrade(t *testing.T) {
 			wantTarget: domain.Available{Ref: "stable-26.10", Commit: "c-stable-26.10"}, wantOutdated: true,
 		},
 		{
-			name: "a constraint whose installed tag was deleted is not offered a lower one", kind: domain.SelectorConstraint, selector: "v1.*",
+			name: "a constraint whose installed tag was deleted is offered its current match", kind: domain.SelectorConstraint, selector: "v1.*",
 			resolved: domain.Resolved{Ref: "v1.3.0", Commit: "gone"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a constraint on a pre-release is offered the release the constraint picks", kind: domain.SelectorConstraint, selector: "v1.*",
+			resolved: domain.Resolved{Ref: "v1.2.0-rc.1", Commit: "rc"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0-rc.1": "rc", "v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a constraint on a numbered build is offered the release the constraint picks", kind: domain.SelectorConstraint, selector: "v1.*",
+			resolved: domain.Resolved{Ref: "v1.2.0-1", Commit: "b1"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0-1": "b1", "v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a stable row whose installed tag the repository regrouped is never offered an older release", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "crowbar-1.5", Commit: "c15"},
+			snap:     domain.RefSnapshot{Tags: map[string]string{"crowbar-1.4": "c14", "crowbar-1.5": "c15", "v1.4.0": "v140"}},
 		},
 		{
 			name: "a moved tag of the same name is still offered", kind: domain.SelectorOrderedChannel, selector: "stable",

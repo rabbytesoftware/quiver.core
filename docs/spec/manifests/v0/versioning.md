@@ -309,12 +309,14 @@ pure functions (`internal/engine/manifold/drift.go`):
   unrefined `channel` row does the same only for the `HEAD` branch it itself resolved to,
   so an ordered channel or a deleted pointer tag never turns into a same-name branch.
 - A selector never crosses its own bounds: `v1.*` never drifts to `v2.0.0`.
-- An ordered selector (a channel of classified members, or a constraint) never offers a
-  downgrade: a target its own ranking (§2.1) puts below the installed `Resolved.Ref` is
-  not an update, even when the installed tag is no longer a member (deleted, or not
-  published yet, as when a build adopts its own release before the tag is visible). A tag
-  that moved under the same name, a pointer channel and a pin follow their ref whichever
-  way it moved.
+- An ordered selector never offers a downgrade: a target its own order ranks below the
+  installed tag is not an update. A channel compares only tags of one channel (each read on
+  its own: `v1.2.0-rc.1` is `rc`, `v1.2.0` is `stable`); a constraint uses the order it
+  picks its target in (§5.3), so a `v1.*` row on `v1.2.0-rc.1` or `v1.2.0-1` is offered
+  `v1.2.0`. The guard needs the installed tag to still exist: an installed tag the snapshot
+  no longer holds (a yanked release, a deleted tag) has no rank, and the channel's or
+  constraint's current head is offered, even when it is older. A tag that moved under the
+  same name, a pointer channel and a pin follow their ref whichever way it moved.
 - A row whose ordered channel is no longer listed under its name — a later tag made the
   classifier regroup the repository's tags, as `beta-2.0` could once turn `release-1.x` from
   `stable` into a `release` channel — follows the ordered channel that holds its installed

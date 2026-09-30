@@ -347,6 +347,9 @@ func TestOutranks(t *testing.T) {
 		{name: "no core on b", a: "v1.0.0", b: "nightly", want: false},
 		{name: "a pre-2000 year is kept whole", a: "stable-1999-01-01", b: "stable-26.0", want: true},
 		{name: "a bare date carries no core", a: "2026-01-02", b: "v1.4.0", want: false},
+		{name: "a pre-release never outranks another channel's release", a: "v1.2.0-rc.1", b: "v1.2.0", want: false},
+		{name: "a dated stable patch outranks its date", a: "stable-2026-09-27.1", b: "stable-2026-09-27", want: true},
+		{name: "a later date outranks an earlier date's patch", a: "stable-2026-10-01", b: "stable-2026-09-27.9", want: true},
 	}
 
 	for _, tc := range testCases {
@@ -368,5 +371,26 @@ func TestGroupChannels_DatedBuildNumbers(t *testing.T) {
 
 	if !equalGroups(got, want) {
 		t.Errorf("GroupChannels = %v, want %v", got, want)
+	}
+}
+
+func TestConstraintOutranks(t *testing.T) {
+	testCases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "a release outranks its pre-release", a: "v1.2.0", b: "v1.2.0-rc.1", want: true},
+		{name: "a pre-release never outranks a release", a: "v1.2.0-rc.1", b: "v1.2.0", want: false},
+		{name: "a numbered build never outranks the release", a: "v1.2.0-1", b: "v1.2.0", want: false},
+		{name: "a higher release", a: "v1.3.0", b: "v1.2.0", want: true},
+		{name: "itself", a: "v1.2.0", b: "v1.2.0", want: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ConstraintOutranks(tc.a, tc.b); got != tc.want {
+				t.Errorf("ConstraintOutranks(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
 	}
 }

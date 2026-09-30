@@ -214,21 +214,29 @@ func classifyByPrefix(
 	return StableChannel, ordinal
 }
 
-// Outranks reports whether tag a ranks above tag b by channel precedence
-// (version or date core, then ordinal), whatever channels the two are
-// classified into today. It is false when either carries no core.
+// Outranks reports whether tag a ranks above tag b within one channel
+// (version or date core, then ordinal). Tags of different channels, read
+// each on its own ("v1.2.0-rc.1" is rc, "v1.2.0" stable), never outrank one
+// another, and neither does a tag with no core.
 func Outranks(
 	a, b string,
 ) bool {
 	rankA, okA := rankOf(a)
 	rankB, okB := rankOf(b)
-	if !okA || !okB {
+	if !okA || !okB || rankA.channel != rankB.channel {
 		return false
 	}
-	if c := compareCores(rankA.core, rankB.core); c != 0 {
-		return c > 0
-	}
-	return rankA.ordinal > rankB.ordinal
+	return compareClassified(rankA, rankB) < 0
+}
+
+// ConstraintOutranks reports whether tag a ranks above tag b in the order a
+// constraint picks its target in (HighestMatch).
+func ConstraintOutranks(
+	a, b string,
+) bool {
+	tags := []string{b, a}
+	sortTagsDesc(tags)
+	return tags[0] == a && a != b
 }
 
 func rankOf(
@@ -238,8 +246,8 @@ func rankOf(
 	if !ok {
 		return classifiedTag{}, false
 	}
-	_, ordinal := classifyOne(suffix, normalizeVersionPrefix(prefix), false)
-	return classifiedTag{tag: tag, core: semverParts(core), ordinal: ordinal}, true
+	channel, ordinal := classifyOne(suffix, normalizeVersionPrefix(prefix), false)
+	return classifiedTag{tag: tag, channel: channel, core: semverParts(core), ordinal: ordinal}, true
 }
 
 // GroupChannels classifies tags once and buckets them into ordered
