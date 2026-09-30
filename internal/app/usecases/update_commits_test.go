@@ -264,3 +264,54 @@ func TestUpdateCommits_RepeatedTimeouts_AbortOnce(t *testing.T) {
 	commits.done(rollingRow)
 	require.NoError(t, commits.drain(context.Background()))
 }
+
+// A settle whose commit ran out of time restores the row under a context of
+// its own, which a drain that gives up must still be able to abort: no write
+// outlives the stores.
+func TestRuntimeDrain_Abort_CancelsARestoreAfterACommitTimeout(t *testing.T) {
+	a, rt, _ := commitFixture(true, nil)
+	a.TargetUnmovedFn = func(ctx context.Context, _ domain.Namespace, _ domain.Available) (bool, error) {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	restoring := make(chan struct{})
+	a.RefreshToTargetFn = func(ctx context.Context, _ domain.Namespace, _ domain.Available) (*domain.Arrow, error) {
+		close(restoring)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	uc := newUC(a, rt, &ucmocks.MockGraph{})
+	uc.commitTimeout = 10 * time.Millisecond
+	uc.targets.put(rollingRow, rollingTarget())
+	settled := make(chan struct{})
+	go func() {
+		uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+		close(settled)
+	}()
+	waitClosed(t, restoring, "the restore never began")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, uc.Drain(ctx), context.Canceled)
+
+	waitClosed(t, settled, "the drain's abort never reached the restore")
+}
+
+// Once a drain began, a bracket that fails after staging writes nothing
+// more: the stores are about to close.
+func TestRuntimeDrain_Begun_BracketRestoreIsRefused(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.arrow.GetFn = func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		return &domain.Arrow{Namespace: ns, Resolved: domain.Resolved{Ref: "nightly-latest", Commit: "c1"}}, nil
+	}
+	uc := f.usecase()
+	f.runtime.BeginUpdateFn = func(context.Context, domain.Namespace, map[string]string, string) error {
+		require.NoError(t, uc.Drain(context.Background()))
+		return errors.New("refused")
+	}
+
+	require.Error(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+
+	assert.NotContains(t, f.log.all(), "refresh to c1")
+}

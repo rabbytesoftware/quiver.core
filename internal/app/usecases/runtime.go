@@ -485,7 +485,8 @@ const restoreTimeout = 30 * time.Second
 // changes and begins its update. Anything that fails once the target is
 // staged restores the installed release's manifest before returning: no run
 // began, so nothing would ever end to restore it, and the next install would
-// run the target's recipe for the installed ${REF}.
+// run the target's recipe for the installed ${REF}. The restore is tracked
+// like a commit, so a shutdown drain waits for it, aborts it, or refuses it.
 func (u *runtimeUsecase) stageAndBegin(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -499,10 +500,11 @@ func (u *runtimeUsecase) stageAndBegin(
 	}
 	began := false
 	defer func() {
-		if err == nil || began {
+		if err == nil || began || !u.commits.begin(ns) {
 			return
 		}
-		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+		defer u.commits.done(ns)
+		restoreCtx, cancel := u.commits.bound(context.WithoutCancel(ctx), restoreTimeout)
 		defer cancel()
 		u.restoreInstalled(restoreCtx, ns)
 	}()
@@ -858,8 +860,9 @@ func (u *runtimeUsecase) settleUpdate(
 
 // afterSettle gives the writes that close a settling their own context once
 // the settling's ran out: a commit that timed out still restores the row and
-// reconciles its badge. A settling a shutdown drain aborted writes nothing:
-// the stores are about to close.
+// reconciles its badge. That context is bounded like a commit's, so a drain
+// that gives up aborts it too, and a settling a shutdown drain aborted writes
+// nothing: the stores are about to close.
 func (u *runtimeUsecase) afterSettle(
 	ctx context.Context,
 ) (context.Context, context.CancelFunc, bool) {
@@ -869,7 +872,7 @@ func (u *runtimeUsecase) afterSettle(
 	if u.commits.isDraining() {
 		return nil, nil, false
 	}
-	fresh, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+	fresh, cancel := u.commits.bound(context.WithoutCancel(ctx), restoreTimeout)
 	return fresh, cancel, true
 }
 

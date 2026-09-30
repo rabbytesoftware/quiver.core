@@ -600,7 +600,9 @@ and one the budget runs out on is aborted. An aborted settling writes nothing mo
 commit that runs out of its own time (`commitTimeout`, 2 min) outside a shutdown stamps
 nothing either, but it still restores the installed manifest (step 8) and re-derives the
 badge, under a short context of its own, so the badge never stays `ready` on a row that
-has something available. Either way, and when the daemon dies outright,
+has something available. Every such restore — including a bracket's own after a failure
+before its update began — is tracked like a commit: a drain waits for it, a drain that
+gives up aborts it, and one that would begin after the drain started is refused. Either way, and when the daemon dies outright,
 nothing is stamped: the row stays outdated at what it had installed, and the next update
 runs the update steps again. That is the same worst case as a target that moved.
 
