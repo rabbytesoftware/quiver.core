@@ -256,6 +256,8 @@ func (r *storeService) resolveVersionStates(
 	return result, nil
 }
 
+// Get returns the row ns names: exactly that identity when ns has a ref,
+// the repository's preferred row when it has none.
 func (r *storeService) Get(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -264,10 +266,11 @@ func (r *storeService) Get(
 	if err != nil {
 		return nil, fmt.Errorf("reader get: %w", err)
 	}
-	if vm == nil {
-		return nil, apperrors.ErrNotFound
+	row, ok := cataloguedRow(vm, ns)
+	if !ok {
+		return nil, fmt.Errorf("reader get %s: %w", ns, apperrors.ErrNotFound)
 	}
-	return &vm.Metadata, nil
+	return row, nil
 }
 
 func (r *storeService) GetDetail(

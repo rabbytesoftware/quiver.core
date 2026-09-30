@@ -121,6 +121,41 @@ func TestGet_Found(t *testing.T) {
 	assert.Equal(t, "Pkg", got.Name)
 }
 
+// A namespace with a ref names exactly that row, even when another row of
+// the same repository is the preferred one; a ref-less one names the
+// preferred row.
+func TestGet_TwoRowsOfOneRepository(t *testing.T) {
+	stable := domain.Namespace("github.com/user/crowbar@stable")
+	constraint := domain.Namespace("github.com/user/crowbar@v1.*")
+	testCases := []struct {
+		name     string
+		ns       domain.Namespace
+		wantName string
+		wantErr  error
+	}{
+		{name: "the preferred row", ns: stable, wantName: "Stable"},
+		{name: "the other row", ns: constraint, wantName: "Constraint"},
+		{name: "a ref-less namespace", ns: stable.BareNamespace(), wantName: "Stable"},
+		{name: "a ref with no row", ns: "github.com/user/crowbar@nightly", wantErr: apperrors.ErrNotFound},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestReader(t)
+			seedArrow(t, r, domain.Arrow{Namespace: stable, ArrowMeta: domain.ArrowMeta{Name: "Stable"}, UserInstalled: true})
+			seedArrow(t, r, domain.Arrow{Namespace: constraint, ArrowMeta: domain.ArrowMeta{Name: "Constraint"}})
+
+			got, err := r.Get(context.Background(), tc.ns)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantName, got.Name)
+		})
+	}
+}
+
 func TestGet_NotFound(t *testing.T) {
 	r := newTestReader(t)
 	_, err := r.Get(context.Background(), domain.Namespace("github.com/nobody/pkg@v1"))
