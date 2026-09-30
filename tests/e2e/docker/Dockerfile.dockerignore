@@ -1,0 +1,9 @@
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!docs/
+!ARROW.md
+!tests/e2e/docker/
+**/*_test.go

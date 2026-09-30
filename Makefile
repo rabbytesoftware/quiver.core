@@ -39,7 +39,7 @@ YELLOW := $(shell printf '\033[0;33m')
 BLUE   := $(shell printf '\033[0;34m')
 NC     := $(shell printf '\033[0m')
 
-.PHONY: help build install run test test-coverage test-integration bench bench-update test-all test-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
+.PHONY: help build install run test test-coverage test-integration bench bench-update test-all test-docker test-e2e-docker lint clean docker-build docker-run pr-checks setup deps fmt vet security icons generate-icons build-release build-cross-platform build-macos-app
 
 # Default target
 all: clean deps fmt vet test build
@@ -59,6 +59,7 @@ help:
 	@echo "  test              - Run all tests"
 	@echo "  test-coverage     - Run tests with coverage report"
 	@echo "  test-docker       - Run tests in Docker container"
+	@echo "  test-e2e-docker   - Real end-to-end run on Linux in Docker (network; E2E_PLATFORM=linux/amd64 for amd64)"
 	@echo "  bench             - Run integration benchmarks, check 1.25× regression"
 	@echo "  bench-update      - Re-generate benchmark baseline for this machine"
 	@echo "  missing-tests     - List files without tests"
@@ -212,6 +213,23 @@ test-docker:
 		rm -f $(COVERAGE_FILE).tmp && \
 		go tool cover -func=$(COVERAGE_FILE)"
 	@echo "$(GREEN)Docker tests completed!$(NC)"
+
+# Real end-to-end run of a built quiver binary on Linux: installs, updates and
+# uninstalls github.com/char2cs/crowbar@nightly from GitHub, then force-moves a
+# rolling tag on a container-local git host under an installed row. Needs
+# network access; not part of pr-checks.
+#   E2E_PLATFORM    image/container platform (default linux/arm64; linux/amd64
+#                   runs under emulation on an arm64 host)
+#   E2E_ARGS        extra `docker run` arguments, e.g. -e E2E_PHASES=B or
+#                   -e E2E_KNOWN_BUGS=1
+E2E_PLATFORM ?= linux/arm64
+E2E_ARGS     ?=
+test-e2e-docker:
+	@echo "$(BLUE)Running the docker end-to-end suite on $(E2E_PLATFORM)...$(NC)"
+	docker build --platform $(E2E_PLATFORM) -f tests/e2e/docker/Dockerfile \
+		--build-arg QUIVER_COMMIT=$(shell git rev-parse HEAD 2>/dev/null) -t quiver-e2e .
+	docker run --rm --platform $(E2E_PLATFORM) $(E2E_ARGS) quiver-e2e
+	@echo "$(GREEN)End-to-end suite passed on $(E2E_PLATFORM)!$(NC)"
 
 # Run linting checks
 lint:
