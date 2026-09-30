@@ -812,10 +812,13 @@ func (u *runtimeUsecase) settleUpdate(
 	recorded bool,
 ) {
 	defer u.reconcileBadge(ctx, rt.Ref)
+	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
 	if isSelfNamespace(rt.Ref) {
+		if !succeeded {
+			u.restoreInstalled(ctx, rt.Ref)
+		}
 		return
 	}
-	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
 	if !recorded {
 		if succeeded {
 			slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)

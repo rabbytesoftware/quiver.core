@@ -595,7 +595,8 @@ nothing is stamped: the row stays outdated at what it had installed, and the nex
 runs the update steps again. That is the same worst case as a target that moved.
 
 quiver.core's own row is excluded from step 7: its update replaces the running process,
-and the relaunched build adopts its new state on boot (§10.2).
+and the relaunched build adopts its new state on boot (§10.2). A failed update of it is not:
+the running build stays in charge, so its manifest is restored as in step 8.
 
 ---
 

@@ -879,6 +879,34 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	assert.Equal(t, []string{"reconcile badge"}, log.all(), "nothing is committed; the badge follows the row")
 }
 
+// A failed update of quiver.core's own row leaves the running build in
+// charge, so its manifest is put back like any other row's; a succeeded one
+// is left to the relaunched build.
+func TestRuntimeOnUpdateEnded_SelfNamespace_RestoresOnlyAfterFailure(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	selfRow := self.WithRef("stable")
+
+	testCases := []struct {
+		name    string
+		outcome domainRuntime.ExecutionOutcome
+		want    []string
+	}{
+		{name: "failed", outcome: domainRuntime.ExecutionOutcomeFailed, want: []string{"restore c1", "reconcile badge"}},
+		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"reconcile badge"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, rt, log := commitFixture(true, nil)
+			uc := newUC(a, rt, &ucmocks.MockGraph{})
+
+			uc.onUpdateEnded(context.Background(), updateEnded(selfRow, tc.outcome))
+
+			assert.Equal(t, tc.want, log.all())
+		})
+	}
+}
+
 // quiver.core's own update is no exception to the bracket: a self row that is
 // already at its selector's target runs no update steps, so the self-update
 // handover never fires for it. Only a selector that moved ahead of what is
