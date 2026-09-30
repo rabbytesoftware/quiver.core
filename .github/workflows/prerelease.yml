@@ -123,8 +123,12 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TAG: ${{ needs.prepare.outputs.tag }}
       run: |
+        # The tag must name the commit that was built (build-assets checks out
+        # github.sha and stamps it as main.commit); without --target GitHub
+        # creates it at the default branch's head instead.
         gh release create "$TAG" \
           --prerelease \
+          --target "$GITHUB_SHA" \
           --title "$TAG" \
           --notes-file CHANGELOG.md \
           bin/quiver-linux-amd64 \

@@ -123,6 +123,7 @@ jobs:
         TAG: ${{ needs.prepare.outputs.version }}
       run: |
         gh release create "$TAG" \
+          --verify-tag \
           --title "$TAG" \
           --notes-file CHANGELOG.md \
           bin/quiver-linux-amd64 \
