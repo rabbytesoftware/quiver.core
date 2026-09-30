@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -150,6 +151,13 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	)
+	// HoldBadgeWhile registers when a version check must leave ns's runtime
+	// badge alone: while an update of ns settles, the row still names the
+	// target it is about to stamp, and the update re-derives the badge
+	// itself once its commit landed.
+	HoldBadgeWhile(
+		settling func(ns domain.Namespace) bool,
+	)
 	// CheckInstalledVersions runs the passive version check of every
 	// installed row, one at a time and under the same TTL claim a detail
 	// read takes, so a row checked recently is skipped. It returns when all
@@ -202,6 +210,9 @@ type arrowService struct {
 	// which is what keeps a version check's effect confined to the Arrow
 	// aggregate for a catalog built without a runtime to talk to.
 	versionOutdatedSync SetVersionOutdatedFn
+
+	// badgeHeld is registered once at startup and read by concurrent checks.
+	badgeHeld atomic.Pointer[func(ns domain.Namespace) bool]
 
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
@@ -495,12 +506,21 @@ func (s *arrowService) syncBadgeFromRow(
 	ctx context.Context,
 	ns domain.Namespace,
 ) {
+	if held := s.badgeHeld.Load(); held != nil && (*held)(ns) {
+		return
+	}
 	row, err := s.axArrow.Get(ctx, ns.String())
 	if err != nil {
 		slog.WarnContext(ctx, "arrow version check: re-read row", "ns", ns, "err", err)
 		return
 	}
 	s.syncVersionOutdated(ctx, ns, row.Available != nil)
+}
+
+func (s *arrowService) HoldBadgeWhile(
+	settling func(ns domain.Namespace) bool,
+) {
+	s.badgeHeld.Store(&settling)
 }
 
 // maxWriteAttempts bounds how often a write to a row another writer changed

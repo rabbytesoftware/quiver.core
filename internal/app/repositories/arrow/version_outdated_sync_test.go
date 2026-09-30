@@ -325,3 +325,36 @@ func TestCheckInstalledVersions_RowGoneSinceListing_IsSkipped(t *testing.T) {
 
 	assert.Zero(t, checks)
 }
+
+// While an update of the row settles, the row still names the target it is
+// about to stamp; a check landing then records what it found but leaves the
+// badge to the update, which re-derives it once its commit landed.
+func TestRunVersionCheck_RowSettling_LeavesTheBadgeToTheUpdate(t *testing.T) {
+	testCases := []struct {
+		name     string
+		settling bool
+		want     domain.ArrowState
+	}{
+		{name: "an update is settling", settling: true, want: domain.ArrowStateReady},
+		{name: "no update is settling", settling: false, want: domain.ArrowStateOutdated},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			axRuntime := newTestAsynxRuntime(t)
+			ns := testNs()
+			arrow := seedCatalogued(t, axArrow, ns)
+			require.NoError(t, runtimeRepo.MarkPreinstalled(axRuntime)(context.Background(), ns))
+			cat := driftingCatalog(t, axArrow, axRuntime, ahead())
+			cat.HoldBadgeWhile(func(got domain.Namespace) bool { return tc.settling && got == ns })
+
+			arrowRepo.RunVersionCheckForTest(cat, context.Background(), arrow)
+
+			assert.Equal(t, tc.want, runtimeState(t, axRuntime, ns))
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, ahead(), got.Available, "the finding is recorded either way")
+		})
+	}
+}

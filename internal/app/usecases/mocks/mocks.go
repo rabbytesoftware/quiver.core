@@ -292,6 +292,11 @@ func (m *MockArrow) CheckVersionNow(
 	}
 }
 
+func (m *MockArrow) HoldBadgeWhile(
+	_ func(ns domain.Namespace) bool,
+) {
+}
+
 func (m *MockArrow) CheckInstalledVersions(
 	ctx context.Context,
 ) {
