@@ -12,7 +12,8 @@ import (
 
 // A client that installed itself declares the build it runs rather than
 // whatever its channel points at now, so the row offers the update that
-// build actually needs, and the update moves that same row.
+// build actually needs; installing the row acts on that release, and a later
+// update moves that same row.
 func (s *AdvanceSuite) TestAdopt_OlderStableMember_OffersTheUpdateAndAdvancesInPlace() {
 	manifest := s.stableManifest()
 	f := s.newFixture("stable-tool", "v1.2.0", manifest)
@@ -50,15 +51,24 @@ func (s *AdvanceSuite) TestAdopt_OlderStableMember_OffersTheUpdateAndAdvancesInP
 	s.Require().Len(library[0].Versions, 1)
 	s.Equal("stable", library[0].Versions[0].Ref)
 
+	// The runtime was left alone, so nothing is installed from the adopted row
+	// yet: an install acts on the release ahead of it.
 	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateReady, wait)
+	installed := s.detail(tc, ns)
+	s.Equal("v1.3.0", installed.ResolvedRef)
+	s.Equal(v130, installed.InstalledCommit)
+	s.Nil(installed.Available)
+
+	v140 := s.publish(f, "v1.4.0", manifest)
+	s.Require().NotNil(s.checkAvailable(tc, ns))
 	s.update(tc, ns)
-	advanced := s.waitAdvanced(tc, ns, v130)
+	advanced := s.waitAdvanced(tc, ns, v140)
 
 	s.Equal(ns, advanced.Namespace, "an update keeps the adopted identity")
-	s.Equal("v1.3.0", advanced.ResolvedRef)
+	s.Equal("v1.4.0", advanced.ResolvedRef)
 	s.True(advanced.UserInstalled)
-	s.Equal([]string{"v1.3.0"}, s.updateRuns(env, ns))
+	s.Equal([]string{"v1.4.0"}, s.updateRuns(env, ns))
 
 	items, status = tc.List()
 	s.Require().Equal(http.StatusOK, status)
