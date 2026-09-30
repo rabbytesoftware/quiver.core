@@ -11,9 +11,14 @@
 #   Phase C  the CLI-booted daemon: an update's commit survives the CLI's
 #            idle-stop, and a second update of a row whose last run was an
 #            update waits for its own steps.
+#   Phase D  a stable channel on the same clone-only host, which serves no
+#            commit SHA and no ref named "stable": a refless install follows
+#            stable to its newest stable-* tag, an update across a new tag
+#            keeps the identity, and adopting an older member offers the
+#            newest.
 #
 # Environment:
-#   E2E_PHASES         phases to run, default "A B C"
+#   E2E_PHASES         phases to run, default "A B C D"
 #   E2E_WAIT_SECONDS   deadline for any single wait, default 1500
 #   E2E_HOST_ARCH      the Docker host's architecture (amd64|arm64), set by
 #                      `make test-e2e-docker`; evidence that the container is
@@ -23,11 +28,12 @@ set -Eeuo pipefail
 readonly CROWBAR_REPO=https://github.com/char2cs/crowbar
 readonly CROWBAR=github.com/char2cs/crowbar@nightly
 readonly FIXTURE_SRC=/opt/e2e/fixture
+readonly MULTI_FIXTURE=$FIXTURE_SRC/multi-tool/ARROW.md
 readonly GIT_ROOT=/srv/git
 readonly SOCK="$HOME/.quiver/quiver.sock"
 readonly PID_FILE="$HOME/.quiver/quiver.pid"
 WAIT_SECONDS="${E2E_WAIT_SECONDS:-1500}"
-PHASES="${E2E_PHASES:-A B C}"
+PHASES="${E2E_PHASES:-A B C D}"
 
 SUITE_START=$SECONDS
 PHASE_START=$SECONDS
@@ -657,6 +663,191 @@ phase_c() {
 	phase_done C "CLI-booted daemon: $c1 -> $c2 -> $c3 committed across idle-stops, no update ran twice"
 }
 
+# ─── Phase D: a stable channel on a clone-only host ──────────────────────────
+
+# ensure_daemon hands the socket to a daemon this script runs: Phase C leaves
+# it to the CLI's auto-boot, and curl never boots one.
+ensure_daemon() {
+	[[ -z "$DAEMON_PID" ]] || return 0
+	local deadline=$((SECONDS + 60))
+	while [[ -e "$PID_FILE" ]]; do
+		((SECONDS < deadline)) || fail "the CLI-booted daemon (pid $(cat "$PID_FILE")) never idle-stopped"
+		quiver arrow list >/dev/null
+		sleep 0.2
+	done
+	start_daemon
+}
+
+# release NAME TAG commits a new revision of NAME's work repo, tags it TAG
+# and pushes both, printing the commit. Each release appends its tag to the
+# manifest's history, so no two releases share a commit.
+release() {
+	local name=$1 tag=$2 work="$HOME/work/$1"
+	echo "- $tag" >>"$work/ARROW.md"
+	git -C "$work" add ARROW.md
+	git -C "$work" commit -qm "release $tag"
+	git -C "$work" tag "$tag"
+	if [[ -d "$GIT_ROOT/tester/$name" ]]; then
+		git -C "$work" push -q "$GIT_ROOT/tester/$name" main "refs/tags/$tag"
+	fi
+	git -C "$work" rev-parse HEAD
+}
+
+# publish_releases NAME TAG... serves a repo at https://localhost/tester/NAME
+# holding one release per TAG, in order.
+publish_releases() {
+	local name=$1 work="$HOME/work/$1" tag
+	shift
+	mkdir -p "$HOME/work" "$GIT_ROOT/tester"
+	git init -q "$work"
+	cp "$MULTI_FIXTURE" "$work/ARROW.md"
+	for tag in "$@"; do
+		release "$name" "$tag" >/dev/null
+	done
+	git clone -q --bare "$work" "$GIT_ROOT/tester/$name"
+	wait_served "https://localhost/tester/$name"
+}
+
+# api METHOD NS [SUFFIX [BODY]] calls the daemon over its socket and prints
+# the HTTP status; the response body lands in $HOME/api.body.
+api() {
+	local method=$1 path args=()
+	path="/v0/arrow/$(jq -rn --arg ns "$2" '$ns | @uri')${3:-}"
+	if [[ -n "${4:-}" ]]; then
+		args=(-H 'Content-Type: application/json' --data "$4")
+	fi
+	curl -s -o "$HOME/api.body" -w '%{http_code}' --unix-socket "$SOCK" -X "$method" "${args[@]}" "http://quiver$path"
+}
+
+phase_d() {
+	banner "Phase D — stable channel on a clone-only git host"
+	PHASE_START=$SECONDS
+	ensure_daemon
+	local name=multi-tool
+	local bare="localhost/tester/$name"
+	local ns="$bare@stable"
+	local url="https://localhost/tester/$name"
+	local workdir="$HOME/.quiver/namespaces/$ns"
+
+	step "serve stable-26.5.0, stable-26.5.1, stable-26.6.0 from $url"
+	publish_releases "$name" stable-26.5.0 stable-26.5.1 stable-26.6.0
+	local c260
+	c260=$(peeled_commit "$url" stable-26.6.0)
+	if git ls-remote --exit-code "$url" refs/heads/stable refs/tags/stable >/dev/null; then
+		fail "$url must hold no ref named stable"
+	fi
+	ok "$url holds no ref named stable"
+
+	step "quiver arrow add + install $bare (refless)"
+	local out detail
+	out=$(quiver arrow add "$bare")
+	expect_eq "add action" "$(jq -r .action <<<"$out")" add
+	out=$(lifecycle install "$bare")
+	expect_eq "install outcome" "$(jq -r .outcome <<<"$out")" success
+	wait_for "$ns" '.state == "ready"' "state ready"
+	detail=$(show "$ns")
+	expect_eq "identity" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" stable-26.6.0
+	expect_eq "installed_commit" "$(jq -r .installed_commit <<<"$detail")" "$c260"
+	expect_eq "install step \${REF}" "$(cat "$workdir/install-ref")" stable-26.6.0
+	start_poller "$ns"
+
+	step "publish stable-26.7.0, then quiver arrow refresh"
+	local c270
+	c270=$(release "$name" stable-26.7.0)
+	expect_eq "stable-26.7.0 on $url" "$(peeled_commit "$url" stable-26.7.0)" "$c270"
+	out=$(quiver arrow refresh "$ns")
+	expect_eq "refresh action" "$(jq -r .action <<<"$out")" refresh
+	detail=$(show "$ns")
+	expect_eq "available.ref" "$(jq -r .available.ref <<<"$detail")" stable-26.7.0
+	expect_eq "available.commit" "$(jq -r .available.commit <<<"$detail")" "$c270"
+	expect_eq "resolved_ref (not yet advanced)" "$(jq -r .resolved_ref <<<"$detail")" stable-26.6.0
+
+	step "quiver update: advance the row in place to stable-26.7.0"
+	out=$(lifecycle update "$ns")
+	expect_eq "update outcome" "$(jq -r .outcome <<<"$out")" success
+	wait_for "$ns" ".resolved_ref == \"stable-26.7.0\" and .available == null and .state == \"ready\"" \
+		"row advanced to stable-26.7.0 with nothing ahead"
+	detail=$(show "$ns")
+	expect_eq "identity unchanged" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "installed_commit" "$(jq -r .installed_commit <<<"$detail")" "$c270"
+	expect_eq "update step \${REF} runs" "$(paste -sd, "$workdir/update-refs")" stable-26.7.0
+	expect_eq "list: one row for $bare" "$(quiver arrow list -o json | jq --arg n "$bare" '[.[] | select(.namespace == $n)] | length')" 1
+
+	step "GET /v0/arrow/$ns answered 200 throughout"
+	stop_poller
+	local polls bad
+	polls=$(wc -l <"$HOME/poll.codes")
+	bad=$(grep -cv '^200$' "$HOME/poll.codes" || true)
+	((polls > 5)) || fail "poller ran only $polls reads"
+	expect_eq "non-200 answers out of $polls reads" "$bad" 0
+
+	step "uninstall + remove"
+	out=$(lifecycle uninstall "$ns" -y)
+	expect_eq "uninstall outcome" "$(jq -r .outcome <<<"$out")" success
+	out=$(quiver arrow remove -y "$ns")
+	[[ -z "$(listed "$ns")" ]] || fail "$ns is still listed after remove"
+	ok "$ns no longer listed"
+
+	phase_d_adopt
+	phase_done D "stable on a clone-only host: install at stable-26.6.0, updated to stable-26.7.0 in place ($polls reads all 200), adopted stable-26.5.0 offered and updated to stable-26.6.0"
+}
+
+# phase_d_adopt declares an older stable member installed over the API, the
+# way a client that installed itself does: the fixture's preinstalled probe
+# finds its marker, so POST lands the runtime ready, and /adopt then records
+# the build it actually runs.
+phase_d_adopt() {
+	local name=multi-adopt
+	local ns="localhost/tester/$name@stable"
+	local url="https://localhost/tester/$name"
+	local workdir="$HOME/.quiver/namespaces/$ns"
+
+	step "adopt stable-26.5.0 on $ns"
+	publish_releases "$name" stable-26.5.0 stable-26.5.1 stable-26.6.0
+	local c250 c260
+	c250=$(peeled_commit "$url" stable-26.5.0)
+	c260=$(peeled_commit "$url" stable-26.6.0)
+	mkdir -p "$(dirname "/tmp/preinstalled/$ns")"
+	: >"/tmp/preinstalled/$ns"
+	expect_eq "POST /v0/arrow/$ns" "$(api POST "$ns")" 201
+	expect_eq "state (the preinstalled probe detected it)" "$(field "$ns" .state)" ready
+	expect_eq "POST /v0/arrow/$ns/adopt" "$(api POST "$ns" /adopt '{"resolved_ref":"stable-26.5.0"}')" 201
+	local detail
+	detail=$(show "$ns")
+	expect_eq "identity" "$(jq -r .namespace <<<"$detail")" "$ns"
+	expect_eq "selector_kind" "$(jq -r .selector_kind <<<"$detail")" channel
+	expect_eq "resolved_ref" "$(jq -r .resolved_ref <<<"$detail")" stable-26.5.0
+	expect_eq "installed_commit" "$(jq -r .installed_commit <<<"$detail")" "$c250"
+	expect_eq "user_installed" "$(jq -r .user_installed <<<"$detail")" true
+
+	step "quiver arrow refresh offers the newest member"
+	quiver arrow refresh "$ns" >/dev/null
+	detail=$(show "$ns")
+	expect_eq "available.ref" "$(jq -r .available.ref <<<"$detail")" stable-26.6.0
+	expect_eq "available.commit" "$(jq -r .available.commit <<<"$detail")" "$c260"
+	expect_eq "resolved_ref (adopted, not advanced)" "$(jq -r .resolved_ref <<<"$detail")" stable-26.5.0
+	expect_eq "outdated" "$(jq -r .outdated <<<"$detail")" true
+
+	step "quiver update moves the adopted row to stable-26.6.0 in place"
+	local out
+	out=$(lifecycle update "$ns")
+	expect_eq "update outcome" "$(jq -r .outcome <<<"$out")" success
+	wait_for "$ns" ".resolved_ref == \"stable-26.6.0\" and .available == null and .state == \"ready\"" \
+		"adopted row advanced to stable-26.6.0"
+	expect_eq "identity unchanged" "$(field "$ns" .namespace)" "$ns"
+	expect_eq "update step \${REF} runs" "$(paste -sd, "$workdir/update-refs")" stable-26.6.0
+
+	step "uninstall + remove"
+	out=$(lifecycle uninstall "$ns" -y)
+	expect_eq "uninstall outcome" "$(jq -r .outcome <<<"$out")" success
+	quiver arrow remove -y "$ns" >/dev/null
+	[[ -z "$(listed "$ns")" ]] || fail "$ns is still listed after remove"
+	ok "$ns no longer listed"
+}
+
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 banner "quiver e2e on $(uname -m)"
@@ -673,6 +864,7 @@ for phase in $PHASES; do
 	A) phase_a ;;
 	B) phase_b ;;
 	C) phase_c ;;
+	D) phase_d ;;
 	*) fail "unknown phase $phase" ;;
 	esac
 done
