@@ -9,6 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models/mappers"
 	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	runtimerepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
@@ -101,34 +102,25 @@ type ArrowUsecase interface {
 }
 
 type arrowUsecase struct {
-	arrow   arrowrepo.Arrow
-	graph   graph.Graph
-	runtime runtimerepo.Runtime
-	// targets is shared with the runtime usecase, so a catalog advance and
-	// an install or update of the same row never interleave.
-	targets *updateTargets
+	arrow     arrowrepo.Arrow
+	graph     graph.Graph
+	runtime   runtimerepo.Runtime
+	lifecycle lifecycle.Lifecycle
 }
 
-// NewArrowUsecase wires arrow, graph, and runtime repositories into an ArrowUsecase.
+// NewArrowUsecase wires arrow, graph, and runtime repositories and the
+// lifecycle into an ArrowUsecase.
 func NewArrowUsecase(
 	arrow arrowrepo.Arrow,
 	graph graph.Graph,
 	runtime runtimerepo.Runtime,
+	lc lifecycle.Lifecycle,
 ) ArrowUsecase {
-	return newArrowUsecase(arrow, graph, runtime, newUpdateTargets())
-}
-
-func newArrowUsecase(
-	arrow arrowrepo.Arrow,
-	graph graph.Graph,
-	runtime runtimerepo.Runtime,
-	targets *updateTargets,
-) *arrowUsecase {
 	return &arrowUsecase{
-		arrow:   arrow,
-		graph:   graph,
-		runtime: runtime,
-		targets: targets,
+		arrow:     arrow,
+		graph:     graph,
+		runtime:   runtime,
+		lifecycle: lc,
 	}
 }
 
@@ -180,84 +172,7 @@ func (u *arrowUsecase) Update(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (models.UpdateResult, error) {
-	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
-	}
-
-	current, err := u.arrow.Get(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: get current: %w", err)
-	}
-	available, err := u.arrow.CheckAvailable(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
-	}
-	if available == nil {
-		return models.UpdateResult{}, nil
-	}
-
-	installed, err := u.installed(ctx, ns)
-	if err != nil || installed {
-		return models.UpdateResult{Available: available}, err
-	}
-
-	return u.advanceCatalogued(ctx, ns, current, *available)
-}
-
-func (u *arrowUsecase) installed(
-	ctx context.Context,
-	ns domain.Namespace,
-) (bool, error) {
-	state, err := u.runtime.GetState(ctx, ns)
-	if err != nil {
-		return false, fmt.Errorf("update: get state: %w", err)
-	}
-	return isInstalled(state), nil
-}
-
-// advanceCatalogued moves a row nothing is installed from straight to
-// target: there are no update steps to run for it. It holds the row's
-// bracket and reads the state again inside it, so an install that began in
-// the meantime is never handed the manifest the row is leaving.
-func (u *arrowUsecase) advanceCatalogued(
-	ctx context.Context,
-	ns domain.Namespace,
-	current *domain.Arrow,
-	target domain.Available,
-) (models.UpdateResult, error) {
-	closeBracket, err := u.targets.open(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
-	}
-	defer closeBracket()
-	installed, err := u.installed(ctx, ns)
-	if err != nil || installed {
-		return models.UpdateResult{Available: &target}, err
-	}
-
-	if err := u.arrow.Advance(ctx, ns, target); err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: %w", err)
-	}
-	advanced, err := u.arrow.Get(ctx, ns)
-	if err != nil {
-		return models.UpdateResult{}, fmt.Errorf("update: get advanced: %w", err)
-	}
-
-	diff := u.graph.DiffDeps(current, advanced)
-	return models.UpdateResult{
-		AddedDeps:           edgesToNs(diff.Added),
-		RemovedFromManifest: edgesToNs(diff.Removed),
-		ConstrainedDeps:     diff.Constrained,
-	}, nil
-}
-
-func isInstalled(
-	state domain.ArrowState,
-) bool {
-	return state != "" &&
-		state != domain.ArrowStateAbsent &&
-		state != domain.ArrowStateRemoved
+	return u.lifecycle.Recheck(ctx, ns)
 }
 
 func (u *arrowUsecase) List(
@@ -365,14 +280,6 @@ func (u *arrowUsecase) Seed(
 	data []byte,
 ) error {
 	return u.arrow.Adopt(ctx, ns, domain.SelectorPin, domain.Resolved{Ref: ns.Ref()}, data, seededFilename)
-}
-
-func edgesToNs(edges []domain.DependencyEdge) []domain.Namespace {
-	ns := make([]domain.Namespace, 0, len(edges))
-	for _, e := range edges {
-		ns = append(ns, e.Namespace)
-	}
-	return ns
 }
 
 func (u *arrowUsecase) ValidateManifest(

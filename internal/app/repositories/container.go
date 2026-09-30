@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
@@ -21,6 +22,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
@@ -44,6 +46,7 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
+	Lifecycle  lifecycle.Lifecycle
 	Cascade    cascade.Cascade
 	Discovery  discovery.Discovery
 	// Recommendation is nil when Discovery is: it refreshes through it.
@@ -54,7 +57,8 @@ type Container struct {
 }
 
 type repoOpts struct {
-	selfUpdate *selfupdate.Trigger
+	selfUpdate           *selfupdate.Trigger
+	versionCheckInterval *time.Duration
 }
 
 // Option configures repositories.New.
@@ -66,6 +70,14 @@ func WithSelfUpdateTrigger(
 	trig *selfupdate.Trigger,
 ) Option {
 	return func(o *repoOpts) { o.selfUpdate = trig }
+}
+
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(
+	d time.Duration,
+) Option {
+	return func(o *repoOpts) { o.versionCheckInterval = &d }
 }
 
 func resolveOpts(
@@ -97,7 +109,8 @@ func New(
 	deviceDB *gormdb.DB,
 	opts ...Option,
 ) (*Container, error) {
-	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os)...)
+	cfg := resolveOpts(opts)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os, cfg.versionCheckInterval)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -158,6 +171,7 @@ func New(
 		Runtime:        rt,
 		Collection:     coll,
 		Graph:          g,
+		Lifecycle:      lifecycle.New(cat, rt, g),
 		Cascade:        fc,
 		Discovery:      disc,
 		Recommendation: rec,
@@ -166,7 +180,12 @@ func New(
 		Device:         dev,
 	}
 
-	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
+	if err := c.wireCallbacks(cfg.selfUpdate); err != nil {
+		discardCollection(coll)
+		return nil, err
+	}
+
+	if err := c.wireLifecycle(); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -234,9 +253,13 @@ func arrowOptions(
 	w wizardPkg.Wizard,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	os domain.OS,
+	versionCheckInterval *time.Duration,
 ) []repoarrow.Option {
 	opts := []repoarrow.Option{
 		repoarrow.WithVersionOutdatedSync(runtime.SetVersionOutdated(axRuntime)),
+	}
+	if versionCheckInterval != nil {
+		opts = append(opts, repoarrow.WithVersionCheckInterval(*versionCheckInterval))
 	}
 
 	return append(opts, preinstalledDetection(w, axRuntime, os)...)
@@ -519,6 +542,18 @@ func (c *Container) wireCallbacks(
 	}
 
 	return c.wireSelfUpdate(trig)
+}
+
+// wireLifecycle lets a version check hold the badge of a row whose update is
+// settling, and subscribes the lifecycle's reactions to a runtime's end.
+func (c *Container) wireLifecycle() error {
+	c.Arrow.HoldBadgeWhile(c.Lifecycle.HoldBadge)
+
+	if err := c.Lifecycle.Start(); err != nil {
+		return fmt.Errorf("repositories: wire lifecycle: %w", err)
+	}
+
+	return nil
 }
 
 // wireSelfUpdate lets quiver.core's own update lifecycle claim this process.

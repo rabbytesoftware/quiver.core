@@ -16,6 +16,7 @@ import (
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -187,11 +188,8 @@ func TestInstall_MethodNotFound_Returns404(t *testing.T) {
 // setting a built-in is refused before anything is executed, and that the
 // client is told which variable was refused rather than silently ignored.
 func setupWithRealUsecase() *gin.Engine {
-	uc := usecases.NewRuntimeUsecase(
-		&ucmocks.MockArrow{},
-		&ucmocks.MockRuntime{},
-		&ucmocks.MockGraph{},
-	)
+	a, rt := &ucmocks.MockArrow{}, &ucmocks.MockRuntime{}
+	uc := usecases.NewRuntimeUsecase(a, rt, lifecycle.New(a, rt, &ucmocks.MockGraph{}))
 	r := gin.New()
 	r.UseRawPath = true
 	r.UnescapePathValues = true

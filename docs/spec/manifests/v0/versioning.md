@@ -512,14 +512,16 @@ The request takes no body. It never runs update steps.
 
 ### 8.2 `POST /v0/runtime/{ns}/update` — the update bracket
 
-This is the only path that runs a manifest's `update:` steps. `RuntimeUsecase.Execute`
-routes `_update` to `executeUpdate`, which opens a bracket that `onUpdateEnded` closes:
+This is the only path that runs a manifest's `update:` steps. `RuntimeUsecase.Update` (and
+`Execute` with `_update`) hands the row to the lifecycle repository
+(`repositories/lifecycle`): its bracket (`internal/bracket`) opens the update, and the
+settling of the run's end (`internal/settle`, reacting to `runtime.ended`) closes it:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant U as RuntimeUsecase
+    participant U as lifecycle repo
     participant A as arrow repo
     participant M as manifold
     participant R as runtime repo

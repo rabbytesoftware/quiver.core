@@ -502,3 +502,21 @@ func TestContainer_DrainUpdates(t *testing.T) {
 		})
 	}
 }
+
+func TestRepoOptions_CarryTheVersionCheckInterval(t *testing.T) {
+	assert.Len(t, repoOptions(appOpts{}), 1)
+
+	cfg := appOpts{}
+	WithVersionCheckInterval(0)(&cfg)
+
+	assert.Len(t, repoOptions(cfg), 2)
+}
+
+func TestWithVersionAndCommit_SetOptions(t *testing.T) {
+	cfg := appOpts{}
+	WithVersion("26.5.1")(&cfg)
+	WithCommit("abc123")(&cfg)
+
+	assert.Equal(t, "26.5.1", cfg.version)
+	assert.Equal(t, "abc123", cfg.commit)
+}

@@ -1,4 +1,4 @@
-package app
+package watch
 
 import (
 	"context"
@@ -18,10 +18,17 @@ const (
 	intervalSpread = 10
 )
 
-// versionWatch runs the passive version check of every installed row soon
-// after the daemon starts and then every interval, so a row reads outdated
-// without anyone opening it. A zero interval runs nothing.
-type versionWatch struct {
+// Watch runs the passive version check of every installed row soon after it
+// starts and then every interval, so a row reads outdated without anyone
+// opening it. A zero interval runs nothing.
+type Watch interface {
+	Start(ctx context.Context)
+	// Stop ends the watch and waits for a sweep in progress, so no check
+	// writes to a store the shutdown is about to close.
+	Stop()
+}
+
+type watch struct {
 	interval time.Duration
 	sweep    func(ctx context.Context)
 	jitter   func(limit time.Duration) time.Duration
@@ -29,14 +36,14 @@ type versionWatch struct {
 	done     chan struct{}
 }
 
-func newVersionWatch(
+func New(
 	interval time.Duration,
 	sweep func(ctx context.Context),
-) *versionWatch {
-	return &versionWatch{interval: interval, sweep: sweep, jitter: randomJitter}
+) Watch {
+	return &watch{interval: interval, sweep: sweep, jitter: randomJitter}
 }
 
-func (w *versionWatch) start(ctx context.Context) {
+func (w *watch) Start(ctx context.Context) {
 	if w.interval <= 0 || w.cancel != nil {
 		return
 	}
@@ -45,7 +52,7 @@ func (w *versionWatch) start(ctx context.Context) {
 	go w.run(ctx)
 }
 
-func (w *versionWatch) run(ctx context.Context) {
+func (w *watch) run(ctx context.Context) {
 	defer close(w.done)
 	wait := w.jitter(firstCheckSpread)
 	for {
@@ -61,9 +68,7 @@ func (w *versionWatch) run(ctx context.Context) {
 	}
 }
 
-// stop ends the watch and waits for a sweep in progress, so no check writes
-// to a store the shutdown is about to close.
-func (w *versionWatch) stop() {
+func (w *watch) Stop() {
 	if w.cancel == nil {
 		return
 	}
@@ -76,6 +81,17 @@ func randomJitter(limit time.Duration) time.Duration {
 		return 0
 	}
 	return rand.N(limit) // #nosec G404 -- spreading timers needs no cryptographic randomness
+}
+
+// Interval is override when one was given, and arrows.version_check_interval
+// otherwise.
+func Interval(
+	override *time.Duration,
+) time.Duration {
+	if override != nil {
+		return *override
+	}
+	return resolveVersionCheckInterval()
 }
 
 // resolveVersionCheckInterval reads arrows.version_check_interval; "0s"

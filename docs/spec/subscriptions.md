@@ -100,17 +100,17 @@ The repository container's `wireCallbacks()` registers cross-repository handlers
 | `Arrow.OnArrowUpdated` | `Graph.SyncDependencies(ctx, ns, arrow)` |
 | `Arrow.OnArrowRemoved` | `Graph.RemoveDependencies(ctx, ns)` then `Runtime.Forget(ctx, ns)` |
 
-The use-case container (`app/usecases/container.go`) registers one further callback:
+The lifecycle repository (`app/repositories/lifecycle`) registers one further callback when the repositories container wires it (`wireLifecycle` → `lifecycle.Start`); no use case subscribes to anything:
 
 | Source callback | Reaction |
 |---|---|
-| `Runtime.OnRuntimeEnded` | `runtimeUsecase.onRuntimeEnded` — cascades stops/uninstalls of orphaned dependencies (see [usecases.md § Stop Cascade](usecases.md)) |
+| `Runtime.OnRuntimeEnded` | lifecycle `deps.OnRuntimeEnded` — cascades stops/uninstalls of orphaned dependencies (see [usecases.md § Stop Cascade](usecases.md)) and hands an update's end to the settling |
 
 `OnRuntimeEnded` is the linchpin of the stop and uninstall cascades. It dispatches on `rt.LastReturn.Method`:
 
 - **`MethodStop`** → `onStopEnded` cascades stops to non-shared service deps and may auto-uninstall the just-stopped arrow if it was a non-user-installed dep with no remaining live parents.
 - **`MethodUninstall`** → `onUninstallEnded` walks the dep plan and stops/uninstalls each non-user-installed dep with no other live parents.
-- **`MethodUpdate`** → `onUpdateEnded` closes the update bracket: it releases the row's remembered target and, on success, re-resolves the target and advances the row only if the target ref still stands at the target commit (`arrow.Advance`, then `runtime.ClearVersionBadge`), detached from the handler. quiver.core's own row is skipped. See [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
+- **`MethodUpdate`** → the settling (`lifecycle/internal/settle`, `OnUpdateEnded`) closes the update bracket: it releases the row's remembered target and, on success, re-resolves the target and advances the row only if the target ref still stands at the target commit (`arrow.Advance`, then `runtime.ReconcileVersionBadge`), detached from the handler. quiver.core's own row is skipped. See [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
 - All other methods fall through with no side effect.
 
 ---

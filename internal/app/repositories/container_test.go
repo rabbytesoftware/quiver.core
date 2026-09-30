@@ -1499,15 +1499,16 @@ func TestWireCallbacks_SelfUpdateRegistrationFails_PropagatesTheError(t *testing
 
 // The option has to survive the whole of New, not just wireCallbacks: a
 // trigger that never reaches a runtime.ended subscription is a daemon that
-// updates itself and then keeps running the old build.
+// updates itself and then keeps running the old build. The lifecycle's own
+// reaction is subscribed either way.
 func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
 	testCases := []struct {
 		name string
 		trig *selfupdate.Trigger
 		want int
 	}{
-		{name: "without a trigger", trig: nil, want: 0},
-		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 1},
+		{name: "without a trigger", trig: nil, want: 1},
+		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 2},
 	}
 
 	for _, tc := range testCases {
@@ -1684,4 +1685,97 @@ func TestContainer_StartRecommendation_StartsTheSchedulerOnlyWhenThereIsOne(t *t
 	(&repositories.Container{}).StartRecommendation(context.Background())
 
 	assert.Equal(t, 1, rec.StartCalls)
+}
+
+// ─── wireLifecycle ───────────────────────────────────────────────────────────
+
+func TestWireLifecycle_HoldsBadgesAndStartsTheLifecycle(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	var held func(domain.Namespace) bool
+	arrow := &ucmocks.MockArrow{
+		HoldBadgeWhileFn: func(settling func(domain.Namespace) bool) { held = settling },
+	}
+	started := false
+	lc := &ucmocks.MockLifecycle{
+		HoldBadgeFn: func(got domain.Namespace) bool { return got == ns },
+		StartFn: func() error {
+			started = true
+			return nil
+		},
+	}
+	c := &repositories.Container{Arrow: arrow, Lifecycle: lc}
+
+	require.NoError(t, c.WireLifecycle())
+
+	require.NotNil(t, held)
+	assert.True(t, held(ns), "a version check asks the lifecycle whether to hold the badge")
+	assert.True(t, started)
+}
+
+func TestWireLifecycle_StartFails_PropagatesTheError(t *testing.T) {
+	boom := errors.New("subscribe failed")
+	c := &repositories.Container{
+		Arrow:     &ucmocks.MockArrow{},
+		Lifecycle: &ucmocks.MockLifecycle{StartFn: func() error { return boom }},
+	}
+
+	require.ErrorIs(t, c.WireLifecycle(), boom)
+}
+
+func TestNew_LifecycleWiring(t *testing.T) {
+	boom := errors.New("subscribe failed")
+
+	testCases := []struct {
+		name    string
+		opts    []repositories.Option
+		subErr  error
+		wantErr error
+	}{
+		{name: "a version check interval reaches the arrow repository", opts: []repositories.Option{repositories.WithVersionCheckInterval(0)}},
+		{name: "a lifecycle that cannot subscribe fails the build", subErr: boom, wantErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := adapterSQLite.OpenDB(":memory:")
+			require.NoError(t, err)
+
+			axArrow := newTestAsynxArrow(t)
+			axCollection := newTestAsynxCollection(t)
+			axPairingCode := newTestAsynxPairingCode(t)
+			axDevice := newTestAsynxDevice(t)
+			t.Cleanup(func() {
+				_ = axArrow.Shutdown(context.Background())
+				_ = axCollection.Shutdown(context.Background())
+				_ = axPairingCode.Shutdown(context.Background())
+				_ = axDevice.Shutdown(context.Background())
+			})
+			axRuntime := &appmocks.AsynxRuntime{
+				SubscribeFn: func(
+					topic string,
+					_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+					_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+				) (string, error) {
+					if topic == asynx.Topic("runtime.ended.*") {
+						return "", tc.subErr
+					}
+					return "sub", nil
+				},
+			}
+
+			c, err := repositories.New(
+				db, axArrow, axRuntime, axCollection, ":memory:",
+				nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
+				axPairingCode, axDevice, db,
+				tc.opts...,
+			)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, c.Lifecycle)
+		})
+	}
 }

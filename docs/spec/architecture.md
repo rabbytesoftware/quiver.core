@@ -100,7 +100,7 @@ flowchart LR
 
 ### 3.1 Usecases
 
-`usecases/` exposes the public surface the api layer consumes. Three usecase interfaces — `ArrowUsecase`, `RuntimeUsecase`, `CollectionUsecase` — wrap workflow logic that spans multiple repositories. The usecase container wires repository callbacks (e.g. `OnRuntimeEnded`) so cross-aggregate reactions like cascading uninstalls and closing an update bracket land here, not in the repositories.
+`usecases/` exposes the public surface the api layer consumes. Each usecase — `ArrowUsecase`, `RuntimeUsecase`, `CollectionUsecase` and the rest — is the thin last bridge before the API: it validates its input, makes one repository call and maps the error. It holds no locks, starts no goroutines and subscribes to nothing. Workflows that span repositories live in `repositories/lifecycle` (§3.2).
 
 ### 3.2 Repositories
 
@@ -114,6 +114,8 @@ flowchart LR
 | `graph` | none — derived projection | dependency-edge SQLite table |
 
 Each repository's `internal/` subtree holds its commands, upcasters, store schema, and reactions. The graph repository is special: it has no aggregate of its own — it subscribes to arrow events and rebuilds the dep-edge table as a projection.
+
+`lifecycle` owns no aggregate either: it orchestrates the runtime verbs (installs with their dependencies, uninstalls, stops, executions) and the update bracket over the arrow, runtime and graph repositories, which it reaches only through the interfaces `lifecycle.go` declares. Its `internal/` splits the per-row bracket (`bracket/`), the detached commits a shutdown drains (`commits/`), the settling of an ended update (`settle/`) and the dependency work and cascades (`deps/`). The repositories container builds it, lets the arrow repository's version check ask it whether to hold a settling row's badge, and starts its `runtime.ended` reaction.
 
 ### 3.3 Hub
 

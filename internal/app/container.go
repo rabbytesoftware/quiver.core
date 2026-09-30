@@ -53,7 +53,6 @@ type Container struct {
 	commit   string
 	channel  string
 	homeDir  string
-	versions *versionWatch
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
@@ -74,9 +73,7 @@ func (c *Container) Start(ctx context.Context) {
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
-	if c.versions != nil {
-		c.versions.start(ctx)
-	}
+	c.repos.Arrow.WatchVersions(ctx)
 }
 
 // StartRecommendation launches the home refresh loop: it refreshes once at once
@@ -112,9 +109,7 @@ func (c *Container) promoteRunningBinary(ctx context.Context) {
 func (c *Container) Shutdown(ctx context.Context) error {
 	var errs []error
 
-	if c.versions != nil {
-		c.versions.stop()
-	}
+	c.stopWatchingVersions()
 
 	if err := c.DrainUpdates(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("app container: %w", err))
@@ -133,6 +128,15 @@ func (c *Container) Shutdown(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// stopWatchingVersions ends the version check before anything drains: a
+// check writes to both aggregates.
+func (c *Container) stopWatchingVersions() {
+	if c.repos == nil {
+		return
+	}
+	c.repos.Arrow.StopWatchingVersions()
 }
 
 // DrainUpdates waits for the update commits still in flight; see
@@ -304,7 +308,7 @@ func New(
 		axPairingCode,
 		axDevice,
 		deviceDB,
-		repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		repoOptions(cfg)...,
 	)
 	if err != nil {
 		discardDB(db)
@@ -352,15 +356,17 @@ func assemble(
 		commit:     cfg.commit,
 		channel:    cfg.channel,
 		homeDir:    cfg.homeDir,
-		versions:   newVersionWatch(cfg.checkInterval(), repos.Arrow.CheckInstalledVersions),
 	}
 }
 
-func (o appOpts) checkInterval() time.Duration {
-	if o.versionCheckInterval != nil {
-		return *o.versionCheckInterval
+func repoOptions(
+	cfg appOpts,
+) []repositories.Option {
+	opts := []repositories.Option{repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger)}
+	if cfg.versionCheckInterval != nil {
+		opts = append(opts, repositories.WithVersionCheckInterval(*cfg.versionCheckInterval))
 	}
-	return resolveVersionCheckInterval()
+	return opts
 }
 
 // resolveStorePath mirrors every other homeDir/homeDirAt path pair in this
