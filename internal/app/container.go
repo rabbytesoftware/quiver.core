@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -49,26 +50,30 @@ type Container struct {
 	arrowsDB *gormdb.DB
 	deviceDB *gormdb.DB
 	version  string
+	commit   string
+	channel  string
 	homeDir  string
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
 // promotes the running binary to the stable self-install path, and only then
 // registers this build into its own arrow catalog. Promotion must precede
-// registration: after a self-update the process is exec'd out of the old
-// self-arrow's vault workdir, and EnsureRegistered's row swap deletes that
-// workdir, so registering first leaves promotion nothing to copy and reverts
-// the next cold start to the previous version. Failures beyond the first two
+// registration: after a self-update the process may be exec'd out of a
+// self-arrow row's vault workdir, and EnsureRegistered removes the rows
+// earlier builds filed under other identities along with their workdirs, so
+// registering first can leave promotion nothing to copy and revert the next
+// cold start to the previous version. Failures beyond the first two
 // steps are logged, not fatal — they must never block a self-update that
 // already succeeded.
 func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
-	channel := config.GetArrows().SelfUpdateChannel
-	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, channel); err != nil {
+	channel := selfarrow.Channel(config.GetArrows().SelfUpdateChannel, c.channel)
+	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
+	c.repos.Arrow.WatchVersions(ctx)
 }
 
 // StartRecommendation launches the home refresh loop: it refreshes once at once
@@ -98,8 +103,17 @@ func (c *Container) promoteRunningBinary(ctx context.Context) {
 // arrows.db backs both the arrow and the graph read models, so it closes here
 // rather than in either repository — and only once repos.Shutdown has drained
 // the arrow aggregate, since both read models are fed by its projections.
+//
+// Update commits drain first: they write to both aggregates, off either
+// one's own queue.
 func (c *Container) Shutdown(ctx context.Context) error {
 	var errs []error
+
+	c.stopWatchingVersions()
+
+	if err := c.DrainUpdates(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("app container: %w", err))
+	}
 
 	if err := c.shutdownRepos(ctx); err != nil {
 		errs = append(errs, err)
@@ -114,6 +128,25 @@ func (c *Container) Shutdown(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// stopWatchingVersions ends the version check before anything drains: a
+// check writes to both aggregates.
+func (c *Container) stopWatchingVersions() {
+	if c.repos == nil {
+		return
+	}
+	c.repos.Arrow.StopWatchingVersions()
+}
+
+// DrainUpdates waits for the update commits still in flight; see
+// usecases.RuntimeUsecase.Drain. It is safe to call before Shutdown, which
+// drains again and then finds nothing left.
+func (c *Container) DrainUpdates(ctx context.Context) error {
+	if c.Runtime == nil {
+		return nil
+	}
+	return c.Runtime.Drain(ctx)
 }
 
 func (c *Container) shutdownRepos(ctx context.Context) error {
@@ -160,9 +193,12 @@ func discardRepos(repos *repositories.Container, arrowsDB, deviceDB *gormdb.DB) 
 }
 
 type appOpts struct {
-	homeDir           string
-	version           string
-	selfUpdateTrigger *selfupdate.Trigger
+	homeDir              string
+	version              string
+	commit               string
+	channel              string
+	selfUpdateTrigger    *selfupdate.Trigger
+	versionCheckInterval *time.Duration
 }
 
 type Option func(*appOpts)
@@ -178,10 +214,28 @@ func WithVersion(v string) Option {
 	return func(o *appOpts) { o.version = v }
 }
 
+// WithCommit sets the full hash of the commit the running build came from,
+// recorded against this daemon's own catalog row on boot.
+func WithCommit(c string) Option {
+	return func(o *appOpts) { o.commit = c }
+}
+
+// WithChannel sets the release channel the running build was published under.
+// An explicit self_update_channel config still wins. See selfarrow.Channel.
+func WithChannel(c string) Option {
+	return func(o *appOpts) { o.channel = c }
+}
+
 // WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
 // the repositories, fired when quiver.core's own update lifecycle succeeds.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
 	return func(o *appOpts) { o.selfUpdateTrigger = trig }
+}
+
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(d time.Duration) Option {
+	return func(o *appOpts) { o.versionCheckInterval = &d }
 }
 
 // New constructs Arrow, Runtime, and Quiver usecases wired to the provided engine
@@ -254,7 +308,7 @@ func New(
 		axPairingCode,
 		axDevice,
 		deviceDB,
-		repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		repoOptions(cfg)...,
 	)
 	if err != nil {
 		discardDB(db)
@@ -273,6 +327,17 @@ func New(
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
+	return assemble(cfg, uc, h, repos, db, deviceDB), nil
+}
+
+func assemble(
+	cfg appOpts,
+	uc *usecases.Container,
+	h *hub.Hub,
+	repos *repositories.Container,
+	db *gormdb.DB,
+	deviceDB *gormdb.DB,
+) *Container {
 	return &Container{
 		Arrow:      uc.Arrow,
 		Runtime:    uc.Runtime,
@@ -288,8 +353,20 @@ func New(
 		arrowsDB:   db,
 		deviceDB:   deviceDB,
 		version:    cfg.version,
+		commit:     cfg.commit,
+		channel:    cfg.channel,
 		homeDir:    cfg.homeDir,
-	}, nil
+	}
+}
+
+func repoOptions(
+	cfg appOpts,
+) []repositories.Option {
+	opts := []repositories.Option{repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger)}
+	if cfg.versionCheckInterval != nil {
+		opts = append(opts, repositories.WithVersionCheckInterval(*cfg.versionCheckInterval))
+	}
+	return opts
 }
 
 // resolveStorePath mirrors every other homeDir/homeDirAt path pair in this

@@ -37,15 +37,6 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	RefreshManifestFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, error)
-	ResolveForInstallFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-	) (domain.Namespace, *domain.Arrow, string, error)
 
 	ResolveCataloguedFn func(
 		ctx context.Context,
@@ -54,22 +45,10 @@ type MockArrow struct {
 	AddFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		opts models.AddOptions,
-	) error
-	AddDepFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		arrow *domain.Arrow,
-		constraint string,
 	) error
 	RemoveFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) error
-	SeedFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		data []byte,
 	) error
 	ValidateManifestFn func(
 		ctx context.Context,
@@ -89,13 +68,15 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
-	SetChannelFn func(
+	CheckInstalledVersionsFn func(
 		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-		ref string,
-	) error
-	CheckVersionNowFn func(
+	)
+	HoldBadgeWhileFn func(
+		settling func(ns domain.Namespace) bool,
+	)
+	WatchVersionsFn        func(ctx context.Context)
+	StopWatchingVersionsFn func()
+	CheckVersionNowFn      func(
 		ctx context.Context,
 		ns domain.Namespace,
 	)
@@ -103,35 +84,45 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	UpdateManifestFn func(
-		ctx context.Context,
-		ns domain.Namespace,
-		arrow *domain.Arrow,
-	) error
-	ResolveTrackedRefFn func(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) (string, error)
 	ListChannelsFn func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) ([]models.ChannelInfo, error)
-	UpgradeVersionFn func(
+	AdoptInstalledFn func(
 		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-		constraint string,
-		channel string,
-		runtimeAlreadyExists bool,
-		alreadyReady bool,
-		userInstalled bool,
-		pinnedRef string,
+		ns domain.Namespace,
+		resolvedRef string,
+	) error
+	CheckAvailableFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Available, error)
+	TargetUnmovedFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (bool, error)
+	RefreshToTargetFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
 	) (*domain.Arrow, error)
-	UpgradeVersionSeededFn func(
+	AddDependencyFn func(
 		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-		data []byte,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
+	AdvanceFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) error
+	AdoptFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
 	) error
 	SearchFn func(
 		ctx context.Context,
@@ -151,10 +142,6 @@ type MockArrow struct {
 	OnArrowRemovedFn func(fn func(
 		ctx context.Context,
 		ns domain.Namespace,
-	) error) error
-	OnArrowUpgradedFn func(fn func(
-		ctx context.Context,
-		arrow domain.Arrow,
 	) error) error
 }
 
@@ -218,32 +205,6 @@ func (m *MockArrow) ResolveManifest(
 	return nil, nil
 }
 
-func (m *MockArrow) RefreshManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, error) {
-	if m.RefreshManifestFn != nil {
-		return m.RefreshManifestFn(ctx, ns)
-	}
-	// Fall back to the resolve stub: to the usecase, refresh resolves the same
-	// manifest — the cache purge is a repo-level concern tested there.
-	if m.ResolveManifestFn != nil {
-		return m.ResolveManifestFn(ctx, ns)
-	}
-	return nil, nil
-}
-
-func (m *MockArrow) ResolveForInstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns, channel)
-	}
-	return "", nil, "", nil
-}
-
 // ResolveCatalogued defaults to the identity so tests that predate namespace
 // resolution keep exercising the namespace they passed in.
 func (m *MockArrow) ResolveCatalogued(
@@ -269,22 +230,9 @@ func (m *MockArrow) Search(
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
-	opts models.AddOptions,
 ) error {
 	if m.AddFn != nil {
-		return m.AddFn(ctx, ns, opts)
-	}
-	return nil
-}
-
-func (m *MockArrow) AddDep(
-	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-	constraint string,
-) error {
-	if m.AddDepFn != nil {
-		return m.AddDepFn(ctx, ns, arrow, constraint)
+		return m.AddFn(ctx, ns)
 	}
 	return nil
 }
@@ -295,17 +243,6 @@ func (m *MockArrow) Remove(
 ) error {
 	if m.RemoveFn != nil {
 		return m.RemoveFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockArrow) Seed(
-	ctx context.Context,
-	ns domain.Namespace,
-	data []byte,
-) error {
-	if m.SeedFn != nil {
-		return m.SeedFn(ctx, ns, data)
 	}
 	return nil
 }
@@ -352,18 +289,6 @@ func (m *MockArrow) MarkLastUsed(
 	return nil
 }
 
-func (m *MockArrow) SetChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-	ref string,
-) error {
-	if m.SetChannelFn != nil {
-		return m.SetChannelFn(ctx, ns, channel, ref)
-	}
-	return nil
-}
-
 func (m *MockArrow) CheckVersionNow(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -373,23 +298,42 @@ func (m *MockArrow) CheckVersionNow(
 	}
 }
 
+func (m *MockArrow) HoldBadgeWhile(
+	settling func(ns domain.Namespace) bool,
+) {
+	if m.HoldBadgeWhileFn != nil {
+		m.HoldBadgeWhileFn(settling)
+	}
+}
+
+func (m *MockArrow) WatchVersions(
+	ctx context.Context,
+) {
+	if m.WatchVersionsFn != nil {
+		m.WatchVersionsFn(ctx)
+	}
+}
+
+func (m *MockArrow) StopWatchingVersions() {
+	if m.StopWatchingVersionsFn != nil {
+		m.StopWatchingVersionsFn()
+	}
+}
+
+func (m *MockArrow) CheckInstalledVersions(
+	ctx context.Context,
+) {
+	if m.CheckInstalledVersionsFn != nil {
+		m.CheckInstalledVersionsFn(ctx)
+	}
+}
+
 func (m *MockArrow) Forget(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	if m.ForgetFn != nil {
 		return m.ForgetFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockArrow) UpdateManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-) error {
-	if m.UpdateManifestFn != nil {
-		return m.UpdateManifestFn(ctx, ns, arrow)
 	}
 	return nil
 }
@@ -404,41 +348,80 @@ func (m *MockArrow) ListChannels(
 	return nil, nil
 }
 
-func (m *MockArrow) ResolveTrackedRef(
+func (m *MockArrow) AdoptInstalled(
 	ctx context.Context,
-	arrow domain.Arrow,
-) (string, error) {
-	if m.ResolveTrackedRefFn != nil {
-		return m.ResolveTrackedRefFn(ctx, arrow)
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	if m.AdoptInstalledFn != nil {
+		return m.AdoptInstalledFn(ctx, ns, resolvedRef)
 	}
-	return "", nil
+	return nil
 }
 
-func (m *MockArrow) UpgradeVersion(
+func (m *MockArrow) CheckAvailable(
 	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	constraint string,
-	channel string,
-	runtimeAlreadyExists bool,
-	alreadyReady bool,
-	userInstalled bool,
-	pinnedRef string,
-) (*domain.Arrow, error) {
-	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, channel, runtimeAlreadyExists, alreadyReady, userInstalled, pinnedRef)
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	if m.CheckAvailableFn != nil {
+		return m.CheckAvailableFn(ctx, ns)
 	}
 	return nil, nil
 }
 
-func (m *MockArrow) UpgradeVersionSeeded(
+func (m *MockArrow) TargetUnmoved(
 	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	data []byte,
+	ns domain.Namespace,
+	target domain.Available,
+) (bool, error) {
+	if m.TargetUnmovedFn != nil {
+		return m.TargetUnmovedFn(ctx, ns, target)
+	}
+	return true, nil
+}
+
+func (m *MockArrow) RefreshToTarget(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, error) {
+	if m.RefreshToTargetFn != nil {
+		return m.RefreshToTargetFn(ctx, ns, target)
+	}
+	return &domain.Arrow{Namespace: ns}, nil
+}
+
+func (m *MockArrow) AddDependency(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if m.AddDependencyFn != nil {
+		return m.AddDependencyFn(ctx, ns)
+	}
+	return ns, nil
+}
+
+func (m *MockArrow) Advance(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
 ) error {
-	if m.UpgradeVersionSeededFn != nil {
-		return m.UpgradeVersionSeededFn(ctx, oldNs, newNs, data)
+	if m.AdvanceFn != nil {
+		return m.AdvanceFn(ctx, ns, target)
+	}
+	return nil
+}
+
+func (m *MockArrow) Adopt(
+	ctx context.Context,
+	ns domain.Namespace,
+	kind domain.SelectorKind,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	if m.AdoptFn != nil {
+		return m.AdoptFn(ctx, ns, kind, resolved, manifest, filename)
 	}
 	return nil
 }
@@ -477,15 +460,6 @@ func (m *MockArrow) OnArrowRemoved(
 	return nil
 }
 
-func (m *MockArrow) OnArrowUpgraded(
-	fn func(ctx context.Context, arrow domain.Arrow) error,
-) error {
-	if m.OnArrowUpgradedFn != nil {
-		return m.OnArrowUpgradedFn(fn)
-	}
-	return nil
-}
-
 type MockRuntime struct {
 	BeginInstallFn func(
 		ctx context.Context,
@@ -511,6 +485,7 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 		vars map[string]string,
+		targetRef string,
 	) error
 	RuntimeExistsFn func(
 		ctx context.Context,
@@ -575,7 +550,14 @@ type MockRuntime struct {
 	MarkReadyFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		lastReturn *domainRuntime.Return,
+	) error
+	ReconcileVersionBadgeFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	ClearVersionBadgeFn func(
+		ctx context.Context,
+		ns domain.Namespace,
 	) error
 	ForgetFn func(
 		ctx context.Context,
@@ -618,9 +600,9 @@ func (m *MockRuntime) BeginUninstall(ctx context.Context, ns domain.Namespace, v
 	return nil
 }
 
-func (m *MockRuntime) BeginUpdate(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+func (m *MockRuntime) BeginUpdate(ctx context.Context, ns domain.Namespace, vars map[string]string, targetRef string) error {
 	if m.BeginUpdateFn != nil {
-		return m.BeginUpdateFn(ctx, ns, vars)
+		return m.BeginUpdateFn(ctx, ns, vars, targetRef)
 	}
 	return nil
 }
@@ -772,9 +754,23 @@ func (m *MockRuntime) MarkOutdated(
 	return nil
 }
 
-func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
+func (m *MockRuntime) ReconcileVersionBadge(ctx context.Context, ns domain.Namespace) error {
+	if m.ReconcileVersionBadgeFn != nil {
+		return m.ReconcileVersionBadgeFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) ClearVersionBadge(ctx context.Context, ns domain.Namespace) error {
+	if m.ClearVersionBadgeFn != nil {
+		return m.ClearVersionBadgeFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace) error {
 	if m.MarkReadyFn != nil {
-		return m.MarkReadyFn(ctx, ns, lastReturn)
+		return m.MarkReadyFn(ctx, ns)
 	}
 	return nil
 }
@@ -1237,5 +1233,130 @@ func (m *MockRecommendation) Shutdown(
 func (m *MockRecommendation) OnHomeRefreshed(
 	_ func(ctx context.Context),
 ) error {
+	return nil
+}
+
+type MockLifecycle struct {
+	InstallFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) (bool, error)
+	UninstallFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) error
+	ExecuteFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		method string,
+		vars map[string]string,
+	) error
+	UpdateFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		vars map[string]string,
+	) (bool, error)
+	StopFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	ResetFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	RecheckFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (models.UpdateResult, error)
+	SettlingFn     func(ns domain.Namespace) bool
+	HoldBadgeFn    func(ns domain.Namespace) bool
+	UpdateTargetFn func(ns domain.Namespace) (domain.Available, bool)
+	DrainFn        func(ctx context.Context) error
+	StartFn        func() error
+}
+
+func (m *MockLifecycle) Install(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
+	if m.InstallFn != nil {
+		return m.InstallFn(ctx, ns, vars)
+	}
+	return false, nil
+}
+
+func (m *MockLifecycle) Uninstall(ctx context.Context, ns domain.Namespace, vars map[string]string) error {
+	if m.UninstallFn != nil {
+		return m.UninstallFn(ctx, ns, vars)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Execute(ctx context.Context, ns domain.Namespace, method string, vars map[string]string) error {
+	if m.ExecuteFn != nil {
+		return m.ExecuteFn(ctx, ns, method, vars)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Update(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
+	if m.UpdateFn != nil {
+		return m.UpdateFn(ctx, ns, vars)
+	}
+	return false, nil
+}
+
+func (m *MockLifecycle) Stop(ctx context.Context, ns domain.Namespace) error {
+	if m.StopFn != nil {
+		return m.StopFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Reset(ctx context.Context, ns domain.Namespace) error {
+	if m.ResetFn != nil {
+		return m.ResetFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Recheck(ctx context.Context, ns domain.Namespace) (models.UpdateResult, error) {
+	if m.RecheckFn != nil {
+		return m.RecheckFn(ctx, ns)
+	}
+	return models.UpdateResult{}, nil
+}
+
+func (m *MockLifecycle) Settling(ns domain.Namespace) bool {
+	if m.SettlingFn != nil {
+		return m.SettlingFn(ns)
+	}
+	return false
+}
+
+func (m *MockLifecycle) HoldBadge(ns domain.Namespace) bool {
+	if m.HoldBadgeFn != nil {
+		return m.HoldBadgeFn(ns)
+	}
+	return false
+}
+
+func (m *MockLifecycle) UpdateTarget(ns domain.Namespace) (domain.Available, bool) {
+	if m.UpdateTargetFn != nil {
+		return m.UpdateTargetFn(ns)
+	}
+	return domain.Available{}, false
+}
+
+func (m *MockLifecycle) Drain(ctx context.Context) error {
+	if m.DrainFn != nil {
+		return m.DrainFn(ctx)
+	}
+	return nil
+}
+
+func (m *MockLifecycle) Start() error {
+	if m.StartFn != nil {
+		return m.StartFn()
+	}
 	return nil
 }

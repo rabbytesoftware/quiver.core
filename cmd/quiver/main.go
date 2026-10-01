@@ -17,9 +17,16 @@ import (
 const exitInternalError = 1
 
 // Injected at build time via -ldflags.
+// version is the release ref the build is published under, and commit the full
+// hash it was built from; the two differ for a rolling tag, whose ref stays put
+// while its commit moves. channel is the selector the release pipeline
+// publishes the build under (stable, beta, hotfix, nightly-latest), empty for
+// a local build.
 // buildID is days elapsed since the Quiver epoch (2026-04-11 15:33:00 ART / 18:33:00 UTC).
 var (
 	version = "dev"
+	commit  = ""
+	channel = ""
 	buildID = "0"
 )
 

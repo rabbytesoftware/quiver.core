@@ -1,149 +1,240 @@
 # Arrow Versioning Model
 
-This document describes how Quiver identifies, resolves, and tracks versions of an
-Arrow. It supplements [arrow.md](./arrow.md), [../../domain.md](../../domain.md),
+This document describes how Quiver identifies an Arrow, what it records about the version
+that is installed, how it notices that something newer exists, and how an update moves an
+installed Arrow forward. It supplements [arrow.md](./arrow.md), [../../domain.md](../../domain.md),
 [../../manifold.md](../../manifold.md), [../../deptree.md](../../deptree.md), and
 [../../vault.md](../../vault.md).
 
+The model in one paragraph: a catalog row is keyed by `namespace@selector`, where the
+selector is **what the user follows** — a channel (`crowbar@stable`), a constraint
+(`crowbar@v1.*`), a pinned ref (`crowbar@v1.2.0`) or a commit. The selector never changes for
+the life of the row. **What is installed** is state inside the row (`Resolved`), and **what
+is ahead** is state inside the row too (`Available`). Every update is one in-place
+`advance` of that same row; there are no successor rows.
+
 ---
 
-## 1. Identity: `namespace@ref` is primary
+## 1. Identity: `namespace@selector`
 
 A Quiver `Namespace` is a string of the form:
 
 ```
-domain/user/repo[/auid][@ref]
+domain/user/repo[/auid][@selector]
 ```
 
-The `@ref` suffix is part of the identity. Two arrows whose `@ref` differs are two
-distinct aggregates with their own vault entry, dependency edges, and runtime — see
-[domain.md §Namespace](../../domain.md). There is no separate "version" type; the
-`Namespace` string is the key everywhere.
+For a catalog row the `@selector` suffix is part of the identity, and it is the key on
+every route, aggregate, cache entry and read model. It is the request the user made, not
+the answer the remote gave: `crowbar@stable` stays `crowbar@stable` while the ref it
+resolves to moves from `v1.2.0` to `v1.3.0`. An API client holding `crowbar@stable` never
+loses it to an update.
 
-**The ref is the version.** A manifest does not declare one and the aggregate does not
-store one: `Namespace.Ref()` is the only place a version is ever read from (§7).
-
-`Namespace` exposes the following accessors over the `@ref` suffix:
+`Namespace` exposes the following accessors over the suffix:
 
 | Method | Returns |
 |---|---|
-| `BareNamespace()` | The namespace without the `@ref` suffix (`domain/user/repo[/auid]`) |
-| `Ref()` | The substring after `@`, or `""` if absent |
+| `BareNamespace()` | The namespace without the suffix (`domain/user/repo[/auid]`) |
+| `Ref()` | The substring after `@` — for a catalog row, its selector — or `""` if absent |
 | `IsGlob()` | `true` if `Ref()` contains `*` |
-| `WithRef(ref)` | A new `Namespace` with `ref` replacing any existing ref; `WithRef("")` returns the bare namespace |
+| `WithRef(ref)` | A new `Namespace` with `ref` replacing any existing suffix; `WithRef("")` returns the bare namespace |
+
+A row is never keyed by a bare namespace. A refless request (`quiver add
+github.com/char2cs/crowbar`) is given a selector before the row is written — the
+repository's default channel (§6) — so the identity exists from day one.
+
+**Switching what a row follows is uninstall + install.** There is no retarget operation:
+`crowbar@stable` cannot become `crowbar@nightly-latest`. Removing one row and adding the
+other creates a second, independent identity.
 
 ---
 
-## 2. The `@ref` syntax
+## 2. Selectors
 
-Three classes of refs are supported. All are valid wherever a namespace appears —
-at the top level (`quiver add ...`) or inside a manifest's `tools:` / `services:`
-lists.
+### 2.1 Kinds
 
-| Class | Example | Meaning |
+| Kind | Example | Follows |
 |---|---|---|
-| Empty | `github.com/valve/steamcmd` | Latest stable release; falls back to the default branch (see §6) |
-| Literal | `github.com/valve/steamcmd@v1.2.3` | Exact git tag, branch, or commit SHA — passed to fetchers unchanged |
-| Literal | `github.com/valve/steamcmd@release-jan-2026` | Any literal ref the upstream resolves |
-| Glob | `github.com/valve/steamcmd@v1.*` | Pattern resolved at install time against upstream tags (see §3) |
-| Glob | `github.com/valve/steamcmd@2.*` | Glob; no `v` prefix required |
+| `channel` | `crowbar@stable`, `crowbar@nightly-latest` | The channel's latest member; a pointer channel (a rolling tag) is itself |
+| `constraint` | `crowbar@v1.*` | The highest matching tag |
+| `pin` | `crowbar@v1.2.0`, `crowbar@main` | Exactly that ref; a tag or branch that moves to another commit is still detected |
+| `commit` | `crowbar@3f2a9c1` | Exactly that commit; never outdated |
 
-A ref is a glob if and only if it contains `*` — `Namespace.IsGlob()` checks
-exactly this. Anything else is a literal and is forwarded to the fetchers as-is,
-including the token `latest` (see §6 for how it relates to the empty form).
+Channels are the buckets `GET /v0/arrow/{ns}/channels` lists. How a tag is sorted into a
+channel is the tag-name classifier in
+`internal/engine/manifold/resolver/resolvers/channel.go`: a tag with a numeric-dot version
+core and no suffix belongs to `stable`; a suffix names the channel (`v2.0.0-beta.1` is
+`beta`); every tag the classifier cannot place is its own **pointer** channel, named after
+itself (`nightly`, `nightly-latest`). A repository with no tags at all lists its default
+branch as a single pointer channel.
+
+A prefix before the core names the channel too (`beta-26.5-4` is `beta`) when it is a known
+channel word — `alpha`, `beta`, `canary`, `dev`, `edge`, `hotfix`, `insiders`, `next`,
+`nightly`, `preview`, `rc`, `stable` — or, for any other prefix, when the repository's
+unknown prefixes differ from tag to tag (a prefix every tag shares, such as `v` or a
+project name, is noise). Behind a channel word, a `YYYY-MM-DD` date stands in for a
+version core, with an optional `.N` patch after it, so a dated release groups under its
+channel instead of becoming a pointer channel of its own. Only a real date of this century
+counts (year 2000–2099, month 1–12, day 1–31): `stable-1999-01-01` or `stable-9999-99-99`
+is no date. A date with no channel word in front (`2026-01-02`, `snapshot-2026-01-02`) is
+not a version either: it stays a standalone pointer channel and is never ranked against a
+repository's semver releases. The date is recognised before a dotted core, so the
+names quiver.core's own release workflows publish for a dated series
+(`.github/scripts/release-tag.sh`, pinned by `tests/releasetags`) all group correctly:
+`beta-2026-09-27`, `beta-2026-09-27-1` (a rebuild), `stable-2026-09-27`,
+`stable-2026-09-27.1` (a patch), `hotfix-2026-09-27.1`, `hotfix-2026-09-27.1-1`.
+
+Within a channel, members are ranked by core, then by the numeric ordinal of a suffix
+(`beta-26.5-4` above `beta-26.5-3`), then by tag name, so two equal-rank spellings (`v1.2`
+and `v1.2.0`) always settle the same way. A date core ranks as `YY.MM.DD.patch` — its year
+within the century — so it orders among calendar-versioned `YY.M` tags by release month,
+and a later date outranks every patch of an earlier one:
+`stable-26.5.1` < `stable-2026-09-27` < `stable-2026-09-27.1` < `stable-2026-10-01` <
+`stable-26.11`. A channel that holds dated tags picks one order, so its order stays
+total: when every other member is a semantic version (major below 20, such as `v2.0.0`),
+those rank above every date, so a third-party `stable-2019-05-01` never outranks `v2.0.0`;
+when any member is calendar-like (major 20 or more, as quiver.core's `26.x`), the whole
+channel ranks numerically on one calendar, dates as `YY.MM.DD` — in
+`v1.0.0`, `v21.0.0`, `stable-2025-01-01` the date is the head. A dated-only channel orders
+by date.
+
+### 2.2 Parse rule
+
+`manifold.ClassifySelector(selector, snapshot)` decides the kind against the repository's
+ref snapshot (§5.1), in this order:
+
+| Step | Rule | Kind |
+|---|---|---|
+| 1 | A selector with an empty path component (leading `/`, trailing `/`, or `//`) names nothing | error |
+| 2 | Equal to a listed channel name (an ordered channel wins over a pointer channel of the same name) | `channel` |
+| 3 | An exact tag or branch name — a tag wins over a branch of the same name — or an explicit `refs/tags/<name>` / `refs/heads/<name>` escape | `pin` |
+| 4 | Contains `*`, `?` or `[` and is a valid `path.Match` pattern | `constraint` |
+| 5 | 7–40 hexadecimal characters that name no ref | `commit` |
+| 6 | Anything else | error — `ErrUnknownSelector`, surfaced as `ErrInvalidNamespace` (400) |
+
+Step 2 runs before step 3 on purpose: a rolling tag such as `nightly-latest` is both a tag
+and a pointer channel, and on the snapshot it is classified against both readings follow
+the same ref. A repository tag literally named `stable` is shadowed by the `stable` channel;
+install it with `crowbar@refs/tags/stable`.
+
+A commit selector is catalogued in lower case: `crowbar@ABCDEF1` and `crowbar@abcdef1` are
+one identity, `crowbar@abcdef1`, and either spelling names that row: every verb, every
+catalog read (detail, manifest, readme) and a dependent's orphan cleanup of a dependency it
+declared in another case. Every other kind keeps its exact spelling. Adopting (§10.1) a namespace whose selector has an empty path component
+is refused with `ErrInvalidNamespace` (400), the same as step 1, so no seed or collection
+member can alias another identity's workdir.
+
+The implementation is `internal/engine/manifold/selector.go`.
+
+### 2.3 The kind is stored
+
+The kind is decided once, when the row is created, and stored on it as
+`Arrow.SelectorKind`. It is authoritative from then on: a later tag push that would
+classify the same string differently never changes what an existing identity means.
+
+The stored kind is refined by the ref the selector named at that moment, because the
+family alone cannot say it: after someone pushes a tag `develop`, the string `develop`
+names both a branch and a tag, and after CI publishes `nightly-2026.09.30`, the string
+`nightly` names both a rolling tag and an ordered channel.
+
+| Stored kind | Family (wire) | Follows | Looks up refs in |
+|---|---|---|---|
+| `channel:ordered` | `channel` | The newest member of the ordered channel of that name | Tags |
+| `channel:pointer` | `channel` | The rolling tag of that name | Tags |
+| `channel:branch` | `channel` | The `HEAD` branch a tagless repository was added from | Branches |
+| `pin:tag` | `pin` | Exactly that tag (`refs/tags/` escape stripped) | Tags |
+| `pin:branch` | `pin` | Exactly that branch (`refs/heads/` escape stripped) | Branches |
+| `constraint` | `constraint` | The highest matching tag | Tags |
+| `commit` | `commit` | That commit | — |
+
+`ClassifySelector` returns the refined kind; `Target`, `Drift`, `Admit` and the update
+commit's re-check (`manifold.RefCommit`, §8.2 step 7) read only where the stored kind says
+the row's refs live. A branch pin therefore never reads a same-name tag, a pointer channel
+never turns into the ordered channel of its name, and a tag pin whose tag was deleted is
+not found rather than silently following a branch. The wire reports the family (§11).
+
+Rows stored before the refinement carry the unrefined kinds and keep the dynamic reading
+they were created with: a zero-value `pin` is the identity's tag, else its branch (an
+escape still says which); an unrefined `channel` is the ordered channel of its name, else
+the rolling tag, else the default branch it settled on (§5.2).
+
+The zero value of `SelectorKind` is `pin`. A row with no stored kind — any row written
+before the selector model existed — behaves as a pin of its identity's ref, so old data
+keeps working without a migration. On the wire the zero value is spelled `"pin"`, never
+`""` (§11).
+
+### 2.4 Selectors in manifests
+
+The same syntax is valid wherever a namespace appears — at the top level (`quiver add ...`)
+or inside a manifest's `tools:` / `services:` lists.
 
 ```yaml
 tools:
-  - github.com/valve/steamcmd              # empty ref -> latest
-  - github.com/valve/steamcmd@v1.2.3       # exact pin
-  - github.com/valve/steamcmd@v1.*         # glob -> resolved at add time
+  - github.com/valve/steamcmd              # refless -> the repository's default channel
+  - github.com/valve/steamcmd@v1.2.3       # pin
+  - github.com/valve/steamcmd@v1.*         # constraint
 
 services:
   - github.com/char2cs/myapp/database@v2.*
 ```
 
+A dependency edge carries the selector the dependent **declared** (`DependencyEdge.Constraint`,
+falling back to the edge namespace's own ref), never the ref it resolves to today. The row a
+declared dependency installs is `bare@<declared selector>`; a bare declaration is catalogued
+through the same refless resolution as a top-level add (§6) the first time it is installed.
+See `graph.dependencyIdentity` and `arrow.AddDependency`.
+
 ---
 
-## 3. Constraint resolution
+## 3. Row state
 
-When `Namespace.IsGlob()` is true, the manifold engine resolves the glob to a
-concrete tag before any manifest fetch. The entry point is
-`Manifold.ResolveConstraint(ctx, ns, pattern)`, called from
-`arrow.ResolveForInstall` and from `graph.resolveEdgeNs` when walking dependency
-edges. The implementation lives in
-`internal/engine/manifold/resolver/resolvers/constraint.go`.
+Everything that changes as versions move lives inside the row:
 
-### 3.1 Algorithm
+| Field | Type | Meaning |
+|---|---|---|
+| `SelectorKind` | `SelectorKind` | How the identity's selector is followed (§2.3) |
+| `Resolved` | `Resolved{Ref, Commit, Fingerprint}` | What is installed: the ref name, its full commit, and a fingerprint |
+| `Available` | `*Available{Ref, Commit}` | What the last check found ahead of `Resolved`; `nil` when current |
+| `UserInstalled` | `bool` | Whether a user asked for this row directly (`true`) or it was pulled in as a dependency (`false`) |
+| `InstalledAt` | `time.Time` | When `_install` last succeeded; zero until then and again after `_uninstall` |
 
-| Step | Action |
-|---|---|
-| 1 | Compute the upstream clone URL from `ns.BareNamespace().CloneURL()` |
-| 2 | Run `git ls-remote` against the URL with the configured fetch timeout |
-| 3 | Keep only refs where `Name().IsTag()` is true; collect `Short()` names |
-| 4 | Filter by `path.Match(pattern, tagName)` — Go shell glob, not regex |
-| 5 | Split the matches into stable-semver tags and the rest; sort the former numerically descending and rank them ahead of the latter, which sorts lexicographically descending (§3.3) |
-| 6 | Return the first element |
-| 7 | If no tags match, return an error — the install is rejected |
+- `Resolved` is set when the row is created (from the target the selector pointed at) and
+  moved only by an advance (§8) or an adoption (§10). `Fingerprint` is the commit today:
+  nothing verifies a release-asset checksum yet, so every writer stamps the commit there.
+- "Outdated" is derived, not stored: a row is outdated exactly when `Available` is set.
+  The API's `outdated` field is that derivation (§11).
+- `InstalledAt` answers "is it on disk"; `Resolved` answers "which version". A row that was
+  catalogued but never installed has a `Resolved` and a zero `InstalledAt`.
 
-Branches are not searched. Only annotated and lightweight tags. There is no
-fallback to the default branch when no tags match.
-
-Step 5 partitions rather than degrades. Sorting the whole set lexicographically the
-moment one tag fails to parse would make `v1.9.0` outrank `v1.10.0`, so a single
-`nightly` tag in a repository would pin every glob install to the wrong release.
-
-### 3.2 What is stored after resolution
-
-For top-level installs (`Arrow.Add`), `ResolveForInstall` returns the resolved
-namespace plus the original glob pattern as a separate `constraint` string. The
-arrow is stored with:
-
-| Field | Value |
-|---|---|
-| `Namespace` | Concrete `namespace@<resolved-tag>` |
-| `InstalledConstraint` | Original pattern (e.g. `v1.*`) — empty if the user did not supply a glob |
-| `UserInstalled` | `true` for `quiver add`, `false` for transitive installs |
-
-For dependency edges inside a manifest, the translator stores a
-`DependencyEdge{Namespace, Constraint, Type}` — `Constraint` is `ns.Ref()` from the
-manifest, `Namespace` carries the same ref unresolved. `graph.Resolve` calls
-`ResolveConstraint` lazily as it walks the tree, replacing the edge namespace with
-the concrete tag before recursing.
-
-### 3.3 Stable semver
-
-A tag is **stable** when it is two or three non-negative integer components with an
-optional leading `v` — `1.2`, `v1.2.3`. Anything carrying a prerelease component is
-not: `v1.2.0-rc.1`, `2.0.0-beta`, `nightly`, `edge`.
-
-`resolvers.IsStableSemver` is the single definition, shared by constraint resolution
-(§3.1) and refless resolution (§6), so the two never disagree about what "latest"
-means.
-
-Excluding prereleases from automatic selection does not make them unreachable — a
-prerelease is installed by naming it, `github.com/char2cs/crowbar@nightly`. What is
-excluded is a prerelease being chosen on the user's behalf.
+The runtime aggregate keeps its own `outdated` **state** — the badge Quiver Desktop reads.
+It is reconciled from the row: whenever a check records `Available`, the runtime is moved
+`ready → outdated` (`MarkVersionOutdated`) or back (`ClearVersionOutdated`) to match the row
+as it stands at that moment, never the answer the check computed. The end of any execution
+re-derives it the same way, except the end of `_update`, whose badge the update bracket
+re-derives once its commit has landed (§8.2 step 7). While a row is settling, a check that
+lands (a detail read's passive check, a `PATCH`) records what it found but leaves the badge
+alone for the same reason: the row still names the target about to be stamped. The update
+re-derives the badge once more before it lets the row go for every check it held in the
+meantime, so a newer release recorded during the settle is never left with a stale badge.
 
 ---
 
 ## 4. Multi-version coexistence
 
-Two arrows with the same `BareNamespace()` but different `Ref()` are completely
-distinct throughout the system. There is no conflict resolution and no SAT solving.
+Different selectors of one repository are different rows, and every layer keys them
+independently. There is no conflict resolution and no SAT solving.
 
 | Layer | Keying |
 |---|---|
-| Arrow aggregate (`asynx`) | Full `namespace@ref` string (`Namespace.String()`) |
-| Vault | Full `namespace@ref`, URL-encoded as a flat filename |
-| Vault workdir | Full `namespace@ref`, expanded as a directory tree under `namespacesPath` |
-| Runtime aggregate | Full `namespace@ref` — each version has its own lifecycle state |
-| Dep edge graph | Stored as `(from_ns_bare, from_version, to_ns_bare, to_version)` tuples |
-| Catalog `ViewModel` | Bare namespace key, with a `Versions []VersionRef` slice for grouping |
+| Arrow aggregate (`asynx`) | Full `namespace@selector` (`Namespace.String()`) |
+| Vault manifest cache | Full `namespace@selector`, percent-encoded into one flat filename (§12) |
+| Vault workdir | Full `namespace@selector`, the selector as one directory segment under `namespacesPath` (§12) |
+| Runtime aggregate | Full `namespace@selector` — each row has its own lifecycle state |
+| Dep edge graph | `(from_namespace, from_version, to_namespace, to_version)` tuples, versions being selectors |
+| Catalog read model | Bare namespace key, with one version row per selector for grouping |
 
-`pkg@v1.0.0` and `pkg@v2.0.0` are two arrows. Both can be installed. Both can be
-running. Removing one does not affect the other. The catalog read model groups them
-under the bare namespace for display, but every other operation works on the full
-namespace.
+`pkg@v1.*` and `pkg@v2.*` are two rows. Both can be installed, both can be running, and
+removing one does not affect the other. Two selectors that resolve to the same ref today
+(`pkg@stable` and `pkg@v1.3.0`) are still two rows, each with its own workdir and runtime.
 
 ```mermaid
 classDiagram
@@ -151,19 +242,29 @@ classDiagram
         <<string>>
         +BareNamespace() Namespace
         +Ref() string
-        +IsGlob() bool
         +WithRef(ref) Namespace
-        +String() string
     }
 
     class Arrow {
         +Namespace Namespace
         +ArrowMeta meta
         +Targets map~OS~Target
+        +SelectorKind SelectorKind
+        +Resolved Resolved
+        +Available *Available
         +UserInstalled bool
-        +InstalledConstraint string
         +InstalledAt time.Time
-        +UpgradedFromNs Namespace
+    }
+
+    class Resolved {
+        +Ref string
+        +Commit string
+        +Fingerprint string
+    }
+
+    class Available {
+        +Ref string
+        +Commit string
     }
 
     class DependencyEdge {
@@ -172,282 +273,616 @@ classDiagram
         +Type DepType
     }
 
-    class ViewModel {
-        +Namespace bare
-        +Metadata Arrow
-        +Versions []VersionRef
-    }
-
-    class VersionRef {
-        +Namespace ns
-        +Metadata Arrow
-    }
-
-    Arrow --> Namespace : keyed by full ns@ref
-    DependencyEdge --> Namespace : carries resolved ns@ref
-    ViewModel --> VersionRef : groups versions
-    VersionRef --> Arrow : holds full per-version arrow
+    Arrow --> Namespace : keyed by ns@selector
+    Arrow --> Resolved : installed
+    Arrow --> Available : ahead, nil when current
+    DependencyEdge --> Namespace : declared selector
 ```
 
 ---
 
-## 5. `UserInstalled` vs `InstalledConstraint`
+## 5. Remote view and drift
 
-The `Arrow` aggregate carries two independent fields that govern update behavior.
+### 5.1 One snapshot per check
 
-| Field | Set by | Meaning |
+Everything Quiver knows about a remote comes from one `RefSnapshot`: a single ref
+advertisement (`git ls-remote`, in memory through go-git) folded into
+
+| Field | Content |
+|---|---|
+| `Tags` | tag name → commit; an annotated tag is peeled to the commit it points at |
+| `Branches` | branch name → commit |
+| `Head` | the branch the remote's `HEAD` points at, when it names one |
+
+Channels, constraint matches, pins and commits are all derived from that one value, so a
+decision can never combine two inconsistent views of the remote. `Manifold.Snapshot` caches
+it per bare namespace for the manifold cache TTL (tied to `arrows.version_check_ttl`,
+default `1h`); `Manifold.FreshSnapshot` reads it live and refreshes the cache. Installs
+resolve through `Snapshot`; every version check and the update commit use `FreshSnapshot`.
+
+### 5.2 Target and drift
+
+`manifold.Target(kind, selector, snapshot)` names what a selector points at right now, and
+`manifold.Drift(kind, selector, resolved, snapshot)` compares it with `Resolved`. Both are
+pure functions (`internal/engine/manifold/drift.go`):
+
+| Kind | Target | Outdated when |
 |---|---|---|
-| `UserInstalled` | `Arrow.Add` (true) or `Arrow.AddDep` (false) | Whether the user explicitly requested this version. A dependency-only arrow can be promoted with `SetUserInstalled` (no demotion path) |
-| `InstalledConstraint` | `Arrow.Add` from `ResolveForInstall` | The original glob the user typed (`v1.*`). Empty if the user supplied an exact ref or empty ref |
-| `InstalledAt` | `MarkInstalled` after `_install` succeeds, cleared by `MarkUninstalled` | Wall-clock time the install completed; zero means the ref is not on disk. There is no companion ref field — the concrete ref installed is the one the aggregate is keyed by (§7) |
-| `UpgradedFromNs` | `UpgradeArrow` only | The previous namespace, used by `arrow.upgraded.*` reactions to clean up the old aggregate |
+| `channel` | The channel's latest member (a pointer channel: its own ref) | Target ref or commit differs from `Resolved` |
+| `constraint` | The highest matching tag (§5.3) | Target ref or commit differs |
+| `pin` | The same ref (escape stripped) at its current commit, read as a tag or a branch as the stored kind says (§2.3) | Its commit moved |
+| `commit` | The commit itself | Never |
 
-`InstalledConstraint` is what makes the `--upgrade-ref` path of `Arrow.Update`
-meaningful: only arrows with a non-empty constraint can be re-resolved to a newer
-tag, because exact pins and empty refs have no constraint to re-evaluate.
+- A row with an empty `Resolved.Commit` reports outdated once — unknown is not current.
+  After the next advance it carries a commit and behaves normally.
+- A row that settled on a repository's default branch (a refless add of a repository with
+  no tags, stored as `channel:branch`) keeps following that branch after the repository
+  publishes its first tag, even though the branch is no longer listed as a channel. An
+  unrefined `channel` row does the same only for the `HEAD` branch it itself resolved to,
+  so an ordered channel or a deleted pointer tag never turns into a same-name branch.
+- A selector never crosses its own bounds: `v1.*` never drifts to `v2.0.0`.
+- An ordered selector never offers a downgrade: a target its own order ranks below the
+  installed tag is not an update. A channel compares only tags of one channel (each read on
+  its own: `v1.2.0-rc.1` is `rc`, `v1.2.0` is `stable`); a constraint uses the order it
+  picks its target in (§5.3), so a `v1.*` row on `v1.2.0-rc.1` or `v1.2.0-1` is offered
+  `v1.2.0`. The guard needs the installed tag to still exist: an installed tag the snapshot
+  no longer holds (a yanked release, a deleted tag) has no rank, and the channel's or
+  constraint's current head is offered, even when it is older. A tag that moved under the
+  same name, a pointer channel and a pin follow their ref whichever way it moved.
+- A row whose ordered channel is no longer listed under its name — a later tag made the
+  classifier regroup the repository's tags, as `beta-2.0` could once turn `release-1.x` from
+  `stable` into a `release` channel — follows the ordered channel that holds its installed
+  tag today, instead of failing every check. Only if no channel holds it is there no answer.
+- Any resolution error produces no answer, and nothing is written.
 
-The `Validate` rule on `AddArrow` rejects any command targeting an aggregate that
-already exists — install of an existing `namespace@ref` is a no-op error. Promoting
-a dep-installed aggregate uses `SetUserInstalled` instead.
+### 5.3 Stable semver and constraint ranking
+
+A tag is **stable semver** when it is two or three non-negative integer components with
+an optional leading `v` — `1.2`, `v1.2.3`. Anything carrying a prerelease component is not:
+`v1.2.0-rc.1`, `2.0.0-beta`, `nightly`. `resolvers.IsStableSemver` is the single definition.
+
+A constraint's matches are ranked by `resolvers.HighestMatch`: stable-semver matches sort
+numerically descending and always rank ahead of the rest, which sort lexicographically
+descending. Equal-rank matches (`v1.2`, `v1.2.0`, `1.2.0`) are ordered by tag name,
+descending, so the answer never depends on what else the repository holds. Matches behind a
+channel word (`stable-26.5.1`, `stable-2026-09-27`, `beta-26.5-4`) rank after the
+stable-semver ones in their channel's order (§2.1), so `crowbar@stable-*` picks what the
+`stable` channel would, not the lexically largest name; every other match keeps the
+lexicographic order. Partitioning rather than degrading the whole set to string order is what keeps
+`v1.10.0` above `v1.9.0` when an unrelated `nightly` tag also matches. Branches are never
+searched, and a constraint no tag matches is rejected.
+
+### 5.4 When checks run
+
+| Trigger | Snapshot | Writes |
+|---|---|---|
+| `GET /v0/arrow/{ns}` on a catalogued row whose last check is older than `version_check_ttl` | fresh | `Available`, detached from the request |
+| `PATCH /v0/arrow/{ns}` | fresh | `Available`; may advance an uninstalled row (§8.1) |
+| Opening an update bracket (§8.2) | fresh | `Available` |
+| Core boot (`CheckVersionNow` on its own row, §10.2) | fresh | `Available`, detached |
+| Periodic: within a minute of daemon start, then every `arrows.version_check_interval` (default `6h`, each run pushed back by up to a tenth of it; `0s` turns it off), for every installed row under the same TTL claim as a detail read — a row checked within `version_check_ttl` is skipped (`Arrow.CheckInstalledVersions`) | fresh, one row at a time | `Available`; the badge follows |
+
+A check records its answer only when it differs from the row's current `Available`, and
+only while the row still holds the `Resolved` the answer was judged against:
+`RecordAvailable` carries that `Resolved` and is refused if the row has moved since (an
+update committed in between). A refused or conflicting write is re-read and re-judged, up to
+three attempts, so an answer about a version the row has already left is never recorded.
+The runtime badge is then reconciled from the row (§3).
+
+A check reads refs only: whether a target's manifest can be fetched is learned when someone acts
+on it (an update stages it, an install of an absent row or a catalog advance reads it). A fetch
+that definitively finds no manifest at the target records so in the vault — a not-found marker at
+the target's ref, for its commit — and a check does not offer a target so marked; the update
+bracket judges the row again when it cannot stage its target, so a target no update can install
+stops being offered right after the first attempt. A read of that same commit (an add, a preview,
+the details of a repository an add just failed on) answers not found from the marker without
+asking the host. The marker never replaces a cached manifest, so a pin whose ref is a row's own
+identity keeps its installed manifest. A tag that moves names another commit and is judged
+afresh.
+
+A branch of a repository that ships no manifest has no release of its own, so a selector naming
+it (a branch pin) is not found at add: the draft Fletcher would build for it comes from a release
+tag, which is not what the branch holds (see [manifold.md §4.1](../../manifold.md)). The release
+itself stays addressable by its tag, by a channel, or by a pointer tag.
 
 ---
 
 ## 6. Refless resolution
 
-`quiver add github.com/char2cs/crowbar` names no ref. Resolution walks a three-step
-chain and stops at the first step that yields one. Steps 1 and 2 are
-`Manifold.ResolveLatestStable`; step 3 is the caller's fallback when that reports
-`manifold.ErrNoLatestStable`.
+`quiver add github.com/char2cs/crowbar` names no selector. `ResolveInstall` reads the
+snapshot and asks `manifold.DefaultChannel` for one, which returns the first entry of the
+deterministic channel order `manifold.ChannelsOf` produces:
 
-| Step | Mechanism | Scope |
-|---|---|---|
-| 1 | `Platform.LatestReleaseURL` — request the host's latest-release permalink and read its redirect `Location` for the tag | Optional per platform; a plain web redirect, so it consumes no API quota |
-| 2 | `ResolveConstraint(ctx, ns, "*")` — `git ls-remote`, then the §3.1 ranking; the answer is kept only if it is a stable semver tag | Any git host, including self-hosted and SSH remotes |
-| 3 | `Platform.DefaultBranches` | Always available |
-
-Step 1 is an optimisation, not a requirement. Git is the floor: Quiver must be able to
-resolve a namespace on a host that offers no API at all, so a platform without a
-`latest_release_url` simply starts at step 2. Both steps agree on what they are looking
-for, because both select stable semver (§3.3).
-
-Landing on step 3 is a legitimate outcome, not a failure — it is the accurate statement
-that the repository has published no stable release. A manifest there that points at
-release assets will `404`, which is the honest result rather than a silently wrong one.
-
-A latest stable tag whose own manifest cannot be resolved (`not found`, e.g. a release
-that ships no assets and no manifest) does not end the walk: the store then tries the
-repository's other channels and finally the default branch, and only if all of those fail
-does it return the original stable `not found`. Any other failure (transport, rate limit,
-invalid manifest) is returned immediately with no fallback.
-
-Because `ls-remote` enumerates every ref on the remote, step 2 runs on the add path
-only. Search and discovery never reach it; they resolve against default branches.
-
-### 6.1 Empty ref vs the literal `latest`
-
-Empty-ref arrows are stored under the bare namespace key — `Namespace.String()`
-equals `BareNamespace().String()` when `Ref()` is empty. There is no separate
-"latest slot" directory or aggregate.
-
-A ref that is still empty by the time a fetch runs has reached step 3 of the chain
-above — the layers below describe that fallback, not the common path.
-
-| Layer | Behavior with empty ref |
+| Order | Channel |
 |---|---|
-| HTTP fetcher | Uses the platform's `DefaultBranch` as the `{branch}` URL segment |
-| Git fetcher | Omits `ReferenceName` from `CloneOptions` — clones default branch |
-| Dep-edge graph projection | Normalizes the empty `from_version` to `domain.VersionLatestRef = "latest"` when writing rows in `internal/app/repositories/graph/internal/projections.go` |
+| 1 | `stable`, when the repository has at least one stable-classified tag |
+| 2 | Other ordered channels (`beta`, `rc`, …), by name |
+| 3 | Pointer channels (unclassified tags such as `nightly`), by name |
+| 4 | The `HEAD` branch — listed only when the repository has no tags at all |
 
-Equivalence with the literal `@latest` is not symmetric:
+The row is then written as `bare@<that channel>` with the channel's refined kind
+(`channel:ordered`, `channel:pointer` or `channel:branch`, §2.3). A
+repository with no tags and no `HEAD` branch has no default channel, and the add fails with
+not found.
 
-- In the dep-edge store, an arrow keyed by `pkg` (empty ref) is recorded as
-  `from_version = "latest"`. An arrow keyed by `pkg@latest` is also recorded as
-  `from_version = "latest"`. From the graph's point of view they look identical.
-- In every other layer (asynx aggregate, vault, runtime, catalog), `pkg` and
-  `pkg@latest` are different keys. `Namespace.Ref()` returns `""` for the first
-  and `"latest"` for the second.
-- The fetchers behave differently too: empty triggers the default-branch path;
-  `@latest` is sent to the upstream as a literal ref named `latest`, which the
-  remote may or may not resolve.
+There is no latest-release shortcut. Earlier versions asked the git host for its
+"latest release" permalink before listing refs; that path is gone. Every refless add is
+decided from the tag snapshot alone, on any git host, with no API quota involved.
 
-`domain.VersionLatestRef = "latest"` is used only by the dep-edge projection.
-Manifests should write the empty form (no `@ref` suffix) to mean "latest stable
-release" and let the chain resolve it. The literal `@latest` is supported but
-discouraged: it is forwarded to the remote as a tag actually named `latest`, which
-bypasses the chain entirely.
+A default channel whose target serves no manifest — a definitive not found, such as a
+latest release that ships neither a manifest nor assets Fletcher can draft one from — does
+not end the add. `ResolveInstall` then tries the other listed channels in the same order,
+and finally the `HEAD` branch (catalogued as a `pin:branch` on it), and returns the original not
+found only if every one of them fails. Any other failure (transport, rate limit, invalid
+manifest) is returned at once, and a namespace that names a selector never falls back.
+
+A refless namespace is also accepted by every other route. Once the catalog holds rows for
+that repository, `ResolveCatalogued` maps the bare namespace to the preferred row —
+user-installed first, then the most recently installed — so `quiver run
+github.com/char2cs/crowbar` reaches `crowbar@stable`. A bare namespace the catalog does
+not hold resolves, for read-only previews (`GET /arrow/{ns}`, `/manifest`, `/readme`),
+exactly the way an add would.
+
+### 6.1 The literal `@latest`
+
+`latest` has no special meaning. `pkg@latest` is classified like any other selector: a
+channel if the repository publishes a `latest` tag or channel, a pin if it names a branch,
+otherwise an unknown selector. Manifests that mean "the repository's default" should write
+the refless form.
 
 ---
 
 ## 7. The ref is the version
 
-There is no version field anywhere — not on either manifest, not on either aggregate,
-not on an arrow's or a collection's API responses. `Namespace.Ref()` is read wherever a
-version is wanted, so there is nothing left for two copies to disagree about.
+There is no version field anywhere — not on either manifest, not on either aggregate, not on
+an Arrow's or a Collection's API responses. **The resolved ref is the version.** For a
+catalog row that is `Resolved.Ref`; the identity's selector is what the user follows, which
+is not a version (`stable` names no release).
 
-A manifest used to restate the ref in `metadata.version`, which meant editing the
-value in the same commit that got tagged. When that edit was missed the failure was
-silent: a repository tagged `v1.2.0` whose manifest still said `nightly` produced a
-URL that was a perfectly good `200` for the *nightly* build, recorded under
-`v1.2.0`, with nothing to detect the disagreement. Quiver exposes facts; the resolved
-ref is a fact, and a version string derived from it is an inference belonging to
-whoever owns the naming convention.
+A manifest used to restate the ref in `metadata.version`, which meant editing the value in
+the same commit that got tagged. When that edit was missed the failure was silent: a
+repository tagged `v1.2.0` whose manifest still said `nightly` produced a URL that was a
+perfectly good `200` for the *nightly* build, recorded under `v1.2.0`, with nothing to
+detect the disagreement. Quiver exposes facts; the resolved ref is a fact, and a version
+string derived from it is an inference belonging to whoever owns the naming convention.
 
-`version:` is therefore no longer part of the `arrow@v0` authored surface — see
-[arrow.md §3](./arrow.md#3-top-level-structure). Leaving the key in an existing
-manifest is inert and non-breaking: the schema still lists the property so it does
-not trip `additionalProperties`, no Go type models it, and the value is discarded
-during translation.
+`version:` is therefore not part of the `arrow@v0` authored surface — see
+[arrow.md §3](./arrow.md#3-top-level-structure). Leaving the key in an existing manifest is
+inert and non-breaking: the schema still lists the property so it does not trip
+`additionalProperties`, no Go type models it, and the value is discarded during translation.
 
-`collection@v0` is the same, for a stronger reason. An arrow at least *had* a
-version to restate; a collection is a curated list, and a list is not an artifact.
-Nothing is fetched at a collection's `metadata.version`, nothing resolves against
-it, and every member already carries the ref it is pinned at on its own namespace.
-The field named nothing, so it is gone under the identical tolerate-and-ignore
-rule — see [collection.md §3.1](./collection.md#31-metadata-fields).
+`collection@v0` is the same, for a stronger reason. An arrow at least *had* a version to
+restate; a collection is a curated list, and a list is not an artifact. Nothing is fetched
+at a collection's `metadata.version`, nothing resolves against it, and every member already
+carries the selector it follows on its own namespace. The field named nothing, so it is gone
+under the identical tolerate-and-ignore rule — see
+[collection.md §3.1](./collection.md#31-metadata-fields).
 
-There is no `${VERSION}` built-in and no ref-to-version transform. Steps that need
-the ref use `${REF}` verbatim ([arrow.md §10.1](./arrow.md#101-built-in-variables)).
+### 7.1 `${REF}`
 
-### 7.1 Nor an installed-ref field
+Steps read the version through the `${REF}` built-in
+([arrow.md §10.1](./arrow.md#101-built-in-variables)). There is no `${VERSION}` built-in and
+no ref-to-version transform. The assembler picks, in order:
 
-The same argument retired `Arrow.InstalledRef`. An aggregate is keyed by the full
-`namespace@ref` (§1), and `MarkInstalled` reaches it from a hook that forwards
-that same namespace, so the ref an install put on disk was never anything but
-`Namespace.Ref()`. Which ref is installed is therefore answered by *which
-aggregate carries the stamp*, and whether it is installed at all is answered by
-`InstalledAt` — zero until `_install` succeeds, zero again after `_uninstall`.
+| Situation | `${REF}` |
+|---|---|
+| During `_update` | The target ref the update began toward: the `Available.Ref` the bracket staged, even when a later check has recorded a newer `Available` |
+| Otherwise, when the row has a `Resolved.Ref` | `Resolved.Ref` |
+| Otherwise (a row with nothing resolved, such as a seed without a commit) | The identity's own ref, `ns.Ref()` |
 
-`GET /v0/arrow` reflects this: a version row carries a `ref` that is always set
-and an `installed_at` that is the zero time until the ref is on disk. The
-`installed_ref` field on `GET /v0/arrow/{ns}`, and the `installed_ref` column on
-`catalog_arrow_versions`, are gone with it.
+`${REF}` is never the selector of a channel or constraint identity: `crowbar@stable`
+installs with `${REF} = v1.2.0`, so a release-asset URL built from it names a real release.
+`preinstalled:` probes use the same `Resolved.Ref`, falling back to `ns.Ref()`.
 
-### 7.2 Seeding requires an explicit ref
-
-`Arrow.Seed` takes manifest bytes directly rather than fetching them, so there is no
-remote to ask for a latest release and no ref to derive. The caller must supply one:
-a refless seed namespace is rejected.
-
-This applies to `POST /v0/arrow/:ns` with a request body and to the collection seed
-path.
+`${REF}` is computed for every run and never remembered. The variables a previous run
+returned (`LastReturn.Variables`) carry answers forward — a declared variable's value, an
+undeclared one a caller passed — but never a built-in (`${REF}`, `${WORKDIR}`,
+`${INSTALL_PATH}`, `${ARROW_NAMESPACE}`, `${PLATFORM}`) nor a dependency's value
+(`<namespace>.<name>`): a row advanced since (by `PATCH`, §8.1) or a failed update's
+target left in the last run must never lend its `${REF}` to another release's steps.
 
 ---
 
-## 8. Update flow
+## 8. Update flow (`advance`)
 
-`ArrowUsecase.Update` has two branches, selected by `models.UpdateOptions.UpgradeRef`.
+Every update is one in-place operation on the same aggregate. `AdvanceArrow` (event
+`arrow.advanced.<ns>`) replaces the row's manifest with the one at the target commit, sets
+`Resolved` to the target and clears `Available` — except that an update's commit keeps an
+`Available` naming something other than the target it stamps (a newer release a check
+recorded while the update's steps ran stays offered). An adoption (§10) always clears it
+for the next check to judge. Identity, runtime aggregate and workdir are
+untouched; the update steps overwrite files in place. Before every advance the vault
+manifest cache for the identity is replaced with the manifest fetched at the target commit
+(`ns.WithRef(commit)`; hosts serve raw files by SHA). On a host that cannot serve a SHA (one
+reached only by cloning, such as a self-hosted git server) the fetch falls back to the
+RESOLVED ref — the target's ref, never the identity's selector, which for `pkg@stable` or
+`pkg@v1.*` names no git ref. That ref may move between the snapshot and the fetch, which is
+why the update bracket's snapshot re-check verifies the commit afterwards, before it stamps
+anything (see [manifold.md §2](../../manifold.md#2-public-api)). An add or an adoption on such
+a host has no re-check: the row records the snapshot's commit, so a moving tag that advanced in
+between is offered as an update by the next check.
 
-### 8.1 In-place manifest refresh (`UpgradeRef = false`, or constraint empty)
+Three entry points reach it: the two below, and an install of a row nothing is installed from
+whose `Available` is set (an installed row that recorded a release ahead and was then
+uninstalled). Under the row's bracket, before its dependencies are resolved, the install judges
+the row again against a fresh ref snapshot (`CheckAvailable`) and advances it in place to what
+stands ahead now, so a release cut since the recorded check is the one installed, and `${REF}`
+and, after the install, `Resolved` name it: an install acts on the freshest target of its
+selector. A re-check that cannot reach the remote falls back to the recorded `Available`; a
+re-check that finds nothing ahead any more advances nothing. A target whose manifest cannot be
+read (not found, unreachable) never blocks the install; the row installs what it records and the
+failure is logged. Only the row being installed is advanced: a dependency is installed at the
+release its own row records.
 
-1. Refuse if the runtime is `running`.
-2. Re-fetch the manifest for the same `Namespace` via `arrow.ResolveManifest`.
-3. Compute `graph.DiffDeps(current, newArrow)` — added, removed, constrained changes.
-4. Apply `UpdateArrowManifest` to the aggregate (replaces meta, variables, netbridge, targets in place).
-5. If the arrow is `ready` and the dep set drifted, mark the runtime `outdated`
-   so the user can opt in to re-install dependencies.
+### 8.1 `PATCH /v0/arrow/{ns}` — check, and advance only what is not installed
 
-The aggregate's `Namespace` does not change, and neither do
-`InstalledConstraint` and `InstalledAt`. Only the manifest body is refreshed.
+`ArrowUsecase.Update` re-resolves the row against a fresh snapshot and records `Available`
+(§5.4). Then:
 
-### 8.2 Constraint re-resolution (`UpgradeRef = true` and `InstalledConstraint != ""`)
+| Row | Result |
+|---|---|
+| Current (`Available` is nil) | Nothing changes; the result is empty |
+| Installed (runtime in any state but absent/removed) | The row stays where it is; the result carries `available` |
+| Not installed | The row is advanced at once — there are no update steps to run for bits nobody installed — and the result reports the dependency diff (`added_deps`, `removed_from_manifest`, `constrained_deps`) |
+
+The advance of a row that is not installed takes the row's bracket (the one §8.2 serializes
+updates with) and reads the runtime state again inside it. An install of a row that is not
+installed takes the same bracket before it plans its dependencies and holds it through
+`BeginInstall`. An install that starts during the advance therefore plans and assembles the
+advanced manifest, and an advance that reaches a row whose install is under way finds it
+installed and moves nothing. Only a row that still needs an install takes its bracket: an
+update that installs the dependencies its target gained never waits on the bracket of an
+installed row, which may be its own or another update's.
+
+The request takes no body. It never runs update steps.
+
+### 8.2 `POST /v0/runtime/{ns}/update` — the update bracket
+
+This is the only path that runs a manifest's `update:` steps. `RuntimeUsecase.Update` (and
+`Execute` with `_update`) hands the row to the lifecycle repository
+(`repositories/lifecycle`): its bracket (`internal/bracket`) opens the update, and the
+settling of the run's end (`internal/settle`, reacting to `runtime.ended`) closes it:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User
-    participant U as ArrowUsecase
+    participant U as lifecycle repo
     participant A as arrow repo
     participant M as manifold
-    participant V as Vault
-    participant Ax as asynx (Arrow stream)
+    participant R as runtime repo
 
-    User->>U: Update(ns@v1.4.0, UpgradeRef=true)
-    U->>A: ResolveConstraint(ns, "v1.*")
-    A->>M: ResolveConstraint(ns, "v1.*")
-    M->>M: ls-remote, glob match, sort desc
-    M-->>A: "v1.5.0"
-    A-->>U: "v1.5.0"
-    U->>U: newNs = ns.WithRef("v1.5.0")
-
-    alt newNs == oldNs (no change)
-        U->>A: ResolveManifest(oldNs)
-        A-->>U: arrow
-        U->>A: UpdateManifest(oldNs, arrow)
-        Note right of U: in-place refresh path
-    else newNs != oldNs (upgrade)
-        U->>A: UpgradeVersion(oldNs, newNs, "v1.*", runtimeExists)
-        A->>M: ResolveArrow(newNs)
-        M-->>A: newArrow + raw manifest
-        A->>V: DeleteArrow(newNs) (clear pre-cache)
-        A->>V: RenameArrow(oldNs -> newNs)
-        A->>V: PutArrow(newNs, raw)
-        A->>Ax: UpgradeArrow{Namespace: newNs, OldNamespace: oldNs, ...}
-        Ax-->>A: arrow.upgraded.<newNs>
-        A-->>U: newArrow
+    User->>U: POST /runtime/{ns}/update
+    U->>U: open per-row bracket; refuse if a previous one is unsettled
+    U->>A: CheckAvailable(ns)
+    A->>M: FreshSnapshot + Drift
+    A-->>U: Available (nil -> nothing to do, HTTP 200 no-op)
+    U->>R: stop and wait, if running
+    U->>A: RefreshToTarget(ns, target)
+    A->>M: manifest at target commit
+    A-->>U: target manifest staged (arrow.manifest_refreshed)
+    U->>R: MarkOutdated + dep sync, if the target's deps differ
+    U->>R: BeginUpdate (target's update: steps, ${REF} = target ref)
+    R-->>U: runtime.ended (_update)
+    U->>A: TargetUnmoved(ns, target)
+    A->>M: FreshSnapshot
+    alt target ref still at target commit
+        U->>A: Advance(ns, target) (arrow.advanced)
+    else target moved during the update
+        U->>A: RefreshToTarget(ns, Resolved) (restore the installed manifest)
     end
-
-    U->>U: DiffDeps(current, newArrow) -> UpdateResult
-    U-->>User: UpdateResult{Added, Removed, Constrained}
+    U->>R: ReconcileVersionBadge (from the row as it stands)
 ```
 
-Key points:
+1. **Serialize.** Brackets of one row are serialized up to `BeginUpdate`, and with the
+   installs and catalog advances of that row (§8.1); a bracket whose
+   predecessor began but has not settled yet — its steps still running, or ended with its
+   commit or restore not landed (the row reads `settling`) — is refused with a state
+   violation (422), so the update steps never run twice toward one target.
+2. **Re-resolve.** The last check may be an hour old, so the target is resolved again
+   against a fresh snapshot and recorded as `Available`. Nothing ahead: nothing to do, and
+   the request is answered **200** as an idempotent no-op (no runtime event follows)
+   instead of 202.
+   A runtime not in `ready`, `outdated` or `running` skips the bracket and goes to the
+   runtime's ordinary method path, which applies its own state rules.
+3. **Stop.** A running arrow is stopped, and the bracket waits for the stop to finish.
+4. **Stage the target manifest.** `RefreshToTarget` fetches the manifest at the target
+   commit, replaces the vault cache and sends `RefreshManifest`
+   (`arrow.manifest_refreshed.<ns>`). `Resolved` and `Available` are left alone, so the
+   row still says what is installed while the target's own `update:` steps are assembled.
+5. **Dependencies.** Dependencies the target gained or lost are marked on the runtime
+   (`MarkOutdated`) and synced before the update begins. A target that gains a dependency
+   on the row itself, or whose dependencies form a cycle the graph sees, is refused as an
+   invalid manifest (422) before anything is installed.
+6. **Begin.** The target is remembered in memory for this row and `BeginUpdate` runs the
+   target manifest's `update:` steps with `${REF}` set to that remembered target's ref
+   (§7.1), never to an `Available` a check recorded while the bracket was staging.
+7. **Commit on success.** When `_update` ends successfully, the target is re-resolved
+   against a fresh snapshot. The target ref is looked up where the row's stored kind says
+   its refs live (`manifold.RefCommit`): an escaped branch pin `@refs/heads/master` reads
+   the branch even when a tag `master` exists. Only if the target ref still stands at the
+   target commit is the row advanced; a newer release a check recorded while the steps ran
+   stays in `Available` and keeps being offered. If the target moved while the steps ran,
+   the installed bits may not be the target's, so nothing is stamped and the row stays
+   outdated. The worst case is an extra update, never a wrong stamp or a missed one.
+   Either way the runtime's version badge is then re-derived from the row as it stands
+   (`ReconcileVersionBadge`): `ready` when nothing is available, `outdated` otherwise.
+   The badge is re-derived here, once, and not when `_update` ends: until the commit lands
+   the row still names the target as available, and reading it then made the runtime go
+   `ready → outdated → ready` right after every update.
+8. **Failure** stamps nothing: `Resolved` and `Available` stay as they were, and the
+   manifest of the installed release is staged on the row again (fetched at
+   `Resolved.Commit`, replacing the target manifest step 4 staged), so an install or
+   execution that follows runs the installed release's own steps for its own `${REF}`. The
+   same restore follows a commit that stamps nothing because the target moved (step 7). A
+   row with no recorded commit, or a restore whose fetch fails, keeps the staged manifest
+   until the next update restages it. The badge is then re-derived from the row, as in
+   step 7. A bracket that fails after step 4 but before its update began (a dependency the
+   target gained fails to sync, `BeginUpdate` is refused, the caller gives up) restores the
+   installed manifest the same way before it answers, inside the bracket and under a
+   context of its own: no run began, so nothing would end to restore it. A caller that gives
+   up while `BeginUpdate` is being accepted is checked against the runtime first: if the run
+   began (the runtime reads `updating`, or its end already took the target), nothing is
+   restored or undone — the run owns the outcome and its end settles the row.
 
-- The new aggregate is created with `UpgradeArrow.EmitEvent`, which sets
-  `UpgradedFromNs = oldNs` so `OnArrowUpgraded` reactions can clean up the old
-  runtime / mark the old aggregate forgotten.
-- `UpgradeArrow.Validate` rejects the command if a `newNs` aggregate already
-  exists — the upgrade target must be a fresh slot, not a collision.
-- Vault `RenameArrow` moves the cached manifest file and metadata from `oldNs` to
-  `newNs`. If a runtime for `newNs` already exists, the rename is skipped (the
-  pre-existing slot owns its workdir already).
-- Indirect dependencies are re-collected from the new manifest's `Targets[OS]`
-  via `graph.SyncDependencies`, which fires from the `arrow.upgraded.*`
-  subscription downstream. The dep diff returned to the caller distinguishes
-  added (in new not old), removed (in old not new), and constrained (same
-  namespace, different `Constraint` string).
+The commit runs detached from the event handler that observes `runtime.ended`, because
+clearing the badge waits on the same runtime event queue the handler is delivered on.
 
-### 8.3 Update commands surface
+Detached is not untracked. From `BeginUpdate` until its commit (or its restore, step 8)
+has landed, the row is **settling**: `GET /v0/runtime` reports `settling: true` even once the runtime reads
+`ready` or `outdated`, and the CLI never idle-stops a daemon with a settling row. A graceful
+shutdown drains the commits in flight before any aggregate or store closes, under a budget
+of its own (30 s in the daemon); a commit that begins after the drain started is refused,
+and one the budget runs out on is aborted. An aborted settling writes nothing more. A
+commit that runs out of its own time (`commitTimeout`, 2 min) outside a shutdown stamps
+nothing either, but it still restores the installed manifest (step 8) and re-derives the
+badge, under a short context of its own, so the badge never stays `ready` on a row that
+has something available. Every such restore — including a bracket's own after a failure
+before its update began — is tracked like a commit: a drain waits for it, a drain that
+gives up aborts it, and one that would begin after the drain started is refused. Either way, and when the daemon dies outright,
+nothing is stamped: the row stays outdated at what it had installed, and the next update
+runs the update steps again. That is the same worst case as a target that moved.
 
-| Command | Path taken |
-|---|---|
-| `quiver update <ns>` | In-place refresh of the bare-keyed aggregate |
-| `quiver update <ns@v1.2.3>` | In-place refresh of the exact-ref aggregate (no constraint to re-resolve) |
-| `quiver update <ns@v1.4.0>` with `UpgradeRef=true` and `InstalledConstraint="v1.*"` | Constraint re-resolution; jumps to `<ns@v1.5.0>` if upstream has a newer match |
-| Update of a `UserInstalled=false` arrow | Allowed, but typically driven by reaction from a parent's update |
-
-There is no `DirectInstall: false` exclusion at the use-case layer; any arrow
-with a constraint can be re-resolved.
+quiver.core's own row is excluded from step 7: its update replaces the running process,
+and the relaunched build adopts its new state on boot (§10.2). A failed update of it is not:
+the running build stays in charge, so its manifest is restored as in step 8.
 
 ---
 
 ## 9. Removal
 
-`Arrow.Remove` calls `axArrow.Forget(ns.String())` against the full namespace.
-The catalog projection (`removeVersionAndCleanup`) deletes the matching
-`VersionRef` from the bare-keyed `ViewModel`; if no versions remain, the parent
-`ViewModel` row is deleted. `OnForget` triggers a vault `DeleteWorkDir` for the
-specific `namespace@ref`.
+`Arrow.Remove` calls `axArrow.Forget(ns.String())` against the full identity. The catalog
+projection deletes the matching version row from the bare-keyed read model, and drops the
+parent row when no versions remain. The forget cascade drops the row's dependency edges,
+forgets its runtime aggregate and deletes its vault workdir.
 
-Removing `pkg@v1.0` does not touch `pkg@v2.0`. Removing the catalog row for the
-bare namespace requires every version to be forgotten first.
+Removing `pkg@v1.*` does not touch `pkg@v2.*`.
 
 The use-case-layer `ArrowUsecase.Remove` adds two guards on top:
 
 - The runtime must not be in an active state.
-- `graph.HasDependents(ns, "")` must be false — no other installed arrow lists
-  this `ns` as a dep.
+- `graph.HasDependents(ns, "")` must be false — no other catalogued arrow depends on this
+  identity.
 
-There is no explicit `DirectInstall` flag check; `UserInstalled` is informational.
-A dependency-only arrow can still be force-removed if no dependents exist.
+`UserInstalled` is informational here; a dependency-only row with no dependents can be
+removed.
 
 ---
 
-## 10. Cross-references
+## 10. Adoption
+
+### 10.1 `Adopt`
+
+`Arrow.Adopt(ns, kind, resolved, manifest, filename)` is the one way to register something
+that is already installed, from manifest bytes the caller holds, without touching the
+network. It requires a namespace with a selector and a manifest filename.
+
+| Row | What `Adopt` does |
+|---|---|
+| Absent | Caches the manifest and writes a new user-installed row with `kind` and `resolved` |
+| Present, `Resolved` differs | Replaces the cache and advances the row (`arrow.advanced`) |
+| Present, `resolved` has no commit and names the row's own `Resolved.Ref` | Not an advance: the row keeps the commit it learned; only a changed manifest is refreshed |
+| Present, only the manifest differs | Replaces the cache and refreshes the manifest (`arrow.manifest_refreshed`) |
+| Present, identical | Nothing |
+
+An existing row that is not user-installed is promoted (`SetUserInstalled`): whoever adopts
+a row installed it.
+
+Two callers use it besides core registration:
+
+- `POST /v0/arrow/{ns}/manifest` (seed) adopts the posted manifest as a **pin of its own
+  ref**, with `Resolved{Ref: ns.Ref()}` and no commit. Seeding the same identity again
+  replaces the row's manifest. A seeded row has no commit, so its first version check
+  reports it outdated if the ref exists upstream (§5.2). Once an update has stamped the
+  ref's commit, seeding the same ref again keeps that commit: the row is not offered the
+  update it already ran.
+- Following a collection adopts each of its local arrows the same way, at the collection's
+  ref, and keeps a commit the row already learned the same way.
+
+**Adopting declared state.** `POST /v0/arrow/{ns}/adopt` with `{"resolved_ref": "<ref>"}`
+(`Arrow.AdoptInstalled`) lets a client that installed itself declare what it runs, so its
+row is behind when the running build is. `{ns}` settles the identity and kind exactly as
+`POST /v0/arrow/{ns}` does (refless → default channel). `resolved_ref` is then admitted
+against a fresh snapshot (`manifold.Admit`) so the row's state can never contradict its
+identity: a channel admits its members (a pointer channel, or the default-branch fallback,
+only its own ref), a constraint the tags its glob matches, a pin its own ref, a commit
+selector itself or a ref at a commit it prefixes. A ref the remote does not hold is not
+found; one the selector could never resolve to is an invalid namespace. The manifest is
+fetched at that commit and passed to `Adopt` with `Resolved{ref, commit, commit}`, so the
+row table above applies unchanged. Nothing is judged inline: the next version check
+(the passive one a detail read triggers, or `PATCH`) records what is ahead. `/adopt`
+declares the catalog state only and leaves the runtime untouched; a client that also
+needs the arrow's installed state detected (the `preinstalled:` probe) must
+`POST /v0/arrow/{ns}` first and then call `/adopt` — the order the tests cover.
+
+### 10.2 quiver.core's own row
+
+The build stamps three values through `-ldflags`: `main.version` (the release ref the build
+is published under), `main.commit` (the full commit hash) and `main.channel` (the channel the
+release pipeline publishes it under: `stable`, `beta`, `hotfix` or `nightly-latest`). An
+explicit `arrows.self_update_channel` in the config wins over `main.channel`.
+
+On every boot `selfarrow.EnsureRegistered`:
+
+1. Does nothing for an unstamped build (`version` empty or `dev`).
+2. Adopts the embedded `ARROW.md` offline as `quiver.core@<channel>` with
+   `Resolved{version, commit, commit}` — kind `channel:pointer` when the build is published
+   under the channel's own name (`nightly-latest`), `channel:ordered` otherwise (`stable`,
+   `beta`, `hotfix`) — or as `quiver.core@<version>`, a `pin:tag`, when no channel is known.
+   An existing row keeps the kind it was stored with.
+3. Settles the row's runtime: an absent runtime is marked ready; an `outdated` badge left
+   over from before this build's own update is cleared when the row has nothing available.
+4. Launches an immediate version check.
+5. Removes every other `quiver.core` row, such as rows earlier builds filed under a
+   resolved ref.
+
+Because the identity is the channel, an update of core keeps `quiver.core@stable` for its
+whole life; the boot after an update only moves `Resolved` onto the new build.
+
+The release workflows name their tags with `.github/scripts/release-tag.sh`, pinned by
+`tests/releasetags`. A `beta/<series>` branch must name a calendar series (`26.5`) or a date
+(`2026-09-27`); any other name is refused, so no release lands in a pointer channel of its
+own. A calendar series publishes `beta-26.5`, `beta-26.5-1`, …, `stable-26.5`,
+`stable-26.5.1`, … and `hotfix-26.5.2`; a dated series `beta-2026-09-27`,
+`beta-2026-09-27-1`, …, `stable-2026-09-27`, `stable-2026-09-27.1`, … and
+`hotfix-2026-09-27.1`. The two schemes rank on one calendar (§2.1): a dated series sits
+between the calendar series of its month and the next — after `26.9`, before `26.10`. The
+latest stable a hotfix builds on is picked in that same order.
+
+The script refuses (and the workflow fails) to publish a tag that would not outrank its
+channel's latest release, because quiver offers a channel's highest-ranked member and
+would never offer it, while GitHub would still mark it the latest release that
+`install.sh` / `install.ps1` download. A beta must outrank the latest beta, and the stable
+its series would become must outrank the latest stable; a stable must outrank the latest
+stable; a hotfix the latest hotfix. So `beta/2026-11-02` after `stable-26.11.3` (it would
+rank `26.11.2`), a late `beta/26.5.3` after `stable-26.11`, or `beta/26.6` after
+`stable-2026-09-27` are refused rather than published and never offered. Every stable is
+created with `--latest`, which keeps GitHub's latest release the highest-ranked stable.
+
+---
+
+## 11. API shape
+
+`ns@selector` is the key on every route. Neither `POST /v0/arrow/{ns}` nor
+`PATCH /v0/arrow/{ns}` takes a body: the selector is in the path, and an update always
+moves to what the selector points at.
+
+`GET /v0/arrow/{ns}` (`ArrowDetailDTO`) carries the row state:
+
+| Field | Meaning |
+|---|---|
+| `namespace` | The identity, `ns@selector` |
+| `selector_kind` | `pin`, `channel`, `constraint` or `commit` — the stored kind's family (§2.3); the zero kind is spelled `pin` |
+| `resolved_ref` | `Resolved.Ref` |
+| `installed_commit` | `Resolved.Commit` |
+| `available` | `{ref, commit}` of what is ahead; omitted when current |
+| `outdated` | `true` exactly when `available` is set |
+| `license`, `user_installed`, `installed_at`, `last_used_at`, `state`, `active_run`, `last_return` | Unchanged catalog and runtime fields |
+
+`GET /v0/arrow` groups rows by bare namespace. Each `versions[]` entry is
+`{ref, resolved_ref, state, installed_at, last_used_at}`, where `ref` is the identity's
+selector (always set), `resolved_ref` the installed ref, and `installed_at` / `last_used_at`
+are omitted until they happen.
+
+`POST /v0/arrow/{ns}/adopt` takes `{"resolved_ref"}` and registers the identity as already
+installed at that ref (§10.1).
+
+`PATCH /v0/arrow/{ns}` answers with the update result in `data`: `available` for an
+installed row that has something ahead, or the dependency diff for a row it advanced
+(§8.1).
+
+`GET /v0/arrow/{ns}/manifest` returns the manifest as its author wrote it under `manifest`
+(`metadata`, `variables`, `netbridge`, `targets`, `readme`). Row state is never there; it
+belongs to the detail.
+
+`GET /v0/arrow/{ns}/channels` lists the channels a repository publishes, for picking a
+selector at install time.
+
+Removed from the wire with this model: `channel`, the stored ref-name and
+tracking-policy fields of the old detail DTO, the update body's channel/ref/upgrade
+options, and `POST /v0/arrow/{ns}`'s channel option.
+
+---
+
+## 12. Path-safe identities
+
+A selector can carry characters a filesystem cannot hold (`v1.*`), and two identities must
+never share a path or nest one inside the other, so every path component derived from an
+identity is encoded before it reaches the disk (`internal/engine/vault/pathsafe.go`,
+[vault.md §4.1](../../vault.md)):
+
+| Where | Encoding |
+|---|---|
+| Manifest cache filename (`vaultPath/`) | `url.PathEscape` of the bare namespace, `@`, then the selector as one identity segment — `github.com%2Fchar2cs%2Fcrowbar@v1.%2A.md` |
+| Workdir directory (`namespacesPath/`) | The bare namespace as directories; the last is `repo@<selector as one identity segment>` — `crowbar@release%2F1.0` |
+
+The identity segment percent-encodes `/` (so `@release/1.0` is never inside `@release`'s
+workdir, and uninstalling one never deletes the other's files), upper-case letters and
+non-ASCII bytes (so `@Nightly` and `@nightly` stay apart on case-insensitive filesystems),
+the Windows-reserved characters `<>:"|?*\`, `%`, `~`, control characters and a trailing `.`
+or space. A name over 96 bytes is cut and suffixed with a digest of the full identity, which
+keeps a workdir under a typical Windows home well under `MAX_PATH`.
+A plain lower-case tag or branch keeps its spelling, so its layout is unchanged; a workdir
+or cache entry an earlier layout created (a selector with `/` nested as directories, or one
+with upper-case letters) is still found where it is, so no installed arrow loses its files.
+
+## 13. Worked examples
+
+### 13.1 `crowbar@nightly` — a rolling tag moves
+
+The repository publishes a tag `nightly` that CI force-moves to every new build.
+
+1. `quiver install github.com/char2cs/crowbar@nightly`: `nightly` is not classified into
+   an ordered channel, so it is a pointer channel and the row is
+   `crowbar@nightly`, kind `channel`, `Resolved{nightly, a1b2…}`.
+2. CI moves `nightly` to `c3d4…`. The next check's target is `{nightly, c3d4…}`; the ref
+   name is the same but the commit differs, so `Available = {nightly, c3d4…}` and the
+   runtime shows `outdated`.
+3. `quiver update github.com/char2cs/crowbar@nightly` runs the bracket: the manifest at
+   `c3d4…` is staged, its `update:` steps run with `${REF} = nightly`, the commit step
+   confirms `nightly` still points at `c3d4…`, and the row advances to
+   `Resolved{nightly, c3d4…}`, `Available = nil`.
+4. Had CI moved `nightly` again while the update ran, step 3's commit would have found a
+   different commit and stamped nothing: the row stays outdated and the next update picks
+   up the newer build.
+
+### 13.2 `crowbar@stable` — a release keeps its identity
+
+1. The repository has `v1.2.0`. `quiver add github.com/char2cs/crowbar` has no selector;
+   the default channel is `stable`, so the row is `crowbar@stable`, kind `channel`,
+   `Resolved{v1.2.0, …}`. `${REF}` is `v1.2.0` at install.
+2. `v1.3.0` is tagged. The check finds the channel's latest member is `v1.3.0`:
+   `Available = {v1.3.0, …}`.
+3. `PATCH /v0/arrow/github.com/char2cs/crowbar@stable` reports `available: {ref: "v1.3.0",
+   …}` and changes nothing else, because the row is installed.
+4. `POST /v0/runtime/github.com/char2cs/crowbar@stable/update` runs `v1.3.0`'s `update:`
+   steps with `${REF} = v1.3.0` and advances the row to `Resolved{v1.3.0, …}`. The identity
+   is `crowbar@stable` before, during and after: the same workdir, the same runtime
+   aggregate, the same API key.
+
+### 13.3 A legacy row
+
+A row written before selectors existed is keyed by the ref it resolved to, say
+`crowbar@v1.2.0`, and carries no `SelectorKind` and no `Resolved`.
+
+1. The zero kind is `pin`, so it follows exactly `v1.2.0`; it is never reinterpreted as a
+   channel.
+2. Its `Resolved.Commit` is empty, so its first check reports it outdated once, with
+   `Available = {v1.2.0, <commit>}`.
+3. One update (or, for an uninstalled row, one `PATCH`) records the commit. From then on it
+   is an ordinary pin: outdated only if the `v1.2.0` tag is moved.
+
+To follow a channel instead, uninstall `crowbar@v1.2.0` and install `crowbar@stable`.
+
+---
+
+## 14. Cross-references
 
 | Topic | Document |
 |---|---|
 | `Namespace`, `Arrow`, `DependencyEdge`, `ArrowState` types | [../../domain.md](../../domain.md) |
-| Manifest schema, `tools:`/`services:` syntax, exports | [./arrow.md](./arrow.md) |
-| `ResolveArrow`, `ResolveCollection`, `ResolveConstraint` engine surface | [../../manifold.md](../../manifold.md) |
+| Manifest schema, `tools:`/`services:` syntax, `${REF}` | [./arrow.md](./arrow.md) |
+| `Snapshot`, `ResolveArrowAtCommit`, selector and drift functions | [../../manifold.md](../../manifold.md) |
 | DFS dependency walk, cycle detection | [../../deptree.md](../../deptree.md) |
-| Vault keying, `RenameArrow`, `ListVersions`, sweep | [../../vault.md](../../vault.md) |
+| Vault keying, path encoding, sweep | [../../vault.md](../../vault.md) |
+| Routes and DTOs | [../../http-api.md](../../http-api.md) |

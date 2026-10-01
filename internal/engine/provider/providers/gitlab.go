@@ -7,11 +7,6 @@ import (
 	"net/http"
 )
 
-// gitlabReleaseMarker precedes the ref in the redirect GitLab's latest-release
-// permalink answers with. GitLab has no "/releases/tag/" path: its releases
-// live directly under the repository's "/-/releases/" segment.
-const gitlabReleaseMarker = "/-/releases/"
-
 type gitlabProvider struct {
 	host
 	searchURL      string
@@ -24,7 +19,7 @@ func NewGitLab(
 	cfg Config,
 ) Provider {
 	return &gitlabProvider{
-		host:           newHost(cfg, gitlabReleaseMarker),
+		host:           newHost(cfg),
 		searchURL:      cfg.SearchURL,
 		releaseAPIURL:  cfg.ReleaseAPIURL,
 		packagesAPIURL: cfg.PackagesAPIURL,

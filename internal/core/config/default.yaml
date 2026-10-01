@@ -38,12 +38,17 @@ config:
     # ? triggers for a catalogued arrow: at most one remote check per arrow per
     # ? this interval, regardless of how many times it is viewed.
     version_check_ttl: 1h
-    # ? self_update_channel opts quiver.core's own self-update into a release
-    # ? channel, and always wins outright when set. Empty means no explicit
-    # ? preference: quiver.core still infers a channel from its own running
-    # ? version when that version's prefix unambiguously names a known
-    # ? non-stable release format (e.g. "nightly-<sha>"), falling back to
-    # ? "stable" only when it doesn't. See selfarrow.resolveChannel.
+    # ? version_check_interval runs that same check for every installed arrow
+    # ? on its own, soon after the daemon starts and then this often (each run
+    # ? pushed back by up to a tenth of it), so an arrow shows it is outdated
+    # ? without anyone opening it. An arrow checked within version_check_ttl is
+    # ? skipped. 0s turns it off.
+    version_check_interval: 6h
+    # ? self_update_channel is the release channel quiver.core registers its
+    # ? own catalog row as tracking (quiver.core@<channel>), and always wins
+    # ? when set. Empty means no explicit preference: the channel the build
+    # ? was published under (stable, beta, hotfix, nightly-latest) is used, and
+    # ? a build that declares none is pinned to its own version.
     self_update_channel: ""
     # ? extract_max_bytes caps the total uncompressed size a single extract
     # ? step may write, so a hostile or corrupt archive cannot fill the disk.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
@@ -57,6 +58,8 @@ type options struct {
 	// versionOutdatedSync is zero unless WithVersionOutdatedSync was passed;
 	// see version_outdated.go.
 	versionOutdatedSync SetVersionOutdatedFn
+	// versionCheckInterval is nil unless WithVersionCheckInterval was passed.
+	versionCheckInterval *time.Duration
 }
 
 // Option configures New.
@@ -159,7 +162,7 @@ func preinstalledVars(
 	vars := map[string]string{
 		domain.VarArrowNamespace: ns.String(),
 		domain.VarPlatform:       os.String(),
-		domain.VarRef:            ns.Ref(),
+		domain.VarRef:            arrow.Resolved.RefOr(ns.Ref()),
 	}
 
 	for _, v := range arrow.Variables {

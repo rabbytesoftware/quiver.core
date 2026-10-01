@@ -12,6 +12,8 @@ type RuntimeService struct {
 	InstallErr          error
 	UninstallErr        error
 	ExecuteErr          error
+	UpdateStarted       bool
+	UpdateErr           error
 	StopErr             error
 	ResetErr            error
 	RuntimeExistsResult bool
@@ -20,6 +22,8 @@ type RuntimeService struct {
 	GetRuntimeErr       error
 	ListRuntimesResult  []domainRuntime.ArrowRuntime
 	ListRuntimesErr     error
+	SettlingNamespaces  map[domain.Namespace]bool
+	DrainErr            error
 }
 
 func (m *RuntimeService) GetRuntime(
@@ -60,6 +64,14 @@ func (m *RuntimeService) Execute(
 	return m.ExecuteErr
 }
 
+func (m *RuntimeService) Update(
+	_ context.Context,
+	_ domain.Namespace,
+	_ map[string]string,
+) (bool, error) {
+	return m.UpdateStarted, m.UpdateErr
+}
+
 func (m *RuntimeService) Stop(
 	_ context.Context,
 	_ domain.Namespace,
@@ -82,3 +94,11 @@ func (m *RuntimeService) RuntimeExists(
 }
 
 func (m *RuntimeService) Start(_ context.Context) {}
+
+func (m *RuntimeService) Settling(ns domain.Namespace) bool {
+	return m.SettlingNamespaces[ns]
+}
+
+func (m *RuntimeService) Drain(_ context.Context) error {
+	return m.DrainErr
+}

@@ -74,13 +74,13 @@ func resolveStale(
 		return nil, fmt.Errorf("resolver: stale and no manifold configured")
 	}
 
-	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
+	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		return parseManifest(m, staleContent, "stale")
 	}
 
 	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
-		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", putErr)
+		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", CacheError(putErr))
 	}
 	return fresh, nil
 }
@@ -95,14 +95,14 @@ func fetchAndCache(
 		return nil, fmt.Errorf("resolver: not cached and no manifold configured")
 	}
 
-	fresh, rawBytes, filename, err := m.ResolveArrow(ctx, ns)
+	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		cacheConfirmedAbsent(ctx, ns, v, err)
 		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 
 	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
-		return nil, fmt.Errorf("resolver: store manifest: %w", putErr)
+		return nil, fmt.Errorf("resolver: store manifest: %w", CacheError(putErr))
 	}
 	return fresh, nil
 }
@@ -128,7 +128,7 @@ func cacheConfirmedAbsent(
 	if !errors.Is(fetchErr, manifoldresolver.ErrNotFound) {
 		return
 	}
-	if err := v.PutArrowNotFound(ctx, ns); err != nil {
+	if err := v.PutArrowNotFound(ctx, ns, ""); err != nil {
 		slog.WarnContext(ctx, "resolver: cache confirmed-absent result", "ns", ns, "err", err)
 	}
 }
@@ -165,11 +165,29 @@ func fetchFromManifold(
 	ns domain.Namespace,
 	m manifold.Manifold,
 ) (*domain.Arrow, error) {
-	fresh, _, _, err := m.ResolveArrow(ctx, ns)
+	fresh, _, _, err := resolveAt(ctx, m, ns)
 	if err != nil {
 		return nil, wrapManifoldErr("fetch from manifold", err)
 	}
 	return fresh, nil
+}
+
+// resolveAt resolves ns's manifest at its own ref. A draft Fletcher built from
+// another release — what it does for a branch of a repository with no
+// manifest — is not what that ref holds, so it answers as no manifest.
+func resolveAt(
+	ctx context.Context,
+	m manifold.Manifold,
+	ns domain.Namespace,
+) (*domain.Arrow, []byte, string, error) {
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if manifold.DraftedElsewhere(arrow, ns.Ref()) {
+		return nil, nil, "", fmt.Errorf("%s: %w", ns, manifold.NotARelease(arrow))
+	}
+	return arrow, raw, filename, nil
 }
 
 func parseManifest(

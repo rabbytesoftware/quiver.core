@@ -2,6 +2,7 @@ package manifold
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver"
 )
 
@@ -205,6 +207,137 @@ func TestResolveArrow_FletcherEnabled_ForgedBytesThatDoNotParse(t *testing.T) {
 	assert.ErrorIs(t, err, ErrInvalidManifest)
 	assert.NotErrorIs(t, err, resolver.ErrNotFound)
 	assert.NotErrorIs(t, err, resolver.ErrFetchFailed)
+}
+
+type refFletcher struct {
+	draftable string
+	// draftedFrom, when set, is the release the draft really came from.
+	draftedFrom string
+	asked       []domain.Namespace
+}
+
+func (f *refFletcher) Recover(
+	_ context.Context,
+	ns domain.Namespace,
+	cause error,
+) ([]byte, string, string, error) {
+	f.asked = append(f.asked, ns)
+	if ns.Ref() != f.draftable {
+		return nil, "", "", cause
+	}
+	if f.draftedFrom != "" {
+		return []byte(inferredArrow), "ARROW.md", f.draftedFrom, nil
+	}
+	return []byte(inferredArrow), "ARROW.md", ns.Ref(), nil
+}
+
+// A branch of a repository with no manifest has no release of its own: a
+// draft of the latest release is not what the branch holds, so a row
+// following the branch cannot be built from it.
+func TestResolveArrowAtCommit_DraftOfAnotherReleaseIsNoManifestAtTheRef(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	identity := domain.Namespace("github.com/acme/tool@main")
+	fl := &refFletcher{draftable: "main", draftedFrom: "v1.2.0"}
+	m, ok := NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil).(*manifold)
+	require.True(t, ok)
+	m.fl = fl
+
+	_, _, _, err := m.ResolveArrowAtCommit(context.Background(), identity, "main", commit)
+
+	require.ErrorIs(t, err, resolver.ErrManifestNotFound)
+	var nf fletcher.NotFletchableError
+	require.ErrorAs(t, err, &nf)
+	assert.Equal(t, fletcher.ReasonNotARelease, nf.Reason)
+}
+
+// A release is published under its tag, never under the commit the tag
+// resolves to, so a manifest Fletcher drafts is found at the fallback ref.
+func TestResolveArrowAtCommit_FletcherDraftsAtTheRefNotTheCommit(t *testing.T) {
+	const commit = "0123456789abcdef0123456789abcdef01234567"
+	identity := domain.Namespace("github.com/acme/tool@stable")
+	fl := &refFletcher{draftable: "v1.2.0"}
+	m, ok := NewWithResolvers(&stubResolver{arrowErr: manifestMissing()}, &stubConstraintResolver{}, nil).(*manifold)
+	require.True(t, ok)
+	m.fl = fl
+
+	arrow, raw, filename, err := m.ResolveArrowAtCommit(context.Background(), identity, "v1.2.0", commit)
+
+	require.NoError(t, err)
+	assert.Equal(t, identity, arrow.Namespace)
+	assert.Equal(t, domain.ArrowOriginInferred, arrow.Origin())
+	assert.Equal(t, []byte(inferredArrow), raw)
+	assert.Equal(t, "ARROW.md", filename)
+	assert.Equal(t, []domain.Namespace{identity.WithRef(commit), identity.WithRef("v1.2.0")}, fl.asked)
+}
+
+func TestSnapshotReleases(t *testing.T) {
+	snap := domain.RefSnapshot{
+		Tags:     map[string]string{"v1.0.0": "c100", "v2.0.0": "c200", "v3.0.0-rc1": "c3rc"},
+		Branches: map[string]string{"main": "cmain"},
+		Head:     "main",
+	}
+	boom := errors.New("ls-remote failed")
+
+	testCases := []struct {
+		name       string
+		snap       domain.RefSnapshot
+		snapErr    error
+		wantStable string
+		stableErr  error
+		wantBranch string
+		wantHash   string
+		branchErr  error
+	}{
+		{name: "tagged repository", snap: snap, wantStable: "v2.0.0", wantBranch: "main", wantHash: "cmain"},
+		{
+			name:       "no stable release",
+			snap:       domain.RefSnapshot{Tags: map[string]string{"v3.0.0-rc1": "c3rc"}, Branches: map[string]string{"main": "cmain"}, Head: "main"},
+			stableErr:  models.ErrNoLatestStable,
+			wantBranch: "main",
+			wantHash:   "cmain",
+		},
+		{
+			name:       "no head branch",
+			snap:       domain.RefSnapshot{Tags: map[string]string{"v1.0.0": "c100"}},
+			wantStable: "v1.0.0",
+			branchErr:  ErrUnknownSelector,
+		},
+		{name: "unreachable remote", snapErr: boom, stableErr: boom, branchErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, ok := NewWithResolvers(&stubResolver{}, &stubConstraintResolver{refs: &tc.snap, refsErr: tc.snapErr}, nil).(*manifold)
+			require.True(t, ok)
+			releases := m
+			ns := domain.Namespace("github.com/acme/tool")
+
+			stable, err := releases.ResolveLatestStable(context.Background(), ns)
+			if tc.stableErr != nil {
+				require.ErrorIs(t, err, tc.stableErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantStable, stable)
+			}
+
+			branch, hash, err := releases.ResolveDefaultBranch(context.Background(), ns)
+			if tc.branchErr != nil {
+				require.ErrorIs(t, err, tc.branchErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantBranch, branch)
+				assert.Equal(t, tc.wantHash, hash)
+			}
+
+			channels, err := releases.ListChannels(context.Background(), ns)
+			if tc.snapErr != nil {
+				require.ErrorIs(t, err, tc.snapErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, ChannelsOf(tc.snap), channels)
+		})
+	}
 }
 
 func TestResolveArrow_FletcherDraftedFromAnotherRef_ArrowNamesThatRef(t *testing.T) {

@@ -14,8 +14,7 @@ func isRolling(
 	if tag == "" {
 		return false
 	}
-	_, _, versioned := resolvers.ParseTag(tag)
-	return !versioned
+	return !resolvers.HasVersionCore(tag)
 }
 
 func withStandInDigests(

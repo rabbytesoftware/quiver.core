@@ -65,11 +65,11 @@ func (s *GuardsSuite) TestGuards_ExecuteOnAbsentArrow() {
 	s.Less(status, 500, "execute on non-existent arrow must not 5xx")
 }
 
-// TestGuards_UpdateWhileExecuting: running→updating is not a valid transition.
+// TestGuards_UpdateWhileExecuting: PATCH never moves an installed arrow (only
+// POST /runtime/:ns/update runs update steps), so a running arrow keeps running.
 func (s *GuardsSuite) TestGuards_UpdateWhileExecuting() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
-	c := env.Client(s.T())
 	ns := kit.NSFor("quiver-test/service-b", "v1")
 
 	s.Equal(http.StatusCreated, tc.Add(ns))
@@ -80,9 +80,9 @@ func (s *GuardsSuite) TestGuards_UpdateWhileExecuting() {
 	s.Equal(http.StatusAccepted, tc.Execute(ns, "execute", nil))
 	env.WaitForState(s.T(), ns, domain.ArrowStateRunning, 120*time.Second)
 
-	// PATCH update while running — running→updating is invalid.
-	resp := c.Update(ns, map[string]any{"ref": "v1"})
-	resp.Body.Close()
-	s.GreaterOrEqual(resp.StatusCode, 400, "update while running must return 4xx, got %d", resp.StatusCode)
-	s.Less(resp.StatusCode, 500, "update while running must not 5xx, got %d", resp.StatusCode)
+	s.Equal(http.StatusOK, tc.Update(ns, nil))
+
+	detail, status := tc.GetDetail(ns)
+	s.Equal(http.StatusOK, status)
+	s.Equal(string(domain.ArrowStateRunning), detail.State, "PATCH must not move a running arrow")
 }

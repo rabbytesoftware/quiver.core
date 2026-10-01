@@ -33,9 +33,9 @@ type CatalogHooks struct {
 	// ReconcileVersionBadge re-derives the runtime state the badge is read
 	// from out of the catalog fact it projects. See reconcileVersionBadge.
 	ReconcileVersionBadge func(ctx context.Context, ns domain.Namespace) error
-	// RefreshManifest drops the cached manifest, resolves it again from its
-	// host at the namespace's own ref, and stores the result on the arrow.
-	RefreshManifest func(ctx context.Context, ns domain.Namespace) error
+	// RefreshManifest resolves the manifest again from its host, at the release
+	// method is running, and stages the result on the arrow.
+	RefreshManifest func(ctx context.Context, ns domain.Namespace, method string) error
 	// Reassemble rebuilds a method's steps from the arrow as it now stands.
 	Reassemble func(
 		ctx context.Context,
@@ -110,6 +110,9 @@ func finishExecution(
 	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
 		return
 	}
+	if method == domain.MethodUpdate {
+		return
+	}
 	reconcileVersionBadge(ctx, hooks, ns)
 }
 
@@ -119,9 +122,12 @@ func finishExecution(
 // release exists reads ready until the next TTL-gated version check, up to
 // an hour later.
 //
-// A re-derivation, not a fresh check: Arrow.Outdated already holds the
-// answer and nothing it depends on can change mid-execution, so this skips
-// the network round trip and just re-projects it onto runtime state.
+// A re-derivation, not a fresh check: Arrow.Available already holds the
+// answer, so this skips the network round trip and just re-projects it onto
+// runtime state. An update's end is left to the update bracket, which
+// re-derives the badge once its commit (or restore) has landed: read here,
+// the row still names the target it is about to stamp, and the runtime would
+// read outdated between the update and its commit.
 //
 // Runs unconditionally, regardless of outcome or method: the aggregate read
 // is its own short-circuit. Called only after EndExecution's Send returns,

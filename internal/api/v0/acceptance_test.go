@@ -37,6 +37,7 @@ const (
 	acceptanceBareNS = "github.com/quiver/chromatic"
 	acceptanceRef    = "v1.4.0"
 	acceptanceBranch = "main"
+	acceptanceCommit = "0123456789abcdef0123456789abcdef01234567"
 )
 
 // acceptanceManifest is the bytes discovery writes to the vault and the add
@@ -110,41 +111,45 @@ func (m *countingManifold) ParseCollection(
 	return nil, fmt.Errorf("manifold: collections not used")
 }
 
-func (m *countingManifold) ResolveConstraint(
-	context.Context,
-	domain.Namespace,
-	string,
-) (string, error) {
-	return acceptanceRef, nil
-}
-
-func (m *countingManifold) ResolveLatestStable(
-	context.Context,
-	domain.Namespace,
-) (string, error) {
-	return acceptanceRef, nil
-}
-
-func (m *countingManifold) ResolveDefaultBranch(
-	context.Context,
-	domain.Namespace,
-) (string, string, error) {
-	return "", "", fmt.Errorf("manifold: default branch not used")
-}
-
-func (m *countingManifold) ResolveLatestInChannel(
-	context.Context,
-	domain.Namespace,
-	string,
-) (string, error) {
-	return "", fmt.Errorf("manifold: latest in channel not used")
-}
-
 func (m *countingManifold) ListChannels(
 	context.Context,
 	domain.Namespace,
 ) ([]manifold.ChannelInfo, error) {
 	return nil, fmt.Errorf("manifold: list channels not used")
+}
+
+func (m *countingManifold) Snapshot(
+	context.Context,
+	domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return domain.RefSnapshot{
+		Branches: map[string]string{acceptanceBranch: acceptanceCommit},
+		Head:     acceptanceBranch,
+	}, nil
+}
+
+func (m *countingManifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.Snapshot(ctx, ns)
+}
+
+func (m *countingManifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	_ string,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	if commit != acceptanceCommit {
+		return nil, nil, "", fmt.Errorf("manifold: no manifest at %s", commit)
+	}
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	arrow.Namespace = ns
+	return arrow, raw, filename, nil
 }
 
 func (m *countingManifold) counts() (resolves, parses int) {
@@ -189,15 +194,6 @@ func (p *blockingProvider) Search(
 		Source:        "github.com",
 		DefaultBranch: acceptanceBranch,
 	}}, nil
-}
-
-// The host questions below complete the provider contract. Discovery asks a
-// provider to search and nothing else.
-func (p *blockingProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotProviderSearch
 }
 
 func (p *blockingProvider) RawFileURL(
@@ -425,20 +421,17 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	require.Equal(t, 1, resolvesAfterDiscovery, "discovery proves each candidate exactly once")
 	require.Equal(t, 2, env.provider.searches(), "one search per pass")
 
-	// 5. Adding the discovered arrow serves from the warm vault cache. This is
-	//    the payoff and the assertion that matters: not that the add succeeded,
-	//    but that it cost nothing.
+	// 5. Adding the discovered arrow fetches its manifest once more, at the
+	//    exact commit the install records, and asks no provider anything.
 	discoveredNS := acceptanceBareNS + "@" + acceptanceBranch
 	status, body = env.postJSON(t, "/v0/arrow/"+url.PathEscape(discoveredNS), "")
 	require.Equal(t, http.StatusCreated, status, "body: %s", body)
 
-	resolvesAfterAdd, parsesAfterAdd := env.manifold.counts()
-	assert.Equal(t, resolvesAfterDiscovery, resolvesAfterAdd,
-		"add must not resolve again — discovery already cached the manifest")
+	resolvesAfterAdd, _ := env.manifold.counts()
+	assert.Equal(t, resolvesAfterDiscovery+1, resolvesAfterAdd,
+		"add fetches the manifest exactly once, at the commit it installs")
 	assert.Equal(t, 2, env.provider.searches(),
 		"add must not ask any provider anything")
-	assert.Positive(t, parsesAfterAdd,
-		"the add path read the cached bytes rather than fetching them")
 
 	// 6. The arrow is now a local result. The add is accepted before the
 	//    catalog projection has run, so until it does the same arrow answers
@@ -463,10 +456,68 @@ func TestAcceptance_SearchDiscoverStreamAddSearch(t *testing.T) {
 	assert.True(t, local[0].Installed)
 	assert.Equal(t, models.ProvenanceInstalled, local[0].Provenance)
 
-	// Nothing above reached a provider or the network a second time.
+	// 7. The added row reads back in the selector model's wire shape.
+	assertAddedWireShape(t, env, discoveredNS)
+
+	// Nothing after the add reached a provider or fetched a manifest again.
 	finalResolves, _ := env.manifold.counts()
-	assert.Equal(t, 1, finalResolves)
+	assert.Equal(t, resolvesAfterAdd, finalResolves)
 	assert.Equal(t, 2, env.provider.searches())
+}
+
+// assertAddedWireShape reads the detail, list and manifest of an arrow added
+// from a branch selector and checks each carries the selector model's fields
+// and none of the removed ones.
+func assertAddedWireShape(
+	t *testing.T,
+	env *acceptanceEnv,
+	ns string,
+) {
+	t.Helper()
+
+	var detail map[string]any
+	require.Eventually(t, func() bool {
+		st, b := env.get(t, "/v0/arrow/"+url.PathEscape(ns))
+		if st != http.StatusOK {
+			return false
+		}
+		decodeInto(t, b, &detail)
+		return detail["resolved_ref"] != ""
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, "channel", detail["selector_kind"])
+	assert.Equal(t, acceptanceBranch, detail["resolved_ref"])
+	assert.Equal(t, acceptanceCommit, detail["installed_commit"])
+	assert.NotContains(t, detail, "available")
+	assert.Equal(t, false, detail["outdated"])
+	for _, removed := range []string{"channel", "installed_constraint", "recommended_ref", "installed_ref"} {
+		assert.NotContains(t, detail, removed)
+	}
+
+	status, body := env.get(t, "/v0/arrow")
+	require.Equal(t, http.StatusOK, status)
+	var list []map[string]any
+	decodeInto(t, body, &list)
+	require.Len(t, list, 1)
+	versions, ok := list[0]["versions"].([]any)
+	require.True(t, ok)
+	require.Len(t, versions, 1)
+	version, ok := versions[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, acceptanceBranch, version["ref"])
+	assert.Equal(t, acceptanceBranch, version["resolved_ref"])
+	assert.NotContains(t, version, "constraint")
+
+	status, body = env.get(t, "/v0/arrow/"+url.PathEscape(ns)+"/manifest")
+	require.Equal(t, http.StatusOK, status)
+	var manifest struct {
+		Manifest map[string]any `json:"manifest"`
+	}
+	decodeInto(t, body, &manifest)
+	assert.Contains(t, manifest.Manifest, "metadata")
+	for _, key := range []string{"selector_kind", "resolved", "available", "installed_at", "user_installed"} {
+		assert.NotContains(t, manifest.Manifest, key)
+	}
 }
 
 func dialJob(

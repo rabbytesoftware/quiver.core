@@ -19,9 +19,9 @@ import (
 )
 
 // ErrChecksumMismatch means a fetch step's downloaded content did not match
-// its declared checksum. The downloaded file is removed before this is
-// returned — a corrupted or tampered download must never be left on disk
-// where a later step could act on it.
+// its declared checksum. The download is staged beside its destination and
+// removed before this is returned — a corrupted or tampered download never
+// reaches the destination, where a later step could act on it.
 var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 
 // ErrChecksumUnresolved means a fetch step declared its checksum as a
@@ -30,7 +30,7 @@ var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 // Treating an unresolved reference the same as "no checksum declared" would
 // silently disable verification for exactly the case a template checksum
 // exists to guard: the caller failed to supply the value, not chose to skip
-// checking. The downloaded file is removed before this is returned, same as
+// checking. The staged download is removed before this is returned, same as
 // ErrChecksumMismatch.
 var ErrChecksumUnresolved = errors.New("download: checksum: variable reference resolved to an empty value")
 
@@ -76,23 +76,42 @@ func (h *handler) Execute(
 
 	url := req.Expand(s.URL.Resolve(req.OSArch.String()))
 
-	if err := fns.Download(stepCtx, url, dst, nil, downloadOpts...); err != nil {
+	staged, err := stagingPath(dst)
+	if err != nil {
 		return err
 	}
+	defer os.Remove(staged) //nolint:errcheck // gone already once it replaced dst
 
+	if err := fns.Download(stepCtx, url, staged, nil, downloadOpts...); err != nil {
+		return err
+	}
+	if err := h.verify(stepCtx, req, s, staged); err != nil {
+		return err
+	}
+	keepMode(staged, dst)
+	if err := replaceFile(staged, dst, os.Rename); err != nil {
+		return err
+	}
+	sweepStale(dst)
+	return nil
+}
+
+// verify checks the staged download against the step's checksum, if it
+// declares one. A download that fails it never reaches the destination, so
+// whatever the destination held before stays.
+func (h *handler) verify(
+	ctx context.Context,
+	req wizstep.Request,
+	s domainstep.FetchStep,
+	staged string,
+) error {
 	rawChecksum := s.Checksum.Resolve(req.OSArch.String())
 	checksum := req.Expand(rawChecksum)
-	if checksum == "" {
-		if strings.Contains(rawChecksum, "${") {
-			_ = os.Remove(dst)
-			return fmt.Errorf("download: checksum: %q: %w", rawChecksum, ErrChecksumUnresolved)
-		}
-		return nil
+	if checksum != "" {
+		return verifyChecksum(ctx, staged, checksum)
 	}
-
-	if err := verifyChecksum(stepCtx, dst, checksum); err != nil {
-		_ = os.Remove(dst)
-		return err
+	if strings.Contains(rawChecksum, "${") {
+		return fmt.Errorf("download: checksum: %q: %w", rawChecksum, ErrChecksumUnresolved)
 	}
 	return nil
 }

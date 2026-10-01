@@ -192,6 +192,94 @@ func TestUpdate_PostsUpdate(t *testing.T) {
 	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/update")
 }
 
+// The row's previous run was an update too. The update bracket emits a
+// runtime event before this update begins, still carrying the previous
+// update's return: the command must wait for this run's own return.
+func TestUpdate_PreviousUpdateReturnReplayed_WaitsForThisRun(t *testing.T) {
+	previous := &apidto.ReturnDTO{
+		Method: "_update", Outcome: "success", ExecutionID: "exec-previous",
+		Steps: []apidto.StepProgressDTO{{Index: 0, Status: "completed", Title: "previous update"}},
+	}
+	current := &apidto.ReturnDTO{
+		Method: "_update", Outcome: "success", ExecutionID: "exec-current",
+		Steps: []apidto.StepProgressDTO{{Index: 0, Status: "completed", Title: "this update"}},
+	}
+	previousRaw, err := json.Marshal(apidto.ArrowRuntimeDTO{Namespace: testNS, State: "ready", LastReturn: previous})
+	require.NoError(t, err)
+	f := &fakeDaemon{t: t, runtimeDetail: string(previousRaw), wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "outdated", LastReturn: previous},
+		{Namespace: testNS, State: "updating", LastReturn: previous, ActiveRun: &apidto.RunRecordDTO{
+			Method: "_update",
+			Steps:  []apidto.StepProgressDTO{{Index: 0, Status: "running", Title: "this update"}},
+		}},
+		{Namespace: testNS, State: "ready", LastReturn: current},
+	}}
+
+	out, err := runCLI(t, f, "json", "update", testNS)
+	require.NoError(t, err)
+
+	var run output.Run
+	require.NoError(t, json.Unmarshal([]byte(out), &run))
+	assert.Equal(t, "ready", run.State, "the stale outdated event of the previous update is not this run's end")
+	require.Len(t, run.Steps, 1)
+	assert.Equal(t, "this update", run.Steps[0].Title)
+}
+
+// A stream that only replays the previous run's return and closes never saw
+// this run end: that is a failure, not a success.
+func TestUpdate_OnlyThePreviousReturnArrives_Fails(t *testing.T) {
+	previous := &apidto.ReturnDTO{Method: "_update", Outcome: "success", ExecutionID: "exec-previous"}
+	previousRaw, err := json.Marshal(apidto.ArrowRuntimeDTO{Namespace: testNS, State: "ready", LastReturn: previous})
+	require.NoError(t, err)
+	f := &fakeDaemon{t: t, runtimeDetail: string(previousRaw), wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "outdated", LastReturn: previous},
+	}}
+
+	_, err = runCLI(t, f, "json", "update", testNS)
+	require.Error(t, err)
+}
+
+// The previous return cannot be read: the command still waits for a return,
+// exactly as before it knew to look for one.
+func TestUpdate_PreviousReturnUnreadable_WaitsForAnyReturn(t *testing.T) {
+	f := &fakeDaemon{t: t, runtimeDetail: `"not a runtime"`, wsScript: []apidto.ArrowRuntimeDTO{
+		{Namespace: testNS, State: "ready", LastReturn: &apidto.ReturnDTO{Method: "_update", Outcome: "success"}},
+	}}
+
+	_, err := runCLI(t, f, "json", "update", testNS)
+	require.NoError(t, err)
+}
+
+// A daemon answering 200 had nothing newer: no runtime event will follow, so
+// the command must not wait on the stream. The stream here never speaks, so a
+// command that waited would never return.
+func TestUpdate_NoOp_DoesNotWaitForTheStream(t *testing.T) {
+	testCases := []struct {
+		name   string
+		format string
+		args   []string
+		want   string
+	}{
+		{name: "json", format: "json", want: `"reason":"already up to date, nothing to do"`},
+		{name: "yaml", format: "yaml", want: "reason: already up to date, nothing to do"},
+		{name: "detached", format: "json", args: []string{"--detach"}, want: `"reason":"already up to date, nothing to do"`},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			hold := make(chan struct{})
+			f := &fakeDaemon{t: t, mutationStatus: http.StatusOK, wsHold: hold}
+
+			out, err := runCLI(t, f, tc.format, append([]string{"update", testNS}, tc.args...)...)
+			close(hold)
+
+			require.NoError(t, err)
+			assert.Contains(t, strings.ReplaceAll(out, " ", ""), strings.ReplaceAll(tc.want, " ", ""))
+			assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/update")
+		})
+	}
+}
+
 func TestUpdate_NoOpAlreadyUpToDate(t *testing.T) {
 	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
 

@@ -1,0 +1,18 @@
+#!/bin/sh
+# e2e-hosts on|off points github.com and raw.githubusercontent.com at this
+# container (the githost), or back at the real hosts. Run through sudo by the
+# self-update phases only. /etc/hosts is a bind mount Docker owns, so it is
+# rewritten in place, never replaced.
+set -eu
+
+readonly MARK="# quiver-e2e-self"
+kept=$(grep -vF "$MARK" /etc/hosts || true)
+
+case "${1:-}" in
+on) printf '%s\n127.0.0.1 github.com raw.githubusercontent.com %s\n' "$kept" "$MARK" >/etc/hosts ;;
+off) printf '%s\n' "$kept" >/etc/hosts ;;
+*)
+	echo "usage: e2e-hosts on|off" >&2
+	exit 2
+	;;
+esac

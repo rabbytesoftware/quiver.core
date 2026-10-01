@@ -33,6 +33,6 @@ func ReconcileVersionBadge(
 			return nil
 		}
 
-		return setVersionOutdated(ctx, ns, arrow.Outdated)
+		return setVersionOutdated(ctx, ns, arrow.Available != nil)
 	}
 }

@@ -2,10 +2,12 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -170,22 +172,36 @@ func (s *store) namespaceLock(key string) *sync.Mutex {
 	return m
 }
 
-// encodeNS URL-encodes a namespace so it is safe to use as a flat filename.
-func encodeNS(ns domain.Namespace) string {
-	return url.PathEscape(string(ns))
-}
+const metaSuffix = ".meta.json"
 
 func (s *store) metaFilePath(ns domain.Namespace) string {
-	return filepath.Join(s.vaultPath, encodeNS(ns)+".meta.json")
+	return filepath.Join(s.vaultPath, encodeNS(ns)+metaSuffix)
 }
 
 func (s *store) manifestFilePath(ns domain.Namespace, filename string) string {
-	ext := filepath.Ext(filename)
-	return filepath.Join(s.vaultPath, encodeNS(ns)+ext)
+	return filepath.Join(s.vaultPath, encodeNS(ns)+filepath.Ext(filename))
 }
 
-func (s *store) workdirPath(ns domain.Namespace) string {
-	return filepath.Join(s.namespacesPath, filepath.FromSlash(string(ns)))
+// cacheNames lists the names ns's manifest cache has had, current first: an
+// entry an earlier layout wrote is still read, and deleted with the rest.
+func cacheNames(ns domain.Namespace) []string {
+	current, legacy := encodeNS(ns), legacyEncodeNS(ns)
+	if current == legacy || len(legacy+metaSuffix) > maxComponentLen {
+		return []string{current}
+	}
+	return []string{current, legacy}
+}
+
+// cachedNamespace reads the namespace a cache entry belongs to from its
+// meta file name, or from the meta itself when the name was capped.
+func (s *store) cachedNamespace(metaName string) (domain.Namespace, bool) {
+	encoded := strings.TrimSuffix(metaName, metaSuffix)
+	if isHashed(encoded) {
+		meta, err := readMeta(filepath.Join(s.vaultPath, metaName))
+		return meta.Namespace, err == nil && meta.Namespace != ""
+	}
+	decoded, err := url.PathUnescape(encoded)
+	return domain.Namespace(decoded), err == nil
 }
 
 func (s *store) WorkDir(
@@ -195,7 +211,10 @@ func (s *store) WorkDir(
 	if err := ns.Validate(); err != nil {
 		return "", ErrInvalidNamespace
 	}
-	dir := s.workdirPath(ns)
+	dir, err := s.namespacePath(ns)
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("workdir %s: %w", ns, err)
 	}
@@ -236,11 +255,12 @@ func (s *store) PutArrow(
 func (s *store) PutArrowNotFound(
 	ctx context.Context,
 	ns domain.Namespace,
+	commit string,
 ) error {
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	return putArrowNotFound(s, ns)
+	return putArrowNotFound(s, ns, commit)
 }
 
 func (s *store) PutCollection(
@@ -275,7 +295,13 @@ func (s *store) DeleteWorkDir(
 	if err := ns.Validate(); err != nil {
 		return ErrInvalidNamespace
 	}
-	dir := s.workdirPath(ns)
+	dir, err := s.namespacePath(ns)
+	if errors.Is(err, ErrWorkDirCollision) {
+		return nil // ns owns no directory; the one at its path is another identity's
+	}
+	if err != nil {
+		return err
+	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("workdir delete %s: %w", ns, err)
 	}
@@ -303,23 +329,6 @@ func (s *store) DeleteCollection(
 		return ErrInvalidNamespace
 	}
 	return deleteCollection(s, ns)
-}
-
-func (s *store) RenameArrow(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-) error {
-	if err := oldNs.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
-	}
-	if err := newNs.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidNamespace, err)
-	}
-	if oldNs == newNs {
-		return nil
-	}
-	return renameArrow(s, oldNs, newNs)
 }
 
 func (s *store) ListVersions(

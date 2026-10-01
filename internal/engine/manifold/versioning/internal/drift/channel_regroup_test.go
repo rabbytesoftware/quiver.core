@@ -1,0 +1,220 @@
+package drift
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/models"
+	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
+	sel "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning/internal/selector"
+)
+
+// coreReleaseTags is quiver.core's own tag list on 2026-09-30, before and
+// after the beta/2026-09-27 branch is merged to master.
+func coreReleaseTags(extra ...string) domain.RefSnapshot {
+	tags := map[string]string{
+		"stable-26.5": "s265", "stable-26.5.1": "s2651",
+		"beta-26.5": "b0", "beta-26.5-1": "b1", "beta-26.5-2": "b2", "beta-26.5-3": "b3", "beta-26.5-4": "b4",
+		"hotfix-26.5.2": "h2652", "nightly-latest": "n", "beta-2026-09-27": "bdate",
+	}
+	for _, tag := range extra {
+		tags[tag] = "c-" + tag
+	}
+	return domain.RefSnapshot{Tags: tags, Branches: map[string]string{"develop": "d", "master": "m"}, Head: "develop"}
+}
+
+func TestDrift_ChannelNeverOffersADowngrade(t *testing.T) {
+	testCases := []struct {
+		name         string
+		kind         domain.SelectorKind
+		selector     string
+		resolved     domain.Resolved
+		snap         domain.RefSnapshot
+		wantTarget   domain.Available
+		wantOutdated bool
+	}{
+		{
+			name: "a dated stable build is current on the stable channel", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-2026-09-27", Commit: "c-stable-2026-09-27"}, snap: coreReleaseTags("stable-2026-09-27"),
+		},
+		{
+			name: "a yanked head (installed tag deleted) is offered the channel's current head", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-26.5.2", Commit: "yanked"}, snap: coreReleaseTags(),
+			wantTarget: domain.Available{Ref: "stable-26.5.1", Commit: "s2651"}, wantOutdated: true,
+		},
+		{
+			name: "a dated beta build is never offered beta-26.5-4", kind: domain.SelectorOrderedChannel, selector: "beta",
+			resolved: domain.Resolved{Ref: "beta-2026-09-27", Commit: "bdate"}, snap: coreReleaseTags(),
+		},
+		{
+			name: "stable-26.5.1 is offered the dated release", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-26.5.1", Commit: "s2651"}, snap: coreReleaseTags("stable-2026-09-27"),
+			wantTarget: domain.Available{Ref: "stable-2026-09-27", Commit: "c-stable-2026-09-27"}, wantOutdated: true,
+		},
+		{
+			name: "the dated release is offered the next calendar version", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-2026-09-27", Commit: "c-stable-2026-09-27"}, snap: coreReleaseTags("stable-2026-09-27", "stable-26.10"),
+			wantTarget: domain.Available{Ref: "stable-26.10", Commit: "c-stable-26.10"}, wantOutdated: true,
+		},
+		{
+			name: "a constraint whose installed tag was deleted is offered its current match", kind: domain.SelectorConstraint, selector: "v1.*",
+			resolved: domain.Resolved{Ref: "v1.3.0", Commit: "gone"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a constraint on a pre-release is offered the release the constraint picks", kind: domain.SelectorConstraint, selector: "v1.*",
+			resolved: domain.Resolved{Ref: "v1.2.0-rc.1", Commit: "rc"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0-rc.1": "rc", "v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a constraint on a numbered build is offered the release the constraint picks", kind: domain.SelectorConstraint, selector: "v1.*",
+			resolved: domain.Resolved{Ref: "v1.2.0-1", Commit: "b1"}, snap: domain.RefSnapshot{Tags: map[string]string{"v1.2.0-1": "b1", "v1.2.0": "c120"}},
+			wantTarget: domain.Available{Ref: "v1.2.0", Commit: "c120"}, wantOutdated: true,
+		},
+		{
+			name: "a stable row whose installed tag the repository regrouped is never offered an older release", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "crowbar-1.5", Commit: "c15"},
+			snap:     domain.RefSnapshot{Tags: map[string]string{"crowbar-1.4": "c14", "crowbar-1.5": "c15", "v1.4.0": "v140"}},
+		},
+		{
+			name: "a moved tag of the same name is still offered", kind: domain.SelectorOrderedChannel, selector: "stable",
+			resolved: domain.Resolved{Ref: "stable-26.5.1", Commit: "old"}, snap: coreReleaseTags(),
+			wantTarget: domain.Available{Ref: "stable-26.5.1", Commit: "s2651"}, wantOutdated: true,
+		},
+		{
+			name: "a rolling tag moved backwards is still followed", kind: domain.SelectorPointerChannel, selector: "nightly-latest",
+			resolved: domain.Resolved{Ref: "nightly-latest", Commit: "newer"}, snap: coreReleaseTags(),
+			wantTarget: domain.Available{Ref: "nightly-latest", Commit: "n"}, wantOutdated: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target, outdated, err := Drift(tc.kind, tc.selector, tc.resolved, tc.snap)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOutdated, outdated)
+			assert.Equal(t, tc.wantTarget, target)
+		})
+	}
+}
+
+func TestDrift_OrderedChannelRegroupedByLaterTags_FollowsItsInstalledTag(t *testing.T) {
+	regrouped := domain.RefSnapshot{Tags: map[string]string{
+		"release-1.0": "c10", "release-1.1": "c11", "release-1.2": "c12", "foo-2.0": "c20",
+	}}
+
+	testCases := []struct {
+		name         string
+		kind         domain.SelectorKind
+		resolved     domain.Resolved
+		wantTarget   domain.Available
+		wantOutdated bool
+		wantErr      error
+	}{
+		{
+			name: "refined row follows the channel holding its installed tag", kind: domain.SelectorOrderedChannel,
+			resolved: domain.Resolved{Ref: "release-1.1", Commit: "c11"}, wantTarget: domain.Available{Ref: "release-1.2", Commit: "c12"}, wantOutdated: true,
+		},
+		{
+			name: "unrefined row does the same", kind: domain.SelectorChannel,
+			resolved: domain.Resolved{Ref: "release-1.2", Commit: "c12"},
+		},
+		{
+			name: "an installed tag no channel holds has no answer", kind: domain.SelectorOrderedChannel,
+			resolved: domain.Resolved{Ref: "release-0.9", Commit: "c09"}, wantErr: sel.ErrUnknownSelector,
+		},
+		{
+			name: "nothing installed has no answer", kind: domain.SelectorOrderedChannel,
+			resolved: domain.Resolved{}, wantErr: sel.ErrUnknownSelector,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target, outdated, err := Drift(tc.kind, resolvers.StableChannel, tc.resolved, regrouped)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOutdated, outdated)
+			assert.Equal(t, tc.wantTarget, target)
+		})
+	}
+}
+
+// A stable row, the core's own (channel:ordered, adopted at the build's
+// main.version) and an unrefined one alike, walks the dated series in order:
+// each release offers exactly the next one and never an earlier one.
+func TestDrift_DatedStableSeries_OfferedInOrder(t *testing.T) {
+	steps := []string{"stable-26.5.1", "stable-2026-09-27", "stable-2026-09-27.1", "stable-2026-10-01", "stable-26.11"}
+
+	for _, kind := range []domain.SelectorKind{domain.SelectorOrderedChannel, domain.SelectorChannel} {
+		t.Run(string(kind), func(t *testing.T) {
+			for i := 0; i+1 < len(steps); i++ {
+				installed, next := steps[i], steps[i+1]
+				snap := coreReleaseTags(steps[1 : i+2]...)
+				resolved := domain.Resolved{Ref: installed, Commit: snap.Tags[installed]}
+
+				target, outdated, err := Drift(kind, resolvers.StableChannel, resolved, snap)
+
+				require.NoError(t, err)
+				require.True(t, outdated, "%s must be offered %s", installed, next)
+				assert.Equal(t, next, target.Ref)
+				_, again, err := Drift(kind, resolvers.StableChannel, domain.Resolved{Ref: next, Commit: target.Commit}, snap)
+				require.NoError(t, err)
+				assert.False(t, again, "%s is the head", next)
+			}
+		})
+	}
+}
+
+func TestTarget_HotfixChannelOfADatedSeries(t *testing.T) {
+	snap := coreReleaseTags("stable-2026-09-27", "hotfix-2026-09-27.1")
+
+	kind, err := sel.ClassifySelector("hotfix", snap)
+	require.NoError(t, err)
+	target, err := Target(kind, "hotfix", snap)
+
+	require.NoError(t, err)
+	assert.Equal(t, "hotfix-2026-09-27.1", target.Ref)
+}
+
+// A third-party repository that once pushed a dated snapshot tag keeps its
+// semver releases on stable: a date without a channel word is a standalone
+// pointer, never ranked against a version.
+func TestChannelsOf_BareDateStaysAStandalonePointer(t *testing.T) {
+	testCases := []struct {
+		name       string
+		tags       map[string]string
+		wantStable string
+	}{
+		{name: "a dated snapshot next to a release", tags: map[string]string{"v1.4.0": "c14", "2026-01-02": "snap"}, wantStable: "v1.4.0"},
+		{name: "a later major still becomes the head", tags: map[string]string{"v1.4.0": "c14", "2023-05-01": "snap", "v2.0": "c20"}, wantStable: "v2.0"},
+		{name: "an unknown prefix does not make a date a version", tags: map[string]string{"v1.4.0": "c14", "snapshot-2026-01-02": "snap"}, wantStable: "v1.4.0"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := domain.RefSnapshot{Tags: tc.tags}
+			byName := map[string]models.ChannelInfo{}
+			for _, c := range sel.ChannelsOf(snap) {
+				byName[c.Name] = c
+			}
+			assert.Equal(t, tc.wantStable, byName[resolvers.StableChannel].Latest)
+			for tag := range tc.tags {
+				if tag != tc.wantStable && !strings.HasPrefix(tag, "v") {
+					assert.Equal(t, "pointer", byName[tag].Kind, "%s is a standalone pointer", tag)
+				}
+			}
+			_, outdated, err := Drift(domain.SelectorOrderedChannel, resolvers.StableChannel,
+				domain.Resolved{Ref: tc.wantStable, Commit: tc.tags[tc.wantStable]}, snap)
+			require.NoError(t, err)
+			assert.False(t, outdated, "the release head is never offered a dated snapshot")
+		})
+	}
+}

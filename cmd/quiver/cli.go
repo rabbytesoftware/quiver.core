@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
@@ -26,11 +28,14 @@ func newCLIDeps() commands.Deps {
 }
 
 func stdoutIsTTY() bool {
-	info, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return fileIsTTY(os.Stdout)
+}
+
+// fileIsTTY asks the terminal itself: a character device such as /dev/null
+// is no terminal, and handing it to the interactive renderer fails the
+// command.
+func fileIsTTY(f *os.File) bool {
+	return term.IsTerminal(f.Fd())
 }
 
 // shouldManageDaemon reports whether the invocation may stop an idle local
@@ -48,7 +53,9 @@ func shouldManageDaemon(args []string) bool {
 }
 
 // stopIdleDaemon terminates a CLI-booted local daemon once nothing is
-// active, honoring the promise that the daemon shuts down on its own.
+// active, honoring the promise that the daemon shuts down on its own. An
+// update still settling counts as active: its steps ended, but the commit
+// that advances its row has not landed yet.
 // Every step is best-effort: a daemon that cannot be probed is left alone.
 func stopIdleDaemon(ctx context.Context, mgr *daemon.Manager) {
 	if _, err := mgr.ReadPID(); err != nil {
@@ -67,7 +74,7 @@ func stopIdleDaemon(ctx context.Context, mgr *daemon.Manager) {
 		return
 	}
 	for _, rt := range runtimes {
-		if commands.IsActiveState(rt.State) {
+		if commands.IsActiveState(rt.State) || rt.Settling {
 			return
 		}
 	}

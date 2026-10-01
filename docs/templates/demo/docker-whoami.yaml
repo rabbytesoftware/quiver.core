@@ -45,7 +45,7 @@ targets:
       disk_gb: 1
 
     services:
-      - github.com/char2cs/quiver.experiments/docker@latest
+      - github.com/char2cs/quiver.experiments/docker
 
     lifecycle:
       install:

@@ -590,7 +590,10 @@ func newDiscoverableContainer(
 		axCollection,
 		":memory:",
 		v,
-		&mocks.Manifold{ResolveArrowErr: errors.New("not resolvable in this test")},
+		&mocks.Manifold{
+			ResolveArrowErr:  errors.New("not resolvable in this test"),
+			ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Pkg"}},
+		},
 		nil,
 		domain.OSDarwinARM64,
 		nil,
@@ -637,10 +640,7 @@ func TestDiscovery_CandidateInTheCatalogIsFlaggedKnown(t *testing.T) {
 	c, axArrow := newDiscoverableContainer(t, nil)
 
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, &domain.Arrow{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Pkg"},
-	}, ""))
+	require.NoError(t, adoptPin(c, ns))
 	axArrow.WaitPublish()
 
 	known, err := repositories.CatalogHas(c.Arrow)(context.Background(), ns.BareNamespace())
@@ -669,15 +669,6 @@ func (s *stubSearchProvider) Search(
 	_ provider.SearchRequest,
 ) ([]provider.Candidate, error) {
 	return s.candidates, nil
-}
-
-// The host questions below complete the provider contract. Discovery asks a
-// provider to search and nothing else.
-func (s *stubSearchProvider) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errNotSearch
 }
 
 func (s *stubSearchProvider) RawFileURL(
@@ -762,33 +753,51 @@ func depArrow(
 	}
 }
 
+// newAdoptingContainer is a container whose manifold parses every manifest
+// to m's ParseArrowResult, so adoptPin can write any row without a remote.
+func newAdoptingContainer(
+	t *testing.T,
+	arrow *domain.Arrow,
+) (*repositories.Container, *mocks.Manifold) {
+	t.Helper()
+	m := &mocks.Manifold{ParseArrowResult: arrow}
+	return newTestContainerWithVaultAndManifold(t, &mocks.Vault{}, m), m
+}
+
+// adoptPin writes ns's row as a pin of its own ref, from whatever manifest
+// the container's manifold parses.
+func adoptPin(
+	c *repositories.Container,
+	ns domain.Namespace,
+) error {
+	return c.Arrow.Adopt(context.Background(), ns, domain.SelectorPin, domain.Resolved{Ref: ns.Ref()}, []byte("manifest"), "ARROW.md")
+}
+
 // The caller's next move after adding an arrow is to install it, and installing
 // walks the dependency edges the add produced. An add that returns before those
 // edges exist lets a dependency be removed while something still needs it —
 // the remove guard reads the edge table and finds nothing.
 func TestAdd_DependencyEdgesExistWhenAddReturns(t *testing.T) {
-	c := newTestContainer(t)
-
 	ns := domain.Namespace("github.com/user/parent@v1.0.0")
 	depNs := domain.Namespace("github.com/user/dep@v0.1.0")
+	c, _ := newAdoptingContainer(t, depArrow(ns, depNs))
 
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, depArrow(ns, depNs), depNs.Ref()))
+	require.NoError(t, adoptPin(c, ns))
 
 	hasDeps, err := c.Graph.HasDependents(context.Background(), depNs, domain.Namespace(""))
 	require.NoError(t, err)
 	assert.True(t, hasDeps,
-		"the dependency edge must exist by the time AddDep returns")
+		"the dependency edge must exist by the time the add returns")
 }
 
 // The catalog row is the other half of the same invariant: an arrow that can be
 // read must already have its edges.
 func TestAdd_ArrowIsReadableWhenAddReturns(t *testing.T) {
-	c := newTestContainer(t)
-
 	ns := domain.Namespace("github.com/user/parent@v1.0.0")
 	depNs := domain.Namespace("github.com/user/dep@v0.1.0")
+	c, _ := newAdoptingContainer(t, depArrow(ns, depNs))
 
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, depArrow(ns, depNs), depNs.Ref()))
+	require.NoError(t, adoptPin(c, ns))
 
 	got, err := c.Arrow.Get(context.Background(), ns)
 	require.NoError(t, err)
@@ -797,15 +806,16 @@ func TestAdd_ArrowIsReadableWhenAddReturns(t *testing.T) {
 }
 
 // A changed manifest changes the edges, and the caller reads them back.
-func TestUpdateManifest_DependencyEdgesExistWhenUpdateReturns(t *testing.T) {
-	c := newTestContainer(t)
-
+func TestAdvance_DependencyEdgesExistWhenAdvanceReturns(t *testing.T) {
 	ns := domain.Namespace("github.com/user/parent@v1.0.0")
 	firstDep := domain.Namespace("github.com/user/dep-a@v0.1.0")
 	secondDep := domain.Namespace("github.com/user/dep-b@v0.1.0")
+	c, m := newAdoptingContainer(t, depArrow(ns, firstDep))
 
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, depArrow(ns, firstDep), firstDep.Ref()))
-	require.NoError(t, c.Arrow.UpdateManifest(context.Background(), ns, depArrow(ns, secondDep)))
+	require.NoError(t, adoptPin(c, ns))
+	m.ParseArrowResult = depArrow(ns, secondDep)
+	require.NoError(t, c.Arrow.Adopt(context.Background(), ns, domain.SelectorPin,
+		domain.Resolved{Ref: ns.Ref(), Commit: "c2"}, []byte("manifest"), "ARROW.md"))
 
 	hasFirst, err := c.Graph.HasDependents(context.Background(), firstDep, domain.Namespace(""))
 	require.NoError(t, err)
@@ -818,12 +828,11 @@ func TestUpdateManifest_DependencyEdgesExistWhenUpdateReturns(t *testing.T) {
 
 // Removing an arrow tears its edges down, so what depended on it is free again.
 func TestRemove_DependencyEdgesGoneWhenRemoveReturns(t *testing.T) {
-	c := newTestContainer(t)
-
 	ns := domain.Namespace("github.com/user/parent@v1.0.0")
 	depNs := domain.Namespace("github.com/user/dep@v0.1.0")
+	c, _ := newAdoptingContainer(t, depArrow(ns, depNs))
 
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, depArrow(ns, depNs), depNs.Ref()))
+	require.NoError(t, adoptPin(c, ns))
 	require.NoError(t, c.Arrow.Remove(context.Background(), ns))
 
 	hasDeps, err := c.Graph.HasDependents(context.Background(), depNs, domain.Namespace(""))
@@ -838,8 +847,6 @@ func TestRemove_DependencyEdgesGoneWhenRemoveReturns(t *testing.T) {
 // writers used to race for these rows with different contents, so which type
 // was stored depended on which goroutine finished last.
 func TestSyncDependencies_RecordsDeclaredDepType(t *testing.T) {
-	c := newTestContainer(t)
-
 	ns := domain.Namespace("github.com/user/parent@v1.0.0")
 	svcNs := domain.Namespace("github.com/user/svc@v0.1.0")
 
@@ -853,7 +860,8 @@ func TestSyncDependencies_RecordsDeclaredDepType(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, c.Arrow.AddDep(context.Background(), ns, arrow, svcNs.Ref()))
+	c, _ := newAdoptingContainer(t, arrow)
+	require.NoError(t, adoptPin(c, ns))
 
 	dependents, err := c.Graph.GetDependents(context.Background(), svcNs)
 	require.NoError(t, err)
@@ -930,14 +938,6 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "upgraded",
-			arrow: &ucmocks.MockArrow{
-				OnArrowUpgradedFn: func(_ func(context.Context, domain.Arrow) error) error {
-					return boom
-				},
-			},
-		},
-		{
 			name: "removed",
 			arrow: &ucmocks.MockArrow{
 				OnArrowRemovedFn: func(_ func(context.Context, domain.Namespace) error) error {
@@ -965,10 +965,9 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
 
 	var (
-		added    func(context.Context, domain.Namespace, domain.Arrow) error
-		updated  func(context.Context, domain.Namespace, *domain.Arrow) error
-		upgraded func(context.Context, domain.Arrow) error
-		removed  func(context.Context, domain.Namespace) error
+		added   func(context.Context, domain.Namespace, domain.Arrow) error
+		updated func(context.Context, domain.Namespace, *domain.Arrow) error
+		removed func(context.Context, domain.Namespace) error
 	)
 
 	arrow := &ucmocks.MockArrow{
@@ -978,10 +977,6 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 		},
 		OnArrowUpdatedFn: func(fn func(context.Context, domain.Namespace, *domain.Arrow) error) error {
 			updated = fn
-			return nil
-		},
-		OnArrowUpgradedFn: func(fn func(context.Context, domain.Arrow) error) error {
-			upgraded = fn
 			return nil
 		},
 		OnArrowRemovedFn: func(fn func(context.Context, domain.Namespace) error) error {
@@ -1014,10 +1009,9 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 
 	require.NoError(t, added(context.Background(), ns, domain.Arrow{Namespace: ns}))
 	require.NoError(t, updated(context.Background(), ns, &domain.Arrow{Namespace: ns}))
-	require.NoError(t, upgraded(context.Background(), domain.Arrow{Namespace: ns}))
 	require.NoError(t, removed(context.Background(), ns))
 
-	assert.Equal(t, []string{"sync", "sync", "sync", "remove edges", "enqueue cascade"}, order)
+	assert.Equal(t, []string{"sync", "sync", "remove edges", "enqueue cascade"}, order)
 
 	// A graph that cannot drop the edges must stop the cascade: enqueueing the
 	// runtime for forgetting would leave the edges pointing at an arrow nobody
@@ -1505,15 +1499,16 @@ func TestWireCallbacks_SelfUpdateRegistrationFails_PropagatesTheError(t *testing
 
 // The option has to survive the whole of New, not just wireCallbacks: a
 // trigger that never reaches a runtime.ended subscription is a daemon that
-// updates itself and then keeps running the old build.
+// updates itself and then keeps running the old build. The lifecycle's own
+// reaction is subscribed either way.
 func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
 	testCases := []struct {
 		name string
 		trig *selfupdate.Trigger
 		want int
 	}{
-		{name: "without a trigger", trig: nil, want: 0},
-		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 1},
+		{name: "without a trigger", trig: nil, want: 1},
+		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 2},
 	}
 
 	for _, tc := range testCases {
@@ -1690,4 +1685,97 @@ func TestContainer_StartRecommendation_StartsTheSchedulerOnlyWhenThereIsOne(t *t
 	(&repositories.Container{}).StartRecommendation(context.Background())
 
 	assert.Equal(t, 1, rec.StartCalls)
+}
+
+// ─── wireLifecycle ───────────────────────────────────────────────────────────
+
+func TestWireLifecycle_HoldsBadgesAndStartsTheLifecycle(t *testing.T) {
+	ns := domain.Namespace("github.com/user/pkg@v1.0.0")
+	var held func(domain.Namespace) bool
+	arrow := &ucmocks.MockArrow{
+		HoldBadgeWhileFn: func(settling func(domain.Namespace) bool) { held = settling },
+	}
+	started := false
+	lc := &ucmocks.MockLifecycle{
+		HoldBadgeFn: func(got domain.Namespace) bool { return got == ns },
+		StartFn: func() error {
+			started = true
+			return nil
+		},
+	}
+	c := &repositories.Container{Arrow: arrow, Lifecycle: lc}
+
+	require.NoError(t, c.WireLifecycle())
+
+	require.NotNil(t, held)
+	assert.True(t, held(ns), "a version check asks the lifecycle whether to hold the badge")
+	assert.True(t, started)
+}
+
+func TestWireLifecycle_StartFails_PropagatesTheError(t *testing.T) {
+	boom := errors.New("subscribe failed")
+	c := &repositories.Container{
+		Arrow:     &ucmocks.MockArrow{},
+		Lifecycle: &ucmocks.MockLifecycle{StartFn: func() error { return boom }},
+	}
+
+	require.ErrorIs(t, c.WireLifecycle(), boom)
+}
+
+func TestNew_LifecycleWiring(t *testing.T) {
+	boom := errors.New("subscribe failed")
+
+	testCases := []struct {
+		name    string
+		opts    []repositories.Option
+		subErr  error
+		wantErr error
+	}{
+		{name: "a version check interval reaches the arrow repository", opts: []repositories.Option{repositories.WithVersionCheckInterval(0)}},
+		{name: "a lifecycle that cannot subscribe fails the build", subErr: boom, wantErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := adapterSQLite.OpenDB(":memory:")
+			require.NoError(t, err)
+
+			axArrow := newTestAsynxArrow(t)
+			axCollection := newTestAsynxCollection(t)
+			axPairingCode := newTestAsynxPairingCode(t)
+			axDevice := newTestAsynxDevice(t)
+			t.Cleanup(func() {
+				_ = axArrow.Shutdown(context.Background())
+				_ = axCollection.Shutdown(context.Background())
+				_ = axPairingCode.Shutdown(context.Background())
+				_ = axDevice.Shutdown(context.Background())
+			})
+			axRuntime := &appmocks.AsynxRuntime{
+				SubscribeFn: func(
+					topic string,
+					_ asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime],
+					_ ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime],
+				) (string, error) {
+					if topic == asynx.Topic("runtime.ended.*") {
+						return "", tc.subErr
+					}
+					return "sub", nil
+				},
+			}
+
+			c, err := repositories.New(
+				db, axArrow, axRuntime, axCollection, ":memory:",
+				nil, nil, nil, domain.OSDarwinARM64, nil, nil, nil,
+				axPairingCode, axDevice, db,
+				tc.opts...,
+			)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotNil(t, c.Lifecycle)
+		})
+	}
 }

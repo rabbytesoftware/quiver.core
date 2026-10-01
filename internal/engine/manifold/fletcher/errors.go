@@ -13,6 +13,7 @@ const (
 	ReasonNoUsableAsset   = models.ReasonNoUsableAsset
 	ReasonNoDigest        = models.ReasonNoDigest
 	ReasonLowConfidence   = models.ReasonLowConfidence
+	ReasonNotARelease     = models.ReasonNotARelease
 )
 
 var ErrNotFletchable = models.ErrNotFletchable

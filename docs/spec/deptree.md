@@ -11,11 +11,13 @@ DepTree is pure graph logic. It performs no I/O, owns no state across calls, kno
 about manifests, the filesystem, Asynx, or Vault. It receives `domain.Namespace` values from
 the caller and returns `[]domain.Namespace` — that is the entirety of its surface area.
 
-**Node identity is `domain.Namespace`.** A namespace string optionally carries an `@ref`
-suffix (`github.com/owner/repo@v1.2.3`), and DepTree treats it as an opaque key — two
-namespaces that differ in their `@ref` suffix are distinct nodes and are visited separately.
-Glob expansion, constraint resolution, and version selection happen in the app layer
-**before** the resolver returns; DepTree never sees a glob pattern. See
+**Node identity is `domain.Namespace`.** A namespace string optionally carries an `@`
+suffix — for a catalogued arrow, its selector (`github.com/owner/repo@v1.2.3`,
+`…@stable`, `…@v1.*`) — and DepTree treats it as an opaque key: two namespaces that differ
+in their suffix are distinct nodes and are visited separately. The production resolver
+names each dependency by the selector its dependent declared, never by the ref that
+selector resolves to, so a glob such as `@v1.*` reaches DepTree as an ordinary key and is
+never expanded here. See
 [manifests/v0/versioning.md](manifests/v0/versioning.md) for the version model and
 [domain.md](domain.md) for the `Namespace` and `DependencyEdge` types.
 
@@ -72,16 +74,16 @@ short-circuit before the resolver runs).
 | Aspect | Contract |
 |--------|----------|
 | Input | `ctx` (DepTree's caller-supplied context) and the namespace whose direct dependencies are requested. |
-| Output | `[]domain.Namespace` — the direct dependencies, in the order they should be visited. May be empty or `nil` for leaf nodes. The slice must contain only resolved namespaces (no glob patterns); the caller is responsible for any constraint resolution before returning. |
+| Output | `[]domain.Namespace` — the direct dependencies, in the order they should be visited. May be empty or `nil` for leaf nodes. Each entry is an opaque node key; DepTree never interprets the suffix. |
 | Errors | Any non-nil error aborts the entire traversal. DepTree returns the error verbatim — no wrapping, no `errors.Join`, no partial order. |
 | Determinism | DepTree visits dependencies in slice order. If the resolver wants reproducible output, it must return a stable order (the production implementation in the graph repository deduplicates and preserves manifest order via `graphinternal.DedupNamespaces`). |
 | Side effects | DepTree does not assume idempotency, but the resolver is called at most once per unique namespace per `Resolve` call. |
 
 The graph repository builds the production resolver: it calls
 `resolveManifest(ctx, depNs)` (Vault cache then Manifold), looks up the per-OS target, walks
-both `target.Tools` and `target.Services`, calls `resolveEdgeNs` to resolve any glob
-constraints to a concrete `@ref` via `manifold.ResolveConstraint`, and records the dependency
-type (`tool` vs `service`) in a side index keyed by bare namespace. The deduplicated
+both `target.Tools` and `target.Services`, names each edge by its declared selector
+(`dependencyIdentity`: `bare@<Constraint>`, or the bare namespace for a refless
+declaration), and records the dependency type (`tool` vs `service`) in a side index. The deduplicated
 namespace list is returned to DepTree.
 
 ### Properties
@@ -330,7 +332,7 @@ namespace string. See [vault.md](vault.md) §4.5.
 - **No I/O** — all external data flows through the resolver callback.
 - **No version-conflict logic** — the same bare namespace at two different `@ref`s is two
   distinct nodes; both install. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
-- **No glob handling** — globs must be resolved by the caller before the resolver returns.
+- **No glob handling** — a selector such as `@v1.*` is an opaque node key; resolving it is the arrow repository's job when the dependency is catalogued.
 - **No persistence** — fresh state per `Resolve` call.
 - **App layer is the only caller** — the graph repository (and its tests) is currently the
   sole consumer of `engine.Container.DepTree`.

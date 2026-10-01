@@ -16,8 +16,3 @@ var ErrAbsentAtRef = fmt.Errorf("%w: absent at the pinned ref", ErrNotFound)
 // ErrFetchFailed is returned when the remote git repository cannot be cloned,
 // HTTP request fails, or the file cannot be read from the in-memory worktree.
 var ErrFetchFailed = errors.New("resolver: fetch failed")
-
-// ErrNoDefaultBranch is returned when a remote answers the ref advertisement
-// without a HEAD symbolic reference, so git itself cannot name the default
-// branch. It is a miss, not a failure.
-var ErrNoDefaultBranch = errors.New("resolver: no default branch")

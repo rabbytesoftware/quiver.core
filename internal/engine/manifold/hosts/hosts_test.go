@@ -45,13 +45,6 @@ func (stubHost) RepoPageURL(
 
 func (stubHost) DefaultBranches() []string { return []string{"main"} }
 
-func (stubHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "v1.0.0", nil
-}
-
 func (stubHost) RepoMetadata(
 	_ context.Context,
 	_ domain.Namespace,

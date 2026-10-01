@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -18,6 +16,7 @@ import (
 	resolvers "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/resolver/resolvers"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/translator"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/versioning"
 )
 
 // Manifold resolves arrow and quiver manifests from remote git repositories.
@@ -67,36 +66,6 @@ type Manifold interface {
 		data []byte,
 	) (*domain.Arrow, error)
 
-	// ResolveConstraint resolves a glob constraint pattern to a concrete ref
-	// (e.g. tag) for the given namespace.
-	ResolveConstraint(
-		ctx context.Context,
-		ns domain.Namespace,
-		pattern string,
-	) (string, error)
-
-	// ResolveLatestStable resolves a refless namespace to the ref of its latest
-	// stable release, asking the host before listing git tags. It returns
-	// ErrNoLatestStable when the repository publishes no stable release, which
-	// is the caller's cue to fall back to a default branch.
-	ResolveLatestStable(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
-
-	// ResolveLatestInChannel resolves a refless namespace to the ref of its
-	// latest tag in the given channel. The "stable" channel reuses
-	// ResolveLatestStable's exact algorithm, including its host-permalink
-	// shortcut and its ErrNoLatestStable sentinel on a miss — no other
-	// channel has a permalink, since a host's own "latest release" concept
-	// only ever means "latest stable." Every other channel returns
-	// ErrNoTagInChannel when no tag belongs to it.
-	ResolveLatestInChannel(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-	) (string, error)
-
 	// ListChannels buckets every tag a namespace's repository publishes
 	// into its channel. The repository's default branch is included as one
 	// more pointer channel only when the repository has no tags at all —
@@ -111,19 +80,34 @@ type Manifold interface {
 		ns domain.Namespace,
 	) ([]ChannelInfo, error)
 
-	// ResolveDefaultBranch reports the branch a repository's HEAD points at,
-	// and the commit hash that branch currently resolves to, read straight off
-	// the git ref advertisement. It answers for every host, including
-	// self-hosted and SSH remotes, and it names the branch the repository
-	// actually defaults to rather than one guessed from a list.
-	ResolveDefaultBranch(
+	// Snapshot reads every tag, branch and the HEAD branch of ns's
+	// repository in one round trip, cached for the manifold's cache TTL.
+	Snapshot(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (branch, hash string, err error)
-}
+	) (domain.RefSnapshot, error)
 
-// ErrNoLatestStable reports that a repository publishes no stable release.
-var ErrNoLatestStable = models.ErrNoLatestStable
+	// FreshSnapshot is Snapshot read live from the remote, refreshing the
+	// cache: for a decision that must not act on a view up to a TTL old.
+	FreshSnapshot(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
+
+	// ResolveArrowAtCommit fetches ns's manifest at commit, the commit ref
+	// resolved to, and returns it stamped with ns itself. Raw-file hosts serve
+	// a commit SHA as a ref; the clone path only checks out tags and branches,
+	// so when the fetch at the commit fails it falls back to ref — never to
+	// ns's own selector, which need not name a git ref at all — and the caller
+	// verifies the commit afterwards. A manifest that fetched but is invalid
+	// never falls back.
+	ResolveArrowAtCommit(
+		ctx context.Context,
+		ns domain.Namespace,
+		ref string,
+		commit string,
+	) (*domain.Arrow, []byte, string, error)
+}
 
 // ErrInvalidManifest reports that manifest content — fetched or handed in
 // directly — failed to become a valid domain.Arrow: bad YAML, a ruleset
@@ -140,29 +124,8 @@ var ErrArrowNotInCollection = errors.New("manifold: arrow not found in its colle
 // suffix at all.
 const StableChannel = resolvers.StableChannel
 
-// ClassifyChannel reports which channel a tag belongs to. ok is false for a
-// tag with no numeric-dot run at all (a pointer-channel candidate — see
-// ListChannels).
-func ClassifyChannel(
-	tag string,
-) (channel string, ok bool) {
-	return resolvers.ChannelForTag(tag)
-}
-
 // ChannelInfo describes one channel a namespace's repository publishes.
 type ChannelInfo = models.ChannelInfo
-
-// ErrNoTagInChannel reports that a repository has no tag in the requested channel.
-var ErrNoTagInChannel = models.ErrNoTagInChannel
-
-// anyTag matches every tag, letting the constraint resolver rank the whole
-// tag set instead of a subset.
-const anyTag = "*"
-
-// latestStablePattern keys ResolveLatestStable's own answer in the constraint
-// cache. It is not a pattern any caller can pass: it holds a character no tag
-// constraint may contain, so it can never collide with one.
-const latestStablePattern = "\x00latest-stable"
 
 // defaultManifoldCacheTTL is the fallback used when a Manifold is built with
 // no explicit cache TTL (a zero/negative value passed to New, or
@@ -179,67 +142,20 @@ const latestStablePattern = "\x00latest-stable"
 // mechanism that keeps them in sync — the shared config value is.
 const defaultManifoldCacheTTL = time.Hour
 
-// channelsCacheEntry is one ListChannels result, timestamped so cachedChannels
-// can tell a still-fresh hit from one due for a live re-check.
-type channelsCacheEntry struct {
-	channels []ChannelInfo
-	cachedAt time.Time
-}
-
-// constraintCacheKey identifies one ResolveConstraint result: the answer
-// genuinely depends on both the namespace and the pattern asked against it,
-// so both together are the cache key, not the namespace alone.
-type constraintCacheKey struct {
-	ns      domain.Namespace
-	pattern string
-}
-
-// constraintCacheEntry is one ResolveConstraint result, timestamped the same
-// way a channelsCacheEntry is.
-type constraintCacheEntry struct {
-	ref      string
-	cachedAt time.Time
-}
-
 type manifold struct {
-	rsv        resolver.Resolver
-	trs        translator.Translator
-	cmp        compiler.Compiler
-	rls        ruleset.Ruleset
-	constraint resolvers.ConstraintResolver
-	hosts      HostLookup
-	clock      func() time.Time
-	timeout    time.Duration
-	fl         fletcher.Fletcher
-
-	// cacheTTL bounds how long a cached remote lookup — ListChannels or
-	// ResolveConstraint (ResolveLatestStable included) — is reused before
-	// asking the remote again. Set at construction time (see New), not a
-	// package constant, specifically so production wiring can tie it to
-	// config.GetArrows().VersionCheckTTL — the same value the arrow store's
-	// drift-check throttle already uses — rather than an independently
-	// chosen constant that could silently drift out of step with it.
-	cacheTTL time.Duration
-
-	// channelsCache holds one entry per domain.Namespace queried through
-	// ListChannels, and constraintCache one per (namespace, pattern) queried
-	// through ResolveConstraint (ResolveLatestStable included, since it
-	// calls ResolveConstraint itself rather than the underlying resolver
-	// directly, so it shares this same cache). Both are sync.Map, not a
-	// mutex-guarded map, since entries are independent of each other and
-	// never iterated as a whole — both are process-lifetime, unbounded
-	// caches (no eviction beyond TTL-on-read); a long-running daemon queried
-	// for many distinct namespaces/patterns will grow them accordingly,
-	// which is accepted for this simple, restart-safe-to-lose optimization
-	// rather than an LRU or similar bound.
-	channelsCache   sync.Map
-	constraintCache sync.Map
+	rsv       resolver.Resolver
+	trs       translator.Translator
+	cmp       compiler.Compiler
+	rls       ruleset.Ruleset
+	hosts     HostLookup
+	timeout   time.Duration
+	fl        fletcher.Fletcher
+	snapshots versioning.Snapshots
 }
 
 // New builds a Manifold that asks lookup whatever only a git host can answer.
 // A nil lookup is a manifold that knows no hosts, which resolves every
-// namespace by cloning it. cacheTTL bounds the ListChannels/ResolveConstraint
-// cache; a zero or negative value falls back to defaultManifoldCacheTTL.
+// namespace by cloning it. cacheTTL bounds the Snapshot/ListChannels cache; a zero or negative value falls back to defaultManifoldCacheTTL.
 // Callers should derive cacheTTL from config.GetArrows().VersionCheckTTL
 // (see internal/engine/container.go) so this cache's staleness window can
 // never outlive the drift-check throttle that value already governs.
@@ -249,7 +165,7 @@ func New(
 	cacheTTL time.Duration,
 	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, time.Now, opts)
+	return newManifold(fetchTimeout, lookup, resolvers.NewConstraintResolver(fetchTimeout), cacheTTL, time.Now, opts)
 }
 
 // NewWithClock is New with an injectable clock, so a test can advance time
@@ -263,12 +179,13 @@ func NewWithClock(
 	clock func() time.Time,
 	opts ...Option,
 ) Manifold {
-	return newManifold(fetchTimeout, lookup, cacheTTL, clock, opts)
+	return newManifold(fetchTimeout, lookup, resolvers.NewConstraintResolver(fetchTimeout), cacheTTL, clock, opts)
 }
 
 func newManifold(
 	fetchTimeout time.Duration,
 	lookup HostLookup,
+	crs resolvers.ConstraintResolver,
 	cacheTTL time.Duration,
 	clock func() time.Time,
 	opts []Option,
@@ -279,15 +196,13 @@ func newManifold(
 	}
 
 	return withOptions(&manifold{
-		rsv:        resolver.New(fetchTimeout, lookup),
-		trs:        translator.NewTranslator(),
-		cmp:        compiler.New(),
-		rls:        ruleset.New(),
-		constraint: resolvers.NewConstraintResolver(fetchTimeout),
-		hosts:      lookup,
-		clock:      clock,
-		timeout:    fetchTimeout,
-		cacheTTL:   cacheTTL,
+		rsv:       resolver.New(fetchTimeout, lookup),
+		trs:       translator.NewTranslator(),
+		cmp:       compiler.New(),
+		rls:       ruleset.New(),
+		hosts:     lookup,
+		timeout:   fetchTimeout,
+		snapshots: versioning.New(crs, clock, cacheTTL),
 	}, opts)
 }
 
@@ -318,14 +233,12 @@ func NewWithResolversAndClock(
 	opts ...Option,
 ) Manifold {
 	return withOptions(&manifold{
-		rsv:        rsv,
-		trs:        translator.NewTranslator(),
-		cmp:        compiler.New(),
-		rls:        ruleset.New(),
-		constraint: crs,
-		clock:      clock,
-		hosts:      hosts.Or(lookup),
-		cacheTTL:   defaultManifoldCacheTTL,
+		rsv:       rsv,
+		trs:       translator.NewTranslator(),
+		cmp:       compiler.New(),
+		rls:       ruleset.New(),
+		hosts:     hosts.Or(lookup),
+		snapshots: versioning.New(crs, clock, defaultManifoldCacheTTL),
 	}, opts)
 }
 
@@ -449,241 +362,104 @@ func (m *manifold) ParseArrow(
 	return module.Manifest, nil
 }
 
-// ResolveConstraint resolves pattern against ns's tags, caching the result
-// for m.cacheTTL — a dependency edge with a glob-style version constraint
-// (internal/app/repositories/graph's resolveEdgeNs) calls this on every
-// single dependency-graph resolution, which otherwise means a live ListTags
-// round trip per call for a constraint that virtually never changes within
-// the cache window. A failed lookup is never cached, the same rule
-// ListChannels follows.
-func (m *manifold) ResolveConstraint(
-	ctx context.Context,
-	ns domain.Namespace,
-	pattern string,
-) (string, error) {
-	key := constraintCacheKey{ns: ns, pattern: pattern}
-	if cached, ok := m.cachedConstraint(key); ok {
-		return cached, nil
-	}
-
-	ref, err := m.constraint.Resolve(ctx, ns, pattern)
-	if err != nil {
-		return "", err
-	}
-
-	m.constraintCache.Store(key, constraintCacheEntry{ref: ref, cachedAt: m.clock()})
-	return ref, nil
-}
-
-// cachedConstraint returns key's still-fresh ResolveConstraint result, if
-// one exists.
-func (m *manifold) cachedConstraint(
-	key constraintCacheKey,
-) (string, bool) {
-	v, ok := m.constraintCache.Load(key)
-	if !ok {
-		return "", false
-	}
-	entry, _ := v.(constraintCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
-		return "", false
-	}
-	return entry.ref, true
-}
-
-// ResolveLatestStable walks the chain release permalink → highest stable tag.
-// The permalink step is an optimisation and never a requirement: any miss
-// falls through, and a repository with no stable release reports
-// ErrNoLatestStable rather than guessing.
-func (m *manifold) ResolveLatestStable(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	key := constraintCacheKey{ns: ns, pattern: latestStablePattern}
-	if cached, ok := m.cachedConstraint(key); ok {
-		return cached, nil
-	}
-
-	ref, err := m.resolveLatestStable(ctx, ns)
-	if err != nil {
-		return "", err
-	}
-
-	m.constraintCache.Store(key, constraintCacheEntry{ref: ref, cachedAt: m.clock()})
-	return ref, nil
-}
-
-func (m *manifold) resolveLatestStable(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	if ref, ok := m.latestRelease(ctx, ns); ok {
-		return ref, nil
-	}
-
-	// Through ResolveConstraint, not m.constraint.Resolve directly, so this
-	// shares its cache: a prior ResolveConstraint(ns, anyTag) call (or a
-	// later one) answers this too, and vice versa.
-	ref, err := m.ResolveConstraint(ctx, ns, anyTag)
-	if err != nil {
-		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, ErrNoLatestStable)
-	}
-
-	// A tag set with no semver member ranks lexicographically, so the winner
-	// may be a prerelease. Only a stable tag answers this question.
-	if !resolvers.IsStableSemver(ref) {
-		return "", fmt.Errorf("manifold: latest stable %s: highest tag %q is not stable: %w", ns, ref, ErrNoLatestStable)
-	}
-
-	return ref, nil
-}
-
-func (m *manifold) ResolveLatestInChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (string, error) {
-	if channel == StableChannel {
-		return m.ResolveLatestStable(ctx, ns)
-	}
-
-	tags, err := m.constraint.ListTags(ctx, ns)
-	if err != nil {
-		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, err)
-	}
-
-	ref, ok := resolvers.LatestInChannel(tags, channel)
-	if !ok {
-		return "", fmt.Errorf("manifold: latest in channel %s for %s: %w", channel, ns, ErrNoTagInChannel)
-	}
-	return ref, nil
-}
-
 func (m *manifold) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]ChannelInfo, error) {
-	if cached, ok := m.cachedChannels(ns); ok {
-		return cached, nil
-	}
-
-	tags, err := m.constraint.ListTags(ctx, ns)
+	snap, err := m.Snapshot(ctx, ns)
 	if err != nil {
-		return nil, fmt.Errorf("manifold: list channels for %s: %w", ns, err)
+		return nil, fmt.Errorf("manifold: list channels: %w", err)
 	}
-
-	var channels []ChannelInfo
-	consumed := make(map[string]bool)
-	for _, channel := range resolvers.ChannelsPresent(tags) {
-		sorted := resolvers.SortInChannel(tags, channel)
-		for _, t := range sorted {
-			consumed[t] = true
-		}
-		channels = append(channels, ChannelInfo{
-			Name:    channel,
-			Kind:    "ordered",
-			Latest:  sorted[0],
-			Count:   len(sorted),
-			Members: sorted,
-		})
-	}
-
-	for _, tag := range tags {
-		if !consumed[tag] {
-			channels = append(channels, ChannelInfo{Name: tag, Kind: "pointer", Latest: tag})
-		}
-	}
-
-	// The default branch is a fallback for a repository with nothing else
-	// to offer — it must not appear once any tag exists, ordered or not,
-	// so this checks the original tag list rather than anything derived
-	// from channels/consumed (either of which can be non-empty while still
-	// hiding a repo that has, say, only unclassifiable pointer tags).
-	if len(tags) == 0 {
-		if branch, _, err := m.constraint.DefaultBranch(ctx, ns); err == nil && branch != "" {
-			channels = append(channels, ChannelInfo{
-				Name: branch, Kind: "pointer", Latest: branch,
-				IsDefaultBranchFallback: true,
-			})
-		}
-	}
-
-	sortChannels(channels)
-	m.channelsCache.Store(ns, channelsCacheEntry{channels: channels, cachedAt: m.clock()})
-	return channels, nil
+	return versioning.ChannelsOf(snap), nil
 }
 
-// cachedChannels returns ns's still-fresh ListChannels result, if one
-// exists. The returned slice (and each entry's Members slice) is the same
-// one stored in the cache, not a copy — callers must treat it as read-only,
-// which every current caller already does (ListChannels itself only ever
-// builds a fresh slice to store; nothing mutates a result in place).
-func (m *manifold) cachedChannels(
-	ns domain.Namespace,
-) ([]ChannelInfo, bool) {
-	v, ok := m.channelsCache.Load(ns)
-	if !ok {
-		return nil, false
-	}
-	entry, _ := v.(channelsCacheEntry)
-	if m.clock().Sub(entry.cachedAt) > m.cacheTTL {
-		return nil, false
-	}
-	return entry.channels, true
-}
-
-// sortChannels orders a ListChannels result deterministically: stable first
-// (if present), then ordered channels alphabetically by name, then pointer
-// channels alphabetically by name. Map iteration order (over ListChannels's
-// internal "ordered" bucket) is otherwise randomized by Go on every call.
-func sortChannels(
-	channels []ChannelInfo,
-) {
-	sort.Slice(channels, func(i, j int) bool {
-		a, b := channels[i], channels[j]
-		aStable := a.Name == StableChannel
-		bStable := b.Name == StableChannel
-		if aStable != bStable {
-			return aStable
-		}
-		if aStable {
-			return false
-		}
-		if a.Kind != b.Kind {
-			return a.Kind == "ordered"
-		}
-		return a.Name < b.Name
-	})
-}
-
-// latestRelease asks the host what it calls its latest release. A host that
-// does not know, or is not known, is a miss: the tag listing answers for every
-// host, so nothing here is worth failing over.
-func (m *manifold) latestRelease(
+func (m *manifold) Snapshot(
 	ctx context.Context,
 	ns domain.Namespace,
-) (string, bool) {
-	host, ok := m.hosts(ns)
-	if !ok {
-		return "", false
-	}
+) (domain.RefSnapshot, error) {
+	return m.snapshots.Snapshot(ctx, ns)
+}
 
-	ref, err := host.LatestRelease(ctx, ns)
-	if err != nil || ref == "" {
-		return "", false
+func (m *manifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	return m.snapshots.FreshSnapshot(ctx, ns)
+}
+
+func (m *manifold) ResolveLatestStable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (string, error) {
+	snap, err := m.Snapshot(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("manifold: latest stable: %w", err)
 	}
-	return ref, true
+	latest, ok := versioning.LatestStable(snap)
+	if !ok {
+		return "", fmt.Errorf("manifold: latest stable %s: %w", ns, models.ErrNoLatestStable)
+	}
+	return latest, nil
 }
 
 func (m *manifold) ResolveDefaultBranch(
 	ctx context.Context,
 	ns domain.Namespace,
-) (string, string, error) {
-	branch, hash, err := m.constraint.DefaultBranch(ctx, ns)
+) (branch, hash string, err error) {
+	snap, err := m.Snapshot(ctx, ns)
 	if err != nil {
-		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, err)
+		return "", "", fmt.Errorf("manifold: default branch: %w", err)
+	}
+	branch, hash, ok := versioning.DefaultBranch(snap)
+	if !ok {
+		return "", "", fmt.Errorf("manifold: default branch %s: %w", ns, versioning.ErrUnknownSelector)
 	}
 	return branch, hash, nil
+}
+
+func (m *manifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	ref string,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	arrow, raw, filename, err := m.ResolveArrow(ctx, ns.WithRef(commit))
+	fallBack := ref != "" && ref != commit && !errors.Is(err, ErrInvalidManifest)
+	if err != nil && fallBack {
+		arrow, raw, filename, err = m.ResolveArrow(ctx, ns.WithRef(ref))
+	}
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at %s (commit %s): %w", ns, ref, commit, err)
+	}
+	if DraftedElsewhere(arrow, ref) {
+		return nil, nil, "", fmt.Errorf("manifold: resolve arrow %s at %s (commit %s): %w", ns, ref, commit, NotARelease(arrow))
+	}
+
+	arrow.Namespace = ns
+	return arrow, raw, filename, nil
+}
+
+// NotARelease is the error for a draft DraftedElsewhere reports: to every
+// caller, the ref holds no manifest.
+func NotARelease(
+	arrow *domain.Arrow,
+) error {
+	return fmt.Errorf("drafted from %s: %w: %w",
+		arrow.Namespace.Ref(), resolver.ErrManifestNotFound, fletcher.NotFletchableError{Reason: fletcher.ReasonNotARelease})
+}
+
+// DraftedElsewhere reports whether arrow is a draft Fletcher built from a
+// release other than the one at ref — what it does for a branch of a
+// repository with no manifest, which publishes no release of its own. Such
+// a draft is not what ref holds, so no row following ref is built from it.
+func DraftedElsewhere(
+	arrow *domain.Arrow,
+	ref string,
+) bool {
+	if arrow.Namespace == "" || ref == "" || arrow.Origin() != domain.ArrowOriginInferred {
+		return false
+	}
+	return arrow.Namespace.Ref() != ref && !strings.EqualFold(arrow.Namespace.Ref(), ref)
 }
 
 func (m *manifold) ResolveCollection(

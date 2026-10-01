@@ -156,7 +156,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 	}
 
 	// manifoldCacheTTL ties the manifold's own resolution cache
-	// (ListChannels/ResolveConstraint) to the exact same config value the
+	// (Snapshot/ListChannels) to the exact same config value the
 	// arrow store's drift-check throttle already reads
 	// (internal/app/repositories/arrow/internal/store/store.go's
 	// resolveVersionCheckTTL/defaultVersionCheckTTL) — not an independently

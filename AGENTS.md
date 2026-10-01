@@ -72,13 +72,13 @@ Read files under `internal/domain/` for current struct fields — they change wi
 
 ### 3.1 Namespace
 
-A string type (`domain.Namespace`) in `domain/user/repo` format, optionally with `@ref` and optionally with a 4th segment for quiver-hosted arrows (`domain/user/repo/auid`). Key operations: strip ref, extract ref, replace ref, validate, extract segments (QUID = first 3, AUID = 4th), derive clone URL.
+A string type (`domain.Namespace`) in `domain/user/repo` format, optionally with `@ref` (for a catalog row: its selector, see §3.8) and optionally with a 4th segment for quiver-hosted arrows (`domain/user/repo/auid`). Key operations: strip ref, extract ref, replace ref, validate, extract segments (QUID = first 3, AUID = 4th), derive clone URL.
 
 Read `internal/domain/namespace.go` for exact methods.
 
 ### 3.2 Arrow
 
-The canonical installed package aggregate. Holds the compiled manifest (name, description, version, variables, netbridge port definitions, per-OS targets) plus installation metadata (installed ref, constraint, timestamp).
+The canonical catalog aggregate, keyed by `namespace@selector`. Holds the compiled manifest (name, description, variables, netbridge port definitions, per-OS targets — no version field) plus row state: the stored selector kind, what is installed (`Resolved`: ref, commit, fingerprint), what is ahead (`Available`, nil when current — "outdated" is derived from it), and installation metadata (user-installed flag, install and last-used timestamps).
 
 **ArrowState** is a string enum with the following valid transitions:
 
@@ -121,6 +121,16 @@ These are the names passed to `wizard.Start` and appear as method keys in Arrow.
 ### 3.7 OS identifiers
 
 String enum covering: `linux/amd64`, `linux/arm64`, `windows/amd64`, `windows/arm64`, `darwin/amd64`, `darwin/arm64`. `domain.CurrentOS()` returns the running platform.
+
+### 3.8 Versioning model
+
+- **Identity is the selector.** A catalog row is `ns@selector`: a channel (`crowbar@stable`, `crowbar@nightly-latest`), a constraint (`crowbar@v1.*`), a pin (`crowbar@v1.2.0`) or a commit. The kind is classified once from a ref snapshot and stored on the row (zero value = pin). It never changes; switching what a row follows is uninstall + install. A refless add is given the repository's default channel.
+- **Version is state.** `Resolved` is what is installed, `Available` what a check found ahead. The resolved ref is the version and is what `${REF}` carries (the target ref during `_update`) — never the selector.
+- **Drift is pure.** `manifold.Drift` compares `Resolved` with what the selector points at in one `RefSnapshot`; channel decisions stay tag-name heuristics (`resolvers/channel.go`).
+- **One advance.** Every update moves the same aggregate in place (`arrow.advanced`); there are no successor rows. Only `POST /v0/runtime/:ns/update` runs update steps; `PATCH /v0/arrow/:ns` only re-checks (and advances a row nothing is installed from).
+- **Adoption.** `Arrow.Adopt` registers already-installed state offline — quiver.core's own row on boot, seeded manifests, collection-local arrows.
+
+Full model: `docs/spec/manifests/v0/versioning.md`.
 
 ---
 
@@ -192,13 +202,15 @@ type fooUsecase struct { dep1 ..., dep2 ... }
 func NewFooUsecase(dep1, dep2) FooUsecase { return &fooUsecase{...} }
 ```
 
+A usecase is the thin last bridge before the API: validate input → one repository call → map the error. Orchestration (locks, goroutines, event subscriptions, multi-step flows) lives in a repository — the runtime verbs and the update bracket in `repositories/lifecycle`.
+
 ### 5.3 Error wrapping
 
 Every call site wraps with context: `fmt.Errorf("operation: dep call %s: %w", ns, err)`. Chain reads outward from the error: `"install: add dep to catalog github.com/u/r@v1: not found"`.
 
 ### 5.4 Repository callback wiring
 
-Cross-repository reactions wire in `repositories/container.go` via a `wireCallbacks()` helper. Pattern: `c.Arrow.OnArrowAdded(func(...) { c.Graph.SyncDependencies(...) })`. All wiring errors use the prefix `repositories: wire <EventName>: %w`.
+Cross-repository reactions wire in `repositories/container.go` via a `wireCallbacks()` helper. Pattern: `c.Arrow.OnArrowAdded(func(...) { c.Graph.SyncDependencies(...) })`. All wiring errors use the prefix `repositories: wire <EventName>: %w`. A repository never imports a sibling repository: one that needs others (`lifecycle`) declares the small interfaces it uses in its own package and is handed the concrete repositories by the container (`wireLifecycle` also starts its `runtime.ended` reaction and lets the arrow repository's version check hold a settling row's badge).
 
 ### 5.5 Hub broadcast registration
 
@@ -257,6 +269,8 @@ repositories/<name>/
     recovery.go          ← crash recovery (runtime only)
     mocks/               ← test doubles for this repository
 ```
+
+`repositories/lifecycle/` owns no aggregate: it orchestrates the runtime verbs over the arrow, runtime and graph repositories. `lifecycle.go` holds the interface, the consumer-side `Arrow`/`Runtime`/`Graph` interfaces it is handed and the constructor; `internal/bracket/` the per-row bracket (remembered targets, the update bracket, the catalog advance), `internal/commits/` the detached update commits a shutdown drains, `internal/settle/` the settling of an ended update (commit or restore, badge holds), `internal/deps/` installs with their dependencies, dependency sync and the stop/uninstall cascades. In the arrow repository, `internal/advance/` holds advancing, adoption and `Available` records, and `internal/watch/` the periodic version check.
 
 ---
 
@@ -363,15 +377,23 @@ These describe the general call chain for major operations. Read the actual code
 
 ### Add arrow (POST /v0/arrow/:ns)
 
-Handler validates namespace → ArrowUsecase.Add → arrow repository adds: resolves manifest via manifold, caches to vault, sends Asynx command → projection updates read model → reaction syncs dependency graph → hub broadcasts to WS clients.
+Handler validates namespace → ArrowUsecase.Add → arrow repository adds: reads a ref snapshot, classifies the selector (refless → default channel), fetches the manifest at the target commit via manifold — or reuses the vault copy recorded for that exact ref and commit, such as discovery's Fletcher build filed at its release tag, so a discovered arrow is never drafted again — caches it to vault under the identity, sends `AddArrow` (selector kind + `Resolved`) → the single arrow-topic subscriber runs the callbacks (dependency graph sync), writes the read model, then broadcasts to WS clients.
+
+### Adopt installed arrow (POST /v0/arrow/:ns/adopt)
+
+Handler validates namespace + `{"resolved_ref"}` → ArrowUsecase.AdoptInstalled → arrow repository `AdoptInstalled`: store `ResolveAdoption` settles the identity as Add does, admits the ref against a fresh snapshot (`manifold.Admit`: 404 unknown, 400 outside the selector), fetches the manifest at its commit → existing `Adopt` (create / advance in place / no-op); runtime untouched.
 
 ### Install arrow (POST /v0/runtime/:ns/install)
 
-RuntimeUsecase.Install → dependency graph resolves topological order → for each dep: resolve manifest if missing, register, begin install, wait for completion → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topological order (deps named by their declared selector) → catalogue every dep that has no row yet (`AddDependency`) → for each dep: begin install, wait for completion → an absent target row with a release ahead is re-checked and advanced to the freshest target first → begin install on target arrow → reaction starts wizard → wizard spawns process → step advance/PID events flow back → end execution event → arrow marked installed.
+
+### Update arrow (advance)
+
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
 
 ### Runtime reaction flow
 
-The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the arrow's cached manifest is dropped and resolved again at its own ref (`arrow.RefreshManifest` + `UpdateManifest`), the steps are re-assembled, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
+The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the manifest of the release the run builds (the row's `Resolved` for an install, the target the update began toward, `Lifecycle.UpdateTarget`, remembered for every row including quiver.core's own, for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
 
 ### WebSocket broadcast
 
@@ -447,9 +469,11 @@ Single API for local files and HTTP/HTTPS. `fns.Read`, `fns.Write`, `fns.Fetch`,
 
 ### 15.6 Manifest resolution — `engine/manifold`
 
-Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+compile+validate pipeline. Use `manifold.ResolveCollection(ctx, ns)` for collections. Use `manifold.ParseArrow(data)` for seeding from raw bytes. Read the interface in `internal/engine/manifold/` for current method signatures.
+Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+compile+validate pipeline (`ResolveArrowAtCommit` to read it at a commit). Use `manifold.ResolveCollection(ctx, ns)` for collections. Use `manifold.ParseArrow(data)` for raw bytes. Use `Snapshot` / `FreshSnapshot` for a repository's refs, and the package's pure functions over a snapshot (`ClassifySelector`, `Target`, `Drift`, `ChannelsOf`, `DefaultChannel`) for version decisions. Read the interface in `internal/engine/manifold/` for current method signatures.
 
-**Fletcher** (`engine/manifold/fletcher`) is manifold's subengine that synthesizes an `arrow@v0` manifest from a repository's release assets when it ships no `ARROW.md`/`arrow.yaml`. Its root is only the public API — `fletcher.go` (`Fletcher.Recover`, the `Releases` questions it asks manifold, `New`) and `errors.go` (`NotFletchableError`, reasons, `ErrNotFletchable`); the implementation lives in `fletcher/internal/{fallback,gather,confidence,picker,readme,forge,media,models}` (`fallback` holds the trigger, ref/tag policy and error mapping). Manifold builds it itself with `manifold.WithFletcher(enabled)` from its own host lookup and fetch timeout; `engine/container.go` passes only `config.manifold.fletcher.enabled` (default `false`). It runs only inside `ResolveArrow`, only on `resolver.ErrManifestNotFound` (every fetcher definitively reported absence — never on a transport or rate-limit error). Its output is manifest bytes that go through the normal pipeline; origin and confidence travel as `metadata.generator`, as data exposed for debugging — no code outside Fletcher branches on them. Fletcher refuses a low-confidence build itself (not fletchable, reason `low_confidence`), and every not-fletchable outcome leaves `ResolveArrow` as `resolver.ErrManifestNotFound` — to the app layer, exactly a repository without a manifest. There is one Fletcher build: search results, details and adds all come from it and are cached by Vault like any other manifest — the arrow store's resolver reads the vault first, else calls `ResolveArrow` and `PutArrow`s the result; discovery calls `ResolveArrow` at the default branch the search response named, then `PutArrow`s it. `Recover` also returns the ref it drafted from and `ResolveArrow` stamps it on the arrow's `Namespace` when it differs from the ref asked; discovery files an arrow under that ref (a release tag, not the default branch it asked for), which is the ref details, add and install resolve to, so none of them builds a discovered arrow again. See `docs/spec/manifold.md` §4.1.
+**Fletcher** (`engine/manifold/fletcher`) is manifold's subengine that synthesizes an `arrow@v0` manifest from a repository's release assets when it ships no `ARROW.md`/`arrow.yaml`. Its root is only the public API — `fletcher.go` (`Fletcher.Recover`, `Releases` — the struct of release-question functions manifold fills with its own methods, `New`) and `errors.go` (`NotFletchableError`, reasons, `ErrNotFletchable`); the implementation lives in `fletcher/internal/{fallback,gather,confidence,picker,readme,forge,media,models}` (`fallback` holds the trigger, ref/tag policy and error mapping). Manifold builds it itself with `manifold.WithFletcher(enabled)` from its own host lookup and fetch timeout; `engine/container.go` passes only `config.manifold.fletcher.enabled` (default `false`). It runs only inside `ResolveArrow`, only on `resolver.ErrManifestNotFound` (every fetcher definitively reported absence — never on a transport or rate-limit error). Its output is manifest bytes that go through the normal pipeline; origin and confidence travel as `metadata.generator`, as data exposed for debugging — no code outside Fletcher branches on them. Fletcher refuses a low-confidence build itself (not fletchable, reason `low_confidence`), and every not-fletchable outcome leaves `ResolveArrow` as `resolver.ErrManifestNotFound` — to the app layer, exactly a repository without a manifest. There is one Fletcher build: search results, details and adds all come from it and are cached by Vault like any other manifest — the arrow store's resolver reads the vault first, else calls `ResolveArrow` and `PutArrow`s the result; discovery calls `ResolveArrow` at the default branch the search response named, then `PutArrow`s it. `Recover` also returns the ref it drafted from and `ResolveArrow` stamps it on the arrow's `Namespace` when it differs from the ref asked; discovery files an arrow under that ref (a release tag, not the default branch it asked for), which is the ref details, add and install resolve to, so none of them builds a discovered arrow again. See `docs/spec/manifold.md` §4.1.
+
+**Versioning** (`engine/manifold/versioning`) is manifold's subengine for ref snapshots, selectors, drift and admission, with the same thin root as Fletcher — `versioning.go` + `errors.go` over `versioning/internal/{snapshot,selector,drift,admit}` — built by manifold, which only delegates to it (`manifold.Drift`, `ClassifySelector`, `Snapshot`, … are re-exports), and importing neither the manifold root nor Fletcher. See `docs/spec/manifold.md` §2.1.
 
 **Do NOT:** fetch manifests via `fns` directly, parse YAML manifest structs manually, call Fletcher directly from the app layer, build a Fletcher anywhere but inside manifold (the engine container and `tests/kit` pass only the enabled flag and a host lookup) or import `fletcher/internal/...` from outside the fletcher tree, make more than one metered API request per repository from Fletcher — on GitHub that one is `hosts.Host.RepoMetadata` (`api.github.com/repos/{owner}/{repo}`, description + owner avatar, memoized per bare repo inside the provider, every failure a graceful miss) and everything else is unmetered pages and raw files named by `hosts.Host` (GitLab's anonymous public REST API, 500/min, is allowed inside the GitLab provider), hardcode a host's raw/blob/page/API URLs in Fletcher — use `hosts.Host.RawFileURL`, `BlobFileURL`, `RepoPageURL`, `OwnerAvatarURL` and `RepoMetadata`, parse README images for media (the icon is probed from a table of raw-file paths, then the unmetered `OwnerAvatarURL`, then the avatar `RepoMetadata` gave; the icon never depends on the metered call), parse a repo page with host-specific rules — Fletcher reads its Open Graph tags generically.
 
@@ -485,27 +509,33 @@ The shelf root (`shelf.go`) only orchestrates; each OS is a strategy composed on
 
 ### 15.12 Arrow catalog — `app/repositories/arrow`
 
-Injected into usecases. Methods include: `Get`, `Exists`, `List`, `Add` (triggers manifold resolve), `Remove`, `UpdateManifest`, `MarkInstalled`, and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`, `OnArrowUpgraded`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
+Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `ResolveManifest`, `ResolveCatalogued`, `Add` (resolves the selector via manifold), `AddDependency`, `Adopt`, `AdoptInstalled` (declared installed state, admitted against the selector), `Remove`, `CheckAvailable`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `MarkInstalled` / `MarkUninstalled` / `MarkLastUsed`, `HoldBadgeWhile`, `CheckInstalledVersions`, `WatchVersions` / `StopWatchingVersions` (the periodic version check, `arrows.version_check_interval`, started by `app.Container.Start` and stopped first on shutdown), and event hooks (`OnArrowAdded`, `OnArrowUpdated`, `OnArrowRemoved`). Read the interface in `internal/app/repositories/arrow/arrow.go`.
 
 **Do NOT:** call `asynx.Send` directly from usecases, read `domain.Arrow` from Asynx directly.
 
 ### 15.13 Runtime execution state — `app/repositories/runtime`
 
-Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
+Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, `ReconcileVersionBadge`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
 
 **Do NOT:** check process state via `os.FindProcess`, subscribe to Asynx topics for runtime events from usecases.
 
-### 15.14 WebSocket broadcasts — `app/hub`
+### 15.14 Runtime verbs + update bracket — `app/repositories/lifecycle`
+
+Injected into usecases. Methods: `Install` (with dependencies), `Uninstall`, `Execute`, `Update`, `Stop`, `Reset`, `Recheck` (PATCH re-check / catalog advance), `Settling`, `HoldBadge`, `Drain`, `Start` (subscribes its `runtime.ended` reaction; called by `repositories.New` through `wireLifecycle`). Read the interface in `internal/app/repositories/lifecycle/lifecycle.go`.
+
+**Do NOT:** orchestrate runtime verbs, take per-row locks or start goroutines in usecases; import the arrow, runtime or graph repository packages from `lifecycle` (declare the interface it needs in `lifecycle.go`).
+
+### 15.15 WebSocket broadcasts — `app/hub`
 
 Injected into repositories. Fire-and-forget. Three broadcast methods, each accepting a typed event wrapper. `CatalogUpserted` = add/update, `CatalogRemoved` = delete/unfollow. Registered in `repositories/container.go → RegisterHubProjections`.
 
 **Do NOT:** write to WS connections directly from repositories or usecases, call broadcasts from usecases.
 
-### 15.15 Error type → HTTP status — `api/libs/apierr`
+### 15.16 Error type → HTTP status — `api/libs/apierr`
 
 `apierr.StatusAndMessage(err)` maps app-layer sentinel errors to HTTP status codes. Always use this — don't hard-code status codes in handlers. Read `internal/api/libs/apierr/` for the current mapping.
 
-### 15.16 Summary table
+### 15.17 Summary table
 
 | Task | Package |
 |------|---------|
@@ -523,6 +553,7 @@ Injected into repositories. Fire-and-forget. Three broadcast methods, each accep
 | Expose entries / `PATH` setup | `internal/engine/wizard` (`expose`/`unexpose` steps from `wizard.Plan`, per-OS strategies in `shelf/internal/platform`; `PathStatus`/`SetupPath` from `PathUsecase` only) |
 | Read/write arrow catalog | `internal/app/repositories/arrow` |
 | Read/write runtime state | `internal/app/repositories/runtime` |
+| Install/update/stop orchestration, update bracket | `internal/app/repositories/lifecycle` |
 | Broadcast to WS clients | `internal/app/hub` |
 | Error type → HTTP status | `internal/api/libs/apierr` |
 

@@ -21,7 +21,8 @@ Package: `internal/engine/vault`
 |------|----------------|
 | `vault.go` | `Vault` interface + `quiverFilename` constant |
 | `store.go` | `store` struct, constructors `New` / `NewWithClock`, all interface dispatch, per-namespace locking, workdir handling |
-| `manifest.go` | Arrow manifest read/write/delete/rename, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
+| `pathsafe.go` | Identity-safe percent-encoding of identity-derived filenames and directories (§4.1) |
+| `manifest.go` | Arrow manifest read/write/delete, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
 | `vault_entry.go` | `ManifestFile`, `CollectionVaultEntry`, `VaultMetadata` |
 | `sweep.go` | TTL sweep over arrow meta files and collection JSON files |
 | `errors.go` | `ErrNotCached`, `ErrStale`, `ErrInvalidNamespace` |
@@ -34,11 +35,11 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 
 | Method | Purpose |
 |--------|---------|
-| `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. |
+| `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. Returns `ErrConfirmedAbsent` for a fresh not-found marker, with only the marker's `Commit` set. |
+| `PutArrowNotFound(ctx, ns, commit) error` | Record that `ns` definitively has no manifest (at `commit`, when known), for one TTL. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
-| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Also how a manifest refresh (`arrow.RefreshManifest`, used by `update` and by the one-shot retry after a fetch checksum mismatch) forces the next resolve to go back to the host instead of serving the cached copy for the rest of its TTL. |
-| `RenameArrow(ctx, oldNs, newNs) error` | Move manifest + meta from one namespace key to another (used during version upgrades). |
-| `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` values cached under the same bare namespace. |
+| `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Staging a manifest (`arrow.RefreshToTarget`: an update's target, a restore, or the one-shot retry after a fetch checksum mismatch) deletes before it writes, so the next read never serves the replaced copy. |
+| `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` suffixes (catalog selectors) cached under the same bare namespace. |
 | `GetCollection(ctx, ns) (*CollectionVaultEntry, string, error)` | Read cached `Collection` aggregate JSON. Same `ErrStale` / `ErrNotCached` semantics. Returns the on-disk path. |
 | `PutCollection(ctx, ns, collection) (string, error)` | Write a collection envelope as `collection.json` inside the namespace workdir. Returns the path written. |
 | `DeleteCollection(ctx, ns) error` | Idempotent delete of `collection.json`. |
@@ -78,19 +79,22 @@ The engine accepts `engine.WithHomeDir(dir)` for tests and isolated environments
 ```
 ~/.quiver/
   vault/                                                     ← flat manifest cache
-    github.com%2Fvalve%2Fsteamcmd%40latest.yaml              ← raw manifest bytes
-    github.com%2Fvalve%2Fsteamcmd%40latest.meta.json         ← VaultMetadata sidecar
-    github.com%2Fvalve%2Fsteamcmd%40v1.2.3.yaml
-    github.com%2Fvalve%2Fsteamcmd%40v1.2.3.meta.json
+    github.com%2Fvalve%2Fsteamcmd@stable.yaml                 ← raw manifest bytes
+    github.com%2Fvalve%2Fsteamcmd@stable.meta.json            ← VaultMetadata sidecar
+    github.com%2Fvalve%2Fsteamcmd@v1.2.3.yaml
+    github.com%2Fvalve%2Fsteamcmd@v1.2.3.meta.json
+    github.com%2Fvalve%2Fsteamcmd@v1.%2A.yaml                 ← selector v1.* — `*` escaped
     github.com%2Fdiscord%2Fdiscord.md                        ← `ARROW.md` source — extension preserved
     github.com%2Fdiscord%2Fdiscord.meta.json
   namespaces/                                                ← per-namespace tree
     github.com/
       valve/
-        steamcmd@latest/                                     ← workdir for steamcmd@latest
+        steamcmd@stable/                                     ← workdir for steamcmd@stable
           steamcmd.sh                                        ← wizard-owned
           linux32/
         steamcmd@v1.2.3/                                     ← parallel workdir
+        steamcmd@v1.%2A/                                     ← workdir for steamcmd@v1.*
+        steamcmd@release%2F1.0/                              ← workdir for steamcmd@release/1.0 — a sibling, never nested
       char2cs/
         gaming.collection/
           collection.json                                    ← collection envelope
@@ -102,13 +106,61 @@ Two distinct keying strategies coexist:
 
 | Concern | Key | Encoding | Location |
 |---------|-----|----------|----------|
-| Arrow manifest cache | full `Namespace` (bare + `@ref`) | `url.PathEscape` to a flat filename | `vaultPath/` |
-| Arrow workdir | full `Namespace` (bare + `@ref`) | `filepath.FromSlash`; the literal `@ref` becomes a directory segment | `namespacesPath/<ns-path>/` |
+| Arrow manifest cache | full `Namespace` (bare + `@selector`) | `url.PathEscape` of the bare namespace, a literal `@`, then the selector as one identity segment (see below) — one flat filename | `vaultPath/` |
+| Arrow workdir | full `Namespace` (bare + `@selector`) | `filepath.FromSlash` of the bare namespace; the last directory is `repo@<selector as one identity segment>` (see below) | `namespacesPath/<ns-path>/` |
 | Collection envelope | full `Namespace` (collections are unversioned in practice) | `filepath.FromSlash` | `namespacesPath/<ns-path>/collection.json` |
 
 The flat layout for the manifest cache exists because two manifest filenames (`arrow.yaml` vs `ARROW.md`) cannot collide inside the same directory — encoding the namespace into the filename and keeping the original extension solves both ambiguity and case-insensitive filesystems.
 
-Different versions (`@v1.2.3`, `@latest`) of the same bare namespace share a parent directory inside `namespacesPath/` and produce distinct sibling subdirectories whose name embeds the `@ref` segment.
+Different selectors (`@v1.2.3`, `@stable`) of the same bare namespace share a parent directory inside `namespacesPath/` and produce distinct sibling subdirectories whose name embeds the selector. The key is the catalog identity, which never changes for the life of a row: an update advances the row in place, replaces the cached manifest under the same key, and leaves the workdir where it is.
+
+### 4.1 Identity-safe path components
+
+A selector can carry characters no filesystem path can (`v1.*`), and two identities must
+never share a path or nest one inside the other, so `pathsafe.go` encodes a selector into
+**one** path segment (`encodeRefSegment`) before it reaches the disk. It percent-encodes
+(upper-case hex):
+
+- the Windows-reserved characters `<>:"|?*\`, and `%` itself (so decoding back is unambiguous);
+- `/`, so `@release/1.0` is the sibling `repo@release%2F1.0`, never a directory inside
+  `@release`'s workdir that removing `@release` would delete;
+- upper-case ASCII letters and every non-ASCII byte, so `@Nightly` (`repo@%4Eightly`) and
+  `@nightly` stay two paths on a case-insensitive or normalizing filesystem (macOS, Windows);
+- `~` (which git forbids in a ref) and control characters;
+- a trailing `.` or space, which Windows silently strips — and which is what keeps `.` and
+  `..` from ever reaching the filesystem.
+
+A plain lower-case tag or branch name without `/` (`v1.2.0`, `nightly-latest`, `stable`)
+keeps its spelling, so its workdir and cache name are the same as before. A name longer
+than 96 bytes (a legal git ref can be far longer than the 255-byte component limit) is cut
+without splitting an escape and suffixed with `~` and 32 hex characters of the SHA-256 of
+the full identity, so two long identities never share it. 96 bytes keeps a workdir under a
+typical Windows home (`C:\Users\<name>\.quiver\namespaces\<host>\<user>\<segment>`) far
+enough under `MAX_PATH` (260) for the arrow's own files. A capped name cannot be decoded,
+so the manifest meta records its `namespace` and a capped collection directory is named by
+the `collection.json` inside it.
+
+Existing data keeps working without a move. A workdir created under an earlier layout —
+the selector split on `/` into nested directories, each component escaping only what
+Windows refuses, or the selector not escaped at all (`repo@v1.*`, before paths were
+escaped) — is used when the new path does not exist and the old one does with exactly that
+spelling. Every existence check reads directory entries, so a case-folded sibling identity
+is never mistaken for it. When the new path exists only through case folding — on macOS or
+Windows, `repo@v1.0` landing in the directory an earlier layout gave `repo@V1.0` — it is
+another identity's workdir, and `WorkDir` refuses it (`ErrWorkDirCollision`) rather than
+let one uninstall delete the other's files. The app layer answers it as a conflict (409):
+adding, installing, running or uninstalling that identity is refused until the identity
+that owns the directory is removed. `DeleteWorkDir` of the refused identity succeeds and
+touches nothing (it owns no directory), so it can always be removed from the catalog. A
+workdir the vault cannot give is fatal to every lifecycle method, and the wizard never
+starts a `run` step without a workdir, so no step ever runs in the daemon's own working
+directory. A `preinstalled:` probe, which runs before any workdir exists for its namespace,
+gets a scratch directory of its own that is removed once it answered. A manifest cache entry written under the earlier filename is read
+the same way and deleted with the current one.
+
+`decodeNSDir` reverses either directory form when listing namespaces; a component that does
+not decode predates the encoding and is kept verbatim. `namespacePath` additionally refuses
+any namespace whose bare segments would resolve outside `namespacesPath`.
 
 ---
 
@@ -120,6 +172,7 @@ Different versions (`@v1.2.3`, `@latest`) of the same bare namespace share a par
 |-------|------|-------------|
 | `Content` | `[]byte` | Raw manifest bytes — written verbatim, returned verbatim. |
 | `Filename` | `string` | Source filename, used to pick the on-disk extension (`.yaml`, `.md`). Stored in the meta sidecar so the matching content file can be re-located on read. |
+| `Ref`, `Commit` | `string` | The release the manifest was read at, when the writer knew it: an add, advance, staging or adoption records the target it read; discovery records the tag it filed a build under and, from the ref snapshot it reads first, that tag's commit (a branch build records no commit, since a branch moves under it). A reader reuses the bytes for that exact release only — same ref, same commit — so a moved tag, or another tag of the same commit, is read from the host again. |
 
 ### 5.2 `VaultMetadata`
 
@@ -127,6 +180,7 @@ Different versions (`@v1.2.3`, `@latest`) of the same bare namespace share a par
 |-------|------|-------------|
 | `CachedAt` | `time.Time` | Wall-clock time at which `PutArrow` was called. Used to compute staleness against the configured TTL. |
 | `Filename` | `string` | Original filename — required to reconstruct the manifest path on `Get`. |
+| `Ref`, `Commit` | `string` | The release a manifest was read at (see `ManifestFile`); on a confirmed-absent marker, the commit the fetch found no manifest at. |
 
 `Source`, `EvictionTTL`, `OS` from the previous design are *not* present. TTL is a single global value from config, not per-entry. Source URL is reconstructible from the namespace via `Namespace.CloneURL()`.
 
@@ -175,7 +229,7 @@ The stale-but-still-returned shape is deliberate: callers (resolver, collection 
 
 ### 6.2 Cache-first resolution sequence
 
-The arrow store resolver lives at `internal/app/repositories/arrow/internal/store/resolver.go`. It is the canonical Vault + Manifold composition site for arrows.
+The arrow store resolver lives at `internal/app/repositories/arrow/internal/store/resolver.go`. It is the canonical Vault + Manifold composition site for arrows. It serves namespaces the catalog has no row for (previews); a catalogued identity is answered from its row, so an expired entry is never refetched at a moving selector's current head.
 
 ```mermaid
 sequenceDiagram
@@ -256,11 +310,9 @@ The previous spec carried `IndirectDependencies` as a field on `VaultEntry` and 
 | Lock | Scope | Acquired by |
 |------|-------|-------------|
 | `s.mu` (`sync.RWMutex`) | The map of per-namespace mutexes | `namespaceLock` getter/creator |
-| Per-namespace `sync.Mutex` (lazy) | One per namespace key | All Get/Put/Delete/Rename operations on that namespace |
+| Per-namespace `sync.Mutex` (lazy) | One per namespace key | All Get/Put/Delete operations on that namespace |
 
 Both reads (`GetArrow`, `GetCollection`) and writes (`PutArrow`, `PutCollection`, `DeleteArrow`, `DeleteCollection`) acquire the per-namespace mutex — there is no read/write distinction at the vault level. The shared `s.mu` is only used to serialise lazy creation of new per-namespace mutexes.
-
-`RenameArrow` acquires both `oldNs` and `newNs` locks in a deterministic order (lexicographic) to avoid lock-order deadlocks.
 
 Every `Put*` writes to a temp file in the destination directory and `os.Rename`s into place — concurrent unlocked tools (e.g. an external process tailing the vault) observe an atomic switch rather than a partial write.
 
@@ -270,13 +322,14 @@ Every `Put*` writes to a temp file in the destination directory and `os.Rename`s
 
 | Trigger | Vault call | Site |
 |---------|-----------|------|
-| Arrow added (manifest fetched fresh) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
-| Arrow added from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
-| Manifest seeded from raw bytes | `PutArrow(ARROW.md)` | `arrow.Seed` |
+| Arrow added (manifest fetched at the selector's target commit) | `DeleteArrow` → `PutArrow`, only when the identity has no row yet | `arrow/internal/store/selector.go` (`fetchAtCommit`) |
+| Manifest read through the cache (not yet cached) | `PutArrow` | `arrow/internal/store/resolver.go` (`fetchAndCache`) |
+| Manifest read from a stale cache hit | `PutArrow` after re-fetch | resolver `resolveStale` |
+| Manifest adopted from raw bytes (seed, collection-local arrow, core self-registration) | `DeleteArrow` → `PutArrow` | `arrow.Adopt` (`replaceCachedManifest`) |
 | Arrow proven by discovery (tagged or unmarked pass), at the search's default branch | `PutArrow` with `Meta` | `discovery.verifyOne` |
 | Discovery candidate that definitively has no manifest (including one Fletcher refuses to build) | `PutArrowNotFound` | `discovery.verifyOne` |
 | Arrow removed (`Forget`) | `DeleteWorkDir` | `OnForget` projection in `arrow.go` |
-| Arrow upgraded | `DeleteArrow(newNs)` → `RenameArrow(oldNs, newNs)` → `PutArrow(newNs, …)` | `arrow.UpgradeVersion` |
+| Update staged / row advanced | `DeleteArrow(ns)` → `PutArrow(ns, manifest at target commit)` under the same identity | `arrow.RefreshToTarget`, `arrow.Advance` |
 | Collection followed / fetched | `PutCollection` | `collection.Get` (`fetchAndCache`, `resolveStale`) |
 | Collection unfollowed | `DeleteCollection` | `collection.Unfollow` |
 | Step assembly | `WorkDir` | `runtime/internal/assembler/assembler.go` |
@@ -306,5 +359,5 @@ All other I/O failures (read, write, marshal, rename) propagate as wrapped error
 - No knowledge of Asynx, the runtime, or the wizard.
 - Sole owner of namespace workdir path resolution under `namespacesPath`.
 - Sole owner of TTL evaluation for cached manifests.
-- Idempotent `Delete*` operations; deterministic-order locking on `RenameArrow`.
+- Idempotent `Delete*` operations.
 - Not a data backup. Sweep evicts; callers must accept that any cached entry can vanish on the next tick.

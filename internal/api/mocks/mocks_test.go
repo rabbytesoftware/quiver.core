@@ -24,12 +24,18 @@ var (
 
 func TestArrowService_Add(t *testing.T) {
 	m := &mocks.ArrowService{AddErr: errTest}
-	assert.Equal(t, errTest, m.Add(ctx, testNS, models.AddOptions{}))
+	assert.Equal(t, errTest, m.Add(ctx, testNS))
+}
+
+func TestArrowService_AdoptInstalled(t *testing.T) {
+	m := &mocks.ArrowService{AdoptInstalledErr: errTest}
+	assert.Equal(t, errTest, m.AdoptInstalled(ctx, testNS, "v1.2.0"))
+	assert.Equal(t, []mocks.AdoptInstalledCall{{Namespace: testNS, ResolvedRef: "v1.2.0"}}, m.AdoptInstalledCalls)
 }
 
 func TestArrowService_Update(t *testing.T) {
 	m := &mocks.ArrowService{UpdateErr: errTest}
-	_, err := m.Update(ctx, testNS, models.UpdateOptions{})
+	_, err := m.Update(ctx, testNS)
 	assert.Equal(t, errTest, err)
 }
 
@@ -89,6 +95,13 @@ func TestRuntimeService_Execute(t *testing.T) {
 func TestRuntimeService_Stop(t *testing.T) {
 	m := &mocks.RuntimeService{StopErr: errTest}
 	assert.Equal(t, errTest, m.Stop(ctx, testNS))
+}
+
+func TestRuntimeService_SettlingAndDrain(t *testing.T) {
+	m := &mocks.RuntimeService{SettlingNamespaces: map[domain.Namespace]bool{testNS: true}, DrainErr: errTest}
+	assert.True(t, m.Settling(testNS))
+	assert.False(t, m.Settling(domain.Namespace("github.com/u/other")))
+	assert.Equal(t, errTest, m.Drain(ctx))
 }
 
 func TestHub_BroadcastArrow(t *testing.T) {

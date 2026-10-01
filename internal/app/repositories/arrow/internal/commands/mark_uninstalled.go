@@ -13,10 +13,8 @@ import (
 // so an arrow whose _uninstall lifecycle has run stops claiming its ref is on
 // disk. Called from the post-execution hook.
 //
-// It clears that field and nothing else. InstalledConstraint is written when the
-// namespace is added, not when it is installed, and an uninstalled arrow still
-// resolves updates through it; UserInstalled records the intent to keep the
-// arrow in the catalog, which an uninstall does not revoke.
+// It clears that field and nothing else: UserInstalled records the intent to
+// keep the arrow in the catalog, which an uninstall does not revoke.
 type MarkUninstalled struct {
 	Namespace domain.Namespace
 }

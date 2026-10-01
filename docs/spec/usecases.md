@@ -42,33 +42,35 @@ Each repository owns exactly one Asynx aggregate (or in `Graph`'s case, a derive
 
 | Repository | Aggregate / store | Engines used | Owns |
 |------------|-------------------|--------------|------|
-| `repositories/arrow.Arrow` | `Asynx[domain.Arrow]` + GORM view-model store (`arrows.db`) | `vault`, `manifold` | Catalog CRUD, manifest resolution, version upgrade, manifest validation, `MarkInstalled` post-install hook. |
+| `repositories/arrow.Arrow` | `Asynx[domain.Arrow]` + GORM view-model store (`arrows.db`) | `vault`, `manifold` | Catalog CRUD, selector resolution, version checks, in-place advance, adoption, manifest validation, install/uninstall/last-used stamps. |
 | `repositories/runtime.Runtime` | `Asynx[domainRuntime.ArrowRuntime]` | `wizard`, `vault`, `netbridge` (via assembler) | Begin* commands, drain goroutine that consumes wizard events, crash recovery, drain-tracking shutdown. |
 | `repositories/collection.Collection` | `Asynx[domain.Collection]` + Bolt store at `collections.db` | `vault`, `manifold` | Follow / Unfollow lifecycle, vault fallback for unfollowed-but-cached collections. |
-| `repositories/graph.Graph` | Derived dep-edge table on the shared GORM DB | `manifold`, `deptree` | Topological resolution, reverse-dependency lookup, dep diffing, glob constraint resolution. Listens to `arrow.added.*`, `arrow.updated.*`, `arrow.upgraded.*`, and `OnForget` to keep edges in sync. |
+| `repositories/graph.Graph` | Derived dep-edge table on the shared GORM DB | `manifold`, `deptree` | Topological resolution, reverse-dependency lookup, dep diffing. Kept in sync through the arrow repository's `OnArrowAdded` / `OnArrowUpdated` / `OnArrowRemoved` callbacks. |
 | `repositories/recommendation.Recommendation` | Derived snapshot tables on the shared GORM DB (`recommendation_shelves`, `recommendation_entries`); no aggregate | `discovery` (and through it `manifold`, `vault`, the providers), `vault` index | The query-less shelves the desktop home shows: refresh through `discovery.Browse`, atomic per-shelf swap, single-flight scheduler, snapshot reads. Exists only when discovery does. |
 
 ### 2.1 Arrow repository
 
-Public methods (selected): `Add`, `AddDep`, `Remove`, `Get`, `Exists`, `List`, `GetDetail`, `GetManifest`, `ResolveManifest`, `ResolveForInstall`, `ResolveConstraint`, `UpgradeVersion`, `UpdateManifest`, `Seed`, `ValidateManifest`, `MarkInstalled`, `Forget`, `Shutdown`, plus four `On*` callbacks.
+Public methods (selected): `Add`, `AddDependency`, `Adopt`, `AdoptInstalled`, `Remove`, `Forget`, `Get`, `Exists`, `List`, `GetDetail`, `GetManifest`, `ResolveManifest`, `ResolveCatalogued`, `Search`, `CheckAvailable`, `CheckVersionNow`, `TargetUnmoved`, `RefreshToTarget`, `Advance`, `ValidateManifest`, `MarkInstalled`, `MarkUninstalled`, `MarkLastUsed`, `ListChannels`, `Shutdown`, plus the `OnArrowAdded` / `OnArrowUpdated` / `OnArrowRemoved` callbacks.
 
-Commands sent (one file each in `internal/commands/`):
+Commands sent (one file each in `internal/commands/`; see [commands.md](commands.md)):
 
 | Command | Event | Notes |
 |---------|-------|-------|
-| `AddArrow` | `arrow.added.<ns>` | Carries full manifest plus `DirectInstall` (UserInstalled) and `InstalledConstraint`. Validation rejects if aggregate already exists. |
-| `SetUserInstalled` | `arrow.user_installed.<ns>` | Promotes an existing dep-installed arrow to user-installed when the user explicitly adds it. |
-| `UpdateArrowManifest` | `arrow.updated.<ns>` | Replaces meta/variables/netbridge/targets, preserves install state. |
-| `UpgradeArrow` | `arrow.upgraded.<ns>` | New aggregate at `newNs`; carries `OldNamespace` so reactions can clean up the old aggregate. |
-| `MarkInstalled` | `arrow.installed.<ns>` | Stamps `InstalledAt` after `_install` succeeds. Sent from the runtime drain goroutine via the injected `MarkInstalledFn`. |
+| `AddArrow` | `arrow.added.<ns>` | Carries the full manifest plus `DirectInstall` (UserInstalled), `SelectorKind` and the initial `Resolved`. Validation rejects if the aggregate already exists. |
+| `SetUserInstalled` | `arrow.user_installed.<ns>` | Promotes an existing dep-installed arrow to user-installed when the user explicitly adds or adopts it. |
+| `MarkInstalled` / `MarkUninstalled` | `arrow.installed.<ns>` / `arrow.uninstalled.<ns>` | Stamp / clear `InstalledAt`, sent from the runtime projection after `_install` / `_uninstall` succeeds. |
+| `MarkLastUsed` | `arrow.last_used.<ns>` | Stamps `LastUsedAt` after a successful `_execute`. |
+| `RecordAvailable` | `arrow.available_checked.<ns>` | Records what a version check found ahead (`Available`), guarded by the `Resolved` it was judged against. |
+| `RefreshManifest` | `arrow.manifest_refreshed.<ns>` | Replaces the manifest fields, leaving `Resolved` / `Available` alone. Stages the target manifest for an update. |
+| `AdvanceArrow` | `arrow.advanced.<ns>` | Moves `Resolved` to the target, replaces the manifest with the target's, clears `Available`. The only way a row changes version. |
 
-`Add` resolves the manifest (Vault cache-first, Manifold fallback) via `ResolveForInstall`, sets `UserInstalled = true`, then either `AddArrow` or `SetUserInstalled` if the aggregate already exists as a dep. `AddDep` uses the same `addArrowCommand` helper without setting `UserInstalled`.
+`Add` resolves the request through `ResolveInstall`: a refless namespace gets its repository's default channel as its selector; any other keeps its ref as the selector, classified once against a ref snapshot and stored as `SelectorKind`. The manifest is fetched at the target commit and cached under the identity, `UserInstalled` is set, and then either `AddArrow` or — if the row already exists — `SetUserInstalled` is sent. `AddDependency` resolves a dependency declaration the same way without setting `UserInstalled`, and leaves an existing row untouched.
 
 `Remove` calls `axArrow.Forget(ns)` — the `OnForget` projection deletes the work-dir from Vault.
 
-`UpgradeVersion` fetches the new manifest from Manifold, renames the Vault entry, and emits `UpgradeArrow{newNs, oldNs, ...}`. The use case layer subscribes to `arrow.upgraded.*` and drives post-upgrade cleanup via `runtimeUsecase.onArrowUpgraded` (see §3.2).
+`CheckAvailable` re-resolves a row against a fresh snapshot (`manifold.Drift`), records the answer with `RecordAvailable` and reconciles the runtime's version badge from the row. `Advance` and `RefreshToTarget` both fetch the manifest at the target commit (`manifold.ResolveArrowAtCommit`) and replace the vault cache before sending `AdvanceArrow` / `RefreshManifest`. `TargetUnmoved` reports whether a target ref still stands at its commit on the remote. `Adopt` registers manifest bytes the caller holds as already-installed state, offline (see [manifests/v0/versioning.md §10](manifests/v0/versioning.md)). `AdoptInstalled` is its networked front: the store's `ResolveAdoption` settles the identity (sharing `ResolveInstall`'s classification), admits the declared ref against a fresh snapshot (`manifold.Admit`) and fetches the manifest at its commit, then `Adopt` writes it.
 
-`ResolveManifest` is layered: Vault first, then Manifold on `ErrNotCached` / `ErrStale`. Stale entries return cached content if Manifold is unreachable. `ResolveForInstall` additionally resolves glob constraints (e.g. `pkg@^1.2.3`) via `manifold.ResolveConstraint` before fetching the concrete manifest.
+`ResolveManifest` answers a catalogued identity (or a refless namespace with a catalogued row) from the row itself: the manifest that row installed, never one refetched at wherever its selector points now. Only an uncatalogued namespace is resolved live, layered: Vault first, then Manifold on `ErrNotCached` / `ErrStale`. Stale entries return cached content if Manifold is unreachable. A selector identity no host serves as a ref (`pkg@stable`, `pkg@v1.*`) falls back to reading the manifest at the selector's current target commit. `ResolveCatalogued` maps a refless namespace onto the catalogued row it names, so every runtime verb accepts a bare namespace.
 
 ### 2.2 Runtime repository
 
@@ -104,7 +106,7 @@ Registered in `internal/reactions.go`:
    - `EventKindEnded` → loop exits
 4. After the loop, `onEnd` reads `exec.Outcome()`. For `MethodInstall + Success` it calls the injected `markInstalledFn` (which sends `MarkInstalled` to `Asynx[Arrow]`). Then it sends `EndExecution{ns, outcome}` regardless of method.
 
-5. **Checksum retry.** `superviseExecution` (`internal/retry.go`) wraps the drain. A run of `_install` or `_update` whose outcome is `failed` and one of whose `step.failed` events carried `wizard.ErrChecksumMismatch` (checked with `errors.Is`, never on the message) is retried once, under the same execution, before `EndExecution` is sent: the injected `RefreshManifest` hook (`arrow.RefreshManifest` — purge the vault copy and resolve again at the namespace's own ref, never a channel upgrade — then `arrow.UpdateManifest`) refreshes the catalog's manifest, the `Reassemble` hook re-runs the assembler and `wizard.Plan`, and `RestartExecution` swaps the new steps in. The retry only starts when the re-assembled steps differ from the ones that failed: a manifest identical to the failing one describes an asset that is genuinely corrupt, so the run fails with its real error. A failed refresh or reassembly, a cancelled context or outcome, a superseded execution and every failure that is not a checksum mismatch also fail normally, and a second mismatch is never retried. The rolling-tag case this exists for: a host re-publishes an asset after the manifest pinning its digest was cached.
+5. **Checksum retry.** `superviseExecution` (`internal/retry.go`) wraps the drain. A run of `_install` or `_update` whose outcome is `failed` and one of whose `step.failed` events carried `wizard.ErrChecksumMismatch` (checked with `errors.Is`, never on the message) is retried once, under the same execution, before `EndExecution` is sent: the injected `RefreshManifest` hook re-reads, from the host, the manifest of the release the run is building — the row's `Resolved` for `_install`; for `_update` the target the update began toward, the same ref and commit its `${REF}` names, which the lifecycle remembers (`Lifecycle.UpdateTarget`) — never the row's `Available`, which a check may have moved to a newer release during the run — and stages it with `arrow.RefreshToTarget`, which replaces the vault copy, the `Reassemble` hook re-runs the assembler and `wizard.Plan`, and `RestartExecution` swaps the new steps in. The retry only starts when the re-assembled steps differ from the ones that failed: a manifest identical to the failing one describes an asset that is genuinely corrupt, so the run fails with its real error. A failed refresh or reassembly, a cancelled context or outcome, a superseded execution and every failure that is not a checksum mismatch also fail normally, and a second mismatch is never retried. The rolling-tag case this exists for: a host re-publishes an asset after the manifest pinning its digest was cached.
 
 This decouples Wizard from event sourcing: the wizard only emits events; the runtime repository converts them into commands.
 
@@ -147,12 +149,12 @@ A projection on `collection.followed` mirrors the aggregate into a Bolt store (`
 
 Public methods: `Resolve`, `Unplan`, `HasDependents`, `Orphans`, `GetDependents`, `SyncDependencies`, `RemoveDependencies`, `DiffDeps`.
 
-Owns a `dep_edges` table keyed by (from\_namespace, from\_version, to\_namespace, to\_version, constraint, dep\_type). The projection in `internal/projections.go` upserts edges on `arrow.added.*`, `arrow.updated.*`, `arrow.upgraded.*`, and deletes them on `OnForget`.
+Owns a `dep_edges` table keyed by (from\_namespace, from\_version, to\_namespace, to\_version, constraint, dep\_type); both versions are selectors. `SyncDependencies` upserts an arrow's edges and `RemoveDependencies` deletes them; the repositories container calls them from the arrow repository's `OnArrowAdded` / `OnArrowUpdated` (added and advanced or refreshed rows) and `OnArrowRemoved` callbacks.
 
 `Resolve` walks the `deptree.DepTree` engine using a resolver callback that:
 1. Calls the injected `resolveManifest` (Asynx-first, Manifold fallback) to get the dependency manifest.
 2. Selects the OS-specific `Target` and emits both `Tools` and `Services` as children, tagging each with `domain.ToolDep` or `domain.ServiceDep`.
-3. Resolves glob constraints inline via `manifold.ResolveConstraint`.
+3. Names each child by the selector its dependent declared (`bare@<Constraint>`), never by the ref it resolves to today; a bare declaration stays bare until it is first catalogued.
 
 The result is a `Plan = []PlanEntry{Namespace, Type}` in topological order with the root excluded.
 
@@ -182,37 +184,41 @@ Read/write surface over the catalog. Composes `arrow` + `graph` + `runtime` repo
 
 | Method | Calls | Behaviour | Errors |
 |--------|-------|-----------|--------|
-| `Add(ctx, ns)` | `arrow.Add` | Resolves manifest (with constraint resolution), seeds the aggregate as `UserInstalled = true`. | `ErrInvalidNamespace`, `ErrAlreadyExists`, `ErrFetchFailed`. |
+| `Add(ctx, ns)` | `arrow.Add` | Resolves the selector (a refless namespace gets the repository's default channel), fetches the manifest at the target commit, writes the row as `UserInstalled = true`. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrAlreadyExists`, `ErrFetchFailed`. |
+| `AdoptInstalled(ctx, ns, resolvedRef)` | `arrow.AdoptInstalled` | Settles `ns`'s identity as `Add` does, admits `resolvedRef` against a fresh snapshot as a ref the selector could resolve to, fetches the manifest at its commit and hands it to `arrow.Adopt`: a new user-installed row, an in-place advance, or nothing. The runtime is not touched. | `ErrInvalidNamespace`, `ErrNotFound`, `ErrInvalidManifest`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `Remove(ctx, ns)` | `runtime.GetState` → `graph.HasDependents` → `arrow.Remove` | Refuses if state is active (`ArrowState.IsActive()`) or any other arrow depends on this one. | `ErrStateViolation`, `ErrDependentsExist`, `ErrNotFound`. |
-| `Update(ctx, ns, opts)` | `runtime.GetState`, `arrow.Get`, `arrow.ResolveManifest` (or `arrow.UpgradeVersion` when `opts.UpgradeRef`), `graph.DiffDeps`, `arrow.UpdateManifest`, `runtime.MarkOutdated` | Two paths: refresh manifest in place (and `MarkOutdated` if deps drifted on a `ready` arrow), or upgrade ref (`upgradeRef`) when `opts.UpgradeRef && InstalledConstraint != ""`. Returns the diff as `UpdateResult{AddedDeps, RemovedFromManifest, ConstrainedDeps}`. | `ErrStateViolation` (running), `ErrFetchFailed`. |
+| `Update(ctx, ns)` | `lifecycle.Recheck` → `arrow.ResolveCatalogued`, `arrow.Get`, `arrow.CheckAvailable`, `runtime.GetState`, `arrow.Advance`, `graph.DiffDeps` | Re-resolves the selector and records `Available`. Nothing ahead: empty result. An installed row stays where it is and the result carries `Available` — only the runtime update runs update steps. A row nothing is installed from is advanced at once and the result is the dep diff `UpdateResult{AddedDeps, RemovedFromManifest, ConstrainedDeps}`. | `ErrNotFound`, `ErrFetchFailed`, `ErrStateViolation`. |
 | `List(ctx, userInstalled)` | `arrow.List` → `runtime.GetState` per version | Hydrates each version's `State` from the runtime aggregate. | — |
-| `Get(ctx, ns)` | `arrow.Get` | Bare metadata fetch. | `ErrNotFound`. |
+| `Get(ctx, ns)` | `arrow.Get` | Bare metadata fetch of the row `ns` names: exactly that identity when it carries a ref (another row of the same repository is never substituted), the preferred row when it has none. | `ErrNotFound`. |
 | `GetDetail(ctx, ns)` | `arrow.GetDetail` → `runtime.GetRuntime` | Merges runtime state, active execution, last return into the detail view. | `ErrNotFound`. |
-| `GetManifest(ctx, ns)` | `arrow.ResolveManifest` | Refuses if `ns.Ref()` is non-empty (manifest fetch is namespace-only). | `ErrInvalidNamespace`, `ErrFetchFailed`. |
+| `GetManifest(ctx, ns)` | `arrow.ResolveManifest` | Returns the manifest as its author wrote it; a refless namespace resolves to the catalogued row, or the way an add would when uncatalogued. | `ErrNotFound`, `ErrFetchFailed`. |
 | `HasDependents(ctx, ns, excludeNs)` | `graph.HasDependents` | Direct passthrough. | — |
-| `Seed(ctx, ns, data)` | `arrow.Seed` | Used by tests/CLI to inject a manifest directly. | `ErrInvalidNamespace`, `ErrInvalidManifest`. |
+| `Seed(ctx, ns, data)` | `arrow.Adopt` | Adopts the posted manifest as a pin of `ns`'s own ref (`Resolved{Ref: ns.Ref()}`, no commit). Seeding the same identity again replaces its manifest. | `ErrInvalidNamespace`, `ErrInvalidManifest`. |
 | `ValidateManifest(ctx, data)` | `arrow.ValidateManifest` | Returns `ValidationResult` with supported/unsupported platforms. | — |
 
 ### 3.2 RuntimeUsecase — `usecases/runtime.go`
 
-The execution lifecycle layer. Composes `arrow` + `runtime` + `graph` repositories.
+The execution lifecycle surface. Each verb rejects reserved variables and hands the rest to the `lifecycle` repository (`repositories/lifecycle`), which composes the `arrow`, `runtime` and `graph` repositories through interfaces it declares itself; the table below describes what the lifecycle does. `GetRuntime` and `ListRuntimes` read the `arrow` and `runtime` repositories directly.
 
 | Method | Engines / repositories | Behaviour | Errors |
 |--------|------------------------|-----------|--------|
-| `Install(ctx, ns, userVars)` | `arrow.Exists`, `graph.Resolve`, `arrow.ResolveForInstall`, `arrow.AddDep`, `runtime.BeginInstall` (per dep, then root), `runtime.ListenEnded` (sync wait), `runtime.BeginExecution` for service deps. | Resolves the dep plan; for each missing dep, fetches the manifest and seeds the aggregate as a non-user-installed dep; installs each dep synchronously by sending `BeginInstall` and waiting on `runtime.ended.<dep>`; auto-starts service deps; finally sends `BeginInstall` for the root. Idempotent — skips deps already in non-absent states. An absent arrow flagged `Outdated` with a `RecommendedRef` is first moved onto that ref; if that ref's manifest cannot be resolved (`ErrNotFound`/`ErrFetchFailed`) the failure is logged and the arrow's own ref installs instead — an unresolvable update never blocks an install. | `ErrNotFound`, `ErrFetchFailed`, plus dep-install failures. |
+| `Install(ctx, ns, userVars)` | `arrow.ResolveCatalogued`, `arrow.Exists`, `arrow.CheckAvailable`, `arrow.Advance`, `graph.Resolve`, `arrow.AddDependency`, `runtime.BeginInstall` (per dep, then root), `runtime.ListenEnded` (sync wait), `runtime.BeginExecution` for service deps. | A row nothing is installed from whose `Available` is set is first judged again against a fresh snapshot and advanced in place to what stands ahead now (an unreachable re-check falls back to the recorded `Available`; a target that cannot be read is logged and the recorded release installs); then resolves the dep plan; catalogues every declared dependency that has no row yet (as a non-user-installed row keyed by its declared selector) before installing any; installs each dep synchronously by sending `BeginInstall` and waiting on `runtime.ended.<dep>`; auto-starts service deps; finally sends `BeginInstall` for the root. Idempotent — skips deps already in non-absent states. | `ErrNotFound`, `ErrFetchFailed`, plus dep-install failures. |
 | `Uninstall(ctx, ns, userVars)` | `graph.HasDependents`, `runtime.BeginUninstall` | Refuses if any other installed arrow depends on `ns`. The `runtime.ended.<ns>` reaction (`onUninstallEnded`) handles cascading orphan cleanup of non-user-installed deps. | `ErrDependentsExist`, `ErrStateViolation`. |
-| `Execute(ctx, ns, method, userVars)` | `runtime.BeginExecution` (default) or `executeUpdate` (when `method == _update`) | For `_update` in `ready`/`outdated` (for `outdated` it first runs `syncDeps` to install added deps and prune removed ones): an arrow whose target for `domain.CurrentOS()` declares `update:` steps — and quiver.core's own arrow, always — dispatches to `BeginUpdate`. An arrow with no `update:` steps updates by reinstall instead: the next ref is resolved the way `upgradeRef` does (`RecommendedRef` when set, else `ResolveTrackedRef`: constraint, pinned ref, then channel), non-empty `userVars` are refused (`StateViolationError`), a next ref already in the catalog is refused (`ErrAlreadyExists`), and `arrow.UpgradeVersion(..., runtimeAlreadyExists=false, alreadyReady=false, ...)` moves the row onto it, so `onArrowUpgraded` runs `BeginInstall(newNs)` (or `MarkOutdated` when the dependency set changed). The old ref's row, and its workdir, are removed; the new ref installs into its own workdir. Already at that ref → `StateViolationError` ("cannot update: arrow is up to date"), except from `outdated` (an upgrade that changed the dependency set lands the new ref there), where it finishes the dep sync through `BeginUpdate`. For all other methods, plain `BeginExecution`. | `ErrStateViolation`. |
-| `Stop(ctx, ns)` | `runtime.BeginStop` | Direct passthrough — the wizard cancellation happens inside the runtime repository's drain machinery. | `ErrStateViolation`. |
+| `Execute(ctx, ns, method, userVars)` | `runtime.BeginExecution` (default) or the lifecycle's update bracket (when `method == _update`) | For `_update` on a `ready`, `outdated` or `running` row, runs the update bracket: re-resolve and record `Available` (nothing ahead: no-op; `Update` reports it as not started, which the API answers with 200), stop if running, stage the target manifest (`arrow.RefreshToTarget`), mark and sync dependency changes, then `BeginUpdate`, which runs the target's `update:` steps — or, for a target that declares none (every manifest Fletcher drafts), its `install:` steps again, in place. The settling of its end commits it (see below). A second bracket for a row whose previous one is unsettled is refused. For all other methods, plain `BeginExecution`. | `ErrStateViolation`. |
+| `Stop(ctx, ns)` | `arrow.ResolveCatalogued`, `runtime.BeginStop` | The wizard cancellation happens inside the runtime repository's drain machinery. | `ErrStateViolation`. |
 | `RuntimeExists(ctx, ns)` | `runtime.RuntimeExists` | — | — |
 | `Start(ctx)` | `runtime.Start` | Triggers `RecoverTransients`. Called by `app.Container.Start`. | — |
+| `Settling(ns)` | `lifecycle.Settling` | True from the moment an update of `ns` begins until its commit has landed or been given up, including after its steps ended while the runtime already reads `ready`/`outdated`. Surfaced as `settling` on `GET /v0/runtime` reads; the CLI never idle-stops a daemon with a settling row. | — |
+| `Drain(ctx)` | `lifecycle.Drain` | Refuses every later update commit and waits for the ones in flight. When `ctx` ends first it aborts them and returns the context error: those rows stay outdated and their next update runs again. Called by `app.Container.Shutdown` (and `DrainUpdates`) before any aggregate drains. | context error on timeout. |
 | `Shutdown(ctx)` | `runtime.Shutdown` | Drains in-flight executions, then shuts down Asynx. Called by `app.Container.Shutdown`. | — |
 
-#### Reactive callbacks wired in `usecases.New`
+#### Reactive callbacks subscribed by the lifecycle
+
+`repositories.New` starts them through `wireLifecycle` (`lifecycle.Start`); no usecase subscribes to anything.
 
 | Source event | Handler | Behaviour |
 |--------------|---------|-----------|
-| `runtime.ended.*` | `onRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps. |
-| `arrow.upgraded.*` | `onArrowUpgraded` | Removes the old aggregate; if deps drifted on an upgraded `ready` arrow, sends `MarkOutdated`; otherwise sends `BeginInstall` for the new version. |
+| `runtime.ended.*` | `lifecycle/internal/deps` `OnRuntimeEnded` | Dispatches on `LastReturn.Method`: `_stop` runs the cascading service-dep stop / orphan auto-uninstall flow; `_uninstall` runs orphan cleanup of non-user-installed deps; `_update` closes the update bracket (`lifecycle/internal/settle` `OnUpdateEnded`): on success, and only if the target ref still stands at the target commit, `arrow.Advance` then `runtime.ReconcileVersionBadge`, detached from the handler but tracked so a graceful shutdown waits for it (`Drain`); otherwise nothing is stamped. quiver.core's own row is skipped — its relaunched build adopts its new state on boot. |
 
 ### 3.3 CollectionUsecase — `usecases/collection.go`
 
@@ -220,7 +226,7 @@ Lightweight catalog of curated arrow lists. Composes `collection` repository, `a
 
 | Method | Behaviour | Errors |
 |--------|-----------|--------|
-| `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the cache (local arrows via `manifold.ResolveArrow` + `arrow.Seed`; remote arrows via `arrow.ResolveManifest`). Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
+| `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the cache (local arrows via `manifold.ResolveArrowAt` + `arrow.Adopt` as a pin of the collection's ref; remote arrows via `arrow.ResolveManifest`). Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
 | `Unfollow(ctx, ns)` | `collection.Unfollow` (Forget + Vault delete). | `ErrNotFound`. |
 | `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/description in the DTO; the member's ref rides on its namespace and needs no lookup. | `ErrNotFound`. |
 | `List(ctx, followed)` | Returns followed collections from the Bolt store; when `followed == nil` or `false`, also lists unfollowed-but-cached collections via `vault.ListCachedCollections`. | — |
@@ -247,11 +253,11 @@ The assembler builds the variable map in six priority layers (later layers win):
 
 | Layer | Source | Provided by |
 |-------|--------|-------------|
-| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `REF` from the namespace ref; `PLATFORM` from the configured `domain.OS`. |
+| 1 | Built-ins | `INSTALL_PATH` and `WORKDIR` from `vault.WorkDir(ns)`; `ARROW_NAMESPACE` from the namespace; `REF` from the target ref during `_update`, else `Resolved.Ref`, else the namespace ref; `PLATFORM` from the configured `domain.OS`. |
 | 2 | Dep built-ins + named exports | For each `Tool` and `Service` edge in the OS target: `<dep>.INSTALL_PATH` from `vault.WorkDir(depNs)`, plus every entry in the dep target's `Exports` map (relative paths anchored to the dep's `INSTALL_PATH`). |
 | 3 | Manifest defaults | `arrow.Variables[].Default`. |
 | 4 | Netbridge ports | `netbridge.Allocate(ns, protocol, default)` per `arrow.Netbridge` entry; the allocated port number is stored as a string under the port name. Required ports abort the assembly on failure; optional ports are skipped. |
-| 5 | Stored vars | `runtime.LastReturn.Variables` from the previous execution. |
+| 5 | Stored vars | `runtime.LastReturn.Variables` from the previous execution — never a built-in or a dependency's `<namespace>.<name>` value, which are computed for each run, and never a declared variable without a default. |
 | 6 | User overrides | `userVars` passed by the API caller. |
 
 After all layers merge, `variables.go` enforces that every manifest variable without a `Default` has been resolved by some later layer; otherwise it returns `ErrMissingVariable`.
@@ -289,7 +295,7 @@ Recovery emits regular events on `Asynx[ArrowRuntime]` (`runtime.recovered.*` or
 | `collection.followed` | `OnCollectionFollowed` | `BroadcastCollection(coll)` |
 | Collection `OnForget` | `OnCollectionUnfollowed` | `BroadcastCollection({Namespace})` (empty body except namespace) |
 
-Arrow broadcasts are wired separately: the arrow store's internal projection (`repositories/arrow/internal/store/internal/projections/projections.go`) is registered when `arrow.New(... hub)` is constructed. After persisting each `arrow.added.*`, `arrow.upgraded.*`, `arrow.updated.*`, `arrow.installed.*` event — and after the `OnForget` cleanup — the projection calls `hub.BroadcastArrow(evt.Aggregate)`.
+Arrow broadcasts are wired separately: the arrow repository registers one subscriber per arrow topic when `arrow.New(... hub)` is constructed (`registerProjections` in `repositories/arrow/arrow.go`), which runs the `OnArrow*` callbacks, writes the read model, and then broadcasts. After persisting each `arrow.added.*`, `arrow.advanced.*`, `arrow.manifest_refreshed.*`, `arrow.installed.*`, `arrow.uninstalled.*`, `arrow.available_checked.*`, `arrow.user_installed.*`, `arrow.last_used.*` event — and after the `OnForget` cleanup — it calls `hub.BroadcastArrow`.
 
 See [subscriptions.md](subscriptions.md) for the broader coordinator/subscription picture and [websocket.md](websocket.md) for DTO shapes.
 
@@ -305,7 +311,8 @@ See [subscriptions.md](subscriptions.md) for the broader coordinator/subscriptio
 4. Creates an in-process `Hub`.
 5. Builds `repositories.Container` (`Arrow`, `Runtime`, `Collection`, `Graph`) and wires their cross-callbacks (`OnArrowAdded` / `OnArrowUpdated` → `Graph.SyncDependencies`; `OnArrowRemoved` → `Graph.RemoveDependencies` + `Runtime.Forget`).
 6. Calls `repos.RegisterHubProjections(hub)`.
-7. Builds `usecases.Container` (`Arrow`, `Runtime`, `Collection`) and wires its reactive callbacks (`OnRuntimeEnded` → `runtimeUsecase.onRuntimeEnded`; `OnArrowUpgraded` → `runtimeUsecase.onArrowUpgraded`).
+   It also builds `lifecycle` over the arrow, runtime and graph repositories and wires it (`wireLifecycle`): the arrow repository's version check asks it whether to hold a settling row's badge, and its `OnRuntimeEnded` reaction is subscribed.
+7. Builds `usecases.Container` (`Arrow`, `Runtime`, `Collection`, …) over the repositories, `Lifecycle` included. It wires nothing.
 
 ```mermaid
 flowchart TB
@@ -358,13 +365,13 @@ sequenceDiagram
     participant AxR as Asynx[ArrowRuntime]
 
     API->>UC: Install(ns, userVars)
-    UC->>Arrow: Exists(ns)
+    UC->>Arrow: ResolveCatalogued(ns) + Exists(ns)
     UC->>Graph: Resolve(ns)
-    Graph-->>UC: plan = [dep1, dep2, ...]
+    Graph-->>UC: plan = [dep1, dep2, ...] (declared selectors)
 
-    loop for each missing dep
-        UC->>Arrow: ResolveForInstall(dep)
-        UC->>Arrow: AddDep(dep, manifest, constraint)
+    loop for each dep with no row yet
+        UC->>Arrow: AddDependency(dep)
+        Arrow-->>UC: identity (bare deps get their default channel)
     end
 
     loop for each dep in plan (topo order)
@@ -389,6 +396,10 @@ sequenceDiagram
 ```
 
 If any dep install fails, `Install` returns the error immediately. There is no automatic rollback in the use case — already-installed deps stay installed and become orphan-eligible only after a future `_uninstall` of the requesting arrow (via `onUninstallEnded` cascading cleanup).
+
+### 8.1 Update flow
+
+An update never creates a new aggregate. `PATCH /v0/arrow/{ns}` (`ArrowUsecase.Update`) only re-resolves and records `Available`, advancing the row in place when nothing is installed from it. `POST /v0/runtime/{ns}/update` (`RuntimeUsecase.Update`, which reports whether an update started; `Execute` with `_update` reaches the same bracket) is the only path that runs update steps: it opens a per-row bracket, stages the target manifest, runs its `update:` steps, and on success re-resolves the target once more before `arrow.Advance` stamps it. The full sequence, and why a target that moved mid-update is never stamped, is in [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
 
 ---
 
@@ -451,8 +462,8 @@ sequenceDiagram
     CR-->>UC: coll
     loop arrow in coll.Arrows
         alt arrow.IsLocal
-            UC->>M: ResolveArrow(arrow.NS)
-            UC->>AR: Seed(arrow.NS, bytes)
+            UC->>M: ResolveArrowAt(arrow.NS, path)
+            UC->>AR: Adopt(arrow.NS, pin, bytes)
         else
             UC->>AR: ResolveManifest(arrow.NS)
         end
@@ -498,6 +509,6 @@ The HTTP layer (not the app layer) maps app-layer errors to status codes. The se
 | **One sentinel error file** | The HTTP layer has a single import for status mapping. |
 | **Single Asynx config** | Sharding (8) and queue depth (1000) chosen in `container.go::newAsynx` apply uniformly across all three aggregates. |
 
-### Version drift and recommended refs
+### Version drift
 
-`Outdated` and `RecommendedRef` are written by the arrow store's passive drift check. A ref is recommended only after its manifest resolves (vault first, so the cache an install needs is warmed): a recommendation that cannot be fetched reports the arrow as up to date. An explicit ref with no version core that is not a default branch (a rolling tag such as `tip`) is a pointer channel whose identity is its own name, so the arrow tracks itself and is never compared against `stable`. Detecting movement of a rolling ref is out of scope.
+`Available` is written by the passive check (`CheckDrift`), which decides from the ref snapshot alone: a periodic sweep over N rows lists refs N times and fetches no manifest. The manifest is read only when the user acts on the target (an update stages it, an install of an absent row or a catalog advance reads it). A target a fetch definitively found no manifest at is recorded in the vault (a not-found marker at the target's ref, for its commit) and is not offered again: the update bracket, when it cannot stage a target, judges the row again at once, so the target stops being offered right after the first failed update, and a later check skips it until the tag moves or the marker's TTL ends. An add, adoption or preview of that commit answers not found from the marker without a host request; the marker is never written over a cached manifest (a pin's ref is its row's own identity). A rolling tag such as `tip` is a pointer channel whose identity is its own name, so it is never compared against `stable`; a move of it is a new commit on the same ref (see [manifests/v0/versioning.md](manifests/v0/versioning.md)).

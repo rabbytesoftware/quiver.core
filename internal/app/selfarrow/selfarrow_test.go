@@ -1,25 +1,30 @@
 package selfarrow_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/char2cs/asynx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	arrowRepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	engineMocks "github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
 // binaryName mirrors selfarrow's own unexported helper so the tests can
@@ -31,340 +36,557 @@ func binaryName() string {
 	return "quiver"
 }
 
-func TestEnsureRegistered_AddsWhenAbsent(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-	}
-	var seededNS domain.Namespace
-	m.SeedFn = func(_ context.Context, ns domain.Namespace, _ []byte) error {
-		seededNS = ns
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-	assert.Equal(t, domain.Namespace("github.com/rabbytesoftware/quiver.core@stable-25.9.2"), seededNS)
+func selfNs() domain.Namespace {
+	self, _ := metadata.GetSelfNamespaces()
+	return self
 }
 
-// TestEnsureRegistered_ChannelConfigured_StampsChannel covers a fresh
-// (not-yet-registered) self-arrow booted with a non-empty configured
-// channel: EnsureRegistered must stamp it onto the newly seeded row via
-// SetChannel, in addition to seeding it.
-func TestEnsureRegistered_ChannelConfigured_StampsChannel(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-	}
-	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
-		return nil
-	}
-	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-		capturedChannel = channel
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
-
-	require.NoError(t, err)
-	assert.Equal(t, "rc", capturedChannel)
+type adoptCall struct {
+	ns       domain.Namespace
+	kind     domain.SelectorKind
+	resolved domain.Resolved
+	manifest []byte
+	filename string
 }
 
-// TestEnsureRegistered_ChannelStamped_TriggersImmediateVersionCheck guards
-// the regression a review caught right after resolveChannel started
-// inferring a channel for every unconfigured build of a known non-stable
-// kind (nightly, beta, hotfix), not just an operator's explicit
-// self_update_channel: SetChannel unconditionally clears Outdated and
-// RecommendedRef (see its own EmitEvent doc comment), and that clear now
-// runs on every boot of the common unconfigured-nightly case, not just a
-// one-time opt-in. Without an eager CheckVersionNow right after, that
-// clear would stay stale until some unrelated caller happens to query this
-// arrow's detail -- CheckVersionNow closes that window immediately, the
-// same way switchChannel (usecases/arrow.go) already pairs the two calls.
-func TestEnsureRegistered_ChannelStamped_TriggersImmediateVersionCheck(t *testing.T) {
-	var checkedNs domain.Namespace
+// recordingCatalog is a MockArrow that records every Adopt, Remove and
+// CheckVersionNow it receives.
+func recordingCatalog(views ...models.ArrowView) (*mocks.MockArrow, *[]adoptCall, *[]domain.Namespace, *[]domain.Namespace) {
+	var adopted []adoptCall
+	var removed []domain.Namespace
+	var checked []domain.Namespace
 	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn: func(context.Context, domain.Namespace, []byte) error {
+		AdoptFn: func(_ context.Context, ns domain.Namespace, kind domain.SelectorKind, resolved domain.Resolved, manifest []byte, filename string) error {
+			adopted = append(adopted, adoptCall{ns: ns, kind: kind, resolved: resolved, manifest: manifest, filename: filename})
 			return nil
 		},
-		SetChannelFn: func(context.Context, domain.Namespace, string, string) error {
+		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) { return views, nil },
+		RemoveFn: func(_ context.Context, ns domain.Namespace) error {
+			removed = append(removed, ns)
 			return nil
 		},
-		CheckVersionNowFn: func(_ context.Context, ns domain.Namespace) {
-			checkedNs = ns
-		},
+		CheckVersionNowFn: func(_ context.Context, ns domain.Namespace) { checked = append(checked, ns) },
 	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "nightly-a1b2c3d", "")
-
-	require.NoError(t, err)
-	assert.NotEmpty(t, checkedNs, "expected CheckVersionNow to fire for the freshly channel-stamped self-arrow row")
+	return m, &adopted, &removed, &checked
 }
 
-// TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix covers the
-// real bug this fixes: with no self_update_channel configured, a version
-// whose prefix unambiguously names one of this project's own known
-// non-stable release formats (see .github/workflows/{nightly,prerelease}.yml)
-// must stamp that inferred channel via SetChannel instead of silently
-// registering onto stable. Concretely, a real nightly-installed daemon
-// (version "nightly-<sha>") must never have its own catalog row default to
-// tracking "stable" -- a short git SHA carries no numeric-dot version core,
-// so this cannot rely on the generic resolvers.ChannelForTag classifier.
-func TestEnsureRegistered_ChannelInference_FallsBackToVersionPrefix(t *testing.T) {
+// catalogView builds an ArrowView the way the read model does: a bare
+// namespace on the view, every catalogued ref in Versions.
+func catalogView(bare domain.Namespace, refs ...string) models.ArrowView {
+	versions := make([]models.VersionView, 0, len(refs))
+	for _, ref := range refs {
+		versions = append(versions, models.VersionView{Namespace: bare.WithRef(ref)})
+	}
+	return models.ArrowView{Namespace: bare, Versions: versions}
+}
+
+func TestEnsureRegistered_UnstampedBuild_IsANoOp(t *testing.T) {
 	testCases := []struct {
-		name          string
-		version       string
-		wantSetCalled bool
-		wantChannel   string
+		name    string
+		version string
+		channel string
 	}{
-		{name: "nightly build infers nightly channel", version: "nightly-a1b2c3d", wantSetCalled: true, wantChannel: "nightly"},
-		{name: "beta build infers beta channel", version: "beta-25.10", wantSetCalled: true, wantChannel: "beta"},
-		{name: "hotfix build infers hotfix channel", version: "hotfix-25.9.1", wantSetCalled: true, wantChannel: "hotfix"},
-		{name: "stable build never calls SetChannel", version: "stable-25.9.2", wantSetCalled: false},
-		{name: "bare semver with no recognized prefix never calls SetChannel", version: "26.5.0", wantSetCalled: false},
+		{name: "empty version and channel", version: "", channel: ""},
+		{name: "empty version with a channel", version: "", channel: "nightly-latest"},
+		{name: "dev version", version: "dev", channel: ""},
+		{name: "dev version with a channel", version: "dev", channel: "beta"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := &mocks.MockArrow{
-				ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-				SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
+				AdoptFn: func(context.Context, domain.Namespace, domain.SelectorKind, domain.Resolved, []byte, string) error {
+					t.Fatal("an unstamped build must not register")
+					return nil
+				},
+				ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
+					t.Fatal("an unstamped build must not touch the catalog")
+					return nil, nil
+				},
 			}
-			var setCalled bool
-			var gotChannel string
-			m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-				setCalled = true
-				gotChannel = channel
-				return nil
+			rt := &mocks.MockRuntime{
+				MarkReadyFn: func(context.Context, domain.Namespace) error {
+					t.Fatal("an unstamped build must not mark anything ready")
+					return nil
+				},
 			}
 
-			err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, tc.version, "")
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantSetCalled, setCalled)
-			if tc.wantSetCalled {
-				assert.Equal(t, tc.wantChannel, gotChannel)
-			}
+			require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, rt, tc.version, "abc", tc.channel))
 		})
 	}
 }
 
-// TestEnsureRegistered_ConfiguredChannel_OverridesVersionInference proves an
-// explicitly configured self_update_channel always wins outright over
-// whatever the running version's own prefix would otherwise infer.
-func TestEnsureRegistered_ConfiguredChannel_OverridesVersionInference(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	var gotChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-		gotChannel = channel
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "nightly-a1b2c3d", "rc")
-
-	require.NoError(t, err)
-	assert.Equal(t, "rc", gotChannel)
-}
-
-func TestEnsureRegistered_SkipsWhenPresent(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
-		t.Fatal("Seed must not be called when the self-arrow already exists")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-}
-
-// TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot covers
-// the steady-state boot: the self row already exists at the version currently
-// running, so the early-return path must still stamp a non-empty configured
-// channel via SetChannel instead of skipping it entirely -- an operator who
-// sets self_update_channel and restarts an already-up-to-date daemon must see
-// it take effect immediately, not on the next version change.
-func TestEnsureRegistered_ChannelConfigured_StampsChannelOnSteadyStateBoot(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-		capturedChannel = channel
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
-
-	require.NoError(t, err)
-	assert.Equal(t, "rc", capturedChannel)
-}
-
-// TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel mirrors
-// TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel for the steady-state
-// (already-registered) boot path.
-func TestEnsureRegistered_EmptyChannel_ExistsBranch_NeverCallsSetChannel(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		t.Fatal("SetChannel must not be called when no channel is configured")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-}
-
-// TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve guards the whole
-// point of this seam: registering quiver.core's own manifest must never
-// trigger arrow.Add's network-resolving ResolveForInstall path. Seed is the
-// existing lower-level entry point that parses already-in-hand bytes
-// locally (manifold.ParseArrow) and sends AddArrow directly, so asserting
-// Seed was called with the embedded manifest's exact bytes — and that Add
-// was never called at all — proves no network resolve happened.
-func TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-	}
-	var seededFromRaw bool
-	var triggeredNetworkResolve bool
-	m.SeedFn = func(_ context.Context, _ domain.Namespace, data []byte) error {
-		seededFromRaw = bytes.Equal(data, selfmanifest.Raw())
-		return nil
-	}
-	m.AddFn = func(context.Context, domain.Namespace, models.AddOptions) error {
-		triggeredNetworkResolve = true
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "26.5.0", "")
-
-	require.NoError(t, err)
-	assert.True(t, seededFromRaw, "Seed must be called with selfmanifest.Raw()'s exact bytes")
-	assert.False(t, triggeredNetworkResolve, "Add (which resolves over the network) must never be called")
-}
-
-func TestEnsureRegistered_DevBuildSkipsRegistration(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) {
-			t.Fatal("Exists must not be called for an unstamped dev build")
-			return false, nil
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "dev", "")
-
-	require.NoError(t, err)
-}
-
-func TestEnsureRegistered_EmptyVersionSkipsRegistration(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) {
-			t.Fatal("Exists must not be called for an empty, unstamped version")
-			return false, nil
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "", "")
-
-	require.NoError(t, err)
-}
-
-func TestEnsureRegistered_ExistsFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("catalog unavailable")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) {
-			return false, sentinel
-		},
-		SeedFn: func(context.Context, domain.Namespace, []byte) error {
-			t.Fatal("Seed must not be called when Exists fails")
+func TestEnsureRegistered_Channel_AdoptsTheChannelIdentity(t *testing.T) {
+	m, adopted, _, checked := recordingCatalog()
+	var markedReady domain.Namespace
+	rt := &mocks.MockRuntime{
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace) error {
+			markedReady = ns
 			return nil
 		},
 	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "nightly-latest", "c0ffee", "nightly-latest")
 
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
+	require.NoError(t, err)
+	want := selfNs().WithRef("nightly-latest")
+	require.Len(t, *adopted, 1)
+	got := (*adopted)[0]
+	assert.Equal(t, want, got.ns)
+	assert.Equal(t, domain.SelectorPointerChannel, got.kind, "a build published under its channel's name follows that rolling tag")
+	assert.Equal(t, domain.Resolved{Ref: "nightly-latest", Commit: "c0ffee", Fingerprint: "c0ffee"}, got.resolved)
+	assert.Equal(t, selfmanifest.Raw(), got.manifest)
+	assert.Equal(t, "ARROW.md", got.filename)
+	assert.Equal(t, want, markedReady)
+	assert.Equal(t, []domain.Namespace{want}, *checked)
 }
 
-func TestEnsureRegistered_SeedFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("seed failed")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn: func(context.Context, domain.Namespace, []byte) error {
+// A build that declares no channel is registered as a pin of its own ref.
+func TestEnsureRegistered_NoChannel_AdoptsAPinOfTheVersion(t *testing.T) {
+	m, adopted, _, _ := recordingCatalog()
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.1", "abc", "")
+
+	require.NoError(t, err)
+	require.Len(t, *adopted, 1)
+	assert.Equal(t, selfNs().WithRef("stable-26.5.1"), (*adopted)[0].ns)
+	assert.Equal(t, domain.SelectorTagPin, (*adopted)[0].kind)
+	assert.Equal(t, "stable-26.5.1", (*adopted)[0].resolved.Ref)
+}
+
+// The boot after an update keeps the identity and adopts the new build's
+// state on it.
+func TestEnsureRegistered_NewCommitOnTheSameIdentity_AdoptsTheNewState(t *testing.T) {
+	m, adopted, removed, _ := recordingCatalog(catalogView(selfNs(), "beta"))
+
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "beta-26.5-4", "aaa", "beta"))
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "beta-26.5-5", "bbb", "beta"))
+
+	require.Len(t, *adopted, 2)
+	assert.Equal(t, (*adopted)[0].ns, (*adopted)[1].ns)
+	assert.Equal(t, domain.Resolved{Ref: "beta-26.5-5", Commit: "bbb", Fingerprint: "bbb"}, (*adopted)[1].resolved)
+	assert.Empty(t, *removed)
+}
+
+func TestChannel_ConfiguredOverridesTheBuild(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configured string
+		built      string
+		want       string
+	}{
+		{name: "configured wins", configured: "beta", built: "stable", want: "beta"},
+		{name: "build when nothing is configured", configured: "", built: "stable", want: "stable"},
+		{name: "neither", configured: "", built: "", want: ""},
+		{name: "configured without a build channel", configured: "rc", built: "", want: "rc"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, selfarrow.Channel(tc.configured, tc.built))
+		})
+	}
+}
+
+func TestEnsureRegistered_ConfiguredChannel_IsTheIdentity(t *testing.T) {
+	m, adopted, _, _ := recordingCatalog()
+
+	channel := selfarrow.Channel("rc", "stable")
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.1", "abc", channel))
+
+	require.Len(t, *adopted, 1)
+	assert.Equal(t, selfNs().WithRef("rc"), (*adopted)[0].ns)
+	assert.Equal(t, domain.SelectorOrderedChannel, (*adopted)[0].kind, "a release tag published under another name is a member of an ordered channel")
+}
+
+// Earlier builds filed the core under other identities; after adopting the
+// current one, every other self row goes, and nothing else does.
+func TestEnsureRegistered_RemovesOtherSelfRows(t *testing.T) {
+	other := domain.Namespace("github.com/someone/else")
+	m, _, removed, _ := recordingCatalog(
+		catalogView(selfNs(), "nightly-abc123", "stable-26.5.1", "nightly-latest"),
+		catalogView(other, "v1"),
+	)
+
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "nightly-latest", "abc", "nightly-latest")
+
+	require.NoError(t, err)
+	assert.Equal(t, []domain.Namespace{
+		selfNs().WithRef("nightly-abc123"),
+		selfNs().WithRef("stable-26.5.1"),
+	}, *removed)
+}
+
+func TestEnsureRegistered_OnlyTheCurrentIdentity_RemovesNothing(t *testing.T) {
+	m, _, removed, _ := recordingCatalog(catalogView(selfNs(), "stable"))
+
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.1", "abc", "stable"))
+
+	assert.Empty(t, *removed)
+}
+
+// A row already gone by the time it is removed is what removal wanted.
+func TestEnsureRegistered_StaleRowAlreadyGone_IsNotAnError(t *testing.T) {
+	m, _, _, _ := recordingCatalog(catalogView(selfNs(), "stable-26.5.1", "stable"))
+	m.RemoveFn = func(context.Context, domain.Namespace) error {
+		return fmt.Errorf("remove: %w", apperrors.ErrNotFound)
+	}
+
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.1", "abc", "stable"))
+}
+
+func TestEnsureRegistered_Failures(t *testing.T) {
+	sentinel := errors.New("boom")
+	testCases := []struct {
+		name          string
+		catalog       func(m *mocks.MockArrow)
+		runtime       *mocks.MockRuntime
+		wantMarkReady bool
+	}{
+		{
+			name: "adopt fails",
+			catalog: func(m *mocks.MockArrow) {
+				m.AdoptFn = func(context.Context, domain.Namespace, domain.SelectorKind, domain.Resolved, []byte, string) error {
+					return sentinel
+				}
+			},
+			runtime: &mocks.MockRuntime{},
+		},
+		{
+			name:    "reading the runtime state fails",
+			catalog: func(*mocks.MockArrow) {},
+			runtime: &mocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return "", sentinel },
+			},
+		},
+		{
+			name:    "marking ready fails",
+			catalog: func(*mocks.MockArrow) {},
+			runtime: &mocks.MockRuntime{
+				MarkReadyFn: func(context.Context, domain.Namespace) error { return sentinel },
+			},
+			wantMarkReady: true,
+		},
+		{
+			name: "listing the catalog fails",
+			catalog: func(m *mocks.MockArrow) {
+				m.ListFn = func(context.Context, *bool) ([]models.ArrowView, error) { return nil, sentinel }
+			},
+			runtime:       &mocks.MockRuntime{},
+			wantMarkReady: true,
+		},
+		{
+			name: "removing a stale row fails",
+			catalog: func(m *mocks.MockArrow) {
+				m.ListFn = func(context.Context, *bool) ([]models.ArrowView, error) {
+					return []models.ArrowView{catalogView(selfNs(), "stable-26.5.1")}, nil
+				}
+				m.RemoveFn = func(context.Context, domain.Namespace) error { return sentinel }
+			},
+			runtime:       &mocks.MockRuntime{},
+			wantMarkReady: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _ := recordingCatalog()
+			tc.catalog(m)
+			markReady := tc.runtime.MarkReadyFn
+			var markedReady bool
+			tc.runtime.MarkReadyFn = func(ctx context.Context, ns domain.Namespace) error {
+				markedReady = true
+				if markReady != nil {
+					return markReady(ctx, ns)
+				}
+				return nil
+			}
+
+			err := selfarrow.EnsureRegistered(context.Background(), m, tc.runtime, "stable-26.5.1", "abc", "stable")
+
+			require.ErrorIs(t, err, sentinel)
+			assert.Equal(t, tc.wantMarkReady, markedReady)
+		})
+	}
+}
+
+func TestEnsureRegistered_ReadyRuntime_SkipsMarkReady(t *testing.T) {
+	m, _, _, _ := recordingCatalog()
+	rt := &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+			return domain.ArrowStateReady, nil
+		},
+		MarkReadyFn: func(context.Context, domain.Namespace) error {
+			t.Fatal("ready -> ready is not a valid transition")
+			return nil
+		},
+	}
+
+	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.1", "abc", "stable"))
+}
+
+// settledRuntime records what EnsureRegistered did to the adopted row's
+// runtime, starting from state.
+type settledRuntime struct {
+	*mocks.MockRuntime
+	markedReady []domain.Namespace
+	cleared     []domain.Namespace
+}
+
+func runtimeIn(state domain.ArrowState) *settledRuntime {
+	r := &settledRuntime{}
+	r.MockRuntime = &mocks.MockRuntime{
+		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return state, nil },
+		MarkReadyFn: func(_ context.Context, ns domain.Namespace) error {
+			r.markedReady = append(r.markedReady, ns)
+			return nil
+		},
+		ClearVersionBadgeFn: func(_ context.Context, ns domain.Namespace) error {
+			r.cleared = append(r.cleared, ns)
+			return nil
+		},
+	}
+	return r
+}
+
+// withAvailable lists ns carrying available, the way the read model does
+// once the adopted row's version check has found something ahead of it.
+func withAvailable(ns domain.Namespace, available *domain.Available) models.ArrowView {
+	return models.ArrowView{
+		Namespace: ns.BareNamespace(),
+		Versions: []models.VersionView{{
+			Namespace: ns,
+			Metadata:  domain.Arrow{Namespace: ns, Available: available},
+		}},
+	}
+}
+
+// After a self-update the relaunched build adopts its new state on the same
+// row; the Outdated badge the drift check set before the update goes with
+// it, offline, so the row settles at Ready without waiting for a check.
+func TestEnsureRegistered_SettlesTheRuntimeAtReady(t *testing.T) {
+	ns := selfNs().WithRef("stable")
+	testCases := []struct {
+		name        string
+		state       domain.ArrowState
+		views       []models.ArrowView
+		wantReady   bool
+		wantCleared bool
+	}{
+		{name: "absent is marked ready", state: domain.ArrowStateAbsent, wantReady: true},
+		{name: "ready is untouched", state: domain.ArrowStateReady},
+		{name: "outdated with nothing available is cleared", state: domain.ArrowStateOutdated, views: []models.ArrowView{withAvailable(ns, nil)}, wantCleared: true},
+		{name: "outdated missing from the read model is cleared", state: domain.ArrowStateOutdated, wantCleared: true},
+		{
+			name:  "outdated with a newer release still available keeps its badge",
+			state: domain.ArrowStateOutdated,
+			views: []models.ArrowView{withAvailable(ns, &domain.Available{Ref: "stable-26.5.3", Commit: "ccc"})},
+		},
+		{name: "running is untouched", state: domain.ArrowStateRunning},
+		{name: "updating is untouched", state: domain.ArrowStateUpdating},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _ := recordingCatalog(tc.views...)
+			rt := runtimeIn(tc.state)
+
+			require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.2", "bbb", "stable"))
+
+			var wantReady, wantCleared []domain.Namespace
+			if tc.wantReady {
+				wantReady = []domain.Namespace{ns}
+			}
+			if tc.wantCleared {
+				wantCleared = []domain.Namespace{ns}
+			}
+			assert.Equal(t, wantReady, rt.markedReady)
+			assert.Equal(t, wantCleared, rt.cleared)
+		})
+	}
+}
+
+func TestEnsureRegistered_SettlingAnOutdatedRowFails(t *testing.T) {
+	sentinel := errors.New("boom")
+	testCases := []struct {
+		name    string
+		catalog func(m *mocks.MockArrow)
+		runtime func(r *settledRuntime)
+	}{
+		{
+			name: "reading what is available fails",
+			catalog: func(m *mocks.MockArrow) {
+				m.ListFn = func(context.Context, *bool) ([]models.ArrowView, error) { return nil, sentinel }
+			},
+			runtime: func(*settledRuntime) {},
+		},
+		{
+			name:    "clearing the badge fails",
+			catalog: func(*mocks.MockArrow) {},
+			runtime: func(r *settledRuntime) {
+				r.ClearVersionBadgeFn = func(context.Context, domain.Namespace) error { return sentinel }
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _, _, _ := recordingCatalog()
+			tc.catalog(m)
+			rt := runtimeIn(domain.ArrowStateOutdated)
+			tc.runtime(rt)
+
+			err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-26.5.2", "bbb", "stable")
+
+			require.ErrorIs(t, err, sentinel)
+		})
+	}
+}
+
+// One stale row that cannot be removed does not keep the others around.
+func TestEnsureRegistered_RemoveFails_StillRemovesTheRest(t *testing.T) {
+	sentinel := errors.New("busy")
+	m, _, _, _ := recordingCatalog(catalogView(selfNs(), "nightly-abc123", "stable-26.5.1", "stable"))
+	var attempted []domain.Namespace
+	m.RemoveFn = func(_ context.Context, ns domain.Namespace) error {
+		attempted = append(attempted, ns)
+		if len(attempted) == 1 {
 			return sentinel
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
-}
-
-// TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel pins the "no
-// preference" default: an unset config value must reproduce today's exact
-// behaviour on the first-boot path, with SetChannel never invoked at all.
-func TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn: func(context.Context, domain.Namespace, []byte) error {
-			return nil
-		},
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		t.Fatal("SetChannel must not be called when no channel is configured")
+		}
 		return nil
 	}
-	m.CheckVersionNowFn = func(context.Context, domain.Namespace) {
-		t.Fatal("CheckVersionNow must not be called when no channel was stamped")
-	}
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
+	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-26.5.2", "bbb", "stable")
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, sentinel)
+	assert.Equal(t, []domain.Namespace{
+		selfNs().WithRef("nightly-abc123"),
+		selfNs().WithRef("stable-26.5.1"),
+	}, attempted)
 }
 
-func TestEnsureRegistered_SetChannelFailsAfterSeed_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("set channel failed")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn: func(context.Context, domain.Namespace, []byte) error {
-			return nil
+// ─── Regression: the core stays in the user's library across updates ────────
+
+// libraryCatalog is the real arrow repository over an in-memory read model,
+// with the detached version check recorded instead of run.
+type libraryCatalog struct {
+	arrowRepo.Arrow
+}
+
+func (libraryCatalog) CheckVersionNow(context.Context, domain.Namespace) {}
+
+func newLibrary(t *testing.T) (libraryCatalog, asynx.Asynx[domain.Arrow]) {
+	t.Helper()
+	return newLibraryWith(t, &engineMocks.Manifold{ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}})
+}
+
+func newLibraryWith(t *testing.T, m *engineMocks.Manifold) (libraryCatalog, asynx.Asynx[domain.Arrow]) {
+	t.Helper()
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	ss, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	ax, err := asynx.New[domain.Arrow]().
+		WithEventStore(es).
+		WithSnapshotStore(ss).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	cat, err := arrowRepo.New(db, ax, &engineMocks.Vault{}, m, nil)
+	require.NoError(t, err)
+	return libraryCatalog{Arrow: cat}, ax
+}
+
+// library is what the desktop lists: GET /v0/arrow?user_installed=true.
+func library(t *testing.T, cat libraryCatalog) []domain.Namespace {
+	t.Helper()
+	userInstalled := true
+	views, err := cat.List(context.Background(), &userInstalled)
+	require.NoError(t, err)
+	var out []domain.Namespace
+	for _, view := range views {
+		for _, version := range view.Versions {
+			out = append(out, version.Namespace)
+		}
+	}
+	return out
+}
+
+type boot struct {
+	version string
+	commit  string
+	channel string
+}
+
+func TestEnsureRegistered_CoreStaysInTheLibraryAcrossUpdates(t *testing.T) {
+	testCases := []struct {
+		name  string
+		first boot
+		next  boot
+		want  domain.Namespace
+	}{
+		{
+			name:  "same identity, new version and commit",
+			first: boot{version: "beta-26.5-4", commit: "aaa", channel: "beta"},
+			next:  boot{version: "beta-26.5-5", commit: "bbb", channel: "beta"},
+			want:  selfNs().WithRef("beta"),
+		},
+		{
+			name:  "rolling tag, new commit",
+			first: boot{version: "nightly-latest", commit: "aaa", channel: "nightly-latest"},
+			next:  boot{version: "nightly-latest", commit: "bbb", channel: "nightly-latest"},
+			want:  selfNs().WithRef("nightly-latest"),
+		},
+		{
+			name:  "different identity",
+			first: boot{version: "stable-26.5.1", commit: "aaa", channel: ""},
+			next:  boot{version: "stable-26.5.2", commit: "bbb", channel: "stable"},
+			want:  selfNs().WithRef("stable"),
 		},
 	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		return sentinel
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cat, ax := newLibrary(t)
+			ctx := context.Background()
+
+			require.NoError(t, selfarrow.EnsureRegistered(ctx, cat, &mocks.MockRuntime{}, tc.first.version, tc.first.commit, tc.first.channel))
+			require.NotEmpty(t, library(t, cat))
+			require.NoError(t, selfarrow.EnsureRegistered(ctx, cat, &mocks.MockRuntime{}, tc.next.version, tc.next.commit, tc.next.channel))
+
+			assert.Equal(t, []domain.Namespace{tc.want}, library(t, cat))
+			row, err := ax.Get(ctx, tc.want.String())
+			require.NoError(t, err)
+			assert.True(t, row.UserInstalled)
+			assert.Equal(t, domain.Resolved{Ref: tc.next.version, Commit: tc.next.commit, Fingerprint: tc.next.commit}, row.Resolved)
+		})
 	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
 }
 
-func TestEnsureRegistered_SetChannelFailsOnSteadyStateBoot_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("set channel failed")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		return sentinel
-	}
+// A self row left without the user-installed flag, as the bug left it, is
+// back in the library after the next boot.
+func TestEnsureRegistered_RowLeftOutOfTheLibrary_IsRepaired(t *testing.T) {
+	ns := selfNs().WithRef("stable")
+	quiverCore := &domain.Arrow{Namespace: ns, ArrowMeta: domain.ArrowMeta{Name: "Quiver Core"}}
+	cat, ax := newLibraryWith(t, &engineMocks.Manifold{
+		ParseArrowResult:           quiverCore,
+		SnapshotResult:             domain.RefSnapshot{Branches: map[string]string{"stable": "aaa"}},
+		ResolveArrowAtCommitResult: quiverCore,
+	})
+	ctx := context.Background()
+	_, err := cat.AddDependency(ctx, ns)
+	require.NoError(t, err)
+	require.Empty(t, library(t, cat))
 
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
+	require.NoError(t, selfarrow.EnsureRegistered(ctx, cat, &mocks.MockRuntime{}, "stable-26.5.2", "bbb", "stable"))
 
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
+	assert.Equal(t, []domain.Namespace{ns}, library(t, cat))
+	row, err := ax.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.True(t, row.UserInstalled)
 }
 
 func TestPromoteRunningBinary_CopiesExecutableToSelfPath(t *testing.T) {
@@ -455,424 +677,6 @@ func TestPromoteRunningBinary_DestUnwritable_ReturnsError(t *testing.T) {
 	err := selfarrow.PromoteRunningBinary(src, home)
 
 	require.Error(t, err)
-}
-
-// catalogView builds an ArrowView the way the real read model builds one:
-// a BARE namespace on the view itself, with every installed ref carried in
-// Versions. Getting this shape wrong in a mock proves nothing about
-// production: the production store never puts a ref on ArrowView.Namespace.
-// See store.toArrowView.
-func catalogView(bare domain.Namespace, refs ...string) models.ArrowView {
-	versions := make([]models.VersionView, 0, len(refs))
-	for _, ref := range refs {
-		versions = append(versions, models.VersionView{Namespace: bare.WithRef(ref)})
-	}
-	return models.ArrowView{Namespace: bare, Versions: versions}
-}
-
-// TestEnsureRegistered_UpgradesExistingRowOnAVersionChange covers the
-// post-update boot: a self row already exists at a different version, so
-// EnsureRegistered must move it onto the new ref via UpgradeVersionSeeded,
-// using the embedded manifest bytes, never Seed (which would collide with
-// the still-existing old row) and never a network-resolving Add.
-func TestEnsureRegistered_UpgradesExistingRowOnAVersionChange(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{
-				catalogView(self, "stable-25.9.0"),
-				// A different arrow entirely, must be ignored.
-				catalogView("github.com/rabbytesoftware/quiver.desktop", "stable-1.0.0"),
-			}, nil
-		},
-	}
-	var gotOld, gotNew domain.Namespace
-	var gotData []byte
-	m.UpgradeVersionSeededFn = func(_ context.Context, oldNs, newNs domain.Namespace, data []byte) error {
-		gotOld, gotNew, gotData = oldNs, newNs, data
-		return nil
-	}
-	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
-		t.Fatal("Seed must not be called when an old self row already exists")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
-	assert.Equal(t, self.WithRef("stable-25.9.2"), gotNew)
-	assert.Equal(t, selfmanifest.Raw(), gotData)
-}
-
-// TestEnsureRegistered_ChannelConfigured_StampsChannelOnUpgrade covers the
-// post-update boot with a non-empty configured channel: EnsureRegistered
-// must stamp it onto the row UpgradeVersionSeeded just moved, the same way
-// it does on the first-boot Seed branch.
-func TestEnsureRegistered_ChannelConfigured_StampsChannelOnUpgrade(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-			return nil
-		},
-	}
-	var capturedChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-		capturedChannel = channel
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
-
-	require.NoError(t, err)
-	assert.Equal(t, "rc", capturedChannel)
-}
-
-// TestEnsureRegistered_EmptyChannel_UpgradeBranch_NeverCallsSetChannel
-// mirrors TestEnsureRegistered_EmptyChannel_NeverCallsSetChannel for the
-// UpgradeVersionSeeded branch.
-func TestEnsureRegistered_EmptyChannel_UpgradeBranch_NeverCallsSetChannel(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-			return nil
-		},
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		t.Fatal("SetChannel must not be called when no channel is configured")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-}
-
-// TestEnsureRegistered_IgnoresTheBareGroupingNamespace pins the exact defect
-// RetireStale once shipped with, now against currentSelfRow: the catalog
-// view's own namespace carries no ref, and treating it as a match would send
-// an empty, unusable oldNs into UpgradeVersionSeeded.
-func TestEnsureRegistered_IgnoresTheBareGroupingNamespace(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-	}
-	var gotOld domain.Namespace
-	m.UpgradeVersionSeededFn = func(_ context.Context, oldNs, _ domain.Namespace, _ []byte) error {
-		gotOld = oldNs
-		return nil
-	}
-
-	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", ""))
-
-	assert.Equal(t, self.WithRef("stable-25.9.0"), gotOld)
-}
-
-// TestEnsureRegistered_NoVersionsIsFirstBoot covers a catalog row that exists
-// with no installed refs under it: there is nothing ref-qualified to move
-// onto, so this is treated as a genuine first boot and seeded fresh.
-func TestEnsureRegistered_NoVersionsIsFirstBoot(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{{Namespace: self}}, nil
-		},
-	}
-	var seeded bool
-	m.SeedFn = func(context.Context, domain.Namespace, []byte) error {
-		seeded = true
-		return nil
-	}
-	m.UpgradeVersionSeededFn = func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-		t.Fatal("UpgradeVersionSeeded must not be called for a view carrying no versions")
-		return nil
-	}
-
-	require.NoError(t, selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", ""))
-	assert.True(t, seeded)
-}
-
-func TestEnsureRegistered_ListFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("catalog unavailable")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return nil, sentinel
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
-}
-
-func TestEnsureRegistered_UpgradeVersionSeededFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("upgrade failed")
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-			return sentinel
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
-}
-
-func TestEnsureRegistered_SetChannelFailsAfterUpgrade_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("set channel failed")
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-			return nil
-		},
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		return sentinel
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, &mocks.MockRuntime{}, "stable-25.9.2", "rc")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
-}
-
-// TestEnsureRegistered_SeedPath_MarksRuntimeReady covers the first-ever
-// registration: successfully seeding the row is unambiguous proof
-// quiver.core is running, so EnsureRegistered must land its runtime
-// aggregate at Ready without an install ever having run, passing no
-// lastReturn since none exists yet.
-func TestEnsureRegistered_SeedPath_MarksRuntimeReady(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-	}
-	var markedReady domain.Namespace
-	var gotLastReturn *domainRuntime.Return
-	rt.MarkReadyFn = func(_ context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-		markedReady = ns
-		gotLastReturn = lastReturn
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-	assert.Equal(t, self.WithRef("stable-25.9.2"), markedReady)
-	assert.Nil(t, gotLastReturn)
-}
-
-// TestEnsureRegistered_UpgradePath_MarksNewRowReady covers the post-update
-// boot: the runtime aggregate marked ready must be the NEW row
-// UpgradeVersionSeeded just created, never the old one being retired.
-func TestEnsureRegistered_UpgradePath_MarksNewRowReady(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		ListFn: func(context.Context, *bool) ([]models.ArrowView, error) {
-			return []models.ArrowView{catalogView(self, "stable-25.9.0")}, nil
-		},
-		UpgradeVersionSeededFn: func(context.Context, domain.Namespace, domain.Namespace, []byte) error {
-			return nil
-		},
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-	}
-	var markedReady domain.Namespace
-	rt.MarkReadyFn = func(_ context.Context, ns domain.Namespace, _ *domainRuntime.Return) error {
-		markedReady = ns
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-	assert.Equal(t, self.WithRef("stable-25.9.2"), markedReady)
-}
-
-// TestEnsureRegistered_ExistsPath_MarksReadyWhenNotAlready covers a
-// defensive edge case on the steady-state boot: the row already exists at
-// the running version, but its runtime aggregate still reports absent (for
-// example, a boot right after this feature first shipped). EnsureRegistered
-// must still mark it ready rather than leaving it stuck.
-func TestEnsureRegistered_ExistsPath_MarksReadyWhenNotAlready(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-	}
-	var markReadyCalled bool
-	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
-		markReadyCalled = true
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-	assert.True(t, markReadyCalled)
-}
-
-// TestEnsureRegistered_ExistsPath_AlreadyReady_SkipsMarkReady is the guard
-// this whole feature exists for: EnsureRegistered runs on every boot, and
-// ready -> ready is not a valid domain.ArrowState transition, so calling
-// MarkReady again on an already-ready row must never happen -- it would
-// otherwise raise a harmless-but-noisy validation error every boot after
-// the first.
-func TestEnsureRegistered_ExistsPath_AlreadyReady_SkipsMarkReady(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateReady, nil
-		},
-	}
-	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
-		t.Fatal("MarkReady must not be called when the runtime is already ready")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.NoError(t, err)
-}
-
-// TestEnsureRegistered_ChannelAndReady_BothApplied confirms finishRegistration
-// applies every follow-up on a single successful path, not just the first.
-func TestEnsureRegistered_ChannelAndReady_BothApplied(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	var gotChannel string
-	m.SetChannelFn = func(_ context.Context, _ domain.Namespace, channel, _ string) error {
-		gotChannel = channel
-		return nil
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-	}
-	var markReadyCalled bool
-	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
-		markReadyCalled = true
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "rc")
-
-	require.NoError(t, err)
-	assert.Equal(t, "rc", gotChannel)
-	assert.True(t, markReadyCalled)
-}
-
-// TestEnsureRegistered_SetChannelFails_MarkReadyNeverCalled pins
-// finishRegistration's ordering: stampConfiguredChannel runs first, and its
-// failure short-circuits before markReadyIfAbsent ever runs.
-func TestEnsureRegistered_SetChannelFails_MarkReadyNeverCalled(t *testing.T) {
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	m.SetChannelFn = func(context.Context, domain.Namespace, string, string) error {
-		return errors.New("set channel failed")
-	}
-	rt := &mocks.MockRuntime{}
-	rt.MarkReadyFn = func(context.Context, domain.Namespace, *domainRuntime.Return) error {
-		t.Fatal("MarkReady must not be called when stampConfiguredChannel fails first")
-		return nil
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "rc")
-
-	require.Error(t, err)
-}
-
-// TestEnsureRegistered_GetStateFails_ReturnsWrappedError matches this whole
-// function's existing contract: every step returns a wrapped error rather
-// than swallowing it, relying on the caller (Container.Start) to log it and
-// treat self-registration as non-fatal.
-func TestEnsureRegistered_GetStateFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("runtime store unavailable")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return "", sentinel
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
-}
-
-// TestEnsureRegistered_MarkReadyFails_ReturnsWrappedError covers a MarkReady
-// failure that reaches through the guard anyway (for example a state change
-// racing with GetState): the error is wrapped and returned like every other
-// step in this function, never swallowed -- EnsureRegistered's own error
-// contract does not change here, so Container.Start's existing non-fatal
-// slog.WarnContext handling still covers it.
-func TestEnsureRegistered_MarkReadyFails_ReturnsWrappedError(t *testing.T) {
-	sentinel := errors.New("mark ready failed")
-	m := &mocks.MockArrow{
-		ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return false, nil },
-		SeedFn:   func(context.Context, domain.Namespace, []byte) error { return nil },
-	}
-	rt := &mocks.MockRuntime{
-		GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
-			return domain.ArrowStateAbsent, nil
-		},
-		MarkReadyFn: func(context.Context, domain.Namespace, *domainRuntime.Return) error {
-			return sentinel
-		},
-	}
-
-	err := selfarrow.EnsureRegistered(context.Background(), m, rt, "stable-25.9.2", "")
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sentinel)
 }
 
 // TestPromoteRunningBinary_SelfPathIsNotRewritten covers the routine case

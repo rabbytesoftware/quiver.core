@@ -14,6 +14,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
@@ -418,4 +419,104 @@ func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
 	t.Cleanup(func() { _ = c.Shutdown(context.Background()) })
 
 	assert.NotNil(t, c.Runtime)
+}
+
+func TestWithChannel_SetsOption(t *testing.T) {
+	cfg := appOpts{}
+	WithChannel("beta")(&cfg)
+	assert.Equal(t, "beta", cfg.channel)
+}
+
+// drainProbe stands in for the runtime usecase and records, while Drain runs,
+// whether the stores a commit writes to were still open.
+type drainProbe struct {
+	usecases.RuntimeUsecase
+	container *Container
+	drains    int
+	storesUp  bool
+	err       error
+}
+
+func (p *drainProbe) Drain(ctx context.Context) error {
+	p.drains++
+	sqlDB, err := p.container.arrowsDB.DB()
+	if err != nil {
+		return err
+	}
+	_, existsErr := p.container.repos.Arrow.Exists(ctx, domain.Namespace("github.com/u/r@v1"))
+	p.storesUp = sqlDB.PingContext(ctx) == nil && existsErr == nil
+	return p.err
+}
+
+func TestContainer_Shutdown_DrainsUpdateCommitsBeforeTheStoresClose(t *testing.T) {
+	c := newContainer(t)
+	probe := &drainProbe{RuntimeUsecase: c.Runtime, container: c}
+	c.Runtime = probe
+
+	require.NoError(t, c.Shutdown(context.Background()))
+
+	assert.Equal(t, 1, probe.drains)
+	assert.True(t, probe.storesUp, "update commits must drain while the aggregates and read models are open")
+}
+
+func TestContainer_Shutdown_DrainFailure_StillClosesEverything(t *testing.T) {
+	c := newContainer(t)
+	probe := &drainProbe{RuntimeUsecase: c.Runtime, container: c, err: context.DeadlineExceeded}
+	c.Runtime = probe
+	sqlDB, err := c.arrowsDB.DB()
+	require.NoError(t, err)
+
+	err = c.Shutdown(context.Background())
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Error(t, sqlDB.PingContext(context.Background()), "an abandoned drain must not keep the stores open")
+}
+
+func TestContainer_DrainUpdates(t *testing.T) {
+	testCases := []struct {
+		name    string
+		runtime func(c *Container) usecases.RuntimeUsecase
+		wantErr error
+	}{
+		{name: "no runtime usecase", runtime: func(*Container) usecases.RuntimeUsecase { return nil }},
+		{name: "drains the runtime usecase", runtime: func(c *Container) usecases.RuntimeUsecase {
+			return &drainProbe{RuntimeUsecase: c.Runtime, container: c}
+		}},
+		{name: "reports a drain that gave up", wantErr: context.DeadlineExceeded, runtime: func(c *Container) usecases.RuntimeUsecase {
+			return &drainProbe{RuntimeUsecase: c.Runtime, container: c, err: context.DeadlineExceeded}
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newContainer(t)
+			c.Runtime = tc.runtime(c)
+
+			err := c.DrainUpdates(context.Background())
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestRepoOptions_CarryTheVersionCheckInterval(t *testing.T) {
+	assert.Len(t, repoOptions(appOpts{}), 1)
+
+	cfg := appOpts{}
+	WithVersionCheckInterval(0)(&cfg)
+
+	assert.Len(t, repoOptions(cfg), 2)
+}
+
+func TestWithVersionAndCommit_SetOptions(t *testing.T) {
+	cfg := appOpts{}
+	WithVersion("26.5.1")(&cfg)
+	WithCommit("abc123")(&cfg)
+
+	assert.Equal(t, "26.5.1", cfg.version)
+	assert.Equal(t, "abc123", cfg.commit)
 }

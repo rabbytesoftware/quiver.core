@@ -6,6 +6,14 @@ type MutationResponse struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// MutationResultResponse is the envelope returned by write operations that
+// report what they did.
+type MutationResultResponse struct {
+	Success   bool   `json:"success"`
+	Namespace string `json:"namespace,omitempty"`
+	Data      any    `json:"data,omitempty"`
+}
+
 // QueryResponse is the envelope returned by read operations.
 type QueryResponse struct {
 	Success bool `json:"success"`

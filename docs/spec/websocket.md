@@ -59,19 +59,23 @@ The Arrow channel additionally honours a `user_installed` query filter (see § 4
 
 ### 3.1 Arrow Channel — `/v0/arrow` and `/v0/arrow/{namespace}`
 
-Pushes an `ArrowDTO` whenever the catalog mutates: an arrow is added, updated, upgraded, marked installed, or forgotten. Routes are registered in `internal/api/v0/endpoints/arrows/routes.go` via the `dispatch` helper, which forwards to the WS broadcaster when the request carries `Upgrade: websocket`.
+Pushes an `ArrowDTO` whenever the catalog mutates: an arrow is added, advanced to a new version, has its manifest refreshed, is marked installed or uninstalled, has a version check recorded, is promoted to user-installed, is used, or is forgotten. Routes are registered in `internal/api/v0/endpoints/arrows/routes.go` via the `dispatch` helper, which forwards to the WS broadcaster when the request carries `Upgrade: websocket`.
 
-**Triggers:** `arrow.added.*`, `arrow.upgraded.*`, `arrow.updated.*`, `arrow.installed.*`, plus the asynx `OnForget` hook when an arrow is deleted.
+**Triggers:** `arrow.added.*`, `arrow.advanced.*`, `arrow.manifest_refreshed.*`, `arrow.installed.*`, `arrow.uninstalled.*`, `arrow.available_checked.*`, `arrow.user_installed.*`, `arrow.last_used.*`, plus the asynx `OnForget` hook when an arrow is deleted.
+
+The payload carries no version or row state: a client that needs `resolved_ref` or `available` re-reads `GET /v0/arrow/{ns}`.
 
 ```json
-// upserted (add, update, upgrade, or install)
-{ "event": "upserted", "namespace": "github.com/char2cs/gaming.collection/cs2",
-  "name": "CS2 Server", "version": "0.0.1", "description": "...", "tags": ["fps"], "user_installed": true,
+// upserted (add, advance, refresh, install, version check, ...)
+{ "event": "upserted", "namespace": "github.com/char2cs/gaming.collection/cs2@v1.0.0",
+  "name": "CS2 Server", "description": "...", "tags": ["fps"],
+  "media": { "icon": "", "banner": "" }, "user_installed": true,
   "last_used_at": "2026-08-01T09:30:00Z" }
 
 // removed (OnForget)
-{ "event": "removed", "namespace": "github.com/char2cs/gaming.collection/cs2",
-  "name": "", "version": "", "description": "", "tags": null, "user_installed": false }
+{ "event": "removed", "namespace": "github.com/char2cs/gaming.collection/cs2@v1.0.0",
+  "name": "", "description": "", "tags": null,
+  "media": { "icon": "", "banner": "" }, "user_installed": false }
 ```
 
 #### `user_installed` filter
@@ -177,6 +181,8 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 | ActiveRun | `active_run` | `RunRecordDTO \| null` | `omitempty` — `null` when no execution is in progress. |
 | LastReturn | `last_return` | `ReturnDTO \| null` | `omitempty` — `null` when no execution has completed yet. |
 
+`settling` (an update that has not committed yet) is a REST-only field of `GET /v0/runtime[/{ns}]`: WebSocket events do not carry it, so idle decisions must use the REST runtime read ([http-api.md](http-api.md)).
+
 **`RunRecordDTO`** (active execution):
 
 | Field | JSON | Type | Notes |
@@ -190,6 +196,7 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 
 | Field | JSON | Type | Notes |
 |---|---|---|---|
+| ExecutionID | `execution_id` | `string` | `omitempty` — the run this return ended. Two returns of one method are the same run exactly when their IDs match; empty for a return recorded before returns carried one. A client waiting for the run it just started compares against the return it read before starting it. |
 | Method | `method` | `string` | Method that completed. |
 | Outcome | `outcome` | `string` | `success`, `failed`, `cancelled`. |
 | Variables | `variables` | `map[string]string` | `omitempty`. |
@@ -224,19 +231,20 @@ The underlying Go type wrapping the WS payload is named `collectionEventDTO` (em
 
 ## 5. Event-to-Push Mapping
 
-The mapping is implemented in two places: arrow catalog projections in `internal/app/repositories/arrow/internal/store/internal/projections/projections.go`, and runtime + collection projections in `internal/app/repositories/container.go`'s `RegisterHubProjections`.
+The mapping is implemented in two places: the arrow repository's own subscribers (`registerProjections` in `internal/app/repositories/arrow/arrow.go`), and runtime + collection projections in `internal/app/repositories/container.go`'s `RegisterHubProjections`.
 
 ### Arrow catalog feed — `Asynx[Arrow]`
 
 | Event topic | Where wired | Push | `event` field |
 |---|---|---|---|
 | `arrow.added.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
-| `arrow.upgraded.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
-| `arrow.updated.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
-| `arrow.installed.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.advanced.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.manifest_refreshed.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.installed.*`, `arrow.uninstalled.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
+| `arrow.available_checked.*`, `arrow.user_installed.*`, `arrow.last_used.*` | catalog projection | `arrowEventDTO` | `"upserted"` |
 | `OnForget(Arrow)` | catalog projection | `arrowEventDTO` | `"removed"` |
 
-The broadcast is gated on storage projection success — if `aggregateAndSave` fails, no broadcast fires.
+The broadcast is gated on the read-model write — if it fails, no broadcast fires.
 
 ### Runtime feed — `Asynx[ArrowRuntime]`
 

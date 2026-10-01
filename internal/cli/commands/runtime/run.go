@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/invoke"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/output"
@@ -20,7 +21,8 @@ import (
 // streamRun drives one method to completion and renders its progress.
 //
 // The subscription opens before the method is fired so no step event can be
-// missed in the gap between the two.
+// missed in the gap between the two. The arrow's last return is read in that
+// same gap: the stream may replay it, and it is not this run's end.
 func (c *commands) streamRun(cmd *cobra.Command, ns, op string, vars map[string]string) error {
 	r, err := c.rb.Build(cmd, c.sess.IsTTY())
 	if err != nil {
@@ -40,6 +42,8 @@ func (c *commands) streamRun(cmd *cobra.Command, ns, op string, vars map[string]
 		return err
 	}
 
+	previous := lastReturn(ctx, cli, ns)
+
 	started, err := cli.ExecuteMethod(ctx, ns, apiMethod(op), vars)
 	if err != nil {
 		return err
@@ -56,7 +60,7 @@ func (c *commands) streamRun(cmd *cobra.Command, ns, op string, vars map[string]
 	model := flow.NewStreaming(r.Theme(), flow.StreamOpts[output.Run]{
 		Label: op + " " + ns,
 		Start: func() (<-chan flow.Event[output.Run], error) {
-			return translateRun(ctx, events, ns, op), nil
+			return translateRun(ctx, events, ns, op, previous), nil
 		},
 		View: viewRun(ns, op),
 	})
@@ -73,6 +77,7 @@ func translateRun(
 	ctx context.Context,
 	events <-chan apidto.ArrowRuntimeDTO,
 	ns, op string,
+	previous *apidto.ReturnDTO,
 ) <-chan flow.Event[output.Run] {
 	out := make(chan flow.Event[output.Run])
 
@@ -81,7 +86,7 @@ func translateRun(
 
 		seen := map[int]string{}
 
-		res, err := lifecycle.Wait(ctx, events, op, func(evt apidto.ArrowRuntimeDTO) {
+		res, err := lifecycle.Wait(ctx, events, op, previous, func(evt apidto.ArrowRuntimeDTO) {
 			if evt.ActiveRun == nil {
 				return
 			}
@@ -124,6 +129,17 @@ func translateRun(
 	}()
 
 	return out
+}
+
+// lastReturn reads ns's last return, nil when it has none. A read that fails
+// is nil too: the run then waits for any return of its method, as it would
+// on a first run.
+func lastReturn(ctx context.Context, cli *client.Client, ns string) *apidto.ReturnDTO {
+	rt, err := cli.GetRuntime(ctx, ns)
+	if err != nil {
+		return nil
+	}
+	return rt.LastReturn
 }
 
 func runFrom(res lifecycle.Result, ns, op string) output.Run {

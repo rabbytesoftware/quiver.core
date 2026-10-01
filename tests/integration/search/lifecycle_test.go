@@ -13,9 +13,12 @@ import (
 )
 
 // TestLifecycle_SearchDiscoverStreamAddSearch walks the whole feature: an empty
-// machine searches, discovers, streams, adds, and finds the arrow locally. The
-// assertion that matters is not that the add succeeded but that it cost
-// nothing — discovery already proved and cached the manifest.
+// machine searches, discovers, streams, adds, and finds the arrow locally.
+// Discovery proves each candidate with one fetch and asks the provider once;
+// the add then costs exactly one more fetch and no provider request. That
+// fetch is the manifest at the commit the row records: discovery cached bytes
+// read at a branch name, at a commit nobody recorded, so they cannot stand in
+// for the commit the row stamps as installed.
 func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	prov := newStubProvider(fixtureHost)
 	gate := prov.gated("lumen", candidateFor("search-lumen", 128))
@@ -59,18 +62,15 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	s.Equal(1, summary.Verified)
 	s.Zero(summary.Skipped)
 
-	resolvesAfterDiscovery, _ := counter.counts()
-	s.Require().Equal(1, resolvesAfterDiscovery, "discovery proves each candidate exactly once")
+	s.Require().Equal(1, counter.fetches(), "discovery proves each candidate exactly once")
 	s.Require().Equal(2, prov.searches(), "one search per pass")
 
-	// 5. Adding the discovered arrow serves from the warm vault cache.
+	// 5. Adding the discovered arrow fetches its manifest once, at the commit
+	// the row records.
 	s.Require().Equal(http.StatusCreated, tc.Add(discoveredNS("search-lumen")))
 
-	resolvesAfterAdd, parsesAfterAdd := counter.counts()
-	s.Equal(resolvesAfterDiscovery, resolvesAfterAdd,
-		"add must not resolve again — discovery already cached the manifest")
+	s.Equal(2, counter.fetches(), "add fetches the manifest exactly once, at the resolved commit")
 	s.Equal(2, prov.searches(), "add must not ask any provider anything")
-	s.Positive(parsesAfterAdd, "the add path read the cached bytes rather than fetching them")
 
 	// 6. The arrow is now a local, installed result.
 	var installed []apidto.SearchResultDTO
@@ -88,9 +88,8 @@ func (s *SearchSuite) TestLifecycle_SearchDiscoverStreamAddSearch() {
 	s.Equal(models.ProvenanceInstalled, installed[0].Provenance)
 	s.Equal([]string{fixtureBranch}, installed[0].Versions)
 
-	// Nothing above reached a host a second time.
-	finalResolves, _ := counter.counts()
-	s.Equal(1, finalResolves)
+	// Searching the local catalog reached no host at all.
+	s.Equal(2, counter.fetches())
 	s.Equal(2, prov.searches())
 }
 

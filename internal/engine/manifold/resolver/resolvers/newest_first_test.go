@@ -66,3 +66,22 @@ func TestNewestFirst_HighestVersionCoreLeads(t *testing.T) {
 		})
 	}
 }
+
+func TestHasVersionCore(t *testing.T) {
+	testCases := []struct {
+		name string
+		tag  string
+		want bool
+	}{
+		{name: "semver", tag: "v1.2.0", want: true},
+		{name: "prerelease", tag: "v1.2.0-rc.1", want: true},
+		{name: "dated channel", tag: "stable-2026-09-27", want: true},
+		{name: "rolling pointer", tag: "tip", want: false},
+		{name: "rolling channel word", tag: "nightly-latest", want: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, HasVersionCore(tc.tag))
+		})
+	}
+}

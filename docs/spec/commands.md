@@ -27,11 +27,8 @@ Event names use dot notation: `aggregate.action`. Several runtime commands share
 
 `ShouldSnapshot()` controls whether Asynx writes a snapshot row after applying the event. Snapshots speed up replay by giving projections a fast-forward starting point. The current policy is:
 
-- **Snapshot on durable transitions.** Anything that changes the aggregate's identity, state, or installation status writes a snapshot. Examples: `arrow.added`, `arrow.upgraded`, `runtime.begun`, `runtime.ended`, `runtime.detached`, `runtime.recovered`, `runtime.outdated`, `collection.followed`.
-- **No snapshot for high-frequency or transient updates.** Step progress and PID recording fire many times per execution and would bloat the snapshot table without saving meaningful replay time. Examples: `runtime.step_advanced`, `runtime.pid_recorded`.
-- **No snapshot for short-lived port allocations.** Port aggregates are tiny and recycle frequently; snapshotting on every allocation would dominate disk traffic without a payoff.
-
-The aggregate replay flow with this mixed policy is shown below.
+- **Snapshot on every command.** `ShouldSnapshot()` returns `true` unconditionally. Under asynx v0.8 a snapshot is one row upserted per aggregate (O(1) read, constant storage), so there is no cost tier left to optimise for — high-frequency commands such as step advances, PID records and port allocations snapshot too (see AGENTS.md §4.3).
+The command flow is shown below; the `ShouldSnapshot` branch always takes `yes` today.
 
 ```mermaid
 flowchart LR
@@ -53,7 +50,7 @@ flowchart LR
 
 ## Arrow Commands
 
-`Arrow` is the catalog aggregate. It carries the parsed manifest fields (meta, variables, netbridge ports, target binaries), installation flags (`UserInstalled`, `InstalledAt`, `InstalledConstraint`), and an upgrade pointer (`UpgradedFromNs`). Arrows have no execution state — that lives on `ArrowRuntime`. The aggregate identity is the namespace string `host.tld/org/repo@ref` (the `@ref` form is primary — distinct refs of the same repo are independent aggregates).
+`Arrow` is the catalog aggregate. It carries the parsed manifest fields (meta, variables, netbridge ports, target binaries, readme), installation flags (`UserInstalled`, `InstalledAt`, `LastUsedAt`), and version state: the stored `SelectorKind`, what is installed (`Resolved{Ref, Commit, Fingerprint}`) and what is ahead (`Available`, nil when current). Arrows have no execution state — that lives on `ArrowRuntime`. The aggregate identity is the namespace string `host.tld/org/repo@selector`; the selector never changes for the life of the aggregate, so an update is an in-place `AdvanceArrow`, never a new aggregate. See [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 Removal is performed via `axArrow.Forget(namespace)`, not a dedicated command. The repository checks `Exists` first and returns `ErrNotFound` if the aggregate is unknown. Forget triggers `OnArrowRemoved` reactions: graph dependency cleanup, runtime forget, and vault work-dir deletion.
 
@@ -62,28 +59,39 @@ Removal is performed via `axArrow.Forget(namespace)`, not a dedicated command. T
 | `AddArrow` | `arrow.added.<ns>` | yes | `current == nil` (aggregate must not exist) | namespace |
 | `SetUserInstalled` | `arrow.user_installed.<ns>` | yes | `current != nil` | namespace |
 | `MarkInstalled` | `arrow.installed.<ns>` | yes | `current != nil` | namespace |
-| `UpdateArrowManifest` | `arrow.updated.<ns>` | yes | `current != nil` | namespace |
-| `UpgradeArrow` | `arrow.upgraded.<ns>` | yes | `current == nil` (the new namespace must not yet exist) | new namespace |
+| `MarkUninstalled` | `arrow.uninstalled.<ns>` | yes | `current != nil` | namespace |
+| `MarkLastUsed` | `arrow.last_used.<ns>` | yes | `current != nil` | namespace |
+| `RecordAvailable` | `arrow.available_checked.<ns>` | yes | `current != nil` and `current.Resolved` equals the `Resolved` the answer was judged against | namespace |
+| `RefreshManifest` | `arrow.manifest_refreshed.<ns>` | yes | `current != nil` | namespace |
+| `AdvanceArrow` | `arrow.advanced.<ns>` | yes | `current != nil` | namespace |
 
 ### `AddArrow` (`arrow.added`)
 
-Triggered when the app layer has resolved a constraint, fetched the manifest from manifold, and parsed it into the domain model. The command writes a fresh `Arrow` aggregate carrying meta, variables, netbridge port definitions, the per-OS targets map, the user-install flag, and the original install constraint. It rejects re-adding an existing aggregate; if the aggregate already exists the repository instead emits `SetUserInstalled` so a transitive dependency that the user later requests directly is promoted in place.
+Triggered when the app layer has resolved the selector against the remote, fetched the manifest at the target commit, and parsed it into the domain model — or, for an adoption, parsed manifest bytes it already holds. The command writes a fresh `Arrow` aggregate carrying meta, variables, netbridge port definitions, the per-OS targets map, the readme, the user-install flag, the `SelectorKind` and the initial `Resolved`. It rejects re-adding an existing aggregate; if the aggregate already exists the repository instead emits `SetUserInstalled` so a transitive dependency that the user later requests directly is promoted in place.
 
 ### `SetUserInstalled` (`arrow.user_installed`)
 
-Promotes an existing arrow to user-installed status without mutating any other field. Used when a user explicitly installs an arrow that was previously pulled in only as a transitive dependency. Validation requires the aggregate to exist.
+Promotes an existing arrow to user-installed status without mutating any other field. Used when a user explicitly adds an arrow that was previously pulled in only as a transitive dependency, and when an adoption lands on such a row. Validation requires the aggregate to exist.
 
-### `MarkInstalled` (`arrow.installed`)
+### `MarkInstalled` / `MarkUninstalled` (`arrow.installed` / `arrow.uninstalled`)
 
-Stamps `InstalledAt` (timestamp) on the aggregate. It names no ref: the aggregate is keyed by `namespace@ref`, so the ref installed is the one it is already filed under. Fired from the post-execution hook after a successful `_install` lifecycle run. Validation only requires the aggregate to exist; the lifecycle layer is responsible for ordering.
+Stamp and clear `InstalledAt`. Neither names a version: which version is on disk is `Resolved`. Fired from the post-execution hook after a successful `_install` or `_uninstall` run. Validation only requires the aggregate to exist; the lifecycle layer is responsible for ordering.
 
-### `UpdateArrowManifest` (`arrow.updated`)
+### `MarkLastUsed` (`arrow.last_used`)
 
-Replaces meta, variables, netbridge port definitions, and per-OS targets in place. Sent when the manifold layer reports a refreshed manifest (new tag, edited file, or seeded payload via the API). Installation flags are preserved. Validation requires the aggregate to exist.
+Stamps `LastUsedAt` after an `_execute` run completes successfully.
 
-### `UpgradeArrow` (`arrow.upgraded`)
+### `RecordAvailable` (`arrow.available_checked`)
 
-Creates a new aggregate at the upgraded namespace (`@v2.0.0`) that copies state from the previous one (`@v1.0.0`). The command stores `UpgradedFromNs` pointing at the old namespace so reactions can coordinate cleanup of the old aggregate, vault rename, and runtime forget. Validation requires the new namespace to be absent — versions are independent aggregates, never overwritten in place.
+Records what a version check found ahead of the row (`Available`), or clears it (nil) when the row is current. The command carries the `Resolved` the check judged against, and validation refuses it when the row has moved since — an update committed between the check and the write — so an answer about a version the row has already left is never recorded. The repository re-reads and re-judges a refused write a bounded number of times, and never sends one when the answer is unchanged.
+
+### `RefreshManifest` (`arrow.manifest_refreshed`)
+
+Replaces meta, variables, netbridge port definitions, per-OS targets and readme in place, leaving `Resolved`, `Available` and every installation flag untouched. Sent by the update bracket to stage the target manifest before `BeginUpdate` (so the target's own `update:` steps run), and by an adoption whose manifest changed while its `Resolved` did not.
+
+### `AdvanceArrow` (`arrow.advanced`)
+
+Moves the row to a new version in place: replaces the manifest fields with the manifest at the target commit, sets `Resolved` to the target, and clears `Available`. Identity, runtime aggregate and workdir are untouched. Sent when an update's steps succeeded and the target is confirmed unmoved, when `PATCH /v0/arrow/{ns}` advances a row nothing is installed from, and when an adoption records a different `Resolved`. The vault manifest cache for the identity is replaced before the command is sent.
 
 ---
 
@@ -101,9 +109,9 @@ Lifecycle methods are constants in the `domain` package: `MethodInstall`, `Metho
 | `BeginStop` | `runtime.begun.<ns>` | yes | state is `running` or `detached`; not already stopping |
 | `BeginUpdate` | `runtime.begun.<ns>` | yes | state is `outdated` or `ready` |
 | `EndExecution` | `runtime.ended.<ns>` | yes | `Execution != nil` |
-| `AdvanceStep` | `runtime.step_advanced.<ns>` | no | `Execution != nil` |
+| `AdvanceStep` | `runtime.step_advanced.<ns>` | yes | `Execution != nil` |
 | `RestartExecution` | `runtime.step_advanced.<ns>` | yes | `Execution != nil` and its id is the current one |
-| `RecordPID` | `runtime.pid_recorded.<ns>` | no | `Execution != nil` |
+| `RecordPID` | `runtime.pid_recorded.<ns>` | yes | `Execution != nil` |
 | `RecordDetached` | `runtime.detached.<ns>` | yes | current state has a transition to `detached` |
 | `RecoverInterrupted` | `runtime.recovered.<ns>` | yes | current state is transient (`installing`, `uninstalling`, `updating`, `running`, `stopping`, `draining`) |
 | `MarkOutdated` | `runtime.outdated.<ns>` | yes | aggregate absent OR state is `ready` |
@@ -134,7 +142,7 @@ Terminates whatever execution is in progress and records its outcome (`success`,
 
 ### `AdvanceStep` (`runtime.step_advanced`)
 
-Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps and an optional note for completed ones. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. No snapshot — replays reapply the sequence cheaply.
+Records that one step inside the active execution changed status (`pending → running`, `running → completed`, `running → failed`). Carries an optional error string for failed steps and an optional note for completed ones. Fires many times per execution; this is the real-time progress feed for the WebSocket hub. It snapshots like every command: a snapshot is one upserted row, so frequency costs nothing.
 
 ### `RestartExecution` (`runtime.step_advanced`)
 
@@ -142,7 +150,7 @@ Replaces the active execution's steps with fresh ones, all `pending`, and clears
 
 ### `RecordPID` (`runtime.pid_recorded`)
 
-Captures the OS process ID that the wizard launched. Stored on the active `Execution` so a later `BeginStop` can recover it. No snapshot.
+Captures the OS process ID that the wizard launched. Stored on the active `Execution` so a later `BeginStop` can recover it.
 
 ### `RecordDetached` (`runtime.detached`)
 
@@ -174,12 +182,12 @@ Triggered when the user follows a collection through the API. The use case layer
 
 ## PortAllocation Commands
 
-`PortAllocation` is the netbridge engine's aggregate. Each port (TCP or UDP, specific number) is a distinct aggregate identified by the port string. The aggregate carries the port number, protocol, owner key (the consumer that holds the lease), and a flag indicating whether external port forwarding has been configured. Snapshots are intentionally disabled on both commands — port aggregates are short-lived and easy to replay from raw events.
+`PortAllocation` is the netbridge engine's aggregate. Each port (TCP or UDP, specific number) is a distinct aggregate identified by the port string. The aggregate carries the port number, protocol, owner key (the consumer that holds the lease), and a flag indicating whether external port forwarding has been configured. Both commands snapshot, like every command (see Snapshot Policy).
 
 | Command | Event Name | Snapshot | Validates |
 |---|---|---|---|
-| `AllocatePort` | `port.Allocated` | no | `current == nil` or zero-valued (port currently unallocated) |
-| `DeallocatePort` | `port.Deallocated` | no | `current != nil` (port currently allocated) |
+| `AllocatePort` | `port.Allocated` | yes | `current == nil` or zero-valued (port currently unallocated) |
+| `DeallocatePort` | `port.Deallocated` | yes | `current != nil` (port currently allocated) |
 
 ### `AllocatePort` (`port.Allocated`)
 

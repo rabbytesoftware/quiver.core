@@ -50,8 +50,24 @@ func ViewDetail(d apidto.ArrowDetailDTO, t theme.Theme) string {
 	fields = field(fields, "Name", d.Name)
 	fields = field(fields, "State", t.State(domain.ArrowState(d.State)))
 	fields = field(fields, "Description", d.Description)
+	fields = field(fields, "License", d.License)
 	fields = field(fields, "Tags", strings.Join(d.Tags, ", "))
-	fields = field(fields, "Constraint", d.InstalledConstraint)
 	fields = field(fields, "Installed", d.InstalledAt)
+	fields = field(fields, "Selector", d.SelectorKind)
+	fields = field(fields, "Resolved", d.ResolvedRef)
+	fields = field(fields, "Commit", shortCommit(d.InstalledCommit))
+	if d.Available != nil {
+		fields = field(fields, "Available", d.Available.Ref+" ("+shortCommit(d.Available.Commit)+")")
+	}
 	return component.Fields("ARROW", fields, t)
+}
+
+const shortCommitLen = 7
+
+// shortCommit abbreviates a commit for reading; structured output keeps it whole.
+func shortCommit(commit string) string {
+	if len(commit) <= shortCommitLen {
+		return commit
+	}
+	return commit[:shortCommitLen]
 }

@@ -76,7 +76,7 @@ func newRetryFixture(t *testing.T) *retryFixture {
 		MarkInstalled:   func(context.Context, domain.Namespace, time.Time) error { f.installs.Add(1); return nil },
 		MarkUninstalled: noopMarkUninstalled,
 		MarkLastUsed:    noopMarkLastUsed,
-		RefreshManifest: func(context.Context, domain.Namespace) error { f.refreshes.Add(1); return nil },
+		RefreshManifest: func(context.Context, domain.Namespace, string) error { f.refreshes.Add(1); return nil },
 		Reassemble: func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, error) {
 			return freshSteps(), nil
 		},
@@ -219,7 +219,7 @@ func TestSuperviseExecution_NoRetry(t *testing.T) {
 			method: domain.MethodInstall,
 			first:  mismatchExecution,
 			tweak: func(f *retryFixture) {
-				f.hooks.RefreshManifest = func(context.Context, domain.Namespace) error { f.refreshes.Add(1); return errBoom }
+				f.hooks.RefreshManifest = func(context.Context, domain.Namespace, string) error { f.refreshes.Add(1); return errBoom }
 			},
 		},
 		{
@@ -255,7 +255,7 @@ func TestSuperviseExecution_NoRetry(t *testing.T) {
 			method: domain.MethodInstall,
 			first:  mismatchExecution,
 			tweak: func(f *retryFixture) {
-				f.hooks.RefreshManifest = func(ctx context.Context, ns domain.Namespace) error {
+				f.hooks.RefreshManifest = func(ctx context.Context, ns domain.Namespace, _ string) error {
 					f.refreshes.Add(1)
 					_, err := f.ax.Send(ctx, commands.EndExecution{
 						Namespace: ns, ExecutionID: testExecutionID, Outcome: domainRuntime.ExecutionOutcomeCancelled,

@@ -1,14 +1,11 @@
 package usecases
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -40,16 +37,17 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("usecases: parse auth.pairing_code_ttl: %w", err)
 	}
+	runtimeUC := NewRuntimeUsecase(
+		repos.Arrow,
+		repos.Runtime,
+		repos.Lifecycle,
+	)
 	arrowUC := NewArrowUsecase(
 		repos.Arrow,
 		repos.Graph,
 		repos.Runtime,
+		repos.Lifecycle,
 	)
-	runtimeUC := &runtimeUsecase{
-		arrow:   repos.Arrow,
-		runtime: repos.Runtime,
-		graph:   repos.Graph,
-	}
 	quiverUC := NewCollectionUsecase(
 		repos.Collection,
 		repos.Arrow,
@@ -70,25 +68,6 @@ func New(
 	var homeUC HomeUsecase
 	if repos.Recommendation != nil {
 		homeUC = NewHomeUsecase(repos.Recommendation)
-	}
-
-	if err := repos.Runtime.OnRuntimeEnded(func(
-		ctx context.Context,
-		rt domainRuntime.ArrowRuntime,
-	) {
-		runtimeUC.onRuntimeEnded(ctx, rt)
-	}); err != nil {
-		return nil, fmt.Errorf("usecases: wire OnRuntimeEnded: %w", err)
-	}
-
-	if err := repos.Arrow.OnArrowUpgraded(func(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) error {
-		runtimeUC.onArrowUpgraded(ctx, arrow)
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("usecases: wire OnArrowUpgraded: %w", err)
 	}
 
 	return &Container{

@@ -40,18 +40,11 @@ func ResolveVariables( //nolint:gocyclo
 	userVars map[string]string,
 	steps []domainStep.Step,
 ) (map[string]string, error) {
-	vars := make(map[string]string)
-
 	// Layer 1: built-ins
-	if v != nil {
-		if workdir, err := v.WorkDir(ctx, ns); err == nil {
-			vars[domain.VarInstallPath] = workdir
-			vars[domain.VarWorkdir] = workdir
-		}
+	vars, err := builtIns(ctx, ns, arrow, os, v)
+	if err != nil {
+		return nil, err
 	}
-	vars[domain.VarArrowNamespace] = ns.String()
-	vars[domain.VarPlatform] = os.String()
-	vars[domain.VarRef] = ns.Ref()
 
 	// Layer 2: dep built-ins and named exports
 	for _, edge := range append(target.Tools, target.Services...) {
@@ -138,13 +131,41 @@ func ResolveVariables( //nolint:gocyclo
 	return vars, nil
 }
 
+// builtIns computes the variables every run gets: its workdir, identity,
+// platform and ${REF}.
+func builtIns(
+	ctx context.Context,
+	ns domain.Namespace,
+	arrow *domain.Arrow,
+	os domain.OS,
+	v vault.Vault,
+) (map[string]string, error) {
+	vars := make(map[string]string)
+	if v != nil {
+		workdir, err := v.WorkDir(ctx, ns)
+		if err != nil {
+			return nil, WorkDirError(ns, err)
+		}
+		vars[domain.VarInstallPath] = workdir
+		vars[domain.VarWorkdir] = workdir
+	}
+	vars[domain.VarArrowNamespace] = ns.String()
+	vars[domain.VarPlatform] = os.String()
+	vars[domain.VarRef] = arrow.Resolved.RefOr(ns.Ref())
+	return vars, nil
+}
+
 // carryForward filters a previous execution's variables down to the ones
-// this execution may inherit: a variable declared without a default is never
-// inherited, since a remembered answer would silently satisfy the
-// per-execution requirement requireReferenced enforces without anyone being
-// asked -- e.g. a second update naming neither ${QUIVER_RELEASE_ASSET_URL}
-// nor ${QUIVER_RELEASE_CHECKSUM} would re-install the previous, possibly
-// wrong, build instead of failing loudly.
+// this execution may inherit: answers, never facts. A built-in (${REF},
+// ${WORKDIR}, ...) or a dependency's value (<namespace>.<name>) is computed
+// for this run: a row advanced since, or a failed update's target left in the
+// previous run, must never lend its ${REF} to another release's steps. A
+// variable declared without a default is never inherited either, since a
+// remembered answer would silently satisfy the per-execution requirement
+// requireReferenced enforces without anyone being asked -- e.g. a second
+// update naming neither ${QUIVER_RELEASE_ASSET_URL} nor
+// ${QUIVER_RELEASE_CHECKSUM} would re-install the previous, possibly wrong,
+// build instead of failing loudly.
 func carryForward(
 	arrow *domain.Arrow,
 	stored map[string]string,
@@ -155,18 +176,23 @@ func carryForward(
 			required[declared.Name] = struct{}{}
 		}
 	}
-	if len(required) == 0 {
-		return stored
-	}
 
 	carried := make(map[string]string, len(stored))
 	for name, value := range stored {
-		if _, isRequired := required[name]; isRequired {
+		if _, isRequired := required[name]; isRequired || isComputed(name) {
 			continue
 		}
 		carried[name] = value
 	}
 	return carried
+}
+
+// isComputed reports whether name is a value Quiver derives for each run: a
+// built-in, or a dependency's value, scoped by the dependency's namespace.
+func isComputed(
+	name string,
+) bool {
+	return domain.IsReservedVariable(name) || strings.Contains(name, "/")
 }
 
 // requireReferenced refuses an execution missing a variable its own steps
@@ -207,4 +233,18 @@ func applyUserVars(
 		}
 		vars[name] = value
 	}
+}
+
+// WorkDirError reports a workdir the vault could not give ns. It is fatal:
+// steps would otherwise run in the daemon's own working directory. A workdir
+// another identity owns (a case-folded directory from an earlier layout) is a
+// conflict the user resolves by removing that identity.
+func WorkDirError(
+	ns domain.Namespace,
+	err error,
+) error {
+	if errors.Is(err, vault.ErrWorkDirCollision) {
+		return fmt.Errorf("workdir %s: another identity's workdir occupies its path, remove that identity first: %w: %w", ns, apperrors.ErrAlreadyExists, err)
+	}
+	return fmt.Errorf("workdir %s: %w", ns, err)
 }

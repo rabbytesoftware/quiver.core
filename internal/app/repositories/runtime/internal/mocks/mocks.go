@@ -11,32 +11,25 @@ import (
 
 // MockArrow is a test double for arrowrepo.Arrow.
 type MockArrow struct {
-	ListFn              func(ctx context.Context, userInstalled *bool) ([]models.ArrowView, error)
-	GetFn               func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ExistsFn            func(ctx context.Context, ns domain.Namespace) (bool, error)
-	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
-	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
-	ResolveForInstallFn func(ctx context.Context, ns domain.Namespace, channel string) (domain.Namespace, *domain.Arrow, string, error)
-	AddFn               func(ctx context.Context, ns domain.Namespace, opts models.AddOptions) error
-	AddDepFn            func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow, constraint string) error
-	RemoveFn            func(ctx context.Context, ns domain.Namespace) error
-	SeedFn              func(ctx context.Context, ns domain.Namespace, data []byte) error
-	ValidateManifestFn  func(ctx context.Context, data []byte) (*models.ValidationResult, error)
-	MarkInstalledFn     func(ctx context.Context, ns domain.Namespace, at time.Time) error
-	MarkUninstalledFn   func(ctx context.Context, ns domain.Namespace) error
-	MarkLastUsedFn      func(ctx context.Context, ns domain.Namespace, at time.Time) error
-	ForgetFn            func(ctx context.Context, ns domain.Namespace) error
-	UpdateManifestFn    func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
-	ResolveConstraintFn func(ctx context.Context, ns domain.Namespace, constraint string) (string, error)
-	UpgradeVersionFn    func(ctx context.Context, oldNs, newNs domain.Namespace, constraint string, runtimeAlreadyExists bool) (*domain.Arrow, error)
-	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
-	ShutdownFn          func(ctx context.Context) error
-	HasDependentsFn     func(ctx context.Context, ns domain.Namespace) (bool, error)
-	OnArrowAddedFn      func(fn func(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error) error
-	OnArrowUpdatedFn    func(fn func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error) error
-	OnArrowRemovedFn    func(fn func(ctx context.Context, ns domain.Namespace) error) error
-	OnArrowUpgradedFn   func(fn func(ctx context.Context, arrow domain.Arrow) error) error
+	ListFn             func(ctx context.Context, userInstalled *bool) ([]models.ArrowView, error)
+	GetFn              func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
+	ExistsFn           func(ctx context.Context, ns domain.Namespace) (bool, error)
+	GetDetailFn        func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
+	GetManifestFn      func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
+	ResolveManifestFn  func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
+	AddFn              func(ctx context.Context, ns domain.Namespace) error
+	RemoveFn           func(ctx context.Context, ns domain.Namespace) error
+	ValidateManifestFn func(ctx context.Context, data []byte) (*models.ValidationResult, error)
+	MarkInstalledFn    func(ctx context.Context, ns domain.Namespace, at time.Time) error
+	MarkUninstalledFn  func(ctx context.Context, ns domain.Namespace) error
+	MarkLastUsedFn     func(ctx context.Context, ns domain.Namespace, at time.Time) error
+	ForgetFn           func(ctx context.Context, ns domain.Namespace) error
+	SearchFn           func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
+	ShutdownFn         func(ctx context.Context) error
+	HasDependentsFn    func(ctx context.Context, ns domain.Namespace) (bool, error)
+	OnArrowAddedFn     func(fn func(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error) error
+	OnArrowUpdatedFn   func(fn func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error) error
+	OnArrowRemovedFn   func(fn func(ctx context.Context, ns domain.Namespace) error) error
 }
 
 func (m *MockArrow) List(
@@ -99,17 +92,6 @@ func (m *MockArrow) ResolveManifest(
 	return nil, nil
 }
 
-func (m *MockArrow) ResolveForInstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (domain.Namespace, *domain.Arrow, string, error) {
-	if m.ResolveForInstallFn != nil {
-		return m.ResolveForInstallFn(ctx, ns, channel)
-	}
-	return ns, nil, "", nil
-}
-
 func (m *MockArrow) Search(
 	ctx context.Context,
 	q models.SearchQuery,
@@ -123,22 +105,9 @@ func (m *MockArrow) Search(
 func (m *MockArrow) Add(
 	ctx context.Context,
 	ns domain.Namespace,
-	opts models.AddOptions,
 ) error {
 	if m.AddFn != nil {
-		return m.AddFn(ctx, ns, opts)
-	}
-	return nil
-}
-
-func (m *MockArrow) AddDep(
-	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-	constraint string,
-) error {
-	if m.AddDepFn != nil {
-		return m.AddDepFn(ctx, ns, arrow, constraint)
+		return m.AddFn(ctx, ns)
 	}
 	return nil
 }
@@ -149,17 +118,6 @@ func (m *MockArrow) Remove(
 ) error {
 	if m.RemoveFn != nil {
 		return m.RemoveFn(ctx, ns)
-	}
-	return nil
-}
-
-func (m *MockArrow) Seed(
-	ctx context.Context,
-	ns domain.Namespace,
-	data []byte,
-) error {
-	if m.SeedFn != nil {
-		return m.SeedFn(ctx, ns, data)
 	}
 	return nil
 }
@@ -216,41 +174,6 @@ func (m *MockArrow) Forget(
 	return nil
 }
 
-func (m *MockArrow) UpdateManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-) error {
-	if m.UpdateManifestFn != nil {
-		return m.UpdateManifestFn(ctx, ns, arrow)
-	}
-	return nil
-}
-
-func (m *MockArrow) ResolveConstraint(
-	ctx context.Context,
-	ns domain.Namespace,
-	constraint string,
-) (string, error) {
-	if m.ResolveConstraintFn != nil {
-		return m.ResolveConstraintFn(ctx, ns, constraint)
-	}
-	return "", nil
-}
-
-func (m *MockArrow) UpgradeVersion(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	constraint string,
-	runtimeAlreadyExists bool,
-) (*domain.Arrow, error) {
-	if m.UpgradeVersionFn != nil {
-		return m.UpgradeVersionFn(ctx, oldNs, newNs, constraint, runtimeAlreadyExists)
-	}
-	return nil, nil
-}
-
 func (m *MockArrow) Shutdown(ctx context.Context) error {
 	if m.ShutdownFn != nil {
 		return m.ShutdownFn(ctx)
@@ -285,15 +208,6 @@ func (m *MockArrow) OnArrowRemoved(
 	return nil
 }
 
-func (m *MockArrow) OnArrowUpgraded(
-	fn func(ctx context.Context, arrow domain.Arrow) error,
-) error {
-	if m.OnArrowUpgradedFn != nil {
-		return m.OnArrowUpgradedFn(fn)
-	}
-	return nil
-}
-
 // MockAssembler is a test double for assembler.Assembler.
 type MockAssembler struct {
 	AssembleFn func(
@@ -309,6 +223,7 @@ func (m *MockAssembler) Assemble(
 	ns domain.Namespace,
 	method string,
 	userVars map[string]string,
+	_ ...assembler.AssembleOption,
 ) (assembler.ResolvedExecution, error) {
 	if m.AssembleFn != nil {
 		return m.AssembleFn(ctx, ns, method, userVars)

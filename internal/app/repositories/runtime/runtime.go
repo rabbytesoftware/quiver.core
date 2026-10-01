@@ -44,10 +44,14 @@ type Runtime interface {
 		ns domain.Namespace,
 		vars map[string]string,
 	) error
+	// BeginUpdate begins ns's update steps with ${REF} set to targetRef, the
+	// ref the update began toward; an empty one leaves ${REF} at the
+	// installed ref.
 	BeginUpdate(
 		ctx context.Context,
 		ns domain.Namespace,
 		vars map[string]string,
+		targetRef string,
 	) error
 
 	RuntimeExists(
@@ -126,17 +130,26 @@ type Runtime interface {
 		addedDeps []domain.Namespace,
 		removedDeps []domain.Namespace,
 	) error
+	// ClearVersionBadge takes a version-drift Outdated back to Ready once an
+	// advance has landed; an Outdated carrying a PendingDepSync, or any other
+	// state, is left alone.
+	ClearVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	// ReconcileVersionBadge re-derives ns's version badge from its catalog
+	// row as the row stands now: Outdated while it has something available,
+	// Ready otherwise. The update bracket calls it once an update settled.
+	ReconcileVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	// MarkReady lands ns's runtime aggregate at Ready without an install ever
 	// having run, the same outcome MarkPreinstalled records for a preinstalled
-	// detection. Its caller is the arrow.upgraded reaction for a swap raised
-	// after this arrow's own update lifecycle already finished successfully,
-	// see domain.Arrow.AlreadyReady. lastReturn, when non-nil, carries that
-	// completed update's outcome onto the new aggregate; pass nil when there
-	// is none to carry.
+	// detection.
 	MarkReady(
 		ctx context.Context,
 		ns domain.Namespace,
-		lastReturn *domainRuntime.Return,
 	) error
 	Forget(
 		ctx context.Context,
@@ -146,6 +159,7 @@ type Runtime interface {
 
 type runtimeRepository struct {
 	axRuntime             asynx.Asynx[domainRuntime.ArrowRuntime]
+	reconcileBadge        func(ctx context.Context, ns domain.Namespace) error
 	wizard                wizardPkg.Wizard
 	assembler             assembler.Assembler
 	hasDependents         HasDependentsFn
@@ -178,13 +192,14 @@ func New(
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
+		reconcileBadge:        ReconcileVersionBadge(getArrow, axRuntime),
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
 		MarkInstalled:         markInstalled,
 		MarkUninstalled:       markUninstalled,
 		MarkLastUsed:          markLastUsed,
-		ReconcileVersionBadge: ReconcileVersionBadge(getArrow, axRuntime),
+		ReconcileVersionBadge: repo.reconcileBadge,
 		RefreshManifest:       refreshManifest,
 		Reassemble:            repo.reassemble,
 	}
@@ -204,11 +219,30 @@ func (s *runtimeRepository) reassemble(
 	method string,
 	vars map[string]string,
 ) ([]domainStep.Step, error) {
-	resolved, err := s.assembler.Assemble(ctx, ns, method, vars)
+	var opts []assembler.AssembleOption
+	if method == domain.MethodUpdate {
+		opts = append(opts, assembler.WithTargetRef(vars[domain.VarRef]))
+	}
+	resolved, err := s.assembler.Assemble(ctx, ns, method, answersOf(vars), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("reassemble %s: %w", method, err)
 	}
 	return resolved.Steps, nil
+}
+
+// answersOf keeps the values a run was given, dropping the ones Quiver
+// computed for it: a retry computes those again.
+func answersOf(
+	vars map[string]string,
+) map[string]string {
+	answers := make(map[string]string, len(vars))
+	for name, value := range vars {
+		if domain.IsReservedVariable(name) || strings.Contains(name, domain.NamespaceSeparator) {
+			continue
+		}
+		answers[name] = value
+	}
+	return answers
 }
 
 // plannedAssembler hands every assembled run to wizard.Plan, which adds the
@@ -224,8 +258,9 @@ func (a plannedAssembler) Assemble(
 	ns domain.Namespace,
 	method string,
 	userVars map[string]string,
+	opts ...assembler.AssembleOption,
 ) (assembler.ResolvedExecution, error) {
-	resolved, err := a.Assembler.Assemble(ctx, ns, method, userVars)
+	resolved, err := a.Assembler.Assemble(ctx, ns, method, userVars, opts...)
 	if err != nil {
 		return resolved, err
 	}
@@ -438,8 +473,9 @@ func (s *runtimeRepository) BeginUpdate(
 	ctx context.Context,
 	ns domain.Namespace,
 	vars map[string]string,
+	targetRef string,
 ) error {
-	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars)
+	resolved, err := s.assembler.Assemble(ctx, ns, domain.MethodUpdate, vars, assembler.WithTargetRef(targetRef))
 	if err != nil {
 		return fmt.Errorf("begin update: %w", err)
 	}
@@ -742,13 +778,32 @@ func (s *runtimeRepository) MarkOutdated(
 	return nil
 }
 
+func (s *runtimeRepository) ClearVersionBadge(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := SetVersionOutdated(s.axRuntime)(ctx, ns, false); err != nil {
+		return fmt.Errorf("clear version badge: %w", err)
+	}
+	return nil
+}
+
+func (s *runtimeRepository) ReconcileVersionBadge(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if err := s.reconcileBadge(ctx, ns); err != nil {
+		return fmt.Errorf("reconcile version badge: %w", err)
+	}
+	return nil
+}
+
 // MarkReady sends the same RecordPreinstalled command MarkPreinstalled sends,
-// as a plain method rather than a construction-time closure: its caller
-// (usecases/runtime.go onArrowUpgraded) already holds a Runtime built by
-// New, so none of MarkPreinstalled's construction-order constraint applies
-// here.
-func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace, lastReturn *domainRuntime.Return) error {
-	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns, LastReturn: lastReturn})
+// as a plain method rather than a construction-time closure: its caller holds
+// a Runtime built by New, so none of MarkPreinstalled's construction-order
+// constraint applies here.
+func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace) error {
+	_, err := s.axRuntime.SendWait(ctx, runtimecmds.RecordPreinstalled{Namespace: ns})
 	if err == nil {
 		return nil
 	}

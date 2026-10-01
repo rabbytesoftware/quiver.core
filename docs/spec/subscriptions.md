@@ -30,10 +30,10 @@ Subscriptions fall into four categories, each with a distinct purpose and regist
 |---|---|---|
 | **Internal reactions** | In-process side effects on top of the same aggregate (e.g. drain wizard events back into Asynx) | Repository constructors |
 | **Read-model projections** | Maintain SQLite tables that answer cross-aggregate queries | Repository constructors |
-| **Use-case wiring** | Cross-aggregate orchestration (cascading uninstalls, arrow upgrade cleanup) | `app/usecases/container.go` and `app/repositories/container.go::wireCallbacks()` |
+| **Use-case wiring** | Cross-aggregate orchestration (cascading uninstalls, closing the update bracket) | `app/usecases/container.go` and `app/repositories/container.go::wireCallbacks()` |
 | **Hub broadcasts** | Push the full domain aggregate to the WebSocket fan-out hub | `app/repositories/container.go::RegisterHubProjections()` |
 
-The repository layer registers internal reactions and read-model projections in its constructors. The app/repositories container wires cross-repository callbacks (`Arrow → Graph`, `Arrow → Runtime`) and exposes a separate `RegisterHubProjections` step that the app container calls after the WebSocket hub is built. The usecase layer subscribes to the public callback API (`OnRuntimeEnded`, `OnArrowUpgraded`) for cross-aggregate workflows that span more than one repository.
+The repository layer registers internal reactions and read-model projections in its constructors. The app/repositories container wires cross-repository callbacks (`Arrow → Graph`, `Arrow → Runtime`) and exposes a separate `RegisterHubProjections` step that the app container calls after the WebSocket hub is built. The usecase layer subscribes to the public callback API (`OnRuntimeEnded`) for cross-aggregate workflows that span more than one repository.
 
 There is no longer a single "StopCoordinator" subscription. The previous design had a `runtime.MarkStopping` subscription that called `wizard.Cancel(namespace)`; PR #155's stateless wizard refactor removed that surface entirely. See [Stop Path](#stop-path) below.
 
@@ -45,24 +45,21 @@ The table below enumerates every `Subscribe` and `OnForget` registration in the 
 
 ### Arrow Repository — `Asynx[domain.Arrow]`
 
-| Pattern | Where registered | Purpose |
-|---|---|---|
-| `OnForget` | `arrow/arrow.go::New()` | Vault `DeleteWorkDir` for the forgotten namespace |
-| `arrow.added.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save (versions table) + `hub.BroadcastArrow` |
-| `arrow.upgraded.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save + `hub.BroadcastArrow` |
-| `arrow.updated.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save + `hub.BroadcastArrow` |
-| `arrow.installed.*` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage save (stamps `InstalledAt`) + `hub.BroadcastArrow` |
-| `OnForget` | `arrow/internal/store/.../projections/projections.go::Register()` | Catalog storage version cleanup (drops the row when no versions remain) + `hub.BroadcastArrow` |
-| `arrow.added.*` | `graph/internal/projections.go::Register()` | Persist dep edges into `dep_edges` SQLite table |
-| `arrow.upgraded.*` | `graph/internal/projections.go::Register()` | Persist dep edges (replaces old version row) |
-| `arrow.updated.*` | `graph/internal/projections.go::Register()` | Persist dep edges (idempotent upsert per `from_namespace`+`from_version`) |
-| `OnForget` | `graph/internal/projections.go::Register()` | Drop all dep edges for the forgotten arrow |
-| `arrow.added.*` | `arrow/arrow.go::OnArrowAdded()` (callback API) | Public registration shape — wired by container |
-| `arrow.updated.*` | `arrow/arrow.go::OnArrowUpdated()` (callback API) | Public registration shape — wired by container |
-| `arrow.upgraded.*` | `arrow/arrow.go::OnArrowUpgraded()` (callback API) | Public registration shape — wired by usecases |
-| `OnForget` | `arrow/arrow.go::OnArrowRemoved()` (callback API) | Public registration shape — wired by container |
+The arrow repository claims exactly one subscriber per arrow topic (`registerProjections` in `arrow/arrow.go`). Asynx runs concurrent subscribers of one topic in no particular order, so everything an arrow event has to do happens inside that one subscriber, in a fixed order: the `OnArrow*` callbacks first (dependency edges), then the read-model write, then the hub broadcast. A read model that could not be written is never announced.
 
-The `arrow.user_installed.<namespace>` event (emitted by `SetUserInstalled` to flip the `UserInstalled` flag) has **no subscribers** today. The state change still lands in the event store and is visible via `Asynx[Arrow].Get()`, but no projection or callback fires. The catalog projection's pattern set is `arrow.added.*`, `arrow.upgraded.*`, `arrow.updated.*`, `arrow.installed.*` — `arrow.user_installed.*` is intentionally absent.
+| Pattern | Handler | Callbacks run first | Then |
+|---|---|---|---|
+| `arrow.added.*` | `projectAdded` | `OnArrowAdded` | Read-model write + `hub.BroadcastArrow` (upserted) |
+| `arrow.advanced.*` | `projectUpdated` | `OnArrowUpdated` | Read-model write + broadcast |
+| `arrow.manifest_refreshed.*` | `projectUpdated` | `OnArrowUpdated` | Read-model write + broadcast |
+| `arrow.installed.*` | `projectInstallStamp` | — | Read-model write (stamps `InstalledAt`) + broadcast |
+| `arrow.uninstalled.*` | `projectInstallStamp` | — | Read-model write (clears `InstalledAt`) + broadcast |
+| `arrow.available_checked.*` | `projectVersionCheck` | — | Read-model write (`Available`) + broadcast |
+| `arrow.user_installed.*` | `projectUsage` | — | Read-model write (`UserInstalled`) + broadcast |
+| `arrow.last_used.*` | `projectUsage` | — | Read-model write (`LastUsedAt`) + broadcast |
+| `OnForget` | `projectForgotten` | — | Read-model delete, then `OnArrowRemoved` callbacks, vault `DeleteWorkDir`, broadcast (removed) |
+
+The graph repository has no subscription of its own: its edges are written by the `OnArrowAdded` / `OnArrowUpdated` / `OnArrowRemoved` callbacks the repositories container wires (see [Use-Case Wiring](#use-case-wiring)).
 
 ### Runtime Repository — `Asynx[domainRuntime.ArrowRuntime]`
 
@@ -103,17 +100,17 @@ The repository container's `wireCallbacks()` registers cross-repository handlers
 | `Arrow.OnArrowUpdated` | `Graph.SyncDependencies(ctx, ns, arrow)` |
 | `Arrow.OnArrowRemoved` | `Graph.RemoveDependencies(ctx, ns)` then `Runtime.Forget(ctx, ns)` |
 
-The use-case container (`app/usecases/container.go`) registers two further callbacks:
+The lifecycle repository (`app/repositories/lifecycle`) registers one further callback when the repositories container wires it (`wireLifecycle` → `lifecycle.Start`); no use case subscribes to anything:
 
 | Source callback | Reaction |
 |---|---|
-| `Runtime.OnRuntimeEnded` | `runtimeUsecase.onRuntimeEnded` — cascades stops/uninstalls of orphaned dependencies (see [usecases.md § Stop Cascade](usecases.md)) |
-| `Arrow.OnArrowUpgraded` | `runtimeUsecase.onArrowUpgraded` — diffs old vs new arrow deps; either marks runtime outdated for dep-sync or kicks a fresh install if no deps changed |
+| `Runtime.OnRuntimeEnded` | lifecycle `deps.OnRuntimeEnded` — cascades stops/uninstalls of orphaned dependencies (see [usecases.md § Stop Cascade](usecases.md)) and hands an update's end to the settling |
 
 `OnRuntimeEnded` is the linchpin of the stop and uninstall cascades. It dispatches on `rt.LastReturn.Method`:
 
 - **`MethodStop`** → `onStopEnded` cascades stops to non-shared service deps and may auto-uninstall the just-stopped arrow if it was a non-user-installed dep with no remaining live parents.
 - **`MethodUninstall`** → `onUninstallEnded` walks the dep plan and stops/uninstalls each non-user-installed dep with no other live parents.
+- **`MethodUpdate`** → the settling (`lifecycle/internal/settle`, `OnUpdateEnded`) closes the update bracket: it releases the row's remembered target and, on success, re-resolves the target and advances the row only if the target ref still stands at the target commit (`arrow.Advance`, then `runtime.ReconcileVersionBadge`), detached from the handler. quiver.core's own row is skipped. See [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
 - All other methods fall through with no side effect.
 
 ---
@@ -135,7 +132,7 @@ The use-case container (`app/usecases/container.go`) registers two further callb
 | `Collection.OnCollectionFollowed` | `BroadcastCollection` | `Collection` |
 | `Collection.OnCollectionUnfollowed` | `BroadcastCollection` | `Collection{Namespace: ns}` (zero-valued except for the namespace, signalling deletion) |
 
-Arrow broadcasts go through the catalog projection directly: the projection calls `hub.BroadcastArrow(evt.Aggregate)` after the storage save (or after the on-forget cleanup) instead of via a separate `OnArrowAdded`/`OnArrowUpdated` callback wiring. This keeps the projection's storage write and the broadcast on the same goroutine and event order.
+Arrow broadcasts go through the arrow repository's own subscribers directly: each calls `hub.BroadcastArrow` after the read-model write (or after the on-forget cleanup) instead of via a separate callback wiring. This keeps the projection's storage write and the broadcast on the same goroutine and event order.
 
 ### WebSocket DTO Push Map
 
@@ -143,10 +140,9 @@ The hub fans out to all registered API-version `Subscriber`s. The current v0 sub
 
 | Domain event | API v0 channel(s) | Subscriber DTO |
 |---|---|---|
-| `arrow.added.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
-| `arrow.upgraded.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
-| `arrow.updated.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
-| `arrow.installed.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
+| `arrow.added.*`, `arrow.advanced.*`, `arrow.manifest_refreshed.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
+| `arrow.installed.*`, `arrow.uninstalled.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
+| `arrow.available_checked.*`, `arrow.user_installed.*`, `arrow.last_used.*` | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
 | Asynx forget on arrow | `/v0/arrow`, `/v0/arrow/:ns` | `dto.ArrowDTO` |
 | `runtime.begun.*` | `/v0/runtime`, `/v0/runtime/:ns` | `dto.ArrowRuntimeDTO` |
 | `runtime.step_advanced.*` | `/v0/runtime`, `/v0/runtime/:ns` | `dto.ArrowRuntimeDTO` |

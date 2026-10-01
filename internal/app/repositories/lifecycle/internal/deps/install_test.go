@@ -1,0 +1,228 @@
+package deps
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
+	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+)
+
+// refusedBrackets stands in for a row whose bracket the caller gave up
+// waiting on.
+type refusedBrackets struct {
+	err error
+}
+
+func (b refusedBrackets) Open(context.Context, domain.Namespace) (func(), error) {
+	return nil, b.err
+}
+
+func TestRuntimeInstall_BracketRefused_BeginsNothing(t *testing.T) {
+	boom := errors.New("boom")
+	dep := domain.Namespace("github.com/user/dep@stable")
+
+	testCases := []struct {
+		name string
+		plan models.Plan
+	}{
+		{name: "the row's own bracket"},
+		{name: "a dependency's bracket", plan: models.Plan{{Namespace: dep, Type: domain.ToolDep}}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			began := false
+			a := &mocks.MockArrow{ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil }}
+			rt := &mocks.MockRuntime{
+				BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+					began = true
+					return nil
+				},
+			}
+			g := &mocks.MockGraph{ResolveFn: func(context.Context, domain.Namespace) (models.Plan, error) { return tc.plan, nil }}
+			uc := newUC(a, rt, g)
+			uc.deps.brackets = refusedBrackets{err: boom}
+
+			_, err := uc.Install(context.Background(), rollingRow, nil)
+
+			require.ErrorIs(t, err, boom)
+			assert.False(t, began)
+		})
+	}
+}
+
+// A dependency read again under its bracket may already be installing, or
+// unreadable: either way nothing begins.
+func TestInstallOneDep_StateUnderTheBracket(t *testing.T) {
+	boom := errors.New("boom")
+
+	testCases := []struct {
+		name     string
+		second   domain.ArrowState
+		stateErr error
+		wantErr  error
+	}{
+		{name: "installed meanwhile", second: domain.ArrowStateReady},
+		{name: "unreadable", stateErr: boom, wantErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reads := 0
+			began := false
+			rt := &mocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) {
+					reads++
+					if reads == 1 {
+						return domain.ArrowStateAbsent, nil
+					}
+					return tc.second, tc.stateErr
+				},
+				ListenEndedFn: func(context.Context, domain.Namespace) (<-chan domainRuntime.ArrowRuntime, func(), error) {
+					ch := make(chan domainRuntime.ArrowRuntime, 1)
+					ch <- domainRuntime.ArrowRuntime{}
+					return ch, func() {}, nil
+				},
+				BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+					began = true
+					return nil
+				},
+			}
+
+			err := newUC(&mocks.MockArrow{}, rt, &mocks.MockGraph{}).installOneDep(context.Background(), "github.com/user/dep@stable")
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.False(t, began)
+		})
+	}
+}
+
+func TestRuntimeVerbs_UnresolvedNamespace_BeginNothing(t *testing.T) {
+	a := &mocks.MockArrow{
+		ResolveCataloguedFn: func(context.Context, domain.Namespace) (domain.Namespace, error) {
+			return "", assert.AnError
+		},
+	}
+	began := false
+	rt := &mocks.MockRuntime{
+		BeginStopFn: func(context.Context, domain.Namespace) error {
+			began = true
+			return nil
+		},
+		BeginUninstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+			began = true
+			return nil
+		},
+	}
+	uc := newUC(a, rt, &mocks.MockGraph{})
+
+	require.ErrorIs(t, uc.Stop(context.Background(), "github.com/user/nope"), assert.AnError)
+	require.ErrorIs(t, uc.Uninstall(context.Background(), "github.com/user/nope", nil), assert.AnError)
+	assert.False(t, began)
+}
+
+func TestRuntimeOnEnded_Update_HandsOverToTheSettling(t *testing.T) {
+	uc := newUC(&mocks.MockArrow{}, &mocks.MockRuntime{}, &mocks.MockGraph{})
+	ended := domainRuntime.ArrowRuntime{
+		Ref:        rollingRow,
+		LastReturn: &domainRuntime.Return{Method: domain.MethodUpdate, Outcome: domainRuntime.ExecutionOutcomeSuccess},
+	}
+
+	uc.onRuntimeEnded(context.Background(), ended)
+
+	assert.Equal(t, []domainRuntime.ArrowRuntime{ended}, uc.updatesEnded)
+}
+
+// An install acts on the freshest target of the row's selector: a row nothing
+// is installed from, with a release a check found ahead of it, is judged again
+// against the remote and advanced to what stands ahead now, so ${REF} and
+// Resolved name it. A re-check that cannot reach the remote falls back to the
+// recorded release, and a target that cannot be read never blocks the install
+// of what the row records.
+func TestRuntimeInstall_AbsentRowWithAvailable_InstallsTheTarget(t *testing.T) {
+	recorded := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+	fresher := &domain.Available{Ref: "v1.2.0", Commit: "c3"}
+	boom := errors.New("boom")
+	testCases := []struct {
+		name        string
+		state       domain.ArrowState
+		available   *domain.Available
+		fresh       *domain.Available
+		checkErr    error
+		advanceErr  error
+		getErr      error
+		wantAdvance string
+		wantErr     error
+	}{
+		{name: "absent with a release ahead", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, wantAdvance: "v1.1.0"},
+		{name: "a newer release cut since the check", state: domain.ArrowStateAbsent, available: recorded, fresh: fresher, wantAdvance: "v1.2.0"},
+		{name: "never installed with a release ahead", available: recorded, fresh: recorded, wantAdvance: "v1.1.0"},
+		{name: "nothing ahead any more", state: domain.ArrowStateAbsent, available: recorded},
+		{name: "the re-check cannot reach the remote", state: domain.ArrowStateAbsent, available: recorded, checkErr: apperrors.ErrFetchFailed, wantAdvance: "v1.1.0"},
+		{name: "nothing recorded ahead", state: domain.ArrowStateAbsent},
+		{name: "target has no manifest", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: apperrors.ErrNotFound, wantAdvance: "v1.1.0"},
+		{name: "target unreachable", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: apperrors.ErrFetchFailed, wantAdvance: "v1.1.0"},
+		{name: "advance refused", state: domain.ArrowStateAbsent, available: recorded, fresh: recorded, advanceErr: boom, wantAdvance: "v1.1.0", wantErr: boom},
+		{name: "row unreadable", state: domain.ArrowStateAbsent, getErr: boom, wantErr: boom},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			a := &mocks.MockArrow{
+				ExistsFn: func(context.Context, domain.Namespace) (bool, error) { return true, nil },
+				GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+					return &domain.Arrow{Namespace: ns, Available: tc.available}, tc.getErr
+				},
+				CheckAvailableFn: func(context.Context, domain.Namespace) (*domain.Available, error) {
+					calls = append(calls, "check available")
+					return tc.fresh, tc.checkErr
+				},
+				AdvanceFn: func(_ context.Context, _ domain.Namespace, target domain.Available) error {
+					calls = append(calls, "advance to "+target.Ref)
+					return tc.advanceErr
+				},
+			}
+			rt := &mocks.MockRuntime{
+				GetStateFn: func(context.Context, domain.Namespace) (domain.ArrowState, error) { return tc.state, nil },
+				BeginInstallFn: func(context.Context, domain.Namespace, map[string]string) error {
+					calls = append(calls, "begin install")
+					return nil
+				},
+			}
+			g := &mocks.MockGraph{ResolveFn: func(context.Context, domain.Namespace) (models.Plan, error) {
+				calls = append(calls, "resolve deps")
+				return nil, nil
+			}}
+
+			began, err := newUC(a, rt, g).Install(context.Background(), rollingRow, nil)
+
+			var want []string
+			if tc.available != nil {
+				want = append(want, "check available")
+			}
+			if tc.wantAdvance != "" {
+				want = append(want, "advance to "+tc.wantAdvance)
+			}
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Equal(t, want, calls)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, began)
+			assert.Equal(t, append(want, "resolve deps", "begin install"), calls)
+		})
+	}
+}

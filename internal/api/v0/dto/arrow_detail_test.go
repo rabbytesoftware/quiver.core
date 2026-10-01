@@ -124,22 +124,16 @@ func TestArrowDetailDTOFrom_Origin(t *testing.T) {
 	}
 }
 
-func TestArrowDetailDTOFrom_WithOutdatedAndRecommendedRef(t *testing.T) {
+func TestArrowDetailDTOFrom_WithOutdated(t *testing.T) {
 	a := &models.ArrowDetailDTO{
-		Namespace:      domain.Namespace("github.com/user/repo@develop"),
-		Outdated:       true,
-		RecommendedRef: "v2.0.0",
-		Channel:        "rc",
+		Namespace: domain.Namespace("github.com/user/repo@develop"),
+		Outdated:  true,
 	}
 	d := dto.ArrowDetailDTOFrom(a)
 	assert.True(t, d.Outdated)
-	assert.Equal(t, "v2.0.0", d.RecommendedRef)
-	assert.Equal(t, "rc", d.Channel)
 }
 
-// A version check that found nothing better must not clutter the wire
-// response with an empty recommended_ref.
-func TestArrowDetailDTO_WireShape_NotOutdatedOmitsRecommendedRef(t *testing.T) {
+func TestArrowDetailDTO_WireShape_NotOutdated(t *testing.T) {
 	notOutdated, err := json.Marshal(dto.ArrowDetailDTOFrom(&models.ArrowDetailDTO{
 		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
 	}))
@@ -149,7 +143,6 @@ func TestArrowDetailDTO_WireShape_NotOutdatedOmitsRecommendedRef(t *testing.T) {
 	require.NoError(t, json.Unmarshal(notOutdated, &got))
 
 	assert.Equal(t, false, got["outdated"])
-	assert.NotContains(t, got, "recommended_ref")
 }
 
 // An arrow that has never been executed must not report a last_used_at at
@@ -164,4 +157,96 @@ func TestArrowDetailDTO_WireShape_NeverUsedOmitsTheStamp(t *testing.T) {
 	require.NoError(t, json.Unmarshal(neverUsed, &without))
 
 	assert.NotContains(t, without, "last_used_at")
+}
+
+func detailWire(t *testing.T, a *models.ArrowDetailDTO) map[string]any {
+	t.Helper()
+
+	blob, err := json.Marshal(dto.ArrowDetailDTOFrom(a))
+	require.NoError(t, err)
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(blob, &got))
+	return got
+}
+
+// A row written before selectors existed carries no kind; it is a pin, and the
+// wire must say so rather than send an empty string.
+func TestArrowDetailDTO_WireShape_LegacyZeroRow(t *testing.T) {
+	got := detailWire(t, &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+	})
+
+	assert.Equal(t, "pin", got["selector_kind"])
+	assert.Equal(t, "", got["resolved_ref"])
+	assert.Equal(t, "", got["installed_commit"])
+	assert.NotContains(t, got, "available")
+	assert.Equal(t, false, got["outdated"])
+}
+
+func TestArrowDetailDTO_WireShape_Available(t *testing.T) {
+	got := detailWire(t, &models.ArrowDetailDTO{
+		Namespace:    domain.Namespace("github.com/user/repo@stable"),
+		SelectorKind: domain.SelectorChannel,
+		Resolved:     domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "fp"},
+		Available:    &domain.Available{Ref: "v1.1.0", Commit: "c2"},
+		Outdated:     true,
+	})
+
+	assert.Equal(t, "channel", got["selector_kind"])
+	assert.Equal(t, "v1.0.0", got["resolved_ref"])
+	assert.Equal(t, "c1", got["installed_commit"])
+	assert.Equal(t, map[string]any{"ref": "v1.1.0", "commit": "c2"}, got["available"])
+	assert.Equal(t, true, got["outdated"])
+}
+
+func TestArrowDetailDTO_WireShape_SelectorKindNames(t *testing.T) {
+	testCases := []struct {
+		name string
+		kind domain.SelectorKind
+		want string
+	}{
+		{"pin", domain.SelectorPin, "pin"},
+		{"channel", domain.SelectorChannel, "channel"},
+		{"constraint", domain.SelectorConstraint, "constraint"},
+		{"commit", domain.SelectorCommit, "commit"},
+		{"tag pin", domain.SelectorTagPin, "pin"},
+		{"branch pin", domain.SelectorBranchPin, "pin"},
+		{"ordered channel", domain.SelectorOrderedChannel, "channel"},
+		{"pointer channel", domain.SelectorPointerChannel, "channel"},
+		{"branch channel", domain.SelectorBranchChannel, "channel"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := detailWire(t, &models.ArrowDetailDTO{SelectorKind: tc.kind})
+			assert.Equal(t, tc.want, got["selector_kind"])
+		})
+	}
+}
+
+// Quiver's own versioning bookkeeping from before the selector model must not
+// reappear on the wire.
+func TestArrowDetailDTO_WireShape_NoRemovedFields(t *testing.T) {
+	got := detailWire(t, &models.ArrowDetailDTO{
+		SelectorKind: domain.SelectorConstraint,
+		Resolved:     domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "fp"},
+		Available:    &domain.Available{Ref: "v1.1.0", Commit: "c2"},
+	})
+
+	for _, key := range []string{
+		"installed_ref", "channel", "installed_constraint", "recommended_ref",
+		"pinned_ref", "ref_is_branch", "ref_commit_sha", "resolved", "fingerprint",
+	} {
+		assert.NotContains(t, got, key)
+	}
+}
+
+func TestArrowDetailDTO_WireShape_License(t *testing.T) {
+	got := detailWire(t, &models.ArrowDetailDTO{
+		Namespace: domain.Namespace("github.com/user/repo@v1.2.3"),
+		License:   "MIT",
+	})
+
+	assert.Equal(t, "MIT", got["license"])
 }

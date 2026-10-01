@@ -2,60 +2,19 @@ package resolvers
 
 import (
 	"context"
-	"errors"
 	"os"
+	"path"
 	"testing"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
-
-func makeRepoWithTags(
-	t *testing.T,
-	tags []string,
-) string {
-	t.Helper()
-
-	dir := t.TempDir()
-
-	repo, err := gogit.PlainInit(dir, false)
-	if err != nil {
-		t.Fatalf("PlainInit: %v", err)
-	}
-
-	wt, err := repo.Worktree()
-	if err != nil {
-		t.Fatalf("Worktree: %v", err)
-	}
-
-	p := dir + "/arrow.yaml"
-	if err := os.WriteFile(p, []byte("ok"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if _, err := wt.Add("arrow.yaml"); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-
-	hash, err := wt.Commit("init", &gogit.CommitOptions{
-		Author: &object.Signature{Name: "test", Email: "test@test.com"},
-	})
-	if err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	for _, tag := range tags {
-		if _, err := repo.CreateTag(tag, hash, nil); err != nil {
-			t.Fatalf("CreateTag %s: %v", tag, err)
-		}
-	}
-
-	return dir
-}
 
 // ─── sortTagsDesc ─────────────────────────────────────────────────────────────
 
@@ -202,123 +161,9 @@ func newCR(t time.Duration) *constraintResolver {
 	return &constraintResolver{timeout: t}
 }
 
-func TestConstraintResolver_PicksHighestSemver(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v1.0.0", "v1.2.3", "v1.4.0"})
-	cr := newCR(5 * time.Second)
-
-	got, err := cr.resolveWithCloneURL(context.Background(), dir, "v1.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.4.0" {
-		t.Errorf("got %q, want %q", got, "v1.4.0")
-	}
-}
-
-func TestConstraintResolver_MixedTagsPicksHighestSemver(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v1.9.0", "v1.10.0", "nightly"})
-	cr := newCR(5 * time.Second)
-
-	got, err := cr.resolveWithCloneURL(context.Background(), dir, "*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.10.0" {
-		t.Errorf("got %q, want %q", got, "v1.10.0")
-	}
-}
-
-func TestConstraintResolver_NoMatchingTags(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v2.0.0"})
-	cr := newCR(5 * time.Second)
-
-	_, err := cr.resolveWithCloneURL(context.Background(), dir, "v1.*")
-	if err == nil {
-		t.Fatal("expected error for no matching tags")
-	}
-}
-
-func TestConstraintResolver_ExactGlobMatch(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v1.2.3", "v1.2.4", "v1.3.0"})
-	cr := newCR(5 * time.Second)
-
-	got, err := cr.resolveWithCloneURL(context.Background(), dir, "v1.2.*")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "v1.2.4" {
-		t.Errorf("got %q, want %q", got, "v1.2.4")
-	}
-}
-
-func TestConstraintResolver_InvalidGlobPattern(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v1.0.0"})
-	cr := newCR(5 * time.Second)
-
-	_, err := cr.resolveWithCloneURL(context.Background(), dir, "[invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid pattern")
-	}
-}
-
-func TestConstraintResolver_ListTags_ReturnsEveryTagUnfiltered(t *testing.T) {
-	dir := makeRepoWithTags(t, []string{"v1.0.0", "v1.1.0", "v2.0.0-rc1", "nightly"})
-	cr := newCR(5 * time.Second)
-
-	got, err := cr.listTagsWithCloneURL(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := map[string]bool{"v1.0.0": true, "v1.1.0": true, "v2.0.0-rc1": true, "nightly": true}
-	if len(got) != len(want) {
-		t.Fatalf("got %d tags, want %d: %v", len(got), len(want), got)
-	}
-	for _, tag := range got {
-		if !want[tag] {
-			t.Errorf("unexpected tag %q", tag)
-		}
-	}
-}
-
-func TestConstraintResolver_ListTags_UnreachableRemote(t *testing.T) {
-	cr := newCR(500 * time.Millisecond)
-
-	_, err := cr.listTagsWithCloneURL(context.Background(), "/nonexistent/path/to/nowhere")
-	if err == nil {
-		t.Fatal("expected error for unreachable remote")
-	}
-}
-
 // ─── Resolve (public) ─────────────────────────────────────────────────────────
 
-// TestConstraintResolver_Resolve_UsesLocalRepo exercises the public Resolve
-// method end-to-end. We use a domain.Namespace whose BareNamespace().CloneURL()
-// returns the local repo dir (go-git accepts bare directory paths as clone URLs).
-// The trick: split "github.com/user/repoSUFFIX" so CloneURL == local path is
-// not possible via the standard Namespace type — instead we call Resolve on a
-// real ConstraintResolver interface value and validate it returns an error when
-// the namespace has no valid remote (proving the code path is exercised).
-func TestConstraintResolver_Resolve_ReturnsErrorForUnresolvableNS(t *testing.T) {
-	cr := NewConstraintResolver(500 * time.Millisecond)
-
-	// Namespace with no real remote — Resolve must fail and return a non-nil error.
-	_, err := cr.Resolve(context.Background(), domain.Namespace("localhost/user/nonexistent"), "v1.*")
-	if err == nil {
-		t.Fatal("expected error from Resolve with unreachable namespace")
-	}
-}
-
 // ─── ListTags (public) ────────────────────────────────────────────────────────
-
-func TestConstraintResolver_ListTags_ReturnsErrorForUnresolvableNS(t *testing.T) {
-	cr := NewConstraintResolver(500 * time.Millisecond)
-
-	_, err := cr.ListTags(context.Background(), domain.Namespace("localhost/user/nonexistent"))
-	if err == nil {
-		t.Fatal("expected error for unresolvable namespace")
-	}
-}
 
 // ─── DefaultBranch ────────────────────────────────────────────────────────────
 
@@ -361,141 +206,17 @@ func makeRepoOnBranch(
 	return dir
 }
 
-func TestConstraintResolver_DefaultBranch_ReadsHEADSymref(t *testing.T) {
-	testCases := []string{"develop", "main", "master", "trunk"}
+// ─── compareCores edge cases ──────────────────────────────────────────────────
 
-	for _, branch := range testCases {
-		t.Run(branch, func(t *testing.T) {
-			dir := makeRepoOnBranch(t, branch)
-			cr := newCR(5 * time.Second)
-
-			got, hash, err := cr.defaultBranchWithCloneURL(context.Background(), dir)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != branch {
-				t.Errorf("branch = %q, want %q", got, branch)
-			}
-			if hash == "" || hash == plumbing.ZeroHash.String() {
-				t.Errorf("hash = %q, want the commit hash of %s", hash, branch)
-			}
-		})
+func TestCompareCores_Equal(t *testing.T) {
+	if compareCores(semverParts("v1.2.3"), semverParts("v1.2.3")) != 0 {
+		t.Error("compareCores(equal) != 0")
 	}
 }
 
-func TestConstraintResolver_DefaultBranch_UnreachableRemote(t *testing.T) {
-	cr := newCR(500 * time.Millisecond)
-
-	_, _, err := cr.defaultBranchWithCloneURL(context.Background(), t.TempDir())
-	if err == nil {
-		t.Fatal("expected error for a directory that is not a repository")
-	}
-}
-
-func TestConstraintResolver_DefaultBranch_ReturnsErrorForUnresolvableNS(t *testing.T) {
-	cr := NewConstraintResolver(500 * time.Millisecond)
-
-	_, _, err := cr.DefaultBranch(context.Background(), domain.Namespace("localhost/user/nonexistent"))
-	if err == nil {
-		t.Fatal("expected error from DefaultBranch with unreachable namespace")
-	}
-}
-
-// A remote that advertises no usable HEAD cannot name a default branch, which
-// is the miss the configured branch list exists to answer.
-func TestHeadBranch_MissingOrNonBranchHEAD(t *testing.T) {
-	testCases := []struct {
-		name string
-		refs []*plumbing.Reference
-	}{
-		{
-			name: "no HEAD advertised",
-			refs: []*plumbing.Reference{
-				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), plumbing.ZeroHash),
-			},
-		},
-		{
-			name: "HEAD is a hash reference, not a symref",
-			refs: []*plumbing.Reference{
-				plumbing.NewHashReference(plumbing.HEAD, plumbing.ZeroHash),
-			},
-		},
-		{
-			name: "HEAD points outside refs/heads",
-			refs: []*plumbing.Reference{
-				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewTagReferenceName("v1.0.0")),
-			},
-		},
-		{
-			name: "nothing advertised at all",
-			refs: nil,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, hash, err := headBranch(tc.refs, "https://git.example.test/u/r")
-			if !errors.Is(err, ErrNoDefaultBranch) {
-				t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
-			}
-			if got != "" {
-				t.Errorf("branch = %q, want empty", got)
-			}
-			if hash != "" {
-				t.Errorf("hash = %q, want empty", hash)
-			}
-		})
-	}
-}
-
-// A remote that advertises HEAD but never lists the branch it points at
-// cannot report a hash for it, which is a malformed advertisement rather than
-// the "no default branch" case above.
-func TestHeadBranch_HEADTargetNotAdvertised(t *testing.T) {
-	refs := []*plumbing.Reference{
-		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
-	}
-
-	_, _, err := headBranch(refs, "https://git.example.test/u/r")
-	if !errors.Is(err, ErrNoDefaultBranch) {
-		t.Fatalf("expected ErrNoDefaultBranch, got %v", err)
-	}
-}
-
-func TestHeadBranch_SkipsNonHEADSymrefs(t *testing.T) {
-	wantHash := plumbing.NewHash("0123456789abcdef0123456789abcdef01234567")
-	refs := []*plumbing.Reference{
-		plumbing.NewSymbolicReference(
-			plumbing.ReferenceName("refs/remotes/origin/HEAD"),
-			plumbing.NewBranchReferenceName("nope"),
-		),
-		plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
-		plumbing.NewHashReference(plumbing.NewBranchReferenceName("develop"), wantHash),
-	}
-
-	got, hash, err := headBranch(refs, "https://git.example.test/u/r")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "develop" {
-		t.Errorf("headBranch = %q, want %q", got, "develop")
-	}
-	if hash != wantHash.String() {
-		t.Errorf("hash = %q, want %q", hash, wantHash.String())
-	}
-}
-
-// ─── semverGT edge cases ──────────────────────────────────────────────────────
-
-func TestSemverGT_Equal(t *testing.T) {
-	if semverGT("v1.2.3", "v1.2.3") {
-		t.Error("semverGT(equal) = true, want false")
-	}
-}
-
-func TestSemverGT_PatchDiffers(t *testing.T) {
-	if !semverGT("v1.2.4", "v1.2.3") {
-		t.Error("semverGT(v1.2.4, v1.2.3) = false, want true")
+func TestCompareCores_PatchDiffers(t *testing.T) {
+	if compareCores(semverParts("v1.2.4"), semverParts("v1.2.3")) <= 0 {
+		t.Error("compareCores(v1.2.4, v1.2.3) <= 0, want > 0")
 	}
 }
 
@@ -505,5 +226,249 @@ func TestIsStableSemver_NegativeComponent(t *testing.T) {
 	// strconv.Atoi parses "-1" as -1 (no error), the n < 0 guard must catch it.
 	if IsStableSemver("v1.-1.0") {
 		t.Error("IsStableSemver(v1.-1.0) = true, want false (negative component)")
+	}
+}
+
+// ─── RefCommit ────────────────────────────────────────────────────────────────
+
+func commitOnRepo(
+	t *testing.T,
+	dir string,
+	name string,
+) plumbing.Hash {
+	t.Helper()
+
+	repo, err := gogit.PlainOpen(dir)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := os.WriteFile(dir+"/"+name, []byte(name), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := wt.Add(name); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	hash, err := wt.Commit(name, &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com"},
+	})
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	return hash
+}
+
+// ─── Refs ─────────────────────────────────────────────────────────────────────
+
+func TestConstraintResolver_Refs_SnapshotsTagsBranchesAndHead(t *testing.T) {
+	dir := makeRepoOnBranch(t, "develop")
+	repo, err := gogit.PlainOpen(dir)
+	require.NoError(t, err)
+	head, err := repo.Head()
+	require.NoError(t, err)
+	first := head.Hash()
+
+	_, err = repo.CreateTag("v1.0.0", first, nil)
+	require.NoError(t, err)
+	_, err = repo.CreateTag("v1.1.0", first, &gogit.CreateTagOptions{
+		Tagger:  &object.Signature{Name: "test", Email: "test@test.com"},
+		Message: "annotated",
+	})
+	require.NoError(t, err)
+	nightly := plumbing.NewTagReferenceName("nightly")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(nightly, first)))
+
+	second := commitOnRepo(t, dir, "second")
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(nightly, second)))
+	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName("feature"), first)))
+
+	cr := newCR(5 * time.Second)
+	snap, err := cr.refsWithCloneURL(context.Background(), dir)
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{
+		"v1.0.0":  first.String(),
+		"v1.1.0":  first.String(),
+		"nightly": second.String(),
+	}, snap.Tags)
+	assert.Equal(t, map[string]string{
+		"develop": second.String(),
+		"feature": first.String(),
+	}, snap.Branches)
+	assert.Equal(t, "develop", snap.Head)
+}
+
+func TestConstraintResolver_Refs_EmptyRepoHasNoRefsAndNoError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := gogit.PlainInit(dir, false)
+	require.NoError(t, err)
+
+	cr := newCR(5 * time.Second)
+	snap, err := cr.refsWithCloneURL(context.Background(), dir)
+	require.NoError(t, err)
+
+	assert.Empty(t, snap.Tags)
+	assert.Empty(t, snap.Branches)
+	assert.Equal(t, "", snap.Head)
+}
+
+func TestConstraintResolver_Refs_UnreachableRemote(t *testing.T) {
+	cr := newCR(500 * time.Millisecond)
+
+	_, err := cr.refsWithCloneURL(context.Background(), "/nonexistent/path/to/nowhere")
+	assert.Error(t, err)
+}
+
+func TestConstraintResolver_Refs_ReturnsErrorForUnresolvableNS(t *testing.T) {
+	cr := NewConstraintResolver(500 * time.Millisecond)
+
+	_, err := cr.Refs(context.Background(), domain.Namespace("localhost/user/nonexistent"))
+	assert.Error(t, err)
+}
+
+func TestSnapshotOf_Advertisement(t *testing.T) {
+	tagObject := plumbing.NewHash("1111111111111111111111111111111111111111")
+	commit := plumbing.NewHash("2222222222222222222222222222222222222222")
+	branch := plumbing.NewHash("3333333333333333333333333333333333333333")
+
+	testCases := []struct {
+		name string
+		refs []*plumbing.Reference
+		want domain.RefSnapshot
+	}{
+		{
+			name: "peeled entry overrides its annotated tag whatever the order",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0^{}"), commit),
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), tagObject),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{"v1.0.0": commit.String()},
+				Branches: map[string]string{},
+			},
+		},
+		{
+			name: "HEAD pointing at an unadvertised branch leaves Head empty",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop")),
+				plumbing.NewHashReference(plumbing.NewBranchReferenceName("main"), branch),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{},
+				Branches: map[string]string{"main": branch.String()},
+			},
+		},
+		{
+			name: "HEAD pointing outside refs/heads leaves Head empty",
+			refs: []*plumbing.Reference{
+				plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewTagReferenceName("v1.0.0")),
+				plumbing.NewHashReference(plumbing.NewTagReferenceName("v1.0.0"), commit),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{"v1.0.0": commit.String()},
+				Branches: map[string]string{},
+			},
+		},
+		{
+			name: "refs that are neither tag nor branch are ignored",
+			refs: []*plumbing.Reference{
+				plumbing.NewHashReference(plumbing.ReferenceName("refs/pull/1/head"), commit),
+			},
+			want: domain.RefSnapshot{
+				Tags:     map[string]string{},
+				Branches: map[string]string{},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, snapshotOf(tc.refs))
+		})
+	}
+}
+
+// ─── HighestMatch ─────────────────────────────────────────────────────────────
+
+func TestHighestMatch(t *testing.T) {
+	testCases := []struct {
+		name    string
+		tags    []string
+		pattern string
+		want    string
+		wantOK  bool
+		wantErr error
+	}{
+		{name: "highest semver within the glob", tags: []string{"v1.2.0", "v1.10.0", "v2.0.0"}, pattern: "v1.*", want: "v1.10.0", wantOK: true},
+		{name: "no tag matches", tags: []string{"v2.0.0"}, pattern: "v1.*"},
+		{name: "no tags at all", tags: nil, pattern: "*"},
+		{name: "bad pattern", tags: []string{"v1.0.0"}, pattern: "v1.[", wantErr: path.ErrBadPattern},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := HighestMatch(tc.tags, tc.pattern)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestHighestMatch_DoesNotReorderTheCallersSlice(t *testing.T) {
+	tags := []string{"v1.0.0", "v1.2.0"}
+	_, _, err := HighestMatch(tags, "*")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"v1.0.0", "v1.2.0"}, tags)
+}
+
+func TestHighestMatch_EqualRankTiesAreTotal(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want string
+	}{
+		{name: "two-part and three-part spellings of one release", tags: []string{"v1.2", "v1.2.0", "v1.1.0"}, want: "v1.2.0"},
+		{name: "prefixed and bare spellings of one release", tags: []string{"1.2.0", "v1.2.0"}, want: "v1.2.0"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, order := range [][]string{tc.tags, reversed(tc.tags)} {
+				got, ok, err := HighestMatch(order, "*1.*")
+				if err != nil || !ok || got != tc.want {
+					t.Errorf("HighestMatch(%v) = %q, %v, %v; want %q", order, got, ok, err, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestHighestMatch_ChannelWordPrefixedTagsRankByTheChannelOrder(t *testing.T) {
+	testCases := []struct {
+		name    string
+		tags    []string
+		pattern string
+		want    string
+	}{
+		{name: "a dated stable outranks a calendar one", tags: []string{"stable-26.5", "stable-26.5.1", "stable-2026-09-27"}, pattern: "stable-*", want: "stable-2026-09-27"},
+		{name: "a numbered patch outranks a lexically larger one", tags: []string{"stable-26.9", "stable-26.10"}, pattern: "stable-*", want: "stable-26.10"},
+		{name: "a rebuild outranks its base", tags: []string{"beta-26.5", "beta-26.5-4", "beta-26.5-10"}, pattern: "beta-*", want: "beta-26.5-10"},
+		{name: "pre-releases keep their lexical order", tags: []string{"v1.2.0-beta.2", "v1.2.0-rc.1"}, pattern: "v1.2.0-*", want: "v1.2.0-rc.1"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok, err := HighestMatch(tc.tags, tc.pattern)
+			if err != nil || !ok || got != tc.want {
+				t.Errorf("HighestMatch(%v, %q) = %q, %v, %v; want %q", tc.tags, tc.pattern, got, ok, err, tc.want)
+			}
+		})
 	}
 }

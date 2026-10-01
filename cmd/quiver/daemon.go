@@ -50,6 +50,8 @@ func newDaemonCmd() *cobra.Command {
 
 			container, err := internal.New(
 				ctx, version, buildID,
+				internal.WithCommit(commit),
+				internal.WithChannel(channel),
 				internal.WithSelfUpdateTrigger(trigger),
 				internal.WithGateway(listener, scheme),
 				internal.WithRecommendations(),

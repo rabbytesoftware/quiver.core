@@ -314,3 +314,17 @@ func TestHandler_Execute_VarsAreNotInjectedIntoEnvironment(t *testing.T) {
 
 	assert.Empty(t, out)
 }
+
+// A run with no workdir would execute in the daemon's own working directory,
+// where an uninstall's "rm -rf data" would act on the daemon: it never starts.
+func TestHandler_Execute_NoWorkDir_IsRefused(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	req := testReq()
+	req.WorkDir = ""
+	s := domainstep.NewRunStep("touch", "touch "+marker, false, "5s", true)
+
+	err := newTestHandler(t).Execute(context.Background(), req, s)
+
+	require.ErrorIs(t, err, steprun.ErrNoWorkDir)
+	assert.NoFileExists(t, marker)
+}

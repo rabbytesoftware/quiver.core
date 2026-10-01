@@ -8,31 +8,39 @@ import (
 )
 
 type Manifold struct {
-	ResolveArrowResult        *domain.Arrow
-	ResolveArrowRaw           []byte
-	ResolveArrowFilename      string
-	ResolveArrowErr           error
-	ResolveArrowAtResult      *domain.Arrow
-	ResolveArrowAtRaw         []byte
-	ResolveArrowAtFilename    string
-	ResolveArrowAtErr         error
-	ResolveCollectionResult   *domain.Collection
-	ResolveCollectionErr      error
-	ParseCollectionResult     *domain.Collection
-	ParseCollectionErr        error
-	ParseArrowResult          *domain.Arrow
-	ParseArrowErr             error
-	ResolveConstraintResult   string
-	ResolveConstraintErr      error
-	ResolveLatestStableRef    string
-	ResolveLatestStableErr    error
-	DefaultBranchRef          string
-	DefaultBranchHash         string
-	DefaultBranchErr          error
-	ResolveLatestInChannelRef string
-	ResolveLatestInChannelErr error
-	ListChannelsResult        []manifold.ChannelInfo
-	ListChannelsErr           error
+	ResolveArrowResult      *domain.Arrow
+	ResolveArrowRaw         []byte
+	ResolveArrowFilename    string
+	ResolveArrowErr         error
+	ResolveArrowAtResult    *domain.Arrow
+	ResolveArrowAtRaw       []byte
+	ResolveArrowAtFilename  string
+	ResolveArrowAtErr       error
+	ResolveCollectionResult *domain.Collection
+	ResolveCollectionErr    error
+	ParseCollectionResult   *domain.Collection
+	ParseCollectionErr      error
+	ParseArrowResult        *domain.Arrow
+	ParseArrowErr           error
+	ListChannelsResult      []manifold.ChannelInfo
+	ListChannelsErr         error
+	SnapshotResult          domain.RefSnapshot
+	SnapshotErr             error
+	SnapshotCalls           int
+	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
+	// from the same SnapshotFn/SnapshotResult as Snapshot.
+	FreshSnapshotCalls int
+	// FreshSnapshotFn, when set, answers FreshSnapshot alone, so a test can
+	// give the live remote a different view than the cached Snapshot.
+	FreshSnapshotFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
+
+	ResolveArrowAtCommitResult   *domain.Arrow
+	ResolveArrowAtCommitRaw      []byte
+	ResolveArrowAtCommitFilename string
+	ResolveArrowAtCommitErr      error
 
 	// ResolveArrowCalls counts every ResolveArrow invocation, so a test can
 	// assert a cache hit skipped the manifold entirely rather than only
@@ -54,13 +62,21 @@ type Manifold struct {
 		path string,
 	) (*domain.Arrow, []byte, string, error)
 
-	// ResolveLatestInChannelFn, when set, answers per channel so a test can
-	// assert exactly which channel string a caller passed.
-	ResolveLatestInChannelFn func(
+	// SnapshotFn, when set, answers per namespace so a test can move a ref
+	// between calls.
+	SnapshotFn func(
 		ctx context.Context,
 		ns domain.Namespace,
-		channel string,
-	) (string, error)
+	) (domain.RefSnapshot, error)
+
+	// ResolveArrowAtCommitFn, when set, answers per (namespace, ref, commit)
+	// so a test can assert which ref and commit a caller fetched.
+	ResolveArrowAtCommitFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		ref string,
+		commit string,
+	) (*domain.Arrow, []byte, string, error)
 }
 
 func (m *Manifold) ResolveArrow(
@@ -105,42 +121,46 @@ func (m *Manifold) ResolveCollection(
 	return m.ResolveCollectionResult, m.ResolveCollectionErr
 }
 
-func (m *Manifold) ResolveConstraint(
-	_ context.Context,
-	_ domain.Namespace,
-	_ string,
-) (string, error) {
-	return m.ResolveConstraintResult, m.ResolveConstraintErr
-}
-
-func (m *Manifold) ResolveLatestStable(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return m.ResolveLatestStableRef, m.ResolveLatestStableErr
-}
-
-func (m *Manifold) ResolveDefaultBranch(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, string, error) {
-	return m.DefaultBranchRef, m.DefaultBranchHash, m.DefaultBranchErr
-}
-
-func (m *Manifold) ResolveLatestInChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (string, error) {
-	if m.ResolveLatestInChannelFn != nil {
-		return m.ResolveLatestInChannelFn(ctx, ns, channel)
-	}
-	return m.ResolveLatestInChannelRef, m.ResolveLatestInChannelErr
-}
-
 func (m *Manifold) ListChannels(
 	_ context.Context,
 	_ domain.Namespace,
 ) ([]manifold.ChannelInfo, error) {
 	return m.ListChannelsResult, m.ListChannelsErr
+}
+
+func (m *Manifold) Snapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	m.SnapshotCalls++
+	if m.SnapshotFn != nil {
+		return m.SnapshotFn(ctx, ns)
+	}
+	return m.SnapshotResult, m.SnapshotErr
+}
+
+func (m *Manifold) FreshSnapshot(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	m.FreshSnapshotCalls++
+	if m.FreshSnapshotFn != nil {
+		return m.FreshSnapshotFn(ctx, ns)
+	}
+	if m.SnapshotFn != nil {
+		return m.SnapshotFn(ctx, ns)
+	}
+	return m.SnapshotResult, m.SnapshotErr
+}
+
+func (m *Manifold) ResolveArrowAtCommit(
+	ctx context.Context,
+	ns domain.Namespace,
+	ref string,
+	commit string,
+) (*domain.Arrow, []byte, string, error) {
+	if m.ResolveArrowAtCommitFn != nil {
+		return m.ResolveArrowAtCommitFn(ctx, ns, ref, commit)
+	}
+	return m.ResolveArrowAtCommitResult, m.ResolveArrowAtCommitRaw, m.ResolveArrowAtCommitFilename, m.ResolveArrowAtCommitErr
 }

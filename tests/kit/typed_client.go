@@ -56,6 +56,18 @@ func (tc *TypedClient) List() ([]dto.ArrowListItemDTO, int) {
 	return env.Data, resp.StatusCode
 }
 
+// ListUserInstalled returns the user-installed catalog entries, what the
+// desktop library shows, and the HTTP status code.
+func (tc *TypedClient) ListUserInstalled() ([]dto.ArrowListItemDTO, int) {
+	resp := tc.raw.ListUserInstalled()
+	defer resp.Body.Close()
+	var env apiEnvelope[[]dto.ArrowListItemDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.ListUserInstalled: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
 // GetDetail returns the arrow detail and the HTTP status code.
 func (tc *TypedClient) GetDetail(ns string) (dto.ArrowDetailDTO, int) {
 	resp := tc.raw.GetDetail(ns)
@@ -63,6 +75,17 @@ func (tc *TypedClient) GetDetail(ns string) (dto.ArrowDetailDTO, int) {
 	var env apiEnvelope[dto.ArrowDetailDTO]
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
 		tc.t.Fatalf("TypedClient.GetDetail: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// GetManifest returns the arrow manifest and the HTTP status code.
+func (tc *TypedClient) GetManifest(ns string) (dto.ArrowManifestDTO, int) {
+	resp := tc.raw.GetManifest(ns)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.ArrowManifestDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.GetManifest: decode: %v", err)
 	}
 	return env.Data, resp.StatusCode
 }
@@ -84,6 +107,30 @@ func (tc *TypedClient) Update(ns string, body map[string]any) int {
 	resp := tc.raw.Update(ns, body)
 	defer resp.Body.Close()
 	return resp.StatusCode
+}
+
+// CheckAvailable sends PATCH /v0/arrow/:ns, which re-resolves what is ahead
+// of the row, and returns what it reported and the HTTP status code.
+func (tc *TypedClient) CheckAvailable(ns string) (dto.UpdateResultDTO, int) {
+	resp := tc.raw.Update(ns, map[string]any{})
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.UpdateResultDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.CheckAvailable: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
+}
+
+// Channels returns the channels ns's repository publishes and the HTTP
+// status code.
+func (tc *TypedClient) Channels(ns string) (dto.ChannelListDTO, int) {
+	resp := tc.raw.Channels(ns)
+	defer resp.Body.Close()
+	var env apiEnvelope[dto.ChannelListDTO]
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		tc.t.Fatalf("TypedClient.Channels: decode: %v", err)
+	}
+	return env.Data, resp.StatusCode
 }
 
 // Execute triggers a lifecycle method and returns the HTTP status code.
@@ -111,6 +158,14 @@ func (tc *TypedClient) Stop(ns string) int {
 // Seed seeds the arrow from a raw manifest body and returns the HTTP status code.
 func (tc *TypedClient) Seed(ns string, body []byte) int {
 	resp := tc.raw.Seed(ns, body)
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+// Adopt declares ns already installed at resolvedRef and returns the HTTP
+// status code.
+func (tc *TypedClient) Adopt(ns, resolvedRef string) int {
+	resp := tc.raw.Adopt(ns, resolvedRef)
 	defer resp.Body.Close()
 	return resp.StatusCode
 }

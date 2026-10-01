@@ -170,8 +170,8 @@ func testArrow(ns domain.Namespace) domain.Arrow {
 			domain.OSLinuxAMD64:  {},
 			domain.OSDarwinARM64: {},
 		},
-		InstalledConstraint: "^1.0.0",
-		InstalledAt:         time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC),
+		SelectorKind: domain.SelectorConstraint,
+		InstalledAt:  time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -407,7 +407,7 @@ func TestStorage_SaveAndFindByKey_RoundTrips(t *testing.T) {
 	assert.Equal(t, []string{"browser", "web"}, found.Metadata.Tags)
 	assert.Equal(t, "icon.png", found.Metadata.Media.Icon)
 	assert.Equal(t, "banner.png", found.Metadata.Media.Banner)
-	assert.Equal(t, "^1.0.0", found.Metadata.InstalledConstraint)
+	assert.Equal(t, domain.SelectorConstraint, found.Metadata.SelectorKind)
 	assert.True(t, found.Metadata.InstalledAt.Equal(vm.Metadata.InstalledAt))
 	assert.Len(t, found.Metadata.Targets, 2)
 

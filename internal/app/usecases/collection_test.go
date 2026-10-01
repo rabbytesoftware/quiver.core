@@ -70,16 +70,22 @@ func (m *mockQuiverRepo) OnCollectionUnfollowed(_ func(context.Context, domain.N
 // --- arrow cache mock ---
 
 type mockArrowCache struct {
-	seedErr       error
-	seedCalls     int
+	adoptCalls    int
 	resolveErr    error
 	resolveCalls  int
 	resolveResult *domain.Arrow
 }
 
-func (m *mockArrowCache) Seed(_ context.Context, _ domain.Namespace, _ []byte) error {
-	m.seedCalls++
-	return m.seedErr
+func (m *mockArrowCache) Adopt(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.SelectorKind,
+	_ domain.Resolved,
+	_ []byte,
+	_ string,
+) error {
+	m.adoptCalls++
+	return nil
 }
 
 func (m *mockArrowCache) ResolveManifest(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
@@ -536,13 +542,22 @@ func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 
 	var seededNS domain.Namespace
 	var seededBytes []byte
+	var seededKind domain.SelectorKind
+	var seededResolved domain.Resolved
+	var seededFilename string
 	var resolveManifestCalled bool
 	var resolveArrowAtCalledWith string
 
 	arrows := &ucmocks.MockArrow{
-		SeedFn: func(_ context.Context, ns domain.Namespace, data []byte) error {
-			seededNS = ns
-			seededBytes = data
+		AdoptFn: func(
+			_ context.Context,
+			ns domain.Namespace,
+			kind domain.SelectorKind,
+			resolved domain.Resolved,
+			data []byte,
+			filename string,
+		) error {
+			seededNS, seededKind, seededResolved, seededBytes, seededFilename = ns, kind, resolved, data, filename
 			return nil
 		},
 		ResolveManifestFn: func(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
@@ -571,6 +586,9 @@ func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, localNS, seededNS)
 	assert.Equal(t, rawBytes, seededBytes)
+	assert.Equal(t, domain.SelectorPin, seededKind)
+	assert.Equal(t, domain.Resolved{Ref: localNS.Ref()}, seededResolved)
+	assert.Equal(t, "arrow.yaml", seededFilename)
 	assert.Equal(t, sourcePath, resolveArrowAtCalledWith, "ResolveArrowAt must be called with the arrow's SourcePath")
 	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called for local arrows")
 }
@@ -611,7 +629,7 @@ func TestFollow_LocalArrowResolveFails_RecordsFailure(t *testing.T) {
 
 	require.NoError(t, uc.Follow(context.Background(), "owner/my-collection@v1"))
 	assert.Equal(t, []domain.Namespace{localNS}, repo.followFailedArrows)
-	assert.Zero(t, arrows.seedCalls, "a member that never resolved has nothing to seed")
+	assert.Zero(t, arrows.adoptCalls, "a member that never resolved has nothing to seed")
 }
 
 // The whole point of ResolveArrowAt is to replace N re-resolutions of the
@@ -626,7 +644,14 @@ func TestFollow_MultipleLocalArrows_UsesResolveArrowAtNotResolveArrow(t *testing
 	var pathsCalledWith []string
 
 	arrows := &ucmocks.MockArrow{
-		SeedFn: func(_ context.Context, _ domain.Namespace, _ []byte) error {
+		AdoptFn: func(
+			_ context.Context,
+			_ domain.Namespace,
+			_ domain.SelectorKind,
+			_ domain.Resolved,
+			_ []byte,
+			_ string,
+		) error {
 			return nil
 		},
 	}

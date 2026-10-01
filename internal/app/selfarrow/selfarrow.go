@@ -2,18 +2,18 @@ package selfarrow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfmanifest"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
-	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 // UpdatedBinaryName is the name the self-arrow's update fetch step downloads
@@ -22,213 +22,117 @@ const UpdatedBinaryName = "quiver-new"
 
 // arrowCatalog is the subset of the arrow catalog EnsureRegistered needs.
 type arrowCatalog interface {
-	Exists(
+	Adopt(
 		ctx context.Context,
 		ns domain.Namespace,
-	) (bool, error)
-	Seed(
-		ctx context.Context,
-		ns domain.Namespace,
-		data []byte,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
 	) error
-	List(
-		ctx context.Context,
-		userInstalled *bool,
-	) ([]models.ArrowView, error)
-	// UpgradeVersionSeeded moves the self-arrow's row from oldNs to newNs
-	// using the manifest bytes already embedded in this binary.
-	UpgradeVersionSeeded(
-		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-		data []byte,
-	) error
-	SetChannel(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-		ref string,
-	) error
-	// CheckVersionNow launches an immediate, detached version-drift check --
-	// see the Arrow interface's own doc comment on this method.
 	CheckVersionNow(
 		ctx context.Context,
 		ns domain.Namespace,
 	)
+	List(
+		ctx context.Context,
+		userInstalled *bool,
+	) ([]models.ArrowView, error)
+	Remove(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 }
 
 // runtimeMarker is the subset of the runtime repository EnsureRegistered
-// needs to mark its own row ready.
+// needs to settle its own row at ready.
 type runtimeMarker interface {
 	GetState(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.ArrowState, error)
+	ClearVersionBadge(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	MarkReady(
 		ctx context.Context,
 		ns domain.Namespace,
-		lastReturn *domainRuntime.Return,
 	) error
 }
 
-// EnsureRegistered lands quiver.core's own catalog row on the version
-// currently running: a first boot seeds it, every boot after an update moves
-// the existing row onto the new ref instead of leaving the old one behind.
-// Every successful path -- including a steady-state boot already registered
-// at this version -- (re)stamps the effective channel (see resolveChannel)
-// and marks the row's runtime ready, so a channel set after the daemon last
-// changed version still takes effect on restart, and the self-arrow never
-// gets stuck reporting "absent": reaching this function running IS proof it
-// is ready, unlike quiver.desktop, which needs an external preinstalled
-// probe to reach the same conclusion. A no-op altogether for an unstamped
+// Channel returns the channel quiver.core's own row tracks: an explicit
+// self_update_channel wins over the channel the build was published under.
+func Channel(
+	configured string,
+	built string,
+) string {
+	if configured != "" {
+		return configured
+	}
+	return built
+}
+
+// EnsureRegistered adopts the running build as quiver.core's own catalog row,
+// offline, from the embedded manifest: quiver.core@<channel> tracking that
+// channel, or quiver.core@<version> pinned to it when no channel is known (a
+// build that declares none). The identity survives updates, so the boot after
+// one only moves the row onto the new state. Rows earlier builds filed under
+// any other identity are removed, and the row's runtime is settled at ready:
+// reaching this function running is proof of that. A no-op for an unstamped
 // build (empty version, or "dev"), since neither is a resolvable ref.
 func EnsureRegistered(
 	ctx context.Context,
 	arrows arrowCatalog,
 	rt runtimeMarker,
 	version string,
+	commit string,
 	channel string,
 ) error {
 	if version == "" || version == "dev" {
 		return nil
 	}
-	channel = resolveChannel(channel, version)
 
 	self, _ := metadata.GetSelfNamespaces()
-	newNs := self.WithRef(version)
+	ns, kind := self.WithRef(channel), selfChannelKind(version, channel)
+	if channel == "" {
+		ns, kind = self.WithRef(version), domain.SelectorTagPin
+	}
+	resolved := domain.Resolved{Ref: version, Commit: commit, Fingerprint: commit}
 
-	exists, err := arrows.Exists(ctx, newNs)
-	if err != nil {
+	if err := arrows.Adopt(ctx, ns, kind, resolved, selfmanifest.Raw(), "ARROW.md"); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
-	if exists {
-		return finishRegistration(ctx, arrows, rt, newNs, channel)
-	}
-
-	oldNs, found, err := currentSelfRow(ctx, arrows, self)
-	if err != nil {
-		return fmt.Errorf("selfarrow: ensure registered: %w", err)
-	}
-	if !found {
-		if err := arrows.Seed(ctx, newNs, selfmanifest.Raw()); err != nil {
-			return fmt.Errorf("selfarrow: ensure registered: %w", err)
-		}
-		return finishRegistration(ctx, arrows, rt, newNs, channel)
-	}
-
-	if err := arrows.UpgradeVersionSeeded(ctx, oldNs, newNs, selfmanifest.Raw()); err != nil {
-		return fmt.Errorf("selfarrow: ensure registered: %w", err)
-	}
-	return finishRegistration(ctx, arrows, rt, newNs, channel)
-}
-
-// finishRegistration applies every follow-up a freshly seeded, moved, or
-// already-registered row needs: the configured channel, and marking the
-// runtime ready. Called on all three of EnsureRegistered's exit paths, since
-// every one of them needs the same follow-up, not just the "new
-// registration" ones.
-func finishRegistration(
-	ctx context.Context,
-	arrows arrowCatalog,
-	rt runtimeMarker,
-	ns domain.Namespace,
-	channel string,
-) error {
-	if err := stampConfiguredChannel(ctx, arrows, ns, channel); err != nil {
+	if err := settleRuntime(ctx, arrows, rt, ns); err != nil {
 		return err
 	}
-	return markReadyIfAbsent(ctx, rt, ns)
+	arrows.CheckVersionNow(ctx, ns)
+	return removeOtherSelfRows(ctx, arrows, self, ns)
 }
 
-// selfChannelPrefixes maps this project's own release-tag prefixes (see
-// .github/workflows/{nightly,prerelease}.yml) to the channel name a version
-// stamped with that prefix unambiguously belongs to. "stable-" carries no
-// entry: it already resolves to "" (stable) the same way any version
-// matching no recognized prefix does.
-var selfChannelPrefixes = map[string]string{
-	"nightly-": "nightly",
-	"beta-":    "beta",
-	"hotfix-":  "hotfix",
-}
-
-// resolveChannel decides the channel EnsureRegistered stamps on this boot's
-// self-arrow row. An explicitly configured channel always wins outright.
-// With none configured, a channel is inferred from the running build's own
-// version string only when its prefix unambiguously matches one of this
-// project's own known non-stable release-tag formats (selfChannelPrefixes)
-// -- concretely, this is what keeps a real nightly build (version
-// "nightly-<sha>") from silently registering onto the stable channel: a
-// short git SHA carries no numeric-dot version core, so
-// resolvers.ChannelForTag itself cannot classify it (see that package's own
-// ParseTag doc comment) and is not used here. Anything else -- a
-// "stable-" version, a bare semver with no prefix, or any unrecognized
-// format -- resolves to "" (stable), exactly as before this existed. This
-// check is pure string matching against the version already in hand: it
-// never touches the network, keeping EnsureRegistered's "no network
-// dependency" contract (see TestEnsureRegistered_UsesEmbeddedManifestNotNetworkResolve)
-// intact.
-func resolveChannel(
-	configured string,
+// selfChannelKind names how the core's own channel row follows its channel,
+// offline: a build published under the channel's own name is a rolling tag
+// (nightly-latest), any other is a member of an ordered channel.
+func selfChannelKind(
 	version string,
-) string {
-	if configured != "" {
-		return configured
+	channel string,
+) domain.SelectorKind {
+	if version == channel {
+		return domain.SelectorPointerChannel
 	}
-	for prefix, name := range selfChannelPrefixes {
-		if strings.HasPrefix(version, prefix) {
-			return name
-		}
-	}
-	return ""
+	return domain.SelectorOrderedChannel
 }
 
-// stampConfiguredChannel applies channel -- already resolved by
-// resolveChannel, so this may be an inferred channel as well as a
-// configured one -- to newNs's freshly seeded or moved row. A no-op for an
-// empty channel: no configured preference and nothing inferable leaves the
-// row exactly as Seed/UpgradeVersionSeeded already left it, unchanged from
-// before this parameter existed. Always passes an empty ref to SetChannel:
-// self-registration re-stamps the effective channel on every boot, never a
-// specific pinned version within it.
-//
-// CheckVersionNow follows SetChannel here for the same reason switchChannel
-// (usecases/arrow.go) already pairs the two: SetChannel unconditionally
-// clears Outdated/RecommendedRef (see its own EmitEvent doc comment), and
-// since resolveChannel now infers "nightly" (etc.) for every unconfigured
-// build of that kind rather than only an explicitly configured one, this
-// pair now runs on every single boot of the common, unconfigured-nightly
-// case -- not just an operator's one-time opt-in. Without an eager check
-// right after, that clear would otherwise stay stale until some external
-// caller happens to query this arrow's detail (GetDetail's own
-// maybeCheckVersion is the only other trigger, and it is not on a timer).
-func stampConfiguredChannel(
+// settleRuntime lands ns's runtime at Ready. An absent runtime is marked
+// ready; ready -> ready is not a valid transition, so a ready one is left
+// alone. An Outdated one is the badge the drift check set before this build's
+// own update, whose commit is skipped for the core's row: once Adopt has
+// moved the row onto this build and nothing newer is available, the badge is
+// cleared offline rather than waiting for the next version check. Any other
+// state is left alone.
+func settleRuntime(
 	ctx context.Context,
 	arrows arrowCatalog,
-	ns domain.Namespace,
-	channel string,
-) error {
-	if channel == "" {
-		return nil
-	}
-	if err := arrows.SetChannel(ctx, ns, channel, ""); err != nil {
-		return fmt.Errorf("selfarrow: ensure registered: %w", err)
-	}
-	arrows.CheckVersionNow(ctx, ns)
-	return nil
-}
-
-// markReadyIfAbsent lands ns's runtime aggregate at Ready when it is
-// currently absent -- the state right after a fresh Seed/UpgradeVersionSeeded,
-// or a steady-state boot that somehow never got marked. absent -> ready is a
-// valid domain.ArrowState transition, but ready -> ready is not (see this
-// repo's CLAUDE.md §3.2), and EnsureRegistered runs on every boot, so this
-// checks first rather than calling MarkReady unconditionally, which would
-// otherwise raise a harmless-but-noisy validation error on every boot after
-// the first. GetState reports ArrowStateAbsent both when the aggregate
-// genuinely holds that state and when it does not exist yet, so no special
-// case is needed for the very first self-registration.
-func markReadyIfAbsent(
-	ctx context.Context,
 	rt runtimeMarker,
 	ns domain.Namespace,
 ) error {
@@ -236,41 +140,77 @@ func markReadyIfAbsent(
 	if err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
-	if state != domain.ArrowStateAbsent {
+	if state == domain.ArrowStateAbsent {
+		if err := rt.MarkReady(ctx, ns); err != nil {
+			return fmt.Errorf("selfarrow: ensure registered: %w", err)
+		}
 		return nil
 	}
-	if err := rt.MarkReady(ctx, ns, nil); err != nil {
+	if state != domain.ArrowStateOutdated {
+		return nil
+	}
+
+	available, err := availableOf(ctx, arrows, ns)
+	if err != nil {
+		return fmt.Errorf("selfarrow: ensure registered: %w", err)
+	}
+	if available != nil {
+		return nil
+	}
+	if err := rt.ClearVersionBadge(ctx, ns); err != nil {
 		return fmt.Errorf("selfarrow: ensure registered: %w", err)
 	}
 	return nil
 }
 
-// currentSelfRow finds quiver.core's one self-arrow record, if any -- there
-// is never more than one, since EnsureRegistered always moves the existing
-// row rather than adding a second.
-//
-// Refs come from each view's Versions, not ArrowView.Namespace: the outer
-// Namespace is the bare repository shared by every installed ref, so
-// comparing it against a "@"-suffixed prefix would never match.
-func currentSelfRow(
+// availableOf reads what the catalog records as available ahead of ns; nil
+// when nothing is, or when ns is not listed.
+func availableOf(
 	ctx context.Context,
 	arrows arrowCatalog,
-	self domain.Namespace,
-) (domain.Namespace, bool, error) {
-	items, err := arrows.List(ctx, nil)
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	views, err := arrows.List(ctx, nil)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-
-	prefix := string(self) + "@"
-	for _, item := range items {
-		for _, version := range item.Versions {
-			if strings.HasPrefix(version.Namespace.String(), prefix) {
-				return version.Namespace, true, nil
+	for _, view := range views {
+		for _, version := range view.Versions {
+			if version.Namespace == ns {
+				return version.Metadata.Available, nil
 			}
 		}
 	}
-	return "", false, nil
+	return nil, nil
+}
+
+// removeOtherSelfRows removes every quiver.core row but current, through the
+// catalog's own forget cascade. A row that cannot be removed does not stop
+// the others from going.
+func removeOtherSelfRows(
+	ctx context.Context,
+	arrows arrowCatalog,
+	self domain.Namespace,
+	current domain.Namespace,
+) error {
+	views, err := arrows.List(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("selfarrow: remove other self rows: %w", err)
+	}
+
+	var errs []error
+	for _, view := range views {
+		for _, version := range view.Versions {
+			if version.Namespace.BareNamespace() != self || version.Namespace == current {
+				continue
+			}
+			err := arrows.Remove(ctx, version.Namespace)
+			if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+				errs = append(errs, fmt.Errorf("selfarrow: remove %s: %w", version.Namespace, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // PromoteRunningBinary copies src (the running executable's own path) to the

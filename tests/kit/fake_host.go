@@ -48,10 +48,7 @@ type FakeHost interface {
 	)
 }
 
-var (
-	errNoFakeRelease  = errors.New("fake host: no release")
-	errNoFakeMetadata = errors.New("fake host: no metadata")
-)
+var errNoFakeMetadata = errors.New("fake host: no metadata")
 
 type fakeHost struct {
 	repos     map[domain.Namespace]HostRepo
@@ -185,13 +182,6 @@ func (f *fakeHost) RepoPageURL(
 
 func (f *fakeHost) DefaultBranches() []string {
 	return []string{"main"}
-}
-
-func (f *fakeHost) LatestRelease(
-	_ context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	return "", fmt.Errorf("fake host: latest release %s: %w", ns, errNoFakeRelease)
 }
 
 func (f *fakeHost) ReleaseAssets(

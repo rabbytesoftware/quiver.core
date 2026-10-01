@@ -1,8 +1,10 @@
 package resolvers
 
 import (
+	"cmp"
+	"maps"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -11,48 +13,93 @@ import (
 // suffix at all — the structural default, not an invented name.
 const StableChannel = "stable"
 
-// tagPattern locates a 2- or 3-part numeric-dot version core anchored so
-// that only a trailing channel suffix, if any, follows it to the end of the
-// tag. Everything before the core is an ignorable prefix (a "v", a project
-// name, a path segment) — unlike IsStableSemver, the whole tag is never
-// required to be a version.
-var tagPattern = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*)?$`)
-
-// tagPatternWithOrdinalSuffix additionally tolerates a trailing separator
-// followed by pure digits after the version core (e.g. "beta-26.5-1") —
-// needed only by the set-aware classifier below (classifyAll), which has
-// sibling tags to tell a genuine prefix-borne ordinal apart from noise.
-// The single-tag ParseTag/ChannelForTag path has no such context and
-// deliberately keeps requiring a letter-led suffix, unchanged from before
-// this fix — this is why the two patterns are kept separate rather than
-// widening tagPattern itself.
+// tagPatternWithOrdinalSuffix locates a 2- or 3-part numeric-dot version core
+// anchored so that only a trailing channel suffix, if any, follows it to the
+// end of the tag. Everything before the core is an ignorable prefix (a "v", a
+// project name, a path segment) — unlike IsStableSemver, the whole tag is
+// never required to be a version. It tolerates a trailing separator followed
+// by pure digits after the core (e.g. "beta-26.5-1"), which the set-aware
+// classifier (classifyAll) tells apart from noise using sibling tags.
 var tagPatternWithOrdinalSuffix = regexp.MustCompile(`^(.*?)(\d+(?:\.\d+){1,2})([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
-// ParseTag splits a tag into its version core (e.g. "1.2.0") and channel
-// suffix (e.g. "rc1", "" when there is none). ok is false when the tag has
-// no numeric-dot run at all — such a tag has nothing to split, and is a
-// pointer-channel candidate instead (see ChannelForTag).
-func ParseTag(
-	tag string,
-) (core, suffix string, ok bool) {
-	m := tagPattern.FindStringSubmatch(tag)
-	if m == nil {
-		return "", "", false
-	}
-	return m[2], strings.TrimLeft(m[3], "-_."), true
-}
+// tagPatternWithDateCore locates a YYYY-MM-DD date standing where a version
+// core would, with an optional .N patch after it, as the release workflows
+// name a dated series: "stable-2026-09-27", "stable-2026-09-27.1",
+// "hotfix-2026-09-27.1-1" (a rebuild), "beta-2026-09-27-1".
+var tagPatternWithDateCore = regexp.MustCompile(`^(.*?)(\d{4})-(\d{1,2})-(\d{1,2})(?:\.(\d+))?([-_.]?[A-Za-z][A-Za-z0-9._-]*|[-_.]?\d+)?$`)
 
-// parseTagFull is like ParseTag but also returns the prefix, and tolerates
-// a trailing pure-digit continuation after the core that ParseTag itself
-// does not — used only by the set-aware classifier below.
+// dateEpoch is subtracted from a date core's year so a date orders among
+// calendar-versioned YY.M cores by its release month: 2026-09-27 ranks as
+// 26.9.27, after 26.5.1 and before 26.10.
+const dateEpoch = 2000
+
+// parseTagFull splits a tag into its prefix, version core and channel suffix.
+// A date is tried first, so its dashes never make a dotted core of its day
+// and patch; its core is rewritten as YY.MM.DD.patch. A date counts only
+// behind a channel word (stable-, beta-, hotfix-, ...): a bare dated
+// snapshot tag in a repository that releases v1.4.0 is never ranked against
+// its versions. ok is false when the tag has neither a date nor a
+// numeric-dot run — a pointer-channel candidate instead.
 func parseTagFull(
 	tag string,
 ) (prefix, core, suffix string, ok bool) {
-	m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag)
-	if m == nil {
-		return "", "", "", false
+	if m := tagPatternWithDateCore.FindStringSubmatch(tag); m != nil && isKnownChannel(normalizeVersionPrefix(m[1])) && validDate(m[2], m[3], m[4]) {
+		return m[1], dateCore(m[2], m[3], m[4], m[5]), strings.TrimLeft(m[6], "-_."), true
 	}
-	return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
+	if m := tagPatternWithOrdinalSuffix.FindStringSubmatch(tag); m != nil {
+		return m[1], m[2], strings.TrimLeft(m[3], "-_."), true
+	}
+	return "", "", "", false
+}
+
+// HasVersionCore reports whether tag carries a version or date core. A tag
+// without one is a pointer (rolling) tag.
+func HasVersionCore(
+	tag string,
+) bool {
+	_, _, _, ok := parseTagFull(tag)
+	return ok
+}
+
+// validDate accepts a date of this century only: anything else behind a
+// channel word (stable-1999-01-01, stable-9999-99-99) is no date.
+func validDate(
+	year, month, day string,
+) bool {
+	y, _ := strconv.Atoi(year)
+	m, _ := strconv.Atoi(month)
+	d, _ := strconv.Atoi(day)
+	return y >= dateEpoch && y < dateEpoch+100 && m >= 1 && m <= 12 && d >= 1 && d <= 31
+}
+
+// dateCore writes a date and its patch as the core YY.MM.DD.patch.
+func dateCore(
+	year, month, day, patch string,
+) string {
+	y, _ := strconv.Atoi(year)
+	y -= dateEpoch
+	if patch == "" {
+		patch = "0"
+	}
+	return strconv.Itoa(y) + "." + month + "." + day + "." + patch
+}
+
+// isDateCore reports a core parseTagFull wrote from a date: the only one
+// with four components.
+func isDateCore(core string) bool {
+	return strings.Count(core, ".") == 3
+}
+
+// knownChannels are prefixes that name a release channel whatever else the
+// repository tags: "beta-26.5" is beta even when every tag is beta-prefixed.
+var knownChannels = []string{
+	"alpha", "beta", "canary", "dev", "edge", "hotfix", "insiders", "next", "nightly", "preview", "rc", StableChannel,
+}
+
+func isKnownChannel(
+	prefix string,
+) bool {
+	return slices.Contains(knownChannels, prefix)
 }
 
 // channelSuffixPattern splits a channel suffix into its leading letters
@@ -80,32 +127,10 @@ func ClassifyChannel(
 	return strings.ToLower(m[1]), n, true
 }
 
-// ChannelForTag reports which channel a tag belongs to, using only that
-// tag's own suffix — it has no sibling tags to compare against, so it
-// cannot recognize a prefix-style discriminator (e.g. "beta-1.2.0"); see
-// classifyAll (used by SortInChannel/ChannelsPresent) for the set-aware
-// classification that can. ok is false for a tag with no numeric-dot run
-// at all — a pointer-channel candidate, whose identity is its own literal
-// ref name rather than anything derived here.
-func ChannelForTag(
-	tag string,
-) (channel string, ok bool) {
-	_, suffix, ok := ParseTag(tag)
-	if !ok {
-		return "", false
-	}
-	if suffix == "" {
-		return StableChannel, true
-	}
-	name, _, _ := ClassifyChannel(suffix)
-	return name, true
-}
-
 // normalizeVersionPrefix strips a trailing separator from a tag's prefix
 // and reports "" for a bare "v" (case-insensitive) — the one, pre-existing,
 // purely mechanical version marker this codebase has always stripped
-// silently (see the original ParseTag doc comment's own "v" example), not
-// a channel name. Every other prefix is returned as-is, lowercased,
+// silently, not a channel name. Every other prefix is returned as-is, lowercased,
 // unstripped further: whether it's a genuine channel marker (like "beta-")
 // or incidental noise (a project name prefix) is not decidable from the
 // prefix's shape alone — see classifyAll for how that's actually decided.
@@ -124,13 +149,48 @@ func normalizeVersionPrefix(
 type classifiedTag struct {
 	tag     string
 	channel string
-	core    string
+	core    [4]int
 	ordinal int
+	dated   bool
+	// tier ranks a semantic version above every dated member of its channel.
+	tier int
+}
+
+// calendarMajor is the smallest major a calendar version (YY.M) carries; a
+// core below it is a semantic version, which dates are never ranked against.
+const calendarMajor = 20
+
+// tierAgainstDates picks one order for a channel that holds dated tags, so
+// the order stays total. When every other member is a semantic version
+// (major below calendarMajor), those rank above all the dates: a third-party
+// stable-2019-05-01 never outranks v2.0.0. When any member is calendar-like
+// (26.10, or any major of calendarMajor or more), the whole channel ranks
+// numerically on one calendar, dates as YY.MM.DD, as quiver.core's own tags
+// do.
+func tierAgainstDates(members []classifiedTag) {
+	if !slices.ContainsFunc(members, func(c classifiedTag) bool { return c.dated }) {
+		return
+	}
+	if slices.ContainsFunc(members, func(c classifiedTag) bool { return !c.dated && c.core[0] >= calendarMajor }) {
+		return
+	}
+	for i := range members {
+		if !members[i].dated {
+			members[i].tier = 1
+		}
+	}
+}
+
+// TagChannel is one ordered channel of a tag set: its classified name and
+// its members, highest precedence first.
+type TagChannel struct {
+	Name    string
+	Members []string
 }
 
 // classifyAll classifies every tag in tags that has a version core at all
 // (a tag with none is a pointer-channel candidate, omitted here — callers
-// already handle "not found" as pointer, via ParseTag's own ok return).
+// already handle "not found" as pointer, via parseTagFull's own ok return).
 //
 // A channel suffix (text after the version core) always wins when present,
 // exactly as before. Only when a tag has no suffix does its prefix (text
@@ -164,7 +224,9 @@ func classifyAll(
 		}
 		norm := normalizeVersionPrefix(prefix)
 		entries = append(entries, entry{tag: t, core: core, suffix: suffix, prefix: norm})
-		prefixValues[norm] = true
+		if !isKnownChannel(norm) {
+			prefixValues[norm] = true
+		}
 	}
 
 	prefixIsMeaningful := len(prefixValues) > 1
@@ -172,7 +234,7 @@ func classifyAll(
 	result := make([]classifiedTag, 0, len(entries))
 	for _, e := range entries {
 		channel, ordinal := classifyOne(e.suffix, e.prefix, prefixIsMeaningful)
-		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: e.core, ordinal: ordinal})
+		result = append(result, classifiedTag{tag: e.tag, channel: channel, core: semverParts(e.core), ordinal: ordinal, dated: isDateCore(e.core)})
 	}
 	return result
 }
@@ -204,79 +266,127 @@ func classifyByPrefix(
 	prefixIsMeaningful bool,
 	ordinal int,
 ) (channel string, ord int) {
-	if prefixIsMeaningful && prefix != "" {
+	if prefix != "" && (prefixIsMeaningful || isKnownChannel(prefix)) {
 		return prefix, ordinal
 	}
 	return StableChannel, ordinal
 }
 
-// SortInChannel returns every tag belonging to channel, ordered by
-// precedence (highest first): highest version core wins, ties within the
-// same core broken by ordinal. Empty when no tag in tags belongs to
-// channel.
-func SortInChannel(
-	tags []string,
-	channel string,
-) []string {
-	classified := classifyAll(tags)
-	var candidates []classifiedTag
-	for _, c := range classified {
-		if c.channel == channel {
-			candidates = append(candidates, c)
-		}
+// Outranks reports whether tag a ranks above tag b within one channel
+// (version or date core, then ordinal). Tags of different channels, read
+// each on its own ("v1.2.0-rc.1" is rc, "v1.2.0" stable), never outrank one
+// another, and neither does a tag with no core.
+func Outranks(
+	a, b string,
+) bool {
+	rankA, okA := rankOf(a)
+	rankB, okB := rankOf(b)
+	if !okA || !okB || rankA.channel != rankB.channel {
+		return false
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		return higherPrecedenceClassified(candidates[i], candidates[j])
-	})
-	out := make([]string, len(candidates))
-	for i, c := range candidates {
-		out[i] = c.tag
+	pair := []classifiedTag{rankA, rankB}
+	tierAgainstDates(pair)
+	return compareClassified(pair[0], pair[1]) < 0
+}
+
+// ConstraintOutranks reports whether tag a ranks above tag b in the order a
+// constraint picks its target in (HighestMatch).
+func ConstraintOutranks(
+	a, b string,
+) bool {
+	tags := []string{b, a}
+	sortTagsDesc(tags)
+	return tags[0] == a && a != b
+}
+
+func rankOf(
+	tag string,
+) (classifiedTag, bool) {
+	prefix, core, suffix, ok := parseTagFull(tag)
+	if !ok {
+		return classifiedTag{}, false
+	}
+	channel, ordinal := classifyOne(suffix, normalizeVersionPrefix(prefix), false)
+	return classifiedTag{tag: tag, channel: channel, core: semverParts(core), ordinal: ordinal, dated: isDateCore(core)}, true
+}
+
+// GroupChannels classifies tags once and buckets them into ordered
+// channels, alphabetically by name, each member list in precedence order.
+func GroupChannels(
+	tags []string,
+) []TagChannel {
+	byChannel := make(map[string][]classifiedTag)
+	for _, c := range classifyAll(tags) {
+		byChannel[c.channel] = append(byChannel[c.channel], c)
+	}
+
+	out := make([]TagChannel, 0, len(byChannel))
+	for _, name := range slices.Sorted(maps.Keys(byChannel)) {
+		candidates := byChannel[name]
+		tierAgainstDates(candidates)
+		slices.SortFunc(candidates, compareClassified)
+		members := make([]string, len(candidates))
+		for i, c := range candidates {
+			members[i] = c.tag
+		}
+		out = append(out, TagChannel{Name: name, Members: members})
 	}
 	return out
 }
 
-// LatestInChannel returns the tag with the highest precedence among tags
-// belonging to the given channel: highest version core wins, ties within
-// the same core broken by ordinal. ok is false when no tag in tags belongs
-// to channel.
-func LatestInChannel(
+// SortInChannel returns every tag belonging to channel, ordered by
+// precedence (highest first). Empty when no tag in tags belongs to channel.
+func SortInChannel(
 	tags []string,
 	channel string,
-) (tag string, ok bool) {
-	sorted := SortInChannel(tags, channel)
-	if len(sorted) == 0 {
-		return "", false
+) []string {
+	for _, c := range GroupChannels(tags) {
+		if c.Name == channel {
+			return c.Members
+		}
 	}
-	return sorted[0], true
+	return nil
 }
 
-// higherPrecedenceClassified reports whether a outranks b within the same
-// channel: by version core first, then by ordinal.
-func higherPrecedenceClassified(
+// compareClassified orders two tags of one channel, highest precedence
+// first: by version core, then by ordinal, then by name, so equal-rank tags
+// such as v1.2 and v1.2.0 always settle the same way.
+func compareClassified(
 	a, b classifiedTag,
-) bool {
-	if a.core != b.core {
-		return semverGT(a.core, b.core)
+) int {
+	if c := cmp.Compare(b.tier, a.tier); c != 0 {
+		return c
 	}
-	return a.ordinal > b.ordinal
+	if c := compareCores(b.core, a.core); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(b.ordinal, a.ordinal); c != 0 {
+		return c
+	}
+	return strings.Compare(b.tag, a.tag)
+}
+
+func compareCores(
+	a, b [4]int,
+) int {
+	for i := range a {
+		if c := cmp.Compare(a[i], b[i]); c != 0 {
+			return c
+		}
+	}
+	return 0
 }
 
 // ChannelsPresent returns the distinct ordered-channel names present in
-// tags (a tag with no version core at all is a pointer-channel candidate,
-// not included here — see ParseTag). Order is alphabetical, for
-// determinism; callers needing precedence order call SortInChannel per
-// channel.
+// tags, alphabetically (a tag with no version core at all is a
+// pointer-channel candidate, not included here — see parseTagFull).
 func ChannelsPresent(
 	tags []string,
 ) []string {
-	seen := make(map[string]bool)
-	for _, c := range classifyAll(tags) {
-		seen[c.channel] = true
+	groups := GroupChannels(tags)
+	out := make([]string, len(groups))
+	for i, c := range groups {
+		out[i] = c.Name
 	}
-	out := make([]string, 0, len(seen))
-	for c := range seen {
-		out = append(out, c)
-	}
-	sort.Strings(out)
 	return out
 }

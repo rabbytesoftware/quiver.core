@@ -65,6 +65,17 @@ func TestStepsForMethod_Update_NoSteps_ReturnsEmpty(t *testing.T) {
 	assert.Nil(t, availableIn)
 }
 
+func TestStepsForMethod_Update_NoUpdateSteps_ReinstallsInPlace(t *testing.T) {
+	install := domainStep.StepList{runStep()}
+	target := domain.Target{
+		Lifecycle: domain.TargetLifecycle{Install: install},
+	}
+	steps, availableIn, err := assemblerinternal.StepsForMethod(target, domain.MethodUpdate)
+	require.NoError(t, err)
+	assert.Equal(t, []domainStep.Step(install), steps)
+	assert.Nil(t, availableIn)
+}
+
 func TestStepsForMethod_Execute_WithSteps(t *testing.T) {
 	target := domain.Target{
 		Lifecycle: domain.TargetLifecycle{

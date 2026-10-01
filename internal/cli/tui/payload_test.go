@@ -69,9 +69,9 @@ func TestCheckPayload_RecoversAPanicFromTheYAMLEncoder(t *testing.T) {
 // different key names, which is why every DTO must carry both.
 func TestCheckPayload_DoesNotCatchTagDivergence(t *testing.T) {
 	type mismatched struct {
-		InstalledConstraint string `json:"installed_constraint"`
+		UserInstalled bool `json:"user_installed"`
 	}
 
-	assert.NoError(t, tui.CheckPayload(mismatched{InstalledConstraint: "^1.2"}),
+	assert.NoError(t, tui.CheckPayload(mismatched{UserInstalled: true}),
 		"CheckPayload proves encodability, not key parity")
 }

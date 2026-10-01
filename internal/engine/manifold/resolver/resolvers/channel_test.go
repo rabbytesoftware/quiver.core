@@ -2,42 +2,6 @@ package resolvers
 
 import "testing"
 
-func TestParseTag_VersionCoreAndSuffix(t *testing.T) {
-	testCases := []struct {
-		name       string
-		tag        string
-		wantCore   string
-		wantSuffix string
-		wantOK     bool
-	}{
-		{name: "bare version", tag: "1.2.0", wantCore: "1.2.0", wantSuffix: "", wantOK: true},
-		{name: "v prefix", tag: "v1.2.0", wantCore: "1.2.0", wantSuffix: "", wantOK: true},
-		{name: "two part version", tag: "v1.5", wantCore: "1.5", wantSuffix: "", wantOK: true},
-		{name: "project name prefix", tag: "myapp_v1.2.0", wantCore: "1.2.0", wantSuffix: "", wantOK: true},
-		{name: "release candidate suffix no separator", tag: "1.2.0-rc1", wantCore: "1.2.0", wantSuffix: "rc1", wantOK: true},
-		{name: "dotted suffix", tag: "1.2.0.beta3", wantCore: "1.2.0", wantSuffix: "beta3", wantOK: true},
-		{name: "prefix and dotted suffix together", tag: "release-1.2.0-beta.3", wantCore: "1.2.0", wantSuffix: "beta.3", wantOK: true},
-		{name: "no numeric run at all", tag: "nightly", wantCore: "", wantSuffix: "", wantOK: false},
-		{name: "empty string", tag: "", wantCore: "", wantSuffix: "", wantOK: false},
-		{name: "bare pure-digit trailing suffix is not a letter-led channel suffix", tag: "1.2.0-1", wantCore: "", wantSuffix: "", wantOK: false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			core, suffix, ok := ParseTag(tc.tag)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
-			}
-			if core != tc.wantCore {
-				t.Errorf("core = %q, want %q", core, tc.wantCore)
-			}
-			if suffix != tc.wantSuffix {
-				t.Errorf("suffix = %q, want %q", suffix, tc.wantSuffix)
-			}
-		})
-	}
-}
-
 func TestClassifyChannel_NameAndOrdinal(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -64,33 +28,6 @@ func TestClassifyChannel_NameAndOrdinal(t *testing.T) {
 			}
 			if hasOrdinal != tc.wantHasOrdinal {
 				t.Errorf("hasOrdinal = %v, want %v", hasOrdinal, tc.wantHasOrdinal)
-			}
-		})
-	}
-}
-
-func TestChannelForTag_Classification(t *testing.T) {
-	testCases := []struct {
-		name        string
-		tag         string
-		wantChannel string
-		wantOK      bool
-	}{
-		{name: "stable release has no suffix", tag: "v1.4.0", wantChannel: "stable", wantOK: true},
-		{name: "release candidate", tag: "v1.5.0-rc2", wantChannel: "rc", wantOK: true},
-		{name: "beta with dotted ordinal", tag: "1.2.0-beta.3", wantChannel: "beta", wantOK: true},
-		{name: "pointer-shaped tag has no channel", tag: "nightly", wantChannel: "", wantOK: false},
-		{name: "bare pure-digit trailing suffix has no single-tag channel", tag: "1.2.0-1", wantChannel: "", wantOK: false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			channel, ok := ChannelForTag(tc.tag)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
-			}
-			if channel != tc.wantChannel {
-				t.Errorf("channel = %q, want %q", channel, tc.wantChannel)
 			}
 		})
 	}
@@ -127,64 +64,6 @@ func TestSortInChannel_OrdersByPrecedence(t *testing.T) {
 				if got[i] != tc.want[i] {
 					t.Errorf("index %d: got %q, want %q", i, got[i], tc.want[i])
 				}
-			}
-		})
-	}
-}
-
-func TestLatestInChannel_PicksHighestPrecedence(t *testing.T) {
-	testCases := []struct {
-		name    string
-		tags    []string
-		channel string
-		want    string
-		wantOK  bool
-	}{
-		{
-			name:    "rc ordinals group into one channel across releases",
-			tags:    []string{"v1.2.0-rc1", "v1.2.0-rc2", "v1.3.0-rc1"},
-			channel: "rc",
-			want:    "v1.3.0-rc1",
-			wantOK:  true,
-		},
-		{
-			name:    "same version core, ordinal breaks the tie",
-			tags:    []string{"v1.2.0-rc1", "v1.2.0-rc2"},
-			channel: "rc",
-			want:    "v1.2.0-rc2",
-			wantOK:  true,
-		},
-		{
-			name:    "stable channel ignores prerelease tags",
-			tags:    []string{"v1.4.0", "v1.5.0-rc1", "v1.3.0"},
-			channel: "stable",
-			want:    "v1.4.0",
-			wantOK:  true,
-		},
-		{
-			name:    "no tag in the requested channel",
-			tags:    []string{"v1.4.0"},
-			channel: "beta",
-			want:    "",
-			wantOK:  false,
-		},
-		{
-			name:    "empty tag list",
-			tags:    nil,
-			channel: "stable",
-			want:    "",
-			wantOK:  false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := LatestInChannel(tc.tags, tc.channel)
-			if ok != tc.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
-			}
-			if got != tc.want {
-				t.Errorf("got = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -343,6 +222,242 @@ func TestSortInChannel_UniformPrefixWithNumericOrdinalSuffix_BreaksTiesWithinSta
 	for i := range got {
 		if got[i] != want[i] {
 			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestGroupChannels_EqualRankTiesAreTotal(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "v1.2 and v1.2.0 rank equal; the name breaks the tie",
+			tags: []string{"v1.2", "v1.1.0", "v1.2.0"},
+			want: []TagChannel{{Name: "stable", Members: []string{"v1.2.0", "v1.2", "v1.1.0"}}},
+		},
+		{
+			name: "1.2.0 and v1.2.0 rank equal; the name breaks the tie",
+			tags: []string{"1.2.0", "v1.2.0"},
+			want: []TagChannel{{Name: "stable", Members: []string{"v1.2.0", "1.2.0"}}},
+		},
+		{
+			name: "channels listed alphabetically, each in precedence order",
+			tags: []string{"v1.0.0", "v2.0.0-rc1", "v2.0.0-beta.2", "v2.0.0-beta.1"},
+			want: []TagChannel{
+				{Name: "beta", Members: []string{"v2.0.0-beta.2", "v2.0.0-beta.1"}},
+				{Name: "rc", Members: []string{"v2.0.0-rc1"}},
+				{Name: StableChannel, Members: []string{"v1.0.0"}},
+			},
+		},
+		{
+			name: "no versioned tag has no ordered channel",
+			tags: []string{"nightly"},
+			want: []TagChannel{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, order := range [][]string{tc.tags, reversed(tc.tags)} {
+				got := GroupChannels(order)
+				if !equalGroups(got, tc.want) {
+					t.Errorf("GroupChannels(%v) = %v, want %v", order, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func reversed(tags []string) []string {
+	out := make([]string, len(tags))
+	for i, tag := range tags {
+		out[len(tags)-1-i] = tag
+	}
+	return out
+}
+
+func equalGroups(a, b []TagChannel) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Name != b[i].Name || len(a[i].Members) != len(b[i].Members) {
+			return false
+		}
+		for j := range a[i].Members {
+			if a[i].Members[j] != b[i].Members[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestGroupChannels_ChannelNamedPrefixesAndDates(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "a uniform known prefix still names its channel",
+			tags: []string{"beta-1.0", "beta-1.1"},
+			want: []TagChannel{{Name: "beta", Members: []string{"beta-1.1", "beta-1.0"}}},
+		},
+		{
+			name: "a known prefix does not make an unknown uniform prefix count",
+			tags: []string{"release-1.0", "release-1.1", "beta-2.0"},
+			want: []TagChannel{
+				{Name: "beta", Members: []string{"beta-2.0"}},
+				{Name: StableChannel, Members: []string{"release-1.1", "release-1.0"}},
+			},
+		},
+		{
+			name: "a date core ranks by year within the century, then month and day",
+			tags: []string{"beta-26.5-4", "beta-2026-09-27", "beta-26.10", "beta-2026-09-27-1"},
+			want: []TagChannel{{Name: "beta", Members: []string{"beta-26.10", "beta-2026-09-27-1", "beta-2026-09-27", "beta-26.5-4"}}},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := GroupChannels(tc.tags)
+			if !equalGroups(got, tc.want) {
+				t.Errorf("GroupChannels(%v) = %v, want %v", tc.tags, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOutranks(t *testing.T) {
+	testCases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "higher core", a: "v1.3.0", b: "v1.2.0", want: true},
+		{name: "lower core", a: "v1.2.0", b: "v1.3.0", want: false},
+		{name: "date after calendar month", a: "stable-2026-09-27", b: "stable-26.5.1", want: true},
+		{name: "calendar month after date", a: "stable-26.10", b: "stable-2026-09-27", want: true},
+		{name: "higher ordinal on one core", a: "beta-26.5-4", b: "beta-26.5-3", want: true},
+		{name: "equal rank", a: "v1.2", b: "v1.2.0", want: false},
+		{name: "no core on a", a: "nightly", b: "v1.0.0", want: false},
+		{name: "no core on b", a: "v1.0.0", b: "nightly", want: false},
+		{name: "a pre-2000 year is no date", a: "stable-1999-01-01", b: "stable-26.0", want: false},
+		{name: "a semantic version outranks a dated tag of its channel", a: "stable-2019-05-01", b: "v2.0.0", want: false},
+		{name: "a dated tag never outranks a semantic version", a: "v2.0.0", b: "stable-2019-05-01", want: true},
+		{name: "a calendar version still ranks against dates", a: "stable-2026-09-27", b: "stable-26.5.1", want: true},
+		{name: "a bare date carries no core", a: "2026-01-02", b: "v1.4.0", want: false},
+		{name: "a pre-release never outranks another channel's release", a: "v1.2.0-rc.1", b: "v1.2.0", want: false},
+		{name: "a dated stable patch outranks its date", a: "stable-2026-09-27.1", b: "stable-2026-09-27", want: true},
+		{name: "a later date outranks an earlier date's patch", a: "stable-2026-10-01", b: "stable-2026-09-27.9", want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Outranks(tc.a, tc.b); got != tc.want {
+				t.Errorf("Outranks(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGroupChannels_DatedBuildNumbers(t *testing.T) {
+	tags := []string{"stable-2026-09-27", "stable-2026-09-27.2", "stable-2026-09-27.10", "stable-2026-09-27.1", "stable-2026-10-01", "stable-26.5.1"}
+	want := []TagChannel{{Name: StableChannel, Members: []string{
+		"stable-2026-10-01", "stable-2026-09-27.10", "stable-2026-09-27.2", "stable-2026-09-27.1", "stable-2026-09-27", "stable-26.5.1",
+	}}}
+
+	got := GroupChannels(tags)
+
+	if !equalGroups(got, want) {
+		t.Errorf("GroupChannels = %v, want %v", got, want)
+	}
+}
+
+func TestConstraintOutranks(t *testing.T) {
+	testCases := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{name: "a release outranks its pre-release", a: "v1.2.0", b: "v1.2.0-rc.1", want: true},
+		{name: "a pre-release never outranks a release", a: "v1.2.0-rc.1", b: "v1.2.0", want: false},
+		{name: "a numbered build never outranks the release", a: "v1.2.0-1", b: "v1.2.0", want: false},
+		{name: "a higher release", a: "v1.3.0", b: "v1.2.0", want: true},
+		{name: "itself", a: "v1.2.0", b: "v1.2.0", want: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ConstraintOutranks(tc.a, tc.b); got != tc.want {
+				t.Errorf("ConstraintOutranks(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGroupChannels_DatesNextToSemanticVersions(t *testing.T) {
+	testCases := []struct {
+		name string
+		tags []string
+		want []TagChannel
+	}{
+		{
+			name: "semantic versions rank above every date of their channel",
+			tags: []string{"v1.0.0", "v2.0.0", "stable-2019-05-01", "stable-2026-01-02"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"v2.0.0", "v1.0.0", "stable-2026-01-02", "stable-2019-05-01"}}},
+		},
+		{
+			name: "a calendar-like major puts the whole channel on one calendar",
+			tags: []string{"v1.0.0", "v21.0.0", "stable-2025-01-01"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-2025-01-01", "v21.0.0", "v1.0.0"}}},
+		},
+		{
+			name: "a dated-only channel orders by date",
+			tags: []string{"stable-2026-01-02", "stable-2025-12-31"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-2026-01-02", "stable-2025-12-31"}}},
+		},
+		{
+			name: "calendar versions and dates share one calendar",
+			tags: []string{"stable-26.5.1", "stable-2026-09-27", "stable-26.10"},
+			want: []TagChannel{{Name: StableChannel, Members: []string{"stable-26.10", "stable-2026-09-27", "stable-26.5.1"}}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := GroupChannels(tc.tags); !equalGroups(got, tc.want) {
+				t.Errorf("GroupChannels(%v) = %v, want %v", tc.tags, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseTagFull_InvalidDatesAreNoDates(t *testing.T) {
+	for _, tag := range []string{"stable-1999-01-01", "stable-2100-01-01", "stable-9999-99-99", "stable-2026-13-01", "stable-2026-00-10", "stable-2026-01-32", "beta-2026-02-00"} {
+		t.Run(tag, func(t *testing.T) {
+			_, _, _, ok := parseTagFull(tag)
+			if ok {
+				t.Errorf("%s parsed as a version", tag)
+			}
+		})
+	}
+}
+
+// Every channel's order is total: the pairwise Outranks agrees with it for
+// any two members of the channels above.
+func TestOutranks_AgreesWithTheChannelOrder(t *testing.T) {
+	for _, tags := range [][]string{
+		{"v1.0.0", "v21.0.0", "stable-2025-01-01"},
+		{"v1.0.0", "v2.0.0", "stable-2019-05-01", "stable-2026-01-02"},
+		{"stable-26.5.1", "stable-2026-09-27", "stable-2026-09-27.1", "stable-26.10"},
+	} {
+		members := GroupChannels(tags)[0].Members
+		for i := 0; i+1 < len(members); i++ {
+			if Outranks(members[i+1], members[i]) {
+				t.Errorf("%v: Outranks(%q, %q) contradicts the channel order", members, members[i+1], members[i])
+			}
 		}
 	}
 }

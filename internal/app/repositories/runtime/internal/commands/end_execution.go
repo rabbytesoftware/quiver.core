@@ -31,10 +31,11 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 	exec := current.Execution
 
 	ret := domainRuntime.Return{
-		Method:    exec.Method,
-		Outcome:   c.Outcome,
-		Steps:     exec.Steps,
-		Variables: exec.Variables,
+		ExecutionID: exec.ID,
+		Method:      exec.Method,
+		Outcome:     c.Outcome,
+		Steps:       exec.Steps,
+		Variables:   exec.Variables,
 	}
 
 	newState := stateAfterEnd(exec.Method, c.Outcome)

@@ -78,7 +78,7 @@ func (s *SearchSuite) TestHome_EmptyThenRefreshThenPopulated_ReadsNeverCallAHost
 	}
 	s.Equal("Popular", home.Shelves[0].Title)
 
-	resolves, _ := counter.counts()
+	resolves := counter.fetches()
 	s.Equal(3, resolves, "each candidate is resolved once across both shelves; the second shelf reads the vault")
 
 	searches := prov.searches()
@@ -88,13 +88,13 @@ func (s *SearchSuite) TestHome_EmptyThenRefreshThenPopulated_ReadsNeverCallAHost
 		s.Require().Equal(http.StatusOK, status)
 	}
 	s.Equal(searches, prov.searches(), "reading home never reaches a host")
-	again, _ := counter.counts()
+	again := counter.fetches()
 	s.Equal(resolves, again, "reading home never resolves a manifest")
 
 	s.Equal(http.StatusAccepted, statusOf(tc.RefreshHome()))
 	s.Require().Eventually(func() bool { return prov.searches() == searches+2 }, catalogWait, 20*time.Millisecond)
 	s.homeFilled(tc)
-	repeated, _ := counter.counts()
+	repeated := counter.fetches()
 	s.Equal(resolves, repeated, "a repeat refresh spends nothing on what the vault holds or knows to be absent")
 }
 

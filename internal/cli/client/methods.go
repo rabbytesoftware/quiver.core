@@ -106,8 +106,9 @@ func (c *Client) RemoveArrow(ctx context.Context, ns string) error {
 	return c.do(ctx, http.MethodDelete, "/v0/arrow/"+encodeNS(ns), nil, nil)
 }
 
-// RefreshArrow re-fetches the arrow's manifest from its source, replacing the
-// stored (and cached) copy.
+// RefreshArrow re-checks the arrow's selector: a row nothing is installed from
+// advances to the newer ref, an installed one records it as available for the
+// runtime update.
 func (c *Client) RefreshArrow(ctx context.Context, ns string) error {
 	return c.do(ctx, http.MethodPatch, "/v0/arrow/"+encodeNS(ns), nil, nil)
 }

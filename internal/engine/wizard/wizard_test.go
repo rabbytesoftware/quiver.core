@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -627,4 +628,23 @@ func TestProbe_UnboundedStep_CutOffByCeiling(t *testing.T) {
 		"the ceiling must cut the probe off near maxProbeDuration, not let it run for anywhere near its own 5m declared timeout or the 90s sleep")
 	assert.GreaterOrEqual(t, elapsed, maxProbeDuration-time.Second,
 		"the probe must not return suspiciously early either — it should run right up to the ceiling")
+}
+
+// A preinstalled probe runs before any workdir exists for its namespace. It
+// runs in a scratch directory of its own, never the daemon's working
+// directory, which is gone again once it answered.
+func TestProbe_NoWorkDir_RunsInAScratchDirectory(t *testing.T) {
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	record := filepath.Join(t.TempDir(), "where")
+	w := newTestWizard(t)
+	req := newTestReq(domainstep.NewRunStep("probe", "pwd > "+record+" && touch probe-ran", false, "5s", true))
+	req.WorkDir = ""
+
+	require.NoError(t, w.Probe(context.Background(), req))
+
+	assert.NoFileExists(t, filepath.Join(cwd, "probe-ran"), "the probe never runs in the daemon's working directory")
+	where, err := os.ReadFile(record) // #nosec G304 -- a temp file this test owns
+	require.NoError(t, err)
+	assert.NoDirExists(t, strings.TrimSpace(string(where)), "the scratch directory is removed")
 }

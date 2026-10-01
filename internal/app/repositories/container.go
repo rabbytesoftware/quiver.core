@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/char2cs/asynx"
 	gormdb "gorm.io/gorm"
@@ -21,6 +23,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/graph"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
@@ -44,6 +47,7 @@ type Container struct {
 	Runtime    runtime.Runtime
 	Collection collection.Collection
 	Graph      graph.Graph
+	Lifecycle  lifecycle.Lifecycle
 	Cascade    cascade.Cascade
 	Discovery  discovery.Discovery
 	// Recommendation is nil when Discovery is: it refreshes through it.
@@ -54,7 +58,8 @@ type Container struct {
 }
 
 type repoOpts struct {
-	selfUpdate *selfupdate.Trigger
+	selfUpdate           *selfupdate.Trigger
+	versionCheckInterval *time.Duration
 }
 
 // Option configures repositories.New.
@@ -66,6 +71,14 @@ func WithSelfUpdateTrigger(
 	trig *selfupdate.Trigger,
 ) Option {
 	return func(o *repoOpts) { o.selfUpdate = trig }
+}
+
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(
+	d time.Duration,
+) Option {
+	return func(o *repoOpts) { o.versionCheckInterval = &d }
 }
 
 func resolveOpts(
@@ -97,7 +110,8 @@ func New(
 	deviceDB *gormdb.DB,
 	opts ...Option,
 ) (*Container, error) {
-	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os)...)
+	cfg := resolveOpts(opts)
+	cat, err := repoarrow.New(db, axArrow, v, m, hub, arrowOptions(w, axRuntime, os, cfg.versionCheckInterval)...)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: arrow: %w", err)
 	}
@@ -107,7 +121,7 @@ func New(
 	// through, so a manifest fetched once for one endpoint serves the graph
 	// walk too instead of every /dependencies call paying its own live
 	// manifold fetch for the same namespace.
-	g, err := graph.New(db, os, m, cat.ResolveManifest)
+	g, err := graph.New(db, os, cat.ResolveManifest)
 	if err != nil {
 		return nil, fmt.Errorf("repositories: graph: %w", err)
 	}
@@ -117,7 +131,8 @@ func New(
 		return nil, fmt.Errorf("repositories: quiver: %w", err)
 	}
 
-	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates)
+	targets := &updateTargets{}
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates, targets.lookup)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -153,11 +168,15 @@ func New(
 		return nil, fmt.Errorf("repositories: device: %w", err)
 	}
 
+	lc := lifecycle.New(cat, rt, g)
+	targets.set(lc.UpdateTarget)
+
 	c := &Container{
 		Arrow:          cat,
 		Runtime:        rt,
 		Collection:     coll,
 		Graph:          g,
+		Lifecycle:      lc,
 		Cascade:        fc,
 		Discovery:      disc,
 		Recommendation: rec,
@@ -166,7 +185,12 @@ func New(
 		Device:         dev,
 	}
 
-	if err := c.wireCallbacks(resolveOpts(opts).selfUpdate); err != nil {
+	if err := c.wireCallbacks(cfg.selfUpdate); err != nil {
+		discardCollection(coll)
+		return nil, err
+	}
+
+	if err := c.wireLifecycle(); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -183,6 +207,7 @@ func newRuntime(
 	g graph.Graph,
 	os domain.OS,
 	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
+	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) (runtime.Runtime, error) {
 	return runtime.New(
 		arrowGetter(axArrow),
@@ -197,23 +222,59 @@ func newRuntime(
 		catalogLister(cat),
 		os,
 		listRuntimeAggregates,
-		manifestRefresher(cat),
+		manifestRefresher(cat, updateTarget),
 	)
 }
 
+// manifestRefresher stages the manifest of the release a run builds, read
+// again from its host: the row's installed release for an install, and for an
+// update the target the update began toward — never the row's Available,
+// which a check may have moved past it since. A rolling release re-published
+// under the same tag drafts new digests this way.
 func manifestRefresher(
 	cat repoarrow.Arrow,
+	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) runtime.RefreshManifestFn {
-	return func(ctx context.Context, ns domain.Namespace) error {
-		arrow, err := cat.RefreshManifest(ctx, ns)
+	return func(ctx context.Context, ns domain.Namespace, method string) error {
+		row, err := cat.Get(ctx, ns)
 		if err != nil {
 			return fmt.Errorf("refresh manifest %s: %w", ns, err)
 		}
-		if err := cat.UpdateManifest(ctx, ns, arrow); err != nil {
-			return fmt.Errorf("apply refreshed manifest %s: %w", ns, err)
+		release := domain.Available{Ref: row.Resolved.Ref, Commit: row.Resolved.Commit}
+		if method == domain.MethodUpdate {
+			target, ok := updateTarget(ns)
+			if !ok {
+				return fmt.Errorf("refresh manifest %s: no update in flight: %w", ns, apperrors.ErrStateViolation)
+			}
+			release = target
+		}
+		if _, err := cat.RefreshToTarget(ctx, ns, release); err != nil {
+			return fmt.Errorf("refresh manifest %s: %w", ns, err)
 		}
 		return nil
 	}
+}
+
+// updateTargets hands the runtime, built before the lifecycle, the lifecycle's
+// remembered update targets once it exists.
+type updateTargets struct {
+	of atomic.Pointer[func(domain.Namespace) (domain.Available, bool)]
+}
+
+func (u *updateTargets) set(
+	of func(domain.Namespace) (domain.Available, bool),
+) {
+	u.of.Store(&of)
+}
+
+func (u *updateTargets) lookup(
+	ns domain.Namespace,
+) (domain.Available, bool) {
+	of := u.of.Load()
+	if of == nil {
+		return domain.Available{}, false
+	}
+	return (*of)(ns)
 }
 
 // arrowOptions assembles what the arrow repository needs from the runtime
@@ -223,9 +284,13 @@ func arrowOptions(
 	w wizardPkg.Wizard,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	os domain.OS,
+	versionCheckInterval *time.Duration,
 ) []repoarrow.Option {
 	opts := []repoarrow.Option{
 		repoarrow.WithVersionOutdatedSync(runtime.SetVersionOutdated(axRuntime)),
+	}
+	if versionCheckInterval != nil {
+		opts = append(opts, repoarrow.WithVersionCheckInterval(*versionCheckInterval))
 	}
 
 	return append(opts, preinstalledDetection(w, axRuntime, os)...)
@@ -498,15 +563,6 @@ func (c *Container) wireCallbacks(
 		return fmt.Errorf("repositories: wire OnArrowUpdated: %w", err)
 	}
 
-	// An upgrade replaces the manifest, so it replaces the edges too. graph no
-	// longer projects this itself, and the usecase reaction that runs after
-	// this one reads the edges back.
-	if err := c.Arrow.OnArrowUpgraded(func(ctx context.Context, a domain.Arrow) error {
-		return c.Graph.SyncDependencies(ctx, a.Namespace, &a)
-	}); err != nil {
-		return fmt.Errorf("repositories: wire OnArrowUpgraded: %w", err)
-	}
-
 	if err := c.Arrow.OnArrowRemoved(func(ctx context.Context, ns domain.Namespace) error {
 		if err := c.Graph.RemoveDependencies(ctx, ns); err != nil {
 			return err
@@ -517,6 +573,18 @@ func (c *Container) wireCallbacks(
 	}
 
 	return c.wireSelfUpdate(trig)
+}
+
+// wireLifecycle lets a version check hold the badge of a row whose update is
+// settling, and subscribes the lifecycle's reactions to a runtime's end.
+func (c *Container) wireLifecycle() error {
+	c.Arrow.HoldBadgeWhile(c.Lifecycle.HoldBadge)
+
+	if err := c.Lifecycle.Start(); err != nil {
+		return fmt.Errorf("repositories: wire lifecycle: %w", err)
+	}
+
+	return nil
 }
 
 // wireSelfUpdate lets quiver.core's own update lifecycle claim this process.

@@ -346,7 +346,7 @@ func writeVersion(
 	}
 	// DoUpdates lists exactly the columns a manifest rewrite owns. Excluding
 	// last_version_check_at is deliberate: UpdateAll would reset that column's
-	// current value to zero on every unrelated write (an Update, an Upgrade,
+	// current value to zero on every unrelated write (an advance, a refresh,
 	// even a LastUsedAt stamp), defeating the TTL it exists to enforce.
 	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "namespace"}, {Name: "ref"}},

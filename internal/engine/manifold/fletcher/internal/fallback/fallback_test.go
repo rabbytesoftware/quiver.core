@@ -47,6 +47,14 @@ type stubReleases struct {
 	stableCalls int
 }
 
+func (s *stubReleases) releases() models.Releases {
+	return models.Releases{
+		LatestStable:  s.ResolveLatestStable,
+		Channels:      s.ListChannels,
+		DefaultBranch: s.ResolveDefaultBranch,
+	}
+}
+
 func (s *stubReleases) ResolveLatestStable(
 	_ context.Context,
 	_ domain.Namespace,
@@ -149,7 +157,7 @@ func TestRecover_NeverFletchesOnFailure(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
-			f := fallback.New(hosts.None, &stubReleases{}, drafter)
+			f := fallback.New(hosts.None, (&stubReleases{}).releases(), drafter)
 
 			raw, filename, _, err := f.Recover(context.Background(), tc.ns, tc.err)
 
@@ -163,7 +171,7 @@ func TestRecover_NeverFletchesOnFailure(t *testing.T) {
 
 func TestRecover_ManifestNotFound_ForgesInferredArrow(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "v1.2.0")}
-	f := fallback.New(hosts.None, &stubReleases{}, drafter)
+	f := fallback.New(hosts.None, (&stubReleases{}).releases(), drafter)
 
 	raw, filename, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool@v1.2.0"), manifestMissing())
 
@@ -264,7 +272,7 @@ func TestRecover_TagFallbackChain(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, tc.good)}
 			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, branch: tc.branch, branchErr: tc.branchErr}
-			f := fallback.New(hostedBy(&stubHost{branches: tc.hostBranches}), releases, drafter)
+			f := fallback.New(hostedBy(&stubHost{branches: tc.hostBranches}), releases.releases(), drafter)
 
 			raw, filename, ref, err := f.Recover(context.Background(), tc.ns, manifestMissing())
 
@@ -363,7 +371,7 @@ func TestRecover_FailuresSurface(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: tc.answer}
 			releases := &stubReleases{stable: tc.stable, unstable: tc.unstable, unstableErr: tc.listErr, branch: "main"}
-			f := fallback.New(hosts.None, releases, drafter)
+			f := fallback.New(hosts.None, releases.releases(), drafter)
 
 			_, _, _, err := f.Recover(context.Background(), cmp.Or(tc.ns, domain.Namespace("github.com/acme/tool@main")), manifestMissing())
 
@@ -387,7 +395,7 @@ func TestRecover_FailuresSurface(t *testing.T) {
 
 func TestRecover_NoReleaseTagFletchesNothing(t *testing.T) {
 	drafter := &stubDrafter{answer: draftAt(t, "main")}
-	f := fallback.New(hosts.None, &stubReleases{branch: "main"}, drafter)
+	f := fallback.New(hosts.None, (&stubReleases{branch: "main"}).releases(), drafter)
 
 	_, _, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
 
@@ -448,7 +456,7 @@ func TestRecover_ReleaseLookupPolicy(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			drafter := &stubDrafter{answer: draftAt(t, "none")}
-			f := fallback.New(hosts.None, tc.releases, drafter)
+			f := fallback.New(hosts.None, tc.releases.releases(), drafter)
 
 			_, _, _, err := f.Recover(context.Background(), domain.Namespace("github.com/acme/tool"), manifestMissing())
 

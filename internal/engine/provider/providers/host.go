@@ -3,7 +3,6 @@ package providers
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -11,8 +10,7 @@ import (
 )
 
 // host answers everything a git host can answer from its own entry: where it
-// serves a raw file, which refs it defaults to, and which ref its latest
-// release carries. Every provider embeds it.
+// serves a raw file and which refs it defaults to. Every provider embeds it.
 //
 // Search is not one of those answers. A host with a search API implements it;
 // the rest inherit the refusal here, because searching is a capability some
@@ -24,17 +22,11 @@ type host struct {
 	repoPageURL     string
 	ownerAvatarURL  string
 	defaultBranches []string
-	releaseURL      string
-	// releaseMarker precedes the ref in the redirect the release permalink
-	// answers with, and is the one piece of that exchange that differs per
-	// host. A host that publishes no releases leaves it empty.
-	releaseMarker string
-	transport     transport
+	transport       transport
 }
 
 func newHost(
 	cfg Config,
-	releaseMarker string,
 ) host {
 	return host{
 		name:            cfg.Host,
@@ -43,8 +35,6 @@ func newHost(
 		repoPageURL:     cfg.RepoPageURL,
 		ownerAvatarURL:  cfg.OwnerAvatarURL,
 		defaultBranches: cfg.DefaultBranches,
-		releaseURL:      cfg.LatestReleaseURL,
-		releaseMarker:   releaseMarker,
 		transport:       newTransport(cfg),
 	}
 }
@@ -172,53 +162,6 @@ func (h host) ReleaseAssets(
 	return []domain.ReleaseAsset{}, nil
 }
 
-// LatestRelease follows the host's latest-release permalink for its redirect
-// only. The redirect target is a plain web page, not an API endpoint, so no
-// quota is consumed and the body is never needed.
-func (h host) LatestRelease(
-	ctx context.Context,
-	ns domain.Namespace,
-) (string, error) {
-	releaseURL, err := h.releaseURLFor(ns)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := h.transport.redirect(ctx, releaseURL)
-	if err != nil {
-		return "", fmt.Errorf("%w: GET %s: %v", ErrNoLatestRelease, releaseURL, err)
-	}
-
-	if resp.Status < http.StatusMultipleChoices || resp.Status >= http.StatusBadRequest {
-		return "", fmt.Errorf("%w: %s answered http %d", ErrNoLatestRelease, releaseURL, resp.Status)
-	}
-
-	ref, ok := refFromLocation(resp.Headers.Get("Location"), h.releaseMarker)
-	if !ok {
-		return "", fmt.Errorf("%w: %s redirects outside %s", ErrNoLatestRelease, releaseURL, h.releaseMarker)
-	}
-
-	return ref, nil
-}
-
-func (h host) releaseURLFor(
-	ns domain.Namespace,
-) (string, error) {
-	if h.releaseURL == "" || h.releaseMarker == "" {
-		return "", fmt.Errorf("%w: %s publishes no releases", ErrNoLatestRelease, h.name)
-	}
-
-	user, repo, err := repositoryOf(ns)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrNoLatestRelease, err)
-	}
-
-	return strings.NewReplacer(
-		"{user}", user,
-		"{repo}", repo,
-	).Replace(h.releaseURL), nil
-}
-
 func tagURL(
 	template string,
 	ns domain.Namespace,
@@ -252,35 +195,4 @@ func repositoryOf(
 
 	segments := strings.Split(string(bare), domain.NamespaceSeparator)
 	return segments[1], segments[2], nil
-}
-
-// refFromLocation extracts the ref from a release permalink's redirect target.
-// A Location that lacks the marker points at the release index instead of a
-// release, which is how a host says "no stable release". The tag segment is
-// path-escaped, so a ref containing "/" arrives encoded.
-func refFromLocation(
-	location string,
-	marker string,
-) (string, bool) {
-	idx := strings.Index(location, marker)
-	if idx < 0 {
-		return "", false
-	}
-
-	raw := location[idx+len(marker):]
-	if cut := strings.IndexAny(raw, "?#"); cut >= 0 {
-		raw = raw[:cut]
-	}
-
-	ref, err := url.PathUnescape(raw)
-	if err != nil {
-		return "", false
-	}
-
-	ref = strings.Trim(ref, "/")
-	if ref == "" {
-		return "", false
-	}
-
-	return ref, true
 }

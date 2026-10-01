@@ -68,7 +68,7 @@ Engines are independent business components. The `engine.Container` holds one in
 
 Engines that need event sourcing (`netbridge`) hold their own private Asynx aggregate inside their `internal/` subtree. The other engines are stateless, save for the on-disk cache in `vault`.
 
-`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), and constraint resolvers. `wizard` decomposes into a runtime layer (process spawn, signal, alive checks), per-step-type handlers, and the shelf (OS entry placement and `PATH`), reached only through its `expose`/`unexpose` steps and `PathStatus`/`SetupPath`.
+`manifold` decomposes internally into resolver (remote fetch), translator (YAML/markdown → typed model), compiler (OS target compilation), ruleset (validation), the ref lister behind ref snapshots, and two subengines with a thin public root each: `versioning` (the ref-snapshot cache and pure selector / channel / drift / admission functions over a snapshot) and `fletcher` (manifests synthesized from release assets). `wizard` decomposes into a runtime layer (process spawn, signal, alive checks), per-step-type handlers, and the shelf (OS entry placement and `PATH`), reached only through its `expose`/`unexpose` steps and `PathStatus`/`SetupPath`.
 
 ---
 
@@ -100,7 +100,7 @@ flowchart LR
 
 ### 3.1 Usecases
 
-`usecases/` exposes the public surface the api layer consumes. Three usecase interfaces — `ArrowUsecase`, `RuntimeUsecase`, `CollectionUsecase` — wrap workflow logic that spans multiple repositories. The usecase container wires repository callbacks (e.g. `OnRuntimeEnded`, `OnArrowUpgraded`) so cross-aggregate reactions like cascading uninstalls land here, not in the repositories.
+`usecases/` exposes the public surface the api layer consumes. Each usecase — `ArrowUsecase`, `RuntimeUsecase`, `CollectionUsecase` and the rest — is the thin last bridge before the API: it validates its input, makes one repository call and maps the error. It holds no locks, starts no goroutines and subscribes to nothing. Workflows that span repositories live in `repositories/lifecycle` (§3.2).
 
 ### 3.2 Repositories
 
@@ -114,6 +114,8 @@ flowchart LR
 | `graph` | none — derived projection | dependency-edge SQLite table |
 
 Each repository's `internal/` subtree holds its commands, upcasters, store schema, and reactions. The graph repository is special: it has no aggregate of its own — it subscribes to arrow events and rebuilds the dep-edge table as a projection.
+
+`lifecycle` owns no aggregate either: it orchestrates the runtime verbs (installs with their dependencies, uninstalls, stops, executions) and the update bracket over the arrow, runtime and graph repositories, which it reaches only through the interfaces `lifecycle.go` declares. Its `internal/` splits the per-row bracket (`bracket/`), the detached commits a shutdown drains (`commits/`), the settling of an ended update (`settle/`) and the dependency work and cascades (`deps/`). The repositories container builds it, lets the arrow repository's version check ask it whether to hold a settling row's badge, and starts its `runtime.ended` reaction.
 
 ### 3.3 Hub
 
@@ -223,7 +225,7 @@ For the REST endpoint catalog see [http-api.md](http-api.md). For WebSocket fram
 
 The `ArrowState` machine and the runtime `Execution` lifecycle are pure domain logic — their transition tables live in `arrow.go` and `runtime/`. Every layer above consults these tables; nothing else may grow knowledge of valid transitions.
 
-For the full type catalog see [domain.md](domain.md). For namespace and `namespace@ref` versioning see [entities.md](entities.md).
+For the full type catalog see [domain.md](domain.md). For namespaces and `namespace@selector` identities see [entities.md](entities.md) and [manifests/v0/versioning.md](manifests/v0/versioning.md).
 
 ---
 
@@ -282,7 +284,7 @@ flowchart LR
     Swagger -.-> APIv0
 ```
 
-The binary is a single Cobra command tree. `quiver daemon` is the only subcommand; it builds the container, logs a startup line, and blocks on `Run(host, port)`. `version` and `buildID` are injected at build time via `-ldflags`. `swagger.go` carries top-level swag annotations consumed by the `swag` generator — the resulting `swagger.json`/`swagger.yaml` are written to `docs/swagger/` for distribution alongside the binary.
+The binary is a single Cobra command tree. `quiver daemon` is the only subcommand; it builds the container, logs a startup line, and blocks on `Run(host, port)`. `version` (the release ref), `commit`, `channel` (the release channel the build is published under) and `buildID` are injected at build time via `-ldflags`; the daemon registers its own catalog row from them (see [manifests/v0/versioning.md §10.2](manifests/v0/versioning.md)). `swagger.go` carries top-level swag annotations consumed by the `swag` generator — the resulting `swagger.json`/`swagger.yaml` are written to `docs/swagger/` for distribution alongside the binary.
 
 `internal.New` is the wiring point — it returns a `Container` exposing each layer and a `Start(ctx, host, port)` method that brings up engines, runs app projections, and serves HTTP. Tests construct partial containers via the `WithHomeDir` option on `engine.New`, `adapter.New`, and `app.New` to isolate filesystem state.
 
@@ -306,7 +308,7 @@ CLI flags on `quiver daemon` (`--host`, `--port`) override config values via `ap
 
 | Topic | Spec |
 |-------|------|
-| Namespaces and `namespace@ref` versioning | [entities.md](entities.md) |
+| Namespaces and `namespace@selector` identities | [entities.md](entities.md) |
 | Domain types and state transitions | [domain.md](domain.md) |
 | Manifold, resolver, ruleset, compiler | [manifold.md](manifold.md) |
 | Vault on-disk layout and TTL sweep | [vault.md](vault.md) |

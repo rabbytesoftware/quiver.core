@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
@@ -26,14 +27,15 @@ import (
 )
 
 const (
-	toolFixture     = "acme/tool"
-	widgetFixture   = "acme/widget"
-	declaredFixture = "quiver-test/tool-a"
-	brandedFixture  = "acme/branded"
-	plainFixture    = "acme/plain"
-	rollingFixture  = "acme/rolling"
-	avatarURL       = "https://avatars.example.test/u/7?v=4"
-	waitTimeout     = 120 * time.Second
+	toolFixture      = "acme/tool"
+	widgetFixture    = "acme/widget"
+	declaredFixture  = "quiver-test/tool-a"
+	releasingFixture = "acme-releases/tool"
+	brandedFixture   = "acme/branded"
+	plainFixture     = "acme/plain"
+	rollingFixture   = "acme/rolling"
+	avatarURL        = "https://avatars.example.test/u/7?v=4"
+	waitTimeout      = 120 * time.Second
 )
 
 func TestMain(m *testing.M) { kit.Main(m) }
@@ -44,63 +46,71 @@ func TestFletcherIntegration(t *testing.T) {
 	suite.Run(t, new(FletcherSuite))
 }
 
+// A stable-channel row of a repository with no ARROW.md installs the drafted
+// manifest, follows a new release in place, and uninstalls cleanly.
 func (s *FletcherSuite) TestFletcher_InferredArrowLifecycle() {
+	storer := s.releasedFixture(releasingFixture, "v1.0.0")
 	host := s.newHost()
 	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
-	v1 := kit.NSFor(toolFixture, "v1.0.0")
-	v2 := kit.NSFor(toolFixture, "v1.1.0")
+	ns := kit.NSFor(releasingFixture, "stable")
 
-	s.Require().Equal(http.StatusCreated, tc.Add(v1))
-	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
-	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, waitTimeout)
 
-	detail, status := tc.GetDetail(v1)
+	detail, status := tc.GetDetail(ns)
 	s.Require().Equal(http.StatusOK, status)
 	s.Require().Equal(string(domain.ArrowOriginInferred), detail.Origin)
 	s.Require().NotNil(detail.Inference)
 	s.Require().Equal("high", detail.Inference.Confidence)
+	s.Equal("v1.0.0", detail.ResolvedRef)
 	arrows, listStatus := tc.List()
 	s.Require().Equal(http.StatusOK, listStatus)
 	s.Require().Len(arrows, 1)
 	s.Require().Equal(string(domain.ArrowOriginInferred), arrows[0].Origin)
 	s.Require().Equal("high", arrows[0].Confidence)
+	workdir := s.exposedDir(env, "tool", "tool v1.0.0")
 
-	kit.WaitForDetail(s.T(), tc, v1, "recommended_ref v1.1.0", waitTimeout,
-		func(d dto.ArrowDetailDTO, _ int) bool { return d.RecommendedRef == "v1.1.0" })
-	oldWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.0.0"))
+	var released string
+	s.Repos.Mutate(func() { released = kit.TagHead(s.T(), storer, "v1.1.0") })
+	result, checkStatus := tc.CheckAvailable(ns)
+	s.Require().Equal(http.StatusOK, checkStatus)
+	s.Require().NotNil(result.Available)
+	s.Equal(dto.AvailableDTO{Ref: "v1.1.0", Commit: released}, *result.Available)
 
-	s.Require().Equal(http.StatusOK, tc.Update(v1, map[string]any{"UpgradeRef": true}))
-	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	newWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.1.0"))
-	s.Require().Equal("tool@v1.0.0", filepath.Base(oldWorkdir))
-	s.Require().Equal("tool@v1.1.0", filepath.Base(newWorkdir))
-	s.Require().NoDirExists(oldWorkdir)
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodUpdate, nil))
+	kit.WaitForDetail(s.T(), tc, ns, "the row advanced to v1.1.0", waitTimeout,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK &&
+				d.ResolvedRef == "v1.1.0" &&
+				d.Available == nil &&
+				d.State == string(domain.ArrowStateReady)
+		})
+	s.Equal(workdir, s.exposedDir(env, "tool", "tool v1.1.0"), "an update reinstalls in place")
+	s.Equal(http.StatusOK, tc.Execute(ns, domain.MethodUpdate, nil), "nothing is ahead any more")
 
-	s.Require().Equal(http.StatusAccepted, tc.Uninstall(v2, nil))
-	env.WaitForState(s.T(), v2, domain.ArrowStateAbsent, waitTimeout)
+	s.Require().Equal(http.StatusAccepted, tc.Uninstall(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateAbsent, waitTimeout)
 	_, err := os.Lstat(s.binLink(env, "tool"))
 	s.ErrorIs(err, fs.ErrNotExist)
 }
 
-func (s *FletcherSuite) TestFletcher_RuntimeUpdateReinstallsTheNewRef() {
+// Every release of the fixture shares one commit, so only the ref the pin
+// names can say which release's assets the drafted manifest installs.
+func (s *FletcherSuite) TestFletcher_PinnedReleaseDraftsItsOwnTag() {
 	host := s.newHost()
 	env := s.NewEnv(kit.WithFletcher(host.Lookup))
 	tc := env.TypedClient(s.T())
-	v1 := kit.NSFor(toolFixture, "v1.0.0")
-	v2 := kit.NSFor(toolFixture, "v1.1.0")
+	ns := kit.NSFor(toolFixture, "v1.0.0")
 
-	s.Require().Equal(http.StatusCreated, tc.Add(v1))
-	s.Require().Equal(http.StatusAccepted, tc.Install(v1, nil))
-	env.WaitForState(s.T(), v1, domain.ArrowStateReady, waitTimeout)
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, waitTimeout)
 	s.exposedDir(env, "tool", "tool v1.0.0")
 
-	s.Require().Equal(http.StatusAccepted, tc.Execute(v1, "update", nil))
-	env.WaitForState(s.T(), v2, domain.ArrowStateReady, waitTimeout)
-	newWorkdir := filepath.Dir(s.exposedDir(env, "tool", "tool v1.1.0"))
-	s.Equal("tool@v1.1.0", filepath.Base(newWorkdir))
-
-	s.Equal(http.StatusUnprocessableEntity, tc.Execute(v2, "update", nil))
+	s.Equal(http.StatusOK, tc.Execute(ns, domain.MethodUpdate, nil), "a pin has nothing ahead of it")
+	s.exposedDir(env, "tool", "tool v1.0.0")
 }
 
 func (s *FletcherSuite) TestFletcher_LowConfidenceIsAMissingManifest() {
@@ -197,7 +207,7 @@ func (s *FletcherSuite) TestFletcher_RollingPointerRefInstallsDespiteUnreleasedS
 	detail, status := tc.GetDetail(tip)
 	s.Require().Equal(http.StatusOK, status)
 	s.False(detail.Outdated)
-	s.Empty(detail.RecommendedRef)
+	s.Nil(detail.Available)
 }
 
 func (s *FletcherSuite) TestFletcher_DiscoveredArrowServesDetailAddAndInstallFromTheCache() {
@@ -228,14 +238,69 @@ func (s *FletcherSuite) TestFletcher_DiscoveredArrowServesDetailAddAndInstallFro
 	s.Equal(callsAfterDiscovery, host.Calls(), "opening the details of a discovered arrow builds nothing again")
 
 	s.Require().Equal(http.StatusCreated, tc.Add(bare))
-	s.Require().Equal(http.StatusAccepted, tc.Install(bare, nil))
-	installed := kit.NSFor(toolFixture, "v1.1.0")
+	installed := kit.NSFor(toolFixture, "stable")
+	s.Require().Equal(http.StatusAccepted, tc.Install(installed, nil))
 	env.WaitForState(s.T(), installed, domain.ArrowStateReady, waitTimeout)
 	s.Equal(callsAfterDiscovery, host.Calls(), "add and install reuse the build discovery cached")
+	added, status := tc.GetDetail(installed)
+	s.Require().Equal(http.StatusOK, status)
+	s.Equal("v1.1.0", added.ResolvedRef, "the add records the release the preview showed")
 
-	addedStatus, added := tc.GetSub(installed, "manifest")
+	addedStatus, addedManifest := tc.GetSub(installed, "manifest")
 	s.Require().Equal(http.StatusOK, addedStatus)
-	s.Equal(s.targetsOf(manifest), s.targetsOf(added))
+	s.Equal(s.targetsOf(manifest), s.targetsOf(addedManifest))
+}
+
+// Reusing discovery's build never pins a row to it: once its tag moves, the
+// update reads the release at the new commit from the host.
+func (s *FletcherSuite) TestFletcher_ReusedBuildOfAMovedTagIsBuiltAgain() {
+	storer := s.releasedFixture(releasingFixture, "v1.0.0")
+	host := s.newHost()
+	env := s.NewEnv(
+		kit.WithFletcher(host.Lookup),
+		kit.WithProviders(&discoveredProvider{fixtures: []string{releasingFixture}}),
+	)
+	tc := env.TypedClient(s.T())
+	ns := kit.NSFor(releasingFixture, "stable")
+
+	job, status := tc.Discover("tool")
+	s.Require().Equal(http.StatusAccepted, status)
+	s.Require().Eventually(func() bool {
+		got, jobStatus := tc.DiscoveryJob(job.JobID)
+		return jobStatus == http.StatusOK && got.Status == string(usecases.JobCompleted) && got.Verified == 1
+	}, waitTimeout, 10*time.Millisecond)
+	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	s.Require().Equal(http.StatusAccepted, tc.Install(ns, nil))
+	env.WaitForState(s.T(), ns, domain.ArrowStateReady, waitTimeout)
+	callsBeforeMove := host.Calls()
+
+	var moved string
+	s.Repos.Mutate(func() { moved = kit.MoveTagToNewCommit(s.T(), storer, "v1.0.0") })
+	s.Require().Equal(http.StatusAccepted, tc.Execute(ns, domain.MethodUpdate, nil))
+	kit.WaitForDetail(s.T(), tc, ns, "the row advanced to the moved commit", waitTimeout,
+		func(d dto.ArrowDetailDTO, status int) bool {
+			return status == http.StatusOK && d.InstalledCommit == moved && d.State == string(domain.ArrowStateReady)
+		})
+	s.Greater(host.Calls(), callsBeforeMove, "the moved tag's release is read from the host again")
+}
+
+// A branch of a repository with no manifest publishes no release, so there
+// is nothing to install that follows it: the add answers not found and
+// catalogues nothing, while its release tags stay installable.
+func (s *FletcherSuite) TestFletcher_BranchOfAManifestlessRepoIsNotFound() {
+	s.releasedFixture(releasingFixture, "v1.0.0")
+	host := s.newHost()
+	env := s.NewEnv(kit.WithFletcher(host.Lookup))
+	tc := env.TypedClient(s.T())
+
+	s.Equal(http.StatusNotFound, tc.Add(kit.NSFor(releasingFixture, "master")))
+	_, detailStatus := tc.GetDetail(kit.NSFor(releasingFixture, "master"))
+	s.Equal(http.StatusNotFound, detailStatus)
+	arrows, status := tc.List()
+	s.Require().Equal(http.StatusOK, status)
+	s.Empty(arrows)
+
+	s.Equal(http.StatusCreated, tc.Add(kit.NSFor(releasingFixture, "v1.0.0")))
 }
 
 func (s *FletcherSuite) targetsOf(
@@ -257,6 +322,13 @@ func (s *FletcherSuite) targetsOf(
 func (s *FletcherSuite) newHost() kit.FakeHost {
 	return kit.NewFakeHost(s.T(), map[string]kit.HostRepo{
 		"quiver.test/" + toolFixture: {
+			Description: "A tool for integration tests",
+			Readme:      "# tool\n\nA tool for integration tests.\n",
+			Binary:      "tool",
+			Asset:       "tool_{tag}_{os}_{arch}.tar.gz",
+			Tags:        []string{"v1.0.0", "v1.1.0"},
+		},
+		"quiver.test/" + releasingFixture: {
 			Description: "A tool for integration tests",
 			Readme:      "# tool\n\nA tool for integration tests.\n",
 			Binary:      "tool",
@@ -303,6 +375,18 @@ func (s *FletcherSuite) newHost() kit.FakeHost {
 			Tags:        []string{"v1"},
 		},
 	})
+}
+
+// releasedFixture registers a manifestless repository owned by one test, since
+// the test cuts a release on it.
+func (s *FletcherSuite) releasedFixture(
+	key string,
+	tag string,
+) *memory.Storage {
+	storer := kit.BuildManifestlessRepo(s.T(), tag)
+	s.Repos.Set(key, storer)
+	s.T().Cleanup(func() { s.Repos.Delete(key) })
+	return storer
 }
 
 func (s *FletcherSuite) binLink(

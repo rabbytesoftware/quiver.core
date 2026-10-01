@@ -81,7 +81,7 @@ func refreshedSteps(
 	req wizardPkg.RunRequest,
 	hooks CatalogHooks,
 ) ([]domainStep.Step, bool) {
-	if err := hooks.RefreshManifest(ctx, req.Namespace); err != nil {
+	if err := hooks.RefreshManifest(ctx, req.Namespace, req.Method); err != nil {
 		slog.WarnContext(ctx, "runtime: refresh manifest after checksum mismatch", "ns", req.Namespace, "err", err)
 		return nil, false
 	}

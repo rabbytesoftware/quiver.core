@@ -478,13 +478,6 @@ func (h rawHost) DefaultBranches() []string {
 	return []string{"main"}
 }
 
-func (h rawHost) LatestRelease(
-	_ context.Context,
-	_ domain.Namespace,
-) (string, error) {
-	return "", errors.New("unused")
-}
-
 func statusServer(
 	t *testing.T,
 	status int,

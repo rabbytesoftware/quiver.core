@@ -17,7 +17,7 @@ import (
 // SetVersionOutdated reconciles ns's runtime state with what a version check
 // found: Ready becomes Outdated when newer exists, and reverses when it no
 // longer does -- the frontend badge reads ArrowRuntime.State, not
-// Arrow.Outdated, so this is what makes drift visible at all.
+// Arrow.Available, so this is what makes drift visible at all.
 //
 // A function over the aggregate rather than a method on Runtime, the same
 // reason as MarkPreinstalled: the arrow repository needs it before

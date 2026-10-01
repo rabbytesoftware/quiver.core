@@ -60,8 +60,7 @@ type Paths struct {
 }
 
 // Kind names the host a platform is, which is what decides how its answers are
-// read: the shape of its search response and of the redirect its release
-// permalink hands back. Every platform declares one, because a host Quiver has
+// read: the shape of its search response. Every platform declares one, because a host Quiver has
 // no code for is a host it cannot read.
 const (
 	KindGitHub    = "github"
@@ -73,18 +72,12 @@ const (
 // answers repository searches. DefaultBranches is tried in order when a
 // namespace carries no explicit ref.
 //
-// LatestReleaseURL is a page that redirects to the host's latest stable
-// release. It is followed for its Location header only and costs no API quota,
-// so it is an optimisation over listing tags — never a requirement. A platform
-// with no such page leaves it empty.
-//
 // SearchURL is optional in the same way: a platform without one still serves
 // manifests, it just answers no query.
 type Platform struct {
 	Kind              string   `yaml:"kind"`
 	RawURL            string   `yaml:"raw_url"`
 	DefaultBranches   []string `yaml:"default_branches"`
-	LatestReleaseURL  string   `yaml:"latest_release_url"`
 	SearchURL         string   `yaml:"search_url"`
 	ExpandedAssetsURL string   `yaml:"expanded_assets_url"`
 	RepoPageURL       string   `yaml:"repo_page_url"`
@@ -312,7 +305,6 @@ func defaultMetadata() *Metadata {
 				Kind:              KindGitHub,
 				RawURL:            "https://raw.githubusercontent.com/{user}/{repo}/{branch}/{file}",
 				DefaultBranches:   []string{"main", "master"},
-				LatestReleaseURL:  "https://github.com/{user}/{repo}/releases/latest",
 				SearchURL:         "https://api.github.com/search/repositories?q={query}",
 				ExpandedAssetsURL: "https://github.com/{user}/{repo}/releases/expanded_assets/{tag}",
 				RepoPageURL:       "https://github.com/{user}/{repo}",
@@ -321,15 +313,14 @@ func defaultMetadata() *Metadata {
 				BlobURL:           "https://github.com/{user}/{repo}/blob/{branch}/{file}",
 			},
 			"gitlab.com": {
-				Kind:             KindGitLab,
-				RawURL:           "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
-				DefaultBranches:  []string{"main", "master"},
-				LatestReleaseURL: "https://gitlab.com/{user}/{repo}/-/releases/permalink/latest",
-				SearchURL:        "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
-				BlobURL:          "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}",
-				RepoPageURL:      "https://gitlab.com/{user}/{repo}",
-				ReleaseAPIURL:    "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}",
-				PackagesAPIURL:   "https://gitlab.com/api/v4/projects/{project}/packages",
+				Kind:            KindGitLab,
+				RawURL:          "https://gitlab.com/{user}/{repo}/-/raw/{branch}/{file}",
+				DefaultBranches: []string{"main", "master"},
+				SearchURL:       "https://gitlab.com/api/v4/projects?search={query}&topic={topic}",
+				BlobURL:         "https://gitlab.com/{user}/{repo}/-/blob/{branch}/{file}",
+				RepoPageURL:     "https://gitlab.com/{user}/{repo}",
+				ReleaseAPIURL:   "https://gitlab.com/api/v4/projects/{user}%2F{repo}/releases/{tag}",
+				PackagesAPIURL:  "https://gitlab.com/api/v4/projects/{project}/packages",
 			},
 			"bitbucket.org": {
 				Kind:            KindBitbucket,

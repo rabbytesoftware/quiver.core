@@ -48,6 +48,37 @@ func TestNewCLIDeps_EnsureDaemonSucceedsWhenLive(t *testing.T) {
 	assert.NoError(t, newCLIDeps().EnsureDaemon(context.Background()))
 }
 
+// /dev/null is a character device but no terminal: a command redirected to
+// it must render as piped output, never start the interactive renderer.
+func TestFileIsTTY_NonTerminalsAreNot(t *testing.T) {
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = devNull.Close() })
+
+	regular, err := os.CreateTemp(t.TempDir(), "out")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = regular.Close() })
+
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close(); _ = writer.Close() })
+
+	testCases := []struct {
+		name string
+		file *os.File
+	}{
+		{name: "null device", file: devNull},
+		{name: "regular file", file: regular},
+		{name: "pipe", file: writer},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.False(t, fileIsTTY(tc.file))
+		})
+	}
+}
+
 func TestShouldManageDaemon(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -167,6 +198,21 @@ func TestStopIdleDaemon_IdleDaemonIsStopped(t *testing.T) {
 
 	_, err := os.Stat(mgr.PIDFile)
 	assert.True(t, os.IsNotExist(err), "idle daemon must be stopped and pid file removed")
+}
+
+// An update whose steps ended reads ready or outdated while its commit is
+// still advancing the row: stopping the daemon then would lose the commit.
+func TestStopIdleDaemon_SettlingUpdateKeepsDaemon(t *testing.T) {
+	mgr := newTestManager(t)
+	pid := sleepProcess(t)
+	require.NoError(t, os.WriteFile(mgr.PIDFile, []byte(strconv.Itoa(pid)), 0o600))
+	serveRuntimeSocket(t, mgr.Socket,
+		`[{"namespace":"github.com/u/r@nightly","state":"outdated","settling":true}]`)
+
+	stopIdleDaemon(context.Background(), mgr)
+
+	_, err := os.Stat(mgr.PIDFile)
+	assert.NoError(t, err, "a settling update must keep the daemon alive")
 }
 
 func TestRootCommand_HasCLICommands(t *testing.T) {

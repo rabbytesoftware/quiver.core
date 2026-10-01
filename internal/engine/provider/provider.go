@@ -1,7 +1,6 @@
 // Package provider answers the questions only a git host can answer: how to
-// search it, where it serves a raw file, which refs it defaults to, and which
-// ref its latest release carries. It knows nothing about arrows — it never
-// fetches or parses a manifest.
+// search it, where it serves a raw file and which refs it defaults to. It knows
+// nothing about arrows — it never fetches or parses a manifest.
 //
 // This package is the whole vocabulary a caller needs: the per-host
 // implementations live in the providers subpackage and are never named from
@@ -97,7 +96,6 @@ func configFor(
 	cfg.Kind = platform.Kind
 	cfg.RawURL = platform.RawURL
 	cfg.DefaultBranches = platform.DefaultBranches
-	cfg.LatestReleaseURL = platform.LatestReleaseURL
 	cfg.SearchURL = platform.SearchURL
 	cfg.ExpandedAssetsURL = platform.ExpandedAssetsURL
 	cfg.RepoPageURL = platform.RepoPageURL

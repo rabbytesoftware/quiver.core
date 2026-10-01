@@ -69,6 +69,16 @@ func (c *Client) Remove(ns string) *http.Response {
 	return resp
 }
 
+// ListUserInstalled lists what the desktop library shows.
+func (c *Client) ListUserInstalled() *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow?user_installed=true"))
+	if err != nil {
+		c.t.Fatalf("Client.ListUserInstalled: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) List() *http.Response {
 	c.t.Helper()
 	resp, err := c.http.Get(c.url("/v0/arrow"))
@@ -78,11 +88,29 @@ func (c *Client) List() *http.Response {
 	return resp
 }
 
+func (c *Client) GetManifest(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/manifest"))
+	if err != nil {
+		c.t.Fatalf("Client.GetManifest: do request: %v", err)
+	}
+	return resp
+}
+
 func (c *Client) GetDetail(ns string) *http.Response {
 	c.t.Helper()
 	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns)))
 	if err != nil {
 		c.t.Fatalf("Client.GetDetail: do request: %v", err)
+	}
+	return resp
+}
+
+func (c *Client) Channels(ns string) *http.Response {
+	c.t.Helper()
+	resp, err := c.http.Get(c.url("/v0/arrow/" + url.PathEscape(ns) + "/channels"))
+	if err != nil {
+		c.t.Fatalf("Client.Channels: do request: %v", err)
 	}
 	return resp
 }
@@ -161,6 +189,25 @@ func (c *Client) Seed(ns string, body []byte) *http.Response {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		c.t.Fatalf("Client.Seed: do request: %v", err)
+	}
+	return resp
+}
+
+// Adopt declares ns already installed at resolvedRef.
+func (c *Client) Adopt(ns, resolvedRef string) *http.Response {
+	c.t.Helper()
+	b, err := json.Marshal(map[string]string{"resolved_ref": resolvedRef})
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/arrow/"+url.PathEscape(ns)+"/adopt"), bytes.NewReader(b))
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.Adopt: do request: %v", err)
 	}
 	return resp
 }

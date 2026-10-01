@@ -21,19 +21,12 @@ type ChannelInfo struct {
 	Members []string
 	// IsDefaultBranchFallback is true only for the synthetic entry
 	// ListChannels appends when a repository has no tags at all: the
-	// default branch offered as something to show in a channel picker.
-	// It is not a real, published channel, so a caller resolving an
-	// install ref (resolveBestOtherChannel) must skip it rather than
-	// "resolve through" it — that would stamp the arrow as tracking a
-	// named channel when it is really just tracking a raw branch, taking
-	// version-drift detection down the tag-aware path instead of the
-	// branch-aware one it actually needs (see resolveDefaultBranch and
-	// CheckVersionDrift).
+	// default branch offered as something to show in a channel picker,
+	// not a published channel.
 	IsDefaultBranchFallback bool
 }
 
-// ErrNoLatestStable reports that a repository publishes no stable release, so
-// no ref could be resolved for a refless namespace.
+// ErrNoLatestStable reports that a repository publishes no stable release.
 var ErrNoLatestStable = errors.New("manifold: no latest stable release")
 
 // ErrNoTagInChannel reports that a repository has no tag classified into

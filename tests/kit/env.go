@@ -56,7 +56,16 @@ type envConfig struct {
 	manifold          func(manifold.Manifold) manifold.Manifold
 	selfUpdateTrigger *selfupdate.Trigger
 	clock             func() time.Time
+	build             buildStamp
+	cloneOnly         bool
 	fletcher          hosts.Lookup
+}
+
+// buildStamp is what the release pipeline injects into a daemon binary.
+type buildStamp struct {
+	version string
+	commit  string
+	channel string
 }
 
 // EnvOption customises how BuildEnv wires the daemon.
@@ -77,12 +86,19 @@ func WithManifoldWrapper(wrap func(manifold.Manifold) manifold.Manifold) EnvOpti
 }
 
 // WithClock overrides the clock the fixture-backed manifold uses to judge
-// its own resolution-cache TTL (ListChannels/ResolveConstraint), so a test
+// its own resolution-cache TTL (Snapshot/ListChannels), so a test
 // can advance time deterministically — including past the real,
 // config-derived production TTL — without a real sleep. Nil (the default)
 // uses the real clock.
 func WithClock(clock func() time.Time) EnvOption {
 	return func(c *envConfig) { c.clock = clock }
+}
+
+// WithCloneOnlyHost serves every fixture repo the way a host reachable only
+// by cloning does: a manifest is fetched at a tag or branch name, never at a
+// commit SHA.
+func WithCloneOnlyHost() EnvOption {
+	return func(c *envConfig) { c.cloneOnly = true }
 }
 
 func WithFletcher(
@@ -95,6 +111,14 @@ func WithFletcher(
 // so a test can observe it firing through genuine app-layer DI.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
 	return func(c *envConfig) { c.selfUpdateTrigger = trig }
+}
+
+// WithBuild stamps the daemon as a released build, so it registers itself into
+// its own catalog on boot the way a real release does.
+func WithBuild(version, commit, channel string) EnvOption {
+	return func(c *envConfig) {
+		c.build = buildStamp{version: version, commit: commit, channel: channel}
+	}
 }
 
 // WaitDiscoveryRegistered blocks until the first client subscribes to the
@@ -177,6 +201,12 @@ func (e *Env) WaitForState(t *testing.T, ns string, want domain.ArrowState, time
 	e.states.WaitFor(t, ns, want, timeout)
 }
 
+// StateHistory returns every runtime state the stream reported for ns, in
+// the order the runtime aggregate went through them.
+func (e *Env) StateHistory(ns string) []string {
+	return e.states.statesOf(ns)
+}
+
 // WaitForActivePID blocks until a non-zero PID is recorded for ns or timeout elapses.
 // Use this before CloseWithoutKilling() to ensure RecordPID has been persisted.
 func (e *Env) WaitForActivePID(t *testing.T, ns string, timeout time.Duration) {
@@ -227,6 +257,7 @@ func stubEngines(
 	// files and nothing publishes a release for it, so the manifold is wired to
 	// no hosts and every question falls through to the fixture resolver.
 	rsv := newTestResolver(arrowRepos, collectionRepos)
+	rsv.cloneOnly = cfg.cloneOnly
 	withFletcher := manifold.WithFletcher(cfg.fletcher != nil)
 	if cfg.clock != nil {
 		engines.Manifold = manifold.NewWithResolversAndClock(rsv, rsv, cfg.fletcher, cfg.clock, withFletcher)
@@ -271,7 +302,16 @@ func BuildEnv(
 	adapters, err := adapter.New(adapter.WithHomeDir(home))
 	require.NoError(t, err)
 
-	appContainer, err := app.New(engines, adapters, app.WithHomeDir(home), app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger))
+	appContainer, err := app.New(
+		engines,
+		adapters,
+		app.WithHomeDir(home),
+		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		app.WithVersion(cfg.build.version),
+		app.WithCommit(cfg.build.commit),
+		app.WithChannel(cfg.build.channel),
+		app.WithVersionCheckInterval(0),
+	)
 	require.NoError(t, err)
 
 	v0Container, err := apiv0.New(appContainer)
@@ -396,7 +436,8 @@ type activeRunFields struct {
 type stateWatcher struct {
 	mu         sync.Mutex
 	current    map[string]string // latest state per namespace
-	currentPID map[string]int    // latest active PID per namespace
+	history    map[string][]string
+	currentPID map[string]int // latest active PID per namespace
 	subs       []chan struct{}
 	done       chan struct{}
 }
@@ -405,6 +446,7 @@ func newStateWatcher(t *testing.T, baseURL, socketPath string) *stateWatcher {
 	t.Helper()
 	w := &stateWatcher{
 		current:    make(map[string]string),
+		history:    make(map[string][]string),
 		currentPID: make(map[string]int),
 		done:       make(chan struct{}),
 	}
@@ -441,6 +483,7 @@ func (w *stateWatcher) readLoop(conn *websocket.Conn) {
 		if json.Unmarshal(msg, &evt) == nil && evt.State != "" {
 			w.mu.Lock()
 			w.current[evt.Namespace] = evt.State
+			w.history[evt.Namespace] = append(w.history[evt.Namespace], evt.State)
 			if evt.ActiveRun != nil && evt.ActiveRun.PID > 0 {
 				w.currentPID[evt.Namespace] = evt.ActiveRun.PID
 			}
@@ -573,6 +616,13 @@ func (w *stateWatcher) WaitFor(
 			return
 		}
 	}
+}
+
+// statesOf returns every state ns was observed in, in order.
+func (w *stateWatcher) statesOf(ns string) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.history[ns]...)
 }
 
 func (w *stateWatcher) close() {

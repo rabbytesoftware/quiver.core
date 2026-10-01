@@ -62,7 +62,11 @@ func catalogSaying(
 ) func(ctx context.Context, ns domain.Namespace) error {
 	return repoRuntime.ReconcileVersionBadge(
 		func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
-			return &domain.Arrow{Namespace: ns, Outdated: outdated}, nil
+			arrow := &domain.Arrow{Namespace: ns}
+			if outdated {
+				arrow.Available = &domain.Available{Ref: "v9.9.9", Commit: "abc"}
+			}
+			return arrow, nil
 		},
 		ax,
 	)

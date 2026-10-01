@@ -41,9 +41,11 @@ type ListArrowsFn func(ctx context.Context) ([]models.ArrowView, error)
 // that currently has events in the runtime event store.
 type ListRuntimeAggregatesFn func(ctx context.Context) ([]domain.Namespace, error)
 
-// RefreshManifestFn drops ns's cached manifest, resolves it again from its host
-// at ns's own ref and stores the result on the arrow.
+// RefreshManifestFn resolves ns's manifest again from its host, at the
+// release the method is running — the installed one for an install, the
+// update's target for an update — and stages it on the row.
 type RefreshManifestFn func(
 	ctx context.Context,
 	ns domain.Namespace,
+	method string,
 ) error

@@ -35,7 +35,7 @@ func (c *commands) listCmd() *cobra.Command {
 
 func columns() []component.Column {
 	return []component.Column{
-		{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "REF"}, {Title: "STATE"},
+		{Title: "NAMESPACE"}, {Title: "NAME"}, {Title: "REF"}, {Title: "RESOLVED"}, {Title: "STATE"},
 	}
 }
 
@@ -49,7 +49,7 @@ func rows(arrows []output.ArrowRow, t theme.Theme) [][]string {
 	out := make([][]string, 0, len(arrows))
 	for _, arrow := range arrows {
 		out = append(out, []string{
-			arrow.Namespace, arrow.Name, arrow.Ref, t.State(domain.ArrowState(arrow.State)),
+			arrow.Namespace, arrow.Name, arrow.Ref, arrow.Resolved, t.State(domain.ArrowState(arrow.State)),
 		})
 	}
 	return out
@@ -60,24 +60,27 @@ func rows(arrows []output.ArrowRow, t theme.Theme) [][]string {
 func RowsFrom(arrows []apidto.ArrowListItemDTO) []output.ArrowRow {
 	out := make([]output.ArrowRow, 0, len(arrows))
 	for _, arrow := range arrows {
-		ref, state := InstalledRefAndState(arrow)
-		out = append(out, output.ArrowRow{
-			Namespace: arrow.Namespace, Name: arrow.Name, Ref: ref, State: state,
-		})
+		out = append(out, RowFrom(arrow))
 	}
 	return out
 }
 
-// InstalledRefAndState reads the arrow's first installed version. An arrow
-// with no versions is in the catalog but not installed anywhere. Exported
-// for the same reason as Table and RowsFrom.
-func InstalledRefAndState(arrow apidto.ArrowListItemDTO) (ref, state string) {
+// RowFrom reads the arrow's first version into a row. An arrow with no
+// versions is in the catalog but not installed anywhere. Exported for the
+// same reason as Table and RowsFrom.
+func RowFrom(arrow apidto.ArrowListItemDTO) output.ArrowRow {
+	row := output.ArrowRow{Namespace: arrow.Namespace, Name: arrow.Name, Ref: "-", Resolved: "-", State: "absent"}
 	if len(arrow.Versions) == 0 {
-		return "-", "absent"
+		return row
 	}
-	ref, state = arrow.Versions[0].Ref, arrow.Versions[0].State
-	if ref == "" {
-		ref = "-"
+	v := arrow.Versions[0]
+	row.Ref, row.Resolved, row.State = orDash(v.Ref), orDash(v.ResolvedRef), v.State
+	return row
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
 	}
-	return ref, state
+	return s
 }

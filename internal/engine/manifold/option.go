@@ -12,7 +12,11 @@ func WithFletcher(
 	return func(m *manifold) {
 		m.fl = nil
 		if enabled {
-			m.fl = fletcher.New(m.hosts, m, m.timeout)
+			m.fl = fletcher.New(m.hosts, fletcher.Releases{
+				LatestStable:  m.ResolveLatestStable,
+				Channels:      m.ListChannels,
+				DefaultBranch: m.ResolveDefaultBranch,
+			}, m.timeout)
 		}
 	}
 }

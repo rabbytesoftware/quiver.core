@@ -514,3 +514,39 @@ func TestResolveManifest_NoVault_FetchFromManifold_TranslatesNotFound(t *testing
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
+
+// A branch of a repository with no manifest publishes no release: a draft of
+// another release is not what the branch holds, and reads as no manifest.
+func TestResolver_DraftOfAnotherRelease_IsNoManifestAtTheRef(t *testing.T) {
+	inferred := domain.ArrowMeta{Name: "tool", Generator: &domain.ArrowGenerator{Name: "fletcher/1", Confidence: "high"}}
+	testCases := []struct {
+		name    string
+		arrow   domain.Arrow
+		wantErr error
+	}{
+		{
+			name:    "drafted from a release tag",
+			arrow:   domain.Arrow{Namespace: "github.com/user/pkg@v1.2.0", ArrowMeta: inferred},
+			wantErr: apperrors.ErrNotFound,
+		},
+		{name: "drafted at the branch itself", arrow: domain.Arrow{Namespace: "github.com/user/pkg@main", ArrowMeta: inferred}},
+		{name: "a declared manifest", arrow: domain.Arrow{Namespace: "github.com/user/pkg@v1.2.0"}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := domain.Namespace("github.com/user/pkg@main")
+			v := &mocks.Vault{GetArrowErr: vault.ErrNotCached}
+			arrow := tc.arrow
+			m := &mocks.Manifold{ResolveArrowResult: &arrow, ResolveArrowRaw: []byte("raw"), ResolveArrowFilename: "ARROW.md"}
+
+			_, err := resolveViaManifest(t, v, m, ns)
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Equal(t, []domain.Namespace{ns}, v.PutArrowNotFoundNamespaces)
+		})
+	}
+}

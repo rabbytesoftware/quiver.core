@@ -101,10 +101,11 @@ type ArrowAutoRetry struct {
 }
 
 type Arrows struct {
-	AutoRetry         ArrowAutoRetry `yaml:"auto_retry"           json:"auto_retry"`
-	VersionCheckTTL   string         `yaml:"version_check_ttl"    json:"version_check_ttl"    validate:"duration"`
-	SelfUpdateChannel string         `yaml:"self_update_channel"  json:"self_update_channel"`
-	ExtractMaxBytes   int64          `yaml:"extract_max_bytes"    json:"extract_max_bytes"    validate:"min=1"`
+	AutoRetry            ArrowAutoRetry `yaml:"auto_retry"             json:"auto_retry"`
+	VersionCheckTTL      string         `yaml:"version_check_ttl"      json:"version_check_ttl"      validate:"duration"`
+	VersionCheckInterval string         `yaml:"version_check_interval" json:"version_check_interval" validate:"durationoroff"`
+	SelfUpdateChannel    string         `yaml:"self_update_channel"    json:"self_update_channel"`
+	ExtractMaxBytes      int64          `yaml:"extract_max_bytes"      json:"extract_max_bytes"      validate:"min=1"`
 }
 
 // Auth configures the device-pairing flow used to authenticate quiver.desktop

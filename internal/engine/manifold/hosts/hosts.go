@@ -1,6 +1,6 @@
 // Package hosts declares what manifold needs to know about a git host and does
 // not own: where the host serves a raw file or a page, which refs it defaults
-// to, which ref its latest release carries, and what a release publishes.
+// to, and what a release publishes.
 //
 // Manifold owns manifest knowledge — which filenames are a manifest, which refs
 // to try, what the bytes mean — and none of that is host knowledge. The
@@ -45,13 +45,6 @@ type Host interface {
 	// DefaultBranches are the refs to try, in order, for a namespace that
 	// carries none.
 	DefaultBranches() []string
-
-	// LatestRelease is the ref the host's latest stable release carries. An
-	// error is a miss — the host publishes none — and never a reason to stop.
-	LatestRelease(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (string, error)
 
 	// RepoMetadata is what the host says about the repository itself. It may
 	// cost a metered request, so an implementation asks at most once per

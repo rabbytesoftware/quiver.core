@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/char2cs/asynx"
@@ -16,8 +17,10 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/advance"
 	arrowcmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/commands"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/watch"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -49,20 +52,6 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	RefreshManifest(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (*domain.Arrow, error)
-	ResolveForInstall(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-	) (
-		resolvedNs domain.Namespace,
-		arrow *domain.Arrow,
-		constraint string,
-		err error,
-	)
 	// ResolveCatalogued maps a namespace as the caller typed it onto the one
 	// the catalog holds it under, so a refless namespace reaches the runtime
 	// verbs as the ref they were catalogued with.
@@ -78,22 +67,63 @@ type Arrow interface {
 	Add(
 		ctx context.Context,
 		ns domain.Namespace,
-		opts models.AddOptions,
-	) error
-	AddDep(
-		ctx context.Context,
-		ns domain.Namespace,
-		arrow *domain.Arrow,
-		constraint string,
 	) error
 	Remove(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	Seed(
+	// Advance moves ns's row in place to target, refreshing its cached
+	// manifest to the one at target's commit.
+	Advance(
 		ctx context.Context,
 		ns domain.Namespace,
-		data []byte,
+		target domain.Available,
+	) error
+	// CheckAvailable re-resolves ns against a live snapshot, records what is
+	// ahead of it as its Available (nil when current) and returns it.
+	CheckAvailable(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domain.Available, error)
+	// TargetUnmoved reports whether target's ref still stands at target's
+	// commit on the remote right now.
+	TargetUnmoved(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (bool, error)
+	// RefreshToTarget stages the manifest at target's commit on ns's row,
+	// leaving what is installed untouched, and returns it.
+	RefreshToTarget(
+		ctx context.Context,
+		ns domain.Namespace,
+		target domain.Available,
+	) (*domain.Arrow, error)
+	// AddDependency catalogues the row a dependency declaration installs, if
+	// it is not catalogued yet, and returns its identity.
+	AddDependency(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.Namespace, error)
+	// Adopt registers already-installed state for ns from manifest bytes the
+	// caller holds, named filename, creating the row or advancing it, without
+	// any network.
+	Adopt(
+		ctx context.Context,
+		ns domain.Namespace,
+		kind domain.SelectorKind,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
+	) error
+	// AdoptInstalled registers resolvedRef, settled against the live remote,
+	// as what ns's identity already has installed, and adopts it: ns names
+	// the identity exactly as it does for Add, and a ref the selector could
+	// never resolve to is refused.
+	AdoptInstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolvedRef string,
 	) error
 	ValidateManifest(
 		ctx context.Context,
@@ -116,68 +146,45 @@ type Arrow interface {
 		ns domain.Namespace,
 		at time.Time,
 	) error
-	// SetChannel changes which release channel ns tracks. ref, when
-	// non-empty, pins ns to that exact ref within channel rather than the
-	// channel's own latest; empty clears any previously pinned ref.
-	SetChannel(
-		ctx context.Context,
-		ns domain.Namespace,
-		channel string,
-		ref string,
-	) error
 	// CheckVersionNow launches an immediate version-drift check for ns,
 	// bypassing the TTL GetDetail's passive maybeCheckVersion otherwise
-	// enforces. For a deliberate user action that just changed what ns
-	// tracks (switchChannel's SetChannel), so the outdated badge does not
-	// wait up to version_check_ttl to notice. Launched detached, the same
-	// way maybeCheckVersion already launches its own check — it does not
-	// block the caller.
+	// enforces, detached from the caller.
 	CheckVersionNow(
 		ctx context.Context,
 		ns domain.Namespace,
 	)
+	// HoldBadgeWhile registers when a version check must leave ns's runtime
+	// badge alone: while an update of ns settles, the row still names the
+	// target it is about to stamp, and the update re-derives the badge
+	// itself once its commit landed.
+	HoldBadgeWhile(
+		settling func(ns domain.Namespace) bool,
+	)
+	// CheckInstalledVersions runs the passive version check of every
+	// installed row, one at a time and under the same TTL claim a detail
+	// read takes, so a row checked recently is skipped. It returns when all
+	// were checked or ctx is done.
+	CheckInstalledVersions(
+		ctx context.Context,
+	)
+	// WatchVersions runs CheckInstalledVersions soon after it is called and
+	// then every arrows.version_check_interval, until StopWatchingVersions
+	// or ctx ends.
+	WatchVersions(
+		ctx context.Context,
+	)
+	// StopWatchingVersions ends the watch and waits for a check in progress,
+	// so no check writes to a store a shutdown is about to close.
+	StopWatchingVersions()
 	Forget(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
-	UpdateManifest(
-		ctx context.Context,
-		ns domain.Namespace,
-		arrow *domain.Arrow,
-	) error
-	// ResolveTrackedRef resolves arrow's next ref the same way the passive
-	// version-drift check does: constraint-first, tracked-channel fallback
-	// otherwise. See arrowstore.Store.ResolveTrackedRef.
-	ResolveTrackedRef(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) (ref string, err error)
 	// ListChannels reports every channel ns's repository publishes.
 	ListChannels(
 		ctx context.Context,
 		ns domain.Namespace,
 	) ([]models.ChannelInfo, error)
-	UpgradeVersion(
-		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-		constraint string,
-		channel string,
-		runtimeAlreadyExists bool,
-		alreadyReady bool,
-		userInstalled bool,
-		pinnedRef string,
-	) (*domain.Arrow, error)
-	// UpgradeVersionSeeded is UpgradeVersion's network-free counterpart: the
-	// caller already holds newNs's manifest bytes (the same shape Seed
-	// accepts) and needs no remote fetch to move the row's identity onto it.
-	// It always lands the new row straight at Ready.
-	UpgradeVersionSeeded(
-		ctx context.Context,
-		oldNs domain.Namespace,
-		newNs domain.Namespace,
-		data []byte,
-	) error
 	Shutdown(
 		ctx context.Context,
 	) error
@@ -197,12 +204,6 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error) error
-	// OnArrowUpgraded fires on arrow.upgraded.* events, carrying the new Arrow
-	// with UpgradedFromNs set so reactions can coordinate old → new cleanup.
-	OnArrowUpgraded(fn func(
-		ctx context.Context,
-		arrow domain.Arrow,
-	) error) error
 }
 
 type arrowService struct {
@@ -221,6 +222,12 @@ type arrowService struct {
 	// aggregate for a catalog built without a runtime to talk to.
 	versionOutdatedSync SetVersionOutdatedFn
 
+	// badgeHeld is registered once at startup and read by concurrent checks.
+	badgeHeld atomic.Pointer[func(ns domain.Namespace) bool]
+
+	advance advance.Advancer
+	watch   watch.Watch
+
 	// asynx runs one goroutine per subscriber, so a second subscription on an
 	// arrow topic would race the read-model write and the reactions alike.
 	// Callbacks are held here and invoked by the single projection instead, in
@@ -228,7 +235,6 @@ type arrowService struct {
 	callbacksMu sync.RWMutex
 	addedFns    []func(ctx context.Context, ns domain.Namespace, arrow domain.Arrow) error
 	updatedFns  []func(ctx context.Context, ns domain.Namespace, arrow *domain.Arrow) error
-	upgradedFns []func(ctx context.Context, arrow domain.Arrow) error
 	removedFns  []func(ctx context.Context, ns domain.Namespace) error
 }
 
@@ -245,7 +251,22 @@ func New(
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}
 
-	o := resolveOptions(opts)
+	s := newService(r, axArrow, v, m, hub, resolveOptions(opts))
+	if err := s.registerProjections(); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func newService(
+	r arrowstore.Store,
+	axArrow asynx.Asynx[domain.Arrow],
+	v vault.Vault,
+	m manifold.Manifold,
+	hub apphub.WebSocketHub,
+	o options,
+) *arrowService {
 	s := &arrowService{
 		store:               r,
 		axArrow:             axArrow,
@@ -255,12 +276,17 @@ func New(
 		preinstalled:        o.preinstalled,
 		versionOutdatedSync: o.versionOutdatedSync,
 	}
+	s.advance = advance.New(r, axArrow, v, m, s.syncBadgeFromRow)
+	s.watch = watch.New(watch.Interval(o.versionCheckInterval), s.CheckInstalledVersions)
+	return s
+}
 
-	if err := s.registerProjections(); err != nil {
-		return nil, err
-	}
-
-	return s, nil
+// WithVersionCheckInterval overrides arrows.version_check_interval, the
+// period of the installed rows' version check; zero turns it off.
+func WithVersionCheckInterval(
+	d time.Duration,
+) Option {
+	return func(o *options) { o.versionCheckInterval = &d }
 }
 
 // registerProjections claims one subscriber per arrow topic. Everything an
@@ -273,12 +299,13 @@ func (s *arrowService) registerProjections() error {
 		project asynxModels.ProjectionHandler[domain.Arrow]
 	}{
 		{"arrow.added.*", s.projectAdded},
-		{"arrow.upgraded.*", s.projectUpgraded},
-		{"arrow.updated.*", s.projectUpdated},
+		{"arrow.advanced.*", s.projectUpdated},
+		{"arrow.manifest_refreshed.*", s.projectUpdated},
 		{"arrow.installed.*", s.projectInstallStamp},
 		{"arrow.uninstalled.*", s.projectInstallStamp},
-		{"arrow.version_checked.*", s.projectVersionCheck},
-		{"arrow.channel_set.*", s.projectChannelSet},
+		{"arrow.available_checked.*", s.projectVersionCheck},
+		{"arrow.user_installed.*", s.projectUsage},
+		{"arrow.last_used.*", s.projectUsage},
 	}
 
 	for _, t := range topics {
@@ -341,13 +368,6 @@ func (s *arrowService) projectUpdated(
 	s.project(ctx, evt.Aggregate, s.runUpdated)
 }
 
-func (s *arrowService) projectUpgraded(
-	ctx context.Context,
-	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, s.runUpgraded)
-}
-
 // projectInstallStamp carries the installed-ref stamp into the read model — set
 // by an install, cleared by an uninstall. Nothing derived hangs off it, so there
 // is no reaction to run first.
@@ -358,8 +378,7 @@ func (s *arrowService) projectInstallStamp(
 	s.project(ctx, evt.Aggregate, nil)
 }
 
-// projectVersionCheck carries the outdated/recommended-ref stamp into the
-// read model. Nothing derived hangs off it, so there is no reaction to run
+// projectVersionCheck carries the available stamp into the read model. Nothing derived hangs off it, so there is no reaction to run
 // first — same shape as projectInstallStamp.
 func (s *arrowService) projectVersionCheck(
 	ctx context.Context,
@@ -368,16 +387,9 @@ func (s *arrowService) projectVersionCheck(
 	s.project(ctx, evt.Aggregate, nil)
 }
 
-// projectChannelSet carries the tracked-channel stamp into the read model.
-// Nothing derived hangs off it, so there is no reaction to run first — same
-// shape as projectInstallStamp/projectVersionCheck. Needed because
-// switchChannel (usecases/arrow.go) now only ever sends SetChannel against
-// an already-installed row, with no upgrade of its own to ride along on:
-// without this, the channel would land on the aggregate but never reach the
-// read model at all whenever the picked channel's latest already equals the
-// installed ref (the one case an ensuing version-check finds no drift to
-// report either).
-func (s *arrowService) projectChannelSet(
+// projectUsage carries the user-installed flag and the last-used stamp into
+// the read model, which the library's user_installed filter reads.
+func (s *arrowService) projectUsage(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
 ) {
@@ -496,69 +508,60 @@ func (s *arrowService) maybeCheckVersion(
 // runVersionCheck re-resolves arrow against the remote and lands the outcome on
 // both aggregates it concerns. A check that cannot produce a trustworthy answer
 // (ok is false) writes nothing at all — a failed resolution is no more a
-// trustworthy "no drift" than it is a drift.
+// trustworthy "current" than it is a drift.
 //
-// The runtime state is reconciled first, and unconditionally. First, because
-// the intermediate window then reads as a badge a few milliseconds early rather
-// than as the missing badge this whole path exists to fix, and because the
-// state is what gates whether the arrow can be run at all. Unconditionally,
-// because the catalog record below is only written when the answer changed —
-// and every arrow already carrying Outdated from before the runtime was wired
-// in at all takes that early return on every later check. A reconcile placed
-// after it would never run for exactly the installs that need repairing. Doing
-// it on every check instead costs one aggregate read per check and makes any
-// divergence, however it arose, heal itself at the next one.
+// The runtime state is reconciled unconditionally: the catalog record is only
+// written when the answer changed, so a runtime badge that diverged from an
+// unchanged answer would otherwise never heal.
 func (s *arrowService) runVersionCheck(
 	ctx context.Context,
 	arrow domain.Arrow,
 ) {
-	outdated, recommendedRef, ok := s.store.CheckVersionDrift(ctx, arrow)
-	if !ok {
+	_, answered, err := s.advance.RecordAvailable(ctx, arrow.Namespace,
+		func(current domain.Arrow) (*domain.Available, bool, error) {
+			available, ok := s.store.CheckDrift(ctx, current)
+			return available, ok, nil
+		})
+	if !answered {
 		return
 	}
-
-	s.syncVersionOutdated(ctx, arrow.Namespace, outdated)
-
-	current, err := s.axArrow.Get(ctx, arrow.Namespace.String())
 	if err != nil {
-		return
+		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", err)
 	}
-	if current.Outdated == outdated && current.RecommendedRef == recommendedRef {
-		return
-	}
+	s.syncBadgeFromRow(ctx, arrow.Namespace)
+}
 
-	if _, sendErr := s.axArrow.SendWait(ctx, arrowcmds.RecordVersionCheck{
-		Namespace:      arrow.Namespace,
-		Outdated:       outdated,
-		RecommendedRef: recommendedRef,
-	}); sendErr != nil {
-		slog.WarnContext(ctx, "arrow version check: record", "ns", arrow.Namespace, "err", sendErr)
+// syncBadgeFromRow pushes the row's Available, read now, onto the runtime
+// badge. The answer a check judged may already be about a row an update has
+// since advanced — and an unchanged answer is never written, so the atomic
+// write guard never saw it — so the badge follows the row, never the answer.
+// A row that cannot be read syncs nothing.
+func (s *arrowService) syncBadgeFromRow(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	if held := s.badgeHeld.Load(); held != nil && (*held)(ns) {
+		return
 	}
+	row, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		slog.WarnContext(ctx, "arrow version check: re-read row", "ns", ns, "err", err)
+		return
+	}
+	s.syncVersionOutdated(ctx, ns, row.Available != nil)
+}
+
+func (s *arrowService) HoldBadgeWhile(
+	settling func(ns domain.Namespace) bool,
+) {
+	s.badgeHeld.Store(&settling)
 }
 
 // CheckVersionNow launches a version-drift check for ns immediately,
-// bypassing NeedsVersionCheck's TTL claim entirely — unlike maybeCheckVersion,
-// which only launches one once the TTL says it is due. It exists for a
-// deliberate user action that just changed what ns tracks: switchChannel
-// calls this right after SetChannel so the outdated badge does not wait up to
-// version_check_ttl (an hour, by default) to notice a choice the user just
-// made.
-//
-// The seed value comes from axArrow, not the read model: Send is not
-// fire-and-forget in the sense that matters here — it blocks until the
-// command's event is durably appended, and only skips waiting for
-// subscriber/projection handlers to run (that is what SendWait adds on
-// top). So by the time SetChannel's call in switchChannel returns, the
-// aggregate itself is guaranteed to reflect it for any later Get. The read
-// model, by contrast, only catches up once its own projection subscriber
-// runs — for SetChannel that could still be pending, and reading it here
-// would risk resolving this check against the channel ns tracked before
-// the switch.
-//
-// Launched detached, the same way maybeCheckVersion already launches its own
-// check, so the caller's response returns immediately without waiting for a
-// live git resolve to finish. A namespace with no aggregate at all, or any
-// other lookup failure, is silently a no-op — fire-and-forget by design.
+// bypassing NeedsVersionCheck's TTL claim. The row comes from axArrow, not the
+// read model: a command that just changed the row has reached the aggregate
+// before its projection has reached the read model. A namespace with no row is
+// a no-op.
 func (s *arrowService) CheckVersionNow(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -575,6 +578,112 @@ func (s *arrowService) CheckVersionNow(
 	}()
 }
 
+func (s *arrowService) CheckInstalledVersions(
+	ctx context.Context,
+) {
+	views, err := s.store.List(ctx, nil)
+	if err != nil {
+		slog.WarnContext(ctx, "arrow version check: list installed rows", "err", err)
+		return
+	}
+	for _, view := range views {
+		for _, version := range view.Versions {
+			if ctx.Err() != nil {
+				return
+			}
+			if !version.Metadata.InstalledAt.IsZero() {
+				s.checkClaimed(ctx, version.Namespace)
+			}
+		}
+	}
+}
+
+// checkClaimed runs ns's version check in line if the TTL claim is won: a
+// row a detail read or an update checked within the TTL is left alone.
+func (s *arrowService) checkClaimed(
+	ctx context.Context,
+	ns domain.Namespace,
+) {
+	needs, err := s.store.NeedsVersionCheck(ctx, ns, time.Time{})
+	if err != nil || !needs {
+		return
+	}
+	arrow, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
+	defer cancel()
+	s.runVersionCheck(checkCtx, arrow)
+}
+
+func (s *arrowService) WatchVersions(
+	ctx context.Context,
+) {
+	s.watch.Start(ctx)
+}
+
+func (s *arrowService) StopWatchingVersions() {
+	s.watch.Stop()
+}
+
+func (s *arrowService) Advance(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) error {
+	return s.advance.Advance(ctx, ns, target)
+}
+
+func (s *arrowService) Adopt(
+	ctx context.Context,
+	ns domain.Namespace,
+	kind domain.SelectorKind,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	return s.advance.Adopt(ctx, ns, kind, resolved, manifest, filename)
+}
+
+func (s *arrowService) AdoptInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolvedRef string,
+) error {
+	return s.advance.AdoptInstalled(ctx, ns, resolvedRef)
+}
+
+func (s *arrowService) CheckAvailable(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Available, error) {
+	return s.advance.CheckAvailable(ctx, ns)
+}
+
+func (s *arrowService) TargetUnmoved(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (bool, error) {
+	return s.advance.TargetUnmoved(ctx, ns, target)
+}
+
+func (s *arrowService) RefreshToTarget(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) (*domain.Arrow, error) {
+	return s.advance.RefreshToTarget(ctx, ns, target)
+}
+
+func (s *arrowService) AddDependency(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	return s.advance.AddDependency(ctx, ns)
+}
+
 func (s *arrowService) GetManifest(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -587,29 +696,6 @@ func (s *arrowService) ResolveManifest(
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
 	return s.store.ResolveManifest(ctx, ns)
-}
-
-// RefreshManifest purges the cached manifest, then resolves it — forcing a
-// re-fetch from source rather than returning a still-fresh cached copy.
-func (s *arrowService) RefreshManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-) (*domain.Arrow, error) {
-	if s.vault != nil {
-		if err := s.vault.DeleteArrow(ctx, ns); err != nil {
-			slog.WarnContext(ctx, "catalog: refresh: purge manifest cache failed",
-				"ns", ns, "err", err)
-		}
-	}
-	return s.store.ResolveManifest(ctx, ns)
-}
-
-func (s *arrowService) ResolveForInstall(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-) (resolvedNs domain.Namespace, arrow *domain.Arrow, constraint string, err error) {
-	return s.store.ResolveForInstall(ctx, ns, channel)
 }
 
 func (s *arrowService) ResolveCatalogued(
@@ -626,56 +712,6 @@ func (s *arrowService) Search(
 	return s.store.Search(ctx, q)
 }
 
-// appSentinels are the app-layer classifications an error may already carry.
-// mapResolveErr consults them so a precise classification made downstream is
-// not overwritten by this one.
-var appSentinels = []error{
-	apperrors.ErrNotFound,
-	apperrors.ErrAlreadyExists,
-	apperrors.ErrStateViolation,
-	apperrors.ErrMethodNotFound,
-	apperrors.ErrFetchFailed,
-	apperrors.ErrInvalidNamespace,
-	apperrors.ErrDependentsExist,
-	apperrors.ErrInvalidManifest,
-	apperrors.ErrPlatformNotSupported,
-	apperrors.ErrMissingVariable,
-	apperrors.ErrReservedVariable,
-	apperrors.ErrInvalidConfig,
-}
-
-// mapResolveErr classifies a manifest-resolution failure.
-//
-// manifold attaches no app sentinel to its own errors, so without this every
-// rejected manifest and every unreachable remote arrives at the API carrying
-// nothing errors.Is can match — and apierr.StatusAndMessage answers every one
-// of them with 500 "internal error", discarding the chain that said what was
-// actually wrong.
-//
-// The remaining default is deliberate: reaching a manifest is I/O against a
-// remote, so an unclassified failure there is a gateway problem rather than a
-// server fault.
-func mapResolveErr(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	switch {
-	case errors.Is(err, ruleset.ErrNoSupportedPlatform):
-		return fmt.Errorf("%w: %w", apperrors.ErrPlatformNotSupported, err)
-	case errors.Is(err, ruleset.ErrInvalidManifest):
-		return fmt.Errorf("%w: %w", apperrors.ErrInvalidManifest, err)
-	}
-
-	for _, sentinel := range appSentinels {
-		if errors.Is(err, sentinel) {
-			return err
-		}
-	}
-
-	return fmt.Errorf("%w: %w", apperrors.ErrFetchFailed, err)
-}
-
 // Add resolves ns against its remote and writes it into the catalog as
 // user-installed.
 //
@@ -687,27 +723,23 @@ func mapResolveErr(err error) error {
 func (s *arrowService) Add(
 	ctx context.Context,
 	ns domain.Namespace,
-	opts models.AddOptions,
 ) error {
-	resolvedNs, arrow, constraint, err := s.store.ResolveForInstall(ctx, ns, opts.Channel)
+	identity, arrow, err := s.store.ResolveInstall(ctx, ns, arrowstore.CacheWhenAbsent(s.identityExists))
 	if err != nil {
-		return fmt.Errorf("add: %w", mapResolveErr(err))
+		return fmt.Errorf("add: %w", advance.MapResolveErr(err))
 	}
 	arrow.UserInstalled = true
-	arrow.InstalledConstraint = constraint
-	if err := s.markIfPreinstalled(ctx, resolvedNs, arrow); err != nil {
+	if err := s.markIfPreinstalled(ctx, identity, arrow); err != nil {
 		return err
 	}
-	return s.addArrowCommand(ctx, resolvedNs, arrow, constraint)
+	return s.addArrowCommand(ctx, identity, arrow)
 }
 
-func (s *arrowService) AddDep(
+func (s *arrowService) identityExists(
 	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-	constraint string,
-) error {
-	return s.addArrowCommand(ctx, ns, arrow, constraint)
+	identity domain.Namespace,
+) (bool, error) {
+	return s.axArrow.Exists(ctx, identity.String())
 }
 
 // addArrowCommand waits for the projections rather than only for the write.
@@ -718,7 +750,6 @@ func (s *arrowService) addArrowCommand(
 	ctx context.Context,
 	ns domain.Namespace,
 	arrow *domain.Arrow,
-	constraint string,
 ) error {
 	existing, getErr := s.axArrow.Get(ctx, ns.String())
 	if getErr == nil {
@@ -733,17 +764,15 @@ func (s *arrowService) addArrowCommand(
 	}
 
 	cmd := arrowcmds.AddArrow{
-		Namespace:           ns,
-		ArrowMeta:           arrow.ArrowMeta,
-		Variables:           arrow.Variables,
-		Netbridge:           arrow.Netbridge,
-		Targets:             arrow.Targets,
-		Readme:              arrow.Readme,
-		DirectInstall:       arrow.UserInstalled,
-		InstalledConstraint: constraint,
-		RefIsBranch:         arrow.RefIsBranch,
-		RefCommitSHA:        arrow.RefCommitSHA,
-		Channel:             arrow.Channel,
+		Namespace:     ns,
+		ArrowMeta:     arrow.ArrowMeta,
+		Variables:     arrow.Variables,
+		Netbridge:     arrow.Netbridge,
+		Targets:       arrow.Targets,
+		Readme:        arrow.Readme,
+		DirectInstall: arrow.UserInstalled,
+		SelectorKind:  arrow.SelectorKind,
+		Resolved:      arrow.Resolved,
 	}
 	_, sendErr := s.axArrow.SendWait(ctx, cmd)
 	if sendErr == nil {
@@ -769,55 +798,6 @@ func (s *arrowService) Remove(
 	}
 
 	return s.axArrow.Forget(ctx, ns.String())
-}
-
-func (s *arrowService) Seed(
-	ctx context.Context,
-	ns domain.Namespace,
-	data []byte,
-) error {
-	if ns.Validate() != nil {
-		return fmt.Errorf("seed arrow: %w", apperrors.ErrInvalidNamespace)
-	}
-	// Seeded bytes have no remote to ask for a ref, so the caller has to say
-	// which one these bytes are.
-	if ns.Ref() == "" {
-		return fmt.Errorf("seed arrow %s: namespace must carry a ref: %w", ns, apperrors.ErrInvalidNamespace)
-	}
-
-	m, err := s.manifold.ParseArrow(data)
-	if err != nil {
-		return fmt.Errorf("seed arrow: %w: %w", apperrors.ErrInvalidManifest, err)
-	}
-
-	// Cacheable, not a bare ManifestFile: seeded bytes are cached like any other
-	// manifest, and a cache entry with no index metadata is one the vault lane of
-	// search can never answer with.
-	if err := s.vault.PutArrow(
-		ctx, ns, arrowstore.Cacheable(m, data, "ARROW.md"),
-	); err != nil {
-		return fmt.Errorf("seed arrow: vault write: %w", err)
-	}
-
-	m.UserInstalled = true
-	err = s.addArrowCommand(ctx, ns, m, "")
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, apperrors.ErrAlreadyExists) {
-		return fmt.Errorf("seed arrow: %w", err)
-	}
-
-	cmd := arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		ArrowMeta: m.ArrowMeta,
-		Variables: m.Variables,
-		Netbridge: m.Netbridge,
-		Targets:   m.Targets,
-		Readme:    m.Readme,
-	}
-	_, err = s.axArrow.SendWait(ctx, cmd)
-	return err
 }
 
 func (s *arrowService) ValidateManifest(
@@ -874,46 +854,11 @@ func (s *arrowService) MarkLastUsed(
 	return err
 }
 
-// SetChannel stays on Send for the same reason MarkInstalled does: it needs
-// no wait, and waiting would risk the same circular-wait shape newAsynx
-// documents (internal/app/container.go) for other high-frequency commands.
-func (s *arrowService) SetChannel(
-	ctx context.Context,
-	ns domain.Namespace,
-	channel string,
-	ref string,
-) error {
-	_, err := s.axArrow.Send(ctx, arrowcmds.SetChannel{
-		Namespace: ns,
-		Channel:   channel,
-		Ref:       ref,
-	})
-	return err
-}
-
 func (s *arrowService) Forget(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
 	return s.axArrow.Forget(ctx, ns.String())
-}
-
-// UpdateManifest waits for the projections: a changed manifest changes the
-// dependency edges, and the caller reads them back straight away.
-func (s *arrowService) UpdateManifest(
-	ctx context.Context,
-	ns domain.Namespace,
-	arrow *domain.Arrow,
-) error {
-	_, err := s.axArrow.SendWait(ctx, arrowcmds.UpdateArrowManifest{
-		Namespace: ns,
-		ArrowMeta: arrow.ArrowMeta,
-		Variables: arrow.Variables,
-		Netbridge: arrow.Netbridge,
-		Targets:   arrow.Targets,
-		Readme:    arrow.Readme,
-	})
-	return err
 }
 
 func (s *arrowService) Shutdown(ctx context.Context) error {
@@ -977,18 +922,6 @@ func (s *arrowService) runUpdated(
 	}
 }
 
-func (s *arrowService) runUpgraded(
-	ctx context.Context,
-	arrow domain.Arrow,
-) {
-	for _, fn := range s.upgradedCallbacks() {
-		if err := fn(ctx, arrow); err != nil {
-			slog.ErrorContext(ctx, "arrow callback OnArrowUpgraded failed",
-				"ns", arrow.Namespace, "err", err)
-		}
-	}
-}
-
 func (s *arrowService) runRemoved(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -1023,15 +956,6 @@ func (s *arrowService) updatedCallbacks() []func(
 	return slices.Clone(s.updatedFns)
 }
 
-func (s *arrowService) upgradedCallbacks() []func(
-	ctx context.Context,
-	arrow domain.Arrow,
-) error {
-	s.callbacksMu.RLock()
-	defer s.callbacksMu.RUnlock()
-	return slices.Clone(s.upgradedFns)
-}
-
 func (s *arrowService) removedCallbacks() []func(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -1039,13 +963,6 @@ func (s *arrowService) removedCallbacks() []func(
 	s.callbacksMu.RLock()
 	defer s.callbacksMu.RUnlock()
 	return slices.Clone(s.removedFns)
-}
-
-func (s *arrowService) ResolveTrackedRef(
-	ctx context.Context,
-	arrow domain.Arrow,
-) (ref string, err error) {
-	return s.store.ResolveTrackedRef(ctx, arrow)
 }
 
 func (s *arrowService) ListChannels(
@@ -1067,133 +984,6 @@ func (s *arrowService) ListChannels(
 		})
 	}
 	return out, nil
-}
-
-func (s *arrowService) UpgradeVersion(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	constraint string,
-	channel string,
-	runtimeAlreadyExists bool,
-	alreadyReady bool,
-	userInstalled bool,
-	pinnedRef string,
-) (*domain.Arrow, error) {
-	newArrow, rawBytes, filename, err := s.manifold.ResolveArrow(ctx, newNs)
-	if err != nil {
-		return nil, fmt.Errorf("upgrade version: fetch manifest: %w", mapResolveErr(err))
-	}
-
-	if !runtimeAlreadyExists { //nolint:nestif
-		if delErr := s.vault.DeleteArrow(ctx, newNs); delErr != nil {
-			slog.WarnContext(ctx, "upgrade version: delete pre-cached vault entry", "ns", newNs, "err", delErr)
-		}
-		if err := s.vault.RenameArrow(ctx, oldNs, newNs); err != nil {
-			return nil, fmt.Errorf("upgrade version: rename vault entry: %w", err)
-		}
-		// Cacheable for the same reason Seed uses it: a bare ManifestFile carries
-		// no index metadata, so the upgraded ref would be cached on disk yet
-		// invisible to the vault lane of search.
-		if err := s.vault.PutArrow(
-			ctx, newNs, arrowstore.Cacheable(newArrow, rawBytes, filename),
-		); err != nil {
-			return nil, fmt.Errorf("upgrade version: write new manifest: %w", err)
-		}
-	}
-
-	if err := s.sendUpgradeArrow(ctx, oldNs, newNs, newArrow, constraint, channel, alreadyReady, userInstalled, pinnedRef); err != nil {
-		return nil, err
-	}
-
-	return newArrow, nil
-}
-
-// UpgradeVersionSeeded parses data locally (no remote fetch), caches it into
-// the vault under newNs, and swaps the catalog identity the same way
-// UpgradeVersion does. Its one caller today is quiver.core's own
-// self-registration: the daemon already holds its embedded self-manifest and
-// must never depend on network reachability just to record which version of
-// itself is running.
-func (s *arrowService) UpgradeVersionSeeded(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	data []byte,
-) error {
-	m, err := s.manifold.ParseArrow(data)
-	if err != nil {
-		return fmt.Errorf("upgrade version seeded: %w: %w", apperrors.ErrInvalidManifest, err)
-	}
-
-	if err := s.vault.PutArrow(
-		ctx, newNs, arrowstore.Cacheable(m, data, "ARROW.md"),
-	); err != nil {
-		return fmt.Errorf("upgrade version seeded: vault write: %w", err)
-	}
-
-	// Channel is passed empty: UpgradeVersionSeeded's one caller
-	// (selfarrow.go) stamps the channel itself via a separate SetChannel
-	// call after this returns, which is safe for that caller specifically
-	// -- a self-arrow row never carries an InstalledConstraint (self-
-	// registration never goes through a glob install), so SetChannel's own
-	// unconditional constraint-clear there is a genuine no-op. userInstalled
-	// is passed false: self-registration never carries a real UserInstalled
-	// fact. pinnedRef is passed empty for the same reason: self-registration
-	// never pins to a specific ref.
-	return s.sendUpgradeArrow(ctx, oldNs, newNs, m, "", "", true, false, "")
-}
-
-// sendUpgradeArrow builds and sends the arrow.upgraded command shared by
-// UpgradeVersion and UpgradeVersionSeeded.
-//
-// Send, not SendWait: the arrow.upgraded projection forgets the old
-// namespace (usecases/runtime.go onArrowUpgraded), which is itself a
-// blocking send on this same aggregate type. Waiting here would make one
-// arrow command depend on another completing.
-func (s *arrowService) sendUpgradeArrow(
-	ctx context.Context,
-	oldNs domain.Namespace,
-	newNs domain.Namespace,
-	newArrow *domain.Arrow,
-	constraint string,
-	channel string,
-	alreadyReady bool,
-	userInstalled bool,
-	pinnedRef string,
-) error {
-	cmd := arrowcmds.UpgradeArrow{
-		Namespace:           newNs,
-		OldNamespace:        oldNs,
-		ArrowMeta:           newArrow.ArrowMeta,
-		Variables:           newArrow.Variables,
-		Netbridge:           newArrow.Netbridge,
-		Targets:             newArrow.Targets,
-		Readme:              newArrow.Readme,
-		InstalledConstraint: constraint,
-		Channel:             channel,
-		AlreadyReady:        alreadyReady,
-		UserInstalled:       userInstalled,
-		PinnedRef:           pinnedRef,
-	}
-	_, sendErr := s.axArrow.Send(ctx, cmd)
-	if sendErr != nil {
-		if errors.Is(sendErr, asynxModels.ErrValidation) || errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
-			return fmt.Errorf("upgrade version: %w", apperrors.ErrAlreadyExists)
-		}
-		return fmt.Errorf("upgrade version: send command: %w", sendErr)
-	}
-	return nil
-}
-
-// OnArrowUpgraded registers fn on the projection that owns arrow.upgraded.
-func (s *arrowService) OnArrowUpgraded(
-	fn func(ctx context.Context, arrow domain.Arrow) error,
-) error {
-	s.callbacksMu.Lock()
-	defer s.callbacksMu.Unlock()
-	s.upgradedFns = append(s.upgradedFns, fn)
-	return nil
 }
 
 func validManifestResult(

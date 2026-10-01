@@ -147,9 +147,10 @@ func TestSaveAt_EveryFieldRoundTrips(t *testing.T) {
 		},
 		Vault: Vault{SweepInterval: "10m", TTL: "48h", IndexTTL: "360h"},
 		Arrows: Arrows{
-			AutoRetry:       ArrowAutoRetry{Enabled: false, Retries: 7},
-			VersionCheckTTL: "2h",
-			ExtractMaxBytes: 1073741824,
+			AutoRetry:            ArrowAutoRetry{Enabled: false, Retries: 7},
+			VersionCheckTTL:      "2h",
+			VersionCheckInterval: "3h",
+			ExtractMaxBytes:      1073741824,
 		},
 		Search: Search{
 			PerProviderLimit: 10,

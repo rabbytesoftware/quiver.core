@@ -26,15 +26,7 @@ func newerThan(
 	if !aOrdered {
 		return 0
 	}
-	aCore := coreOf(a.Latest)
-	bCore := coreOf(b.Latest)
-	if semverGT(aCore, bCore) {
-		return -1
-	}
-	if semverGT(bCore, aCore) {
-		return 1
-	}
-	return 0
+	return compareCores(coreOf(b.Latest), coreOf(a.Latest))
 }
 
 func orderedFirst(
@@ -48,9 +40,9 @@ func orderedFirst(
 
 func coreOf(
 	tag string,
-) string {
-	core, _, _ := ParseTag(tag)
-	return core
+) [4]int {
+	_, core, _, _ := parseTagFull(tag)
+	return semverParts(core)
 }
 
 const channelKindOrdered = "ordered"

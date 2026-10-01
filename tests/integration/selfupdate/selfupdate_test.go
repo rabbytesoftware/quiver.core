@@ -3,8 +3,10 @@
 package selfupdate_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
@@ -35,6 +38,14 @@ func TestSelfUpdateIntegration(t *testing.T) {
 // under it — the usual "quiver.test/..." fixture convention would never be
 // recognized by that check.
 const selfNamespace = "github.com/rabbytesoftware/quiver.core"
+
+// noVersionCheck fails every live snapshot, so no version check can ever
+// reach a verdict.
+type noVersionCheck struct{ manifold.Manifold }
+
+func (noVersionCheck) FreshSnapshot(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+	return domain.RefSnapshot{}, errors.New("version checks are disabled in this test")
+}
 
 // getDetail fetches arrow detail and requires HTTP 200. Mirrors the identical
 // small helper every other integration suite defines locally (see
@@ -57,12 +68,15 @@ func (s *SelfUpdateSuite) getDetail(tc *kit.TypedClient, ns string) dto.ArrowDet
 // with no in-memory state" — exactly what a real exec handover leaves the new
 // binary with.
 func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart() {
-	selfNS := selfNamespace + "@v1"
+	// The self-arrow follows a selector (here the constraint v*, standing in
+	// for the release channel the fixture's v1/v2 tags do not classify into);
+	// an update only runs when that selector has moved ahead of what is
+	// installed, so v2 is published after the self-arrow is installed at v1.
+	selfNS := selfNamespace + "@v*"
 
 	v1Content := kit.ReadFixture(s.T(), "self-update/v1/arrow.yaml")
 	v2Content := kit.ReadFixture(s.T(), "self-update/v2/arrow.yaml")
 	storer := kit.BuildUpgradeRepo(s.T(), v1Content)
-	kit.AddV2ToRepo(s.T(), storer, v2Content)
 	s.Repos.Set(selfNamespace, storer)
 	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
 
@@ -112,6 +126,8 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.Equal(s.T(), http.StatusAccepted, tc1.Install(selfNS, bootstrapVars))
 	env1.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 120*time.Second)
 
+	v2Commit := kit.AddV2ToRepo(s.T(), storer, v2Content)
+
 	// --- fixture HTTP server standing in for the resolved release asset,
 	// exercising Task 1.5's checksum verification rather than bypassing it ---
 	payload := []byte("fake quiver.core release binary contents")
@@ -131,9 +147,19 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.Eventually(s.T(), trig.Fired, 10*time.Second, 50*time.Millisecond,
 		"the OnRuntimeEnded -> trigger wiring must fire through the real app-layer DI, not just Task 1.4's own unit test")
 
+	s.Require().Equal(string(domain.ArrowStateOutdated), s.getDetail(tc1, selfNS).State,
+		"precondition: the drift check marked the self-arrow outdated before its own update")
+
 	env1.CloseWithoutKilling() // the fixture's OS process survives — mirrors what a real exec handover leaves behind
 
-	env2 := s.NewEnvWithHome(env1.Home)
+	// The relaunched binary is the v2 build: it adopts its own new state on
+	// the self-arrow's identity, which is what settles that row. Its version
+	// checks can never answer, so only that adoption can clear the badge.
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, env1.Home,
+		kit.WithBuild("v2", v2Commit, "v*"),
+		kit.WithManifoldWrapper(func(inner manifold.Manifold) manifold.Manifold {
+			return noVersionCheck{Manifold: inner}
+		}))
 	tc2 := env2.TypedClient(s.T())
 
 	finalFixture := s.getDetail(tc2, fixtureNS)
@@ -164,4 +190,122 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	env2.KillDetachedProcess(s.T(), originalPID)
 	require.Eventually(s.T(), func() bool { return !env2.ProcessAlive(originalPID) }, 5*time.Second, 50*time.Millisecond,
 		"the fixture process must be gone after cleanup")
+}
+
+// libraryRefs returns the refs GET /v0/arrow?user_installed=true lists for
+// quiver.core: what the desktop library shows of it.
+func (s *SelfUpdateSuite) libraryRefs(tc *kit.TypedClient) []string {
+	s.T().Helper()
+	items, status := tc.ListUserInstalled()
+	s.Require().Equal(http.StatusOK, status)
+	var refs []string
+	for _, item := range items {
+		if item.Namespace != selfNamespace {
+			continue
+		}
+		for _, v := range item.Versions {
+			refs = append(refs, v.Ref)
+		}
+	}
+	return refs
+}
+
+type build struct{ version, commit, channel string }
+
+// TestSelfUpdate_CoreStaysInTheLibraryAcrossRestarts is the regression for a
+// core that updated itself dropping out of the desktop library: each restart
+// boots a newer build on the same home, and the library must still list it.
+func (s *SelfUpdateSuite) TestSelfUpdate_CoreStaysInTheLibraryAcrossRestarts() {
+	testCases := []struct {
+		name    string
+		first   build
+		next    build
+		wantRef string
+	}{
+		{
+			name:    "same identity, new version and commit",
+			first:   build{"beta-26.5-4", "aaa", "beta"},
+			next:    build{"beta-26.5-5", "bbb", "beta"},
+			wantRef: "beta",
+		},
+		{
+			name:    "rolling tag, new commit",
+			first:   build{"nightly-latest", "aaa", "nightly-latest"},
+			next:    build{"nightly-latest", "bbb", "nightly-latest"},
+			wantRef: "nightly-latest",
+		},
+		{
+			name:    "different identity",
+			first:   build{"stable-26.5.1", "aaa", ""},
+			next:    build{"stable-26.5.2", "bbb", "stable"},
+			wantRef: "stable",
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			home := s.T().TempDir()
+			env1 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild(tc.first.version, tc.first.commit, tc.first.channel))
+			s.Require().NotEmpty(s.libraryRefs(env1.TypedClient(s.T())))
+			env1.Close()
+
+			env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild(tc.next.version, tc.next.commit, tc.next.channel))
+			tc2 := env2.TypedClient(s.T())
+
+			s.Equal([]string{tc.wantRef}, s.libraryRefs(tc2))
+			s.True(s.getDetail(tc2, selfNamespace+"@"+tc.wantRef).UserInstalled)
+			env2.Close()
+		})
+	}
+}
+
+// TestSelfUpdate_RowLeftOutOfTheLibrary_IsRepairedOnBoot starts from the state
+// the bug left behind: a quiver.core row catalogued without the user-installed
+// flag, here as another arrow's dependency. The next boot of a released build
+// on that identity puts it back in the library.
+func (s *SelfUpdateSuite) TestSelfUpdate_RowLeftOutOfTheLibrary_IsRepairedOnBoot() {
+	s.Repos.Set(selfNamespace, kit.BuildUpgradeRepo(s.T(), kit.ReadFixture(s.T(), "self-update/v1/arrow.yaml")))
+	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
+	const dependentKey = "quiver-test/depends-on-core"
+	dependentManifest := []byte(`schema: "arrow@v0"
+metadata:
+  name: quiver-test.depends-on-core
+  description: Depends on quiver.core
+targets:
+  "*":
+    tools:
+      - ` + selfNamespace + `@v1
+    lifecycle:
+      install:
+        - type: run
+          command: echo installed
+          title: Install
+          timeout: 10s
+          exit_on_failure: true
+      uninstall:
+        - type: run
+          command: echo uninstalled
+          title: Uninstall
+          timeout: 10s
+          exit_on_failure: false
+`)
+	s.Repos.Set(dependentKey, kit.BuildUpgradeRepo(s.T(), dependentManifest))
+	s.T().Cleanup(func() { s.Repos.Delete(dependentKey) })
+
+	home := s.T().TempDir()
+	env1 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
+	tc1 := env1.TypedClient(s.T())
+	dependent := kit.NSFor(dependentKey, "v1")
+	s.Require().Equal(http.StatusCreated, tc1.Add(dependent))
+	s.Require().Equal(http.StatusAccepted, tc1.Install(dependent, nil))
+	env1.WaitForState(s.T(), dependent, domain.ArrowStateReady, 120*time.Second)
+	s.Require().Empty(s.libraryRefs(tc1), "precondition: the core's row is catalogued outside the library")
+	s.Require().False(s.getDetail(tc1, selfNamespace+"@v1").UserInstalled)
+	env1.Close()
+
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home, kit.WithBuild("v1", "bbb", ""))
+	tc2 := env2.TypedClient(s.T())
+
+	s.Equal([]string{"v1"}, s.libraryRefs(tc2))
+	s.True(s.getDetail(tc2, selfNamespace+"@v1").UserInstalled)
 }

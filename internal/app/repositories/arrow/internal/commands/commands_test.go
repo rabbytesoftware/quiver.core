@@ -117,63 +117,6 @@ func TestAddArrow_SetsReadme(t *testing.T) {
 	assert.Equal(t, "# Docs", got.Readme)
 }
 
-// The command is the only place RefIsBranch/RefCommitSHA can reach the
-// persisted aggregate — EmitEvent building a fresh domain.Arrow from scratch
-// means any field missing from both the command struct and this literal is
-// silently dropped no matter what the caller computed.
-func TestAddArrow_RefIsBranch(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-
-	cmd := commands.AddArrow{
-		Namespace:    ns,
-		RefIsBranch:  true,
-		RefCommitSHA: "abc123",
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.True(t, got.RefIsBranch)
-	assert.Equal(t, "abc123", got.RefCommitSHA)
-}
-
-// The command is the only place Channel can reach the persisted aggregate —
-// same reasoning as TestAddArrow_RefIsBranch: a field missing from the
-// command struct or this EmitEvent literal is silently dropped.
-func TestAddArrow_Channel(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-
-	cmd := commands.AddArrow{
-		Namespace: ns,
-		Channel:   "rc",
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "rc", got.Channel)
-}
-
-func TestAddArrow_InstalledConstraint(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-
-	cmd := commands.AddArrow{
-		Namespace:           ns,
-		InstalledConstraint: "^v1",
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "^v1", got.InstalledConstraint)
-}
-
 // ─── MarkInstalled ───────────────────────────────────────────────────────────
 
 func TestMarkInstalled_WithoutPriorAdd_Fails(t *testing.T) {
@@ -406,18 +349,19 @@ func TestMarkUninstalled_AfterInstall_ClearsTheStamp(t *testing.T) {
 }
 
 // Uninstalling releases the disk, not the catalog entry. UserInstalled records
-// the intent to keep the arrow around, and InstalledConstraint is written when
+// the intent to keep the arrow around, and the selector state is written when
 // the namespace is added, so an update can still resolve through it.
 func TestMarkUninstalled_KeepsTheAddTimeFields(t *testing.T) {
 	ax := buildAsynx(t)
 	ns := testNs()
 
 	_, err := ax.Send(context.Background(), commands.AddArrow{
-		Namespace:           ns,
-		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
-		Variables:           []domain.Variable{{Name: "PORT"}},
-		DirectInstall:       true,
-		InstalledConstraint: "^v1",
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow"},
+		Variables:     []domain.Variable{{Name: "PORT"}},
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorConstraint,
+		Resolved:      domain.Resolved{Ref: "v1.2.0", Commit: "c1"},
 	})
 	require.NoError(t, err)
 
@@ -433,7 +377,8 @@ func TestMarkUninstalled_KeepsTheAddTimeFields(t *testing.T) {
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
 	assert.True(t, got.UserInstalled)
-	assert.Equal(t, "^v1", got.InstalledConstraint)
+	assert.Equal(t, domain.SelectorConstraint, got.SelectorKind)
+	assert.Equal(t, domain.Resolved{Ref: "v1.2.0", Commit: "c1"}, got.Resolved)
 	assert.Equal(t, ns, got.Namespace)
 	assert.Equal(t, "Test Arrow", got.Name)
 	assert.Len(t, got.Variables, 1, "the manifest survives an uninstall untouched")
@@ -489,328 +434,259 @@ func TestSetUserInstalled_SetsUserInstalled(t *testing.T) {
 	assert.True(t, got.UserInstalled)
 }
 
-// ─── UpdateArrowManifest ──────────────────────────────────────────────────────
+// ─── AddArrow selector state ─────────────────────────────────────────────────
 
-func TestUpdateArrowManifest_WithoutPriorAdd_Fails(t *testing.T) {
+func TestAddArrow_SelectorKindAndResolved_RoundTrip(t *testing.T) {
 	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@stable")
+	resolved := domain.Resolved{Ref: "v1.2.0", Commit: "abc123", Fingerprint: "sha256:ff"}
 
-	cmd := commands.UpdateArrowManifest{
-		Namespace: testNs(),
-		ArrowMeta: domain.ArrowMeta{Name: "New Name"},
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.Error(t, err)
-	assert.True(t, isValidationErr(err))
-}
-
-func TestUpdateArrowManifest_UpdatesFields(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, false)
-
-	cmd := commands.UpdateArrowManifest{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
-	}
-	_, err := ax.Send(context.Background(), cmd)
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorChannel,
+		Resolved:      resolved,
+	})
 	require.NoError(t, err)
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "Updated Name", got.Name)
-	assert.Equal(t, "v1.0.0", got.Namespace.Ref(), "a manifest update must not move the ref the aggregate is filed under")
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.Nil(t, got.Available)
 }
 
-func TestUpdateArrowManifest_UpdatesReadme(t *testing.T) {
+// ─── AdvanceArrow ────────────────────────────────────────────────────────────
+
+func TestAdvanceArrow_WithoutPriorAdd_Fails(t *testing.T) {
 	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, false)
 
-	cmd := commands.UpdateArrowManifest{
-		Namespace: ns,
-		ArrowMeta: domain.ArrowMeta{Name: "Updated Name"},
-		Readme:    "# Updated Docs",
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
+	_, err := ax.Send(context.Background(), commands.AdvanceArrow{Namespace: testNs()})
 
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "# Updated Docs", got.Readme)
-}
-
-// ─── UpgradeArrow ─────────────────────────────────────────────────────────────
-
-func TestUpgradeArrow_OnExisting_Fails(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, false)
-
-	cmd := commands.UpgradeArrow{Namespace: ns}
-	_, err := ax.Send(context.Background(), cmd)
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }
 
-func TestUpgradeArrow_Success_SetsFields(t *testing.T) {
+func TestAdvanceArrow_ReplacesManifestAndResolved_PreservesRowState(t *testing.T) {
 	ax := buildAsynx(t)
-	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
-	oldNs := testNs()
+	ns := domain.Namespace("github.com/user/repo@nightly-latest")
+	installedAt := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	lastUsedAt := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
 
-	cmd := commands.UpgradeArrow{
-		Namespace:           newNs,
-		OldNamespace:        oldNs,
-		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
-		InstalledConstraint: "^v2",
-		Channel:             "stable",
-		Readme:              "# Docs v2",
-	}
-	_, err := ax.Send(context.Background(), cmd)
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Old"},
+		Readme:        "old readme",
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorPin,
+		Resolved:      domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"},
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.MarkInstalled{Namespace: ns, InstalledAt: installedAt})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.MarkLastUsed{Namespace: ns, LastUsedAt: lastUsedAt})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.RecordAvailable{
+		Namespace:      ns,
+		Available:      &domain.Available{Ref: "nightly-latest", Commit: "new222"},
+		JudgedResolved: domain.Resolved{Ref: "nightly-latest", Commit: "old111", Fingerprint: "old111"},
+	})
 	require.NoError(t, err)
 
-	got, err := ax.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.Equal(t, newNs, got.Namespace)
-	assert.Equal(t, "v2.0.0", got.Namespace.Ref(), "the upgraded aggregate takes its version from the new ref")
-	assert.Equal(t, "^v2", got.InstalledConstraint)
-	assert.Equal(t, "stable", got.Channel)
-	assert.Equal(t, oldNs, got.UpgradedFromNs)
-	assert.False(t, got.UserInstalled)
-	assert.Equal(t, "# Docs v2", got.Readme)
-	assert.False(t, got.AlreadyReady, "AlreadyReady defaults to false when the command does not set it")
-}
-
-// TestUpgradeArrow_Channel_IndependentOfInstalledConstraint guards the
-// regression a review caught right after commit 45d8fc76: upgradeRef used
-// to carry the channel forward via a separate, follow-up SetChannel
-// command -- but SetChannel's own EmitEvent unconditionally clears
-// InstalledConstraint, which is correct for an explicit channel switch but
-// wrong for an ordinary upgrade that carries an unchanged channel forward.
-// Channel now travels in this same UpgradeArrow event instead, so setting
-// it must never interact with InstalledConstraint at all -- both, either,
-// or neither may be set, independently.
-func TestUpgradeArrow_Channel_IndependentOfInstalledConstraint(t *testing.T) {
-	ax := buildAsynx(t)
-	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
-
-	cmd := commands.UpgradeArrow{
-		Namespace:           newNs,
-		OldNamespace:        testNs(),
-		ArrowMeta:           domain.ArrowMeta{Name: "Test Arrow"},
-		InstalledConstraint: "v1.0.*",
-		Channel:             "beta",
-	}
-	_, err := ax.Send(context.Background(), cmd)
+	target := domain.Resolved{Ref: "nightly-latest", Commit: "new222", Fingerprint: "new222"}
+	targets := map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}}
+	variables := []domain.Variable{{Name: "PORT"}}
+	_, err = ax.Send(context.Background(), commands.AdvanceArrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "New"},
+		Variables: variables,
+		Targets:   targets,
+		Readme:    "new readme",
+		Resolved:  target,
+	})
 	require.NoError(t, err)
 
-	got, err := ax.Get(context.Background(), newNs.String())
+	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.Equal(t, "v1.0.*", got.InstalledConstraint, "Channel must not clear InstalledConstraint")
-	assert.Equal(t, "beta", got.Channel)
-}
-
-// TestUpgradeArrow_AlreadyReady_CarriesThrough pins the one field
-// UpgradeVersionSeeded relies on: a swap raised after the arrow's own update
-// lifecycle already succeeded must land on the new aggregate so the reaction
-// consuming this event (onArrowUpgraded) can tell it apart from an ordinary
-// upgrade_ref-driven swap, which still needs to install.
-func TestUpgradeArrow_AlreadyReady_CarriesThrough(t *testing.T) {
-	ax := buildAsynx(t)
-	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
-	oldNs := testNs()
-
-	cmd := commands.UpgradeArrow{
-		Namespace:    newNs,
-		OldNamespace: oldNs,
-		ArrowMeta:    domain.ArrowMeta{Name: "Test Arrow"},
-		AlreadyReady: true,
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
-	assert.True(t, got.AlreadyReady)
-}
-
-// TestUpgradeArrow_UserInstalled_CarriesThrough guards the regression a
-// review caught: EmitEvent used to build its returned domain.Arrow literal
-// without ever setting UserInstalled, silently resetting it to false on
-// every upgrade -- an arrow the user explicitly installed would lose that
-// fact the first time it upgraded. TestUpgradeArrow_Success_SetsFields
-// already proves the false-default case still zero-values correctly; this
-// proves the true case actually survives.
-func TestUpgradeArrow_UserInstalled_CarriesThrough(t *testing.T) {
-	ax := buildAsynx(t)
-	newNs := domain.Namespace("github.com/user/repo@v2.0.0")
-	oldNs := testNs()
-
-	cmd := commands.UpgradeArrow{
-		Namespace:     newNs,
-		OldNamespace:  oldNs,
-		ArrowMeta:     domain.ArrowMeta{Name: "Test Arrow"},
-		UserInstalled: true,
-	}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), newNs.String())
-	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "New", got.Name)
+	assert.Equal(t, "new readme", got.Readme)
+	assert.Equal(t, variables, got.Variables)
+	assert.Equal(t, targets, got.Targets)
+	assert.Equal(t, target, got.Resolved)
+	assert.Nil(t, got.Available)
+	assert.True(t, installedAt.Equal(got.InstalledAt))
+	assert.True(t, lastUsedAt.Equal(got.LastUsedAt))
 	assert.True(t, got.UserInstalled)
+	assert.Equal(t, domain.SelectorPin, got.SelectorKind)
 }
 
-// ─── RecordVersionCheck ──────────────────────────────────────────────────────
+// A check during an update may record a release newer than the one the
+// update installs; the commit must not erase it (versioning §8.2 step 7).
+func TestAdvanceArrow_Available(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.2.0", Commit: "c120", Fingerprint: "c120"}
+	target := domain.Resolved{Ref: "v1.3.0", Commit: "c130", Fingerprint: "c130"}
 
-func TestRecordVersionCheck_WithoutPriorAdd_Fails(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
+	testCases := []struct {
+		name      string
+		keep      bool
+		available *domain.Available
+		want      *domain.Available
+	}{
+		{name: "the advanced-to target is cleared", keep: true, available: &domain.Available{Ref: "v1.3.0", Commit: "c130"}, want: nil},
+		{name: "a newer release recorded during the update stays offered", keep: true, available: &domain.Available{Ref: "v1.4.0", Commit: "c140"}, want: &domain.Available{Ref: "v1.4.0", Commit: "c140"}},
+		{name: "the target's ref moved again stays offered", keep: true, available: &domain.Available{Ref: "v1.3.0", Commit: "c131"}, want: &domain.Available{Ref: "v1.3.0", Commit: "c131"}},
+		{name: "nothing recorded stays nothing", keep: true, available: nil, want: nil},
+		{name: "an adoption clears whatever was recorded", keep: false, available: &domain.Available{Ref: "v1.4.0", Commit: "c140"}, want: nil},
+	}
 
-	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
-	_, err := ax.Send(context.Background(), cmd)
-	require.Error(t, err)
-	assert.True(t, isValidationErr(err))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := domain.Namespace("github.com/user/repo@stable")
+			_, err := ax.Send(context.Background(), commands.AddArrow{Namespace: ns, SelectorKind: domain.SelectorOrderedChannel, Resolved: installed})
+			require.NoError(t, err)
+			if tc.available != nil {
+				_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: tc.available, JudgedResolved: installed})
+				require.NoError(t, err)
+			}
+
+			_, err = ax.Send(context.Background(), commands.AdvanceArrow{Namespace: ns, Resolved: target, KeepNewerAvailable: tc.keep})
+			require.NoError(t, err)
+
+			got, err := ax.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, target, got.Resolved)
+			assert.Equal(t, tc.want, got.Available)
+		})
+	}
 }
 
-func TestRecordVersionCheck_AfterAdd_StampsOutdatedAndRecommendedRef(t *testing.T) {
+func TestAdvanceArrow_PreservesStoredSelectorKind(t *testing.T) {
 	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
-
-	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.True(t, got.Outdated)
-	assert.Equal(t, "v2.0.0", got.RecommendedRef)
-}
-
-// EmitEvent must touch only Outdated/RecommendedRef — every other field the
-// arrow already carries survives the check unchanged.
-func TestRecordVersionCheck_PreservesEveryOtherField(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
-	before, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-
-	cmd := commands.RecordVersionCheck{Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0"}
-	_, err = ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, before.Namespace, got.Namespace)
-	assert.Equal(t, before.Name, got.Name)
-	assert.Equal(t, before.UserInstalled, got.UserInstalled)
-	assert.Equal(t, before.InstalledAt, got.InstalledAt)
-}
-
-// A check that reconfirms the same outcome is still a valid command in
-// isolation — the diff gate that decides whether to send it at all lives in
-// the caller (arrowService), not here.
-func TestRecordVersionCheck_Reapplied_OverwritesTheStamp(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
-
-	_, err := ax.Send(context.Background(), commands.RecordVersionCheck{
-		Namespace: ns, Outdated: true, RecommendedRef: "v2.0.0",
+	ns := domain.Namespace("github.com/user/repo@v1.*")
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:    ns,
+		SelectorKind: domain.SelectorConstraint,
 	})
 	require.NoError(t, err)
 
-	_, err = ax.Send(context.Background(), commands.RecordVersionCheck{
-		Namespace: ns, Outdated: false, RecommendedRef: "",
+	_, err = ax.Send(context.Background(), commands.AdvanceArrow{
+		Namespace: ns,
+		Resolved:  domain.Resolved{Ref: "v1.3.0", Commit: "c3"},
 	})
 	require.NoError(t, err)
 
 	got, err := ax.Get(context.Background(), ns.String())
 	require.NoError(t, err)
-	assert.False(t, got.Outdated)
-	assert.Empty(t, got.RecommendedRef)
+	assert.Equal(t, domain.SelectorConstraint, got.SelectorKind)
+	assert.Equal(t, "v1.3.0", got.Resolved.Ref)
 }
 
-// ─── SetChannel ──────────────────────────────────────────────────────────────
+// ─── RecordAvailable ─────────────────────────────────────────────────────────
 
-func TestSetChannel_WithoutPriorAdd_Fails(t *testing.T) {
+func TestRecordAvailable_WithoutPriorAdd_Fails(t *testing.T) {
 	ax := buildAsynx(t)
-	ns := testNs()
 
-	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
-	_, err := ax.Send(context.Background(), cmd)
+	_, err := ax.Send(context.Background(), commands.RecordAvailable{
+		Namespace: testNs(),
+		Available: &domain.Available{Ref: "v1.1.0", Commit: "c1"},
+	})
+
 	require.Error(t, err)
 	assert.True(t, isValidationErr(err))
 }
 
-func TestSetChannel_AfterAdd_StampsChannel(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
+func TestRecordAvailable_SetsAndClears(t *testing.T) {
+	testCases := []struct {
+		name      string
+		available []*domain.Available
+		want      *domain.Available
+	}{
+		{
+			name:      "sets the available ref",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}},
+			want:      &domain.Available{Ref: "v1.1.0", Commit: "c1"},
+		},
+		{
+			name:      "a later check overwrites the earlier one",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}, {Ref: "v1.2.0", Commit: "c2"}},
+			want:      &domain.Available{Ref: "v1.2.0", Commit: "c2"},
+		},
+		{
+			name:      "nil clears it",
+			available: []*domain.Available{{Ref: "v1.1.0", Commit: "c1"}, nil},
+			want:      nil,
+		},
+	}
 
-	cmd := commands.SetChannel{Namespace: ns, Channel: "rc"}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := testNs()
+			seedArrow(t, ax, ns, true)
 
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "rc", got.Channel)
+			for _, a := range tc.available {
+				_, err := ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: a})
+				require.NoError(t, err)
+			}
+
+			got, err := ax.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Available)
+			assert.Equal(t, "Test Arrow", got.Name)
+			assert.True(t, got.UserInstalled)
+		})
+	}
 }
 
-// A change that overwrites a previously set channel is still a valid
-// command in isolation.
-func TestSetChannel_Reapplied_OverwritesTheChannel(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
+// A check's answer is only true of the Resolved it was judged against: once
+// the row has moved, the write is refused and nothing changes.
+func TestRecordAvailable_JudgedAgainstAnotherResolved_IsRejected(t *testing.T) {
+	installed := domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "c1"}
+	advanced := domain.Resolved{Ref: "v1.1.0", Commit: "c2", Fingerprint: "c2"}
+	ahead := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
 
-	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "rc"})
-	require.NoError(t, err)
+	testCases := []struct {
+		name    string
+		judged  domain.Resolved
+		wantErr bool
+		want    *domain.Available
+	}{
+		{name: "judged against the row's own Resolved", judged: installed, want: ahead},
+		{name: "judged against a Resolved the row has left", judged: advanced, wantErr: true},
+		{name: "judged against no Resolved at all", judged: domain.Resolved{}, wantErr: true},
+	}
 
-	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta"})
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := buildAsynx(t)
+			ns := domain.Namespace("github.com/user/repo@stable")
+			_, err := ax.Send(context.Background(), commands.AddArrow{
+				Namespace:    ns,
+				ArrowMeta:    domain.ArrowMeta{Name: "Row"},
+				SelectorKind: domain.SelectorChannel,
+				Resolved:     installed,
+			})
+			require.NoError(t, err)
 
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "beta", got.Channel)
-}
+			_, err = ax.Send(context.Background(), commands.RecordAvailable{
+				Namespace:      ns,
+				Available:      ahead,
+				JudgedResolved: tc.judged,
+			})
 
-// TestSetChannel_WithRef_StampsPinnedRef proves a non-empty Ref pins the
-// arrow to that exact ref within Channel (domain.Arrow.PinnedRef), the
-// carry-forward this command previously validated but silently discarded.
-func TestSetChannel_WithRef_StampsPinnedRef(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
-
-	cmd := commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"}
-	_, err := ax.Send(context.Background(), cmd)
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "beta", got.Channel)
-	assert.Equal(t, "v1.1.0-beta.1", got.PinnedRef)
-}
-
-// TestSetChannel_EmptyRef_ClearsPreviousPin proves switching channel again
-// with an empty Ref clears a previously pinned ref, going back to tracking
-// the new channel's own latest.
-func TestSetChannel_EmptyRef_ClearsPreviousPin(t *testing.T) {
-	ax := buildAsynx(t)
-	ns := testNs()
-	seedArrow(t, ax, ns, true)
-
-	_, err := ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "beta", Ref: "v1.1.0-beta.1"})
-	require.NoError(t, err)
-
-	_, err = ax.Send(context.Background(), commands.SetChannel{Namespace: ns, Channel: "stable", Ref: ""})
-	require.NoError(t, err)
-
-	got, err := ax.Get(context.Background(), ns.String())
-	require.NoError(t, err)
-	assert.Equal(t, "stable", got.Channel)
-	assert.Empty(t, got.PinnedRef, "an empty Ref must clear the previously pinned ref")
+			got, getErr := ax.Get(context.Background(), ns.String())
+			require.NoError(t, getErr)
+			if tc.wantErr {
+				require.ErrorIs(t, err, asynxModels.ErrValidation)
+				assert.Nil(t, got.Available)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Available)
+		})
+	}
 }
 
 // ─── Validate helpers ─────────────────────────────────────────────────────────
@@ -818,4 +694,59 @@ func TestSetChannel_EmptyRef_ClearsPreviousPin(t *testing.T) {
 func isValidationErr(err error) bool {
 	return errors.Is(err, asynxModels.ErrValidation) ||
 		errors.Is(err, asynxModels.ErrPipelineFailed)
+}
+
+func TestRefreshManifest_WithoutPriorAdd_Fails(t *testing.T) {
+	ax := buildAsynx(t)
+
+	_, err := ax.Send(context.Background(), commands.RefreshManifest{Namespace: testNs()})
+
+	require.Error(t, err)
+	assert.True(t, isValidationErr(err))
+}
+
+// A refresh stages the target's manifest for its update: what is installed
+// (Resolved) and what the check found ahead (Available) stay until the
+// update commits.
+func TestRefreshManifest_ReplacesOnlyTheManifest(t *testing.T) {
+	ax := buildAsynx(t)
+	ns := domain.Namespace("github.com/user/repo@stable")
+	resolved := domain.Resolved{Ref: "v1.0.0", Commit: "c1", Fingerprint: "c1"}
+	available := &domain.Available{Ref: "v1.1.0", Commit: "c2"}
+
+	_, err := ax.Send(context.Background(), commands.AddArrow{
+		Namespace:     ns,
+		ArrowMeta:     domain.ArrowMeta{Name: "Old"},
+		Readme:        "old readme",
+		DirectInstall: true,
+		SelectorKind:  domain.SelectorChannel,
+		Resolved:      resolved,
+	})
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.RecordAvailable{Namespace: ns, Available: available, JudgedResolved: resolved})
+	require.NoError(t, err)
+
+	targets := map[domain.OS]domain.Target{domain.OSLinuxAMD64: {}}
+	variables := []domain.Variable{{Name: "PORT"}}
+	evt, err := ax.Send(context.Background(), commands.RefreshManifest{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "New"},
+		Variables: variables,
+		Targets:   targets,
+		Readme:    "new readme",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "arrow.manifest_refreshed."+ns.String(), evt.EventName)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, ns, got.Namespace)
+	assert.Equal(t, "New", got.Name)
+	assert.Equal(t, "new readme", got.Readme)
+	assert.Equal(t, variables, got.Variables)
+	assert.Equal(t, targets, got.Targets)
+	assert.Equal(t, resolved, got.Resolved)
+	assert.Equal(t, available, got.Available)
+	assert.Equal(t, domain.SelectorChannel, got.SelectorKind)
+	assert.True(t, got.UserInstalled)
 }

@@ -21,9 +21,12 @@ type Execution struct {
 	WorkDir   string            `json:"workDir,omitempty"`
 }
 
+// Return is how a run ended. ExecutionID is the ID of the Execution it
+// ended, empty for a return recorded before returns carried one.
 type Return struct {
-	Method    string            `json:"method"`
-	Outcome   ExecutionOutcome  `json:"outcome"`
-	Steps     []StepProgress    `json:"steps"`
-	Variables map[string]string `json:"variables"`
+	ExecutionID string            `json:"executionId,omitempty"`
+	Method      string            `json:"method"`
+	Outcome     ExecutionOutcome  `json:"outcome"`
+	Steps       []StepProgress    `json:"steps"`
+	Variables   map[string]string `json:"variables"`
 }

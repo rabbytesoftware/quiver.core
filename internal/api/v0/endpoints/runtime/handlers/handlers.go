@@ -11,6 +11,7 @@ import (
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Handlers struct {
@@ -24,17 +25,18 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // Execute triggers a lifecycle method on an arrow.
 //
 // @Summary      Execute method
-// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.
+// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.
 // @Tags         runtime
 // @Accept       json
 // @Param        ns      path  string                          true   "Arrow namespace"
 // @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
 // @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
-// @Success      200     {object}  libs.MutationResponse             "No-op: arrow already in the requested state"
+// @Success      200     {object}  libs.MutationResponse             "No-op: already installed, or nothing newer to update to"
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
-// @Failure      409     {object}  libs.ErrResponse                  "Arrow already running"
+// @Failure      409     {object}  libs.ErrResponse                  "Arrow already running, a cyclic dependency, or another identity's workdir occupies this identity's path (no step runs)"
+// @Failure      422     {object}  libs.ErrResponse                  "State violation, e.g. an update while the previous one is still settling"
 // @Failure      500     {object}  libs.ErrResponse                  "Internal error"
 // @Router       /runtime/{ns}/{method} [post]
 func (h *Handlers) Execute(c *gin.Context) {
@@ -48,9 +50,9 @@ func (h *Handlers) Execute(c *gin.Context) {
 
 	var (
 		err error
-		// started reports whether an execution was actually begun. Only
-		// install can short-circuit to an idempotent no-op today; every other
-		// method that reaches here has begun work.
+		// started reports whether an execution was actually begun: install
+		// of an installed arrow and update of a current one are idempotent
+		// no-ops; every other method that reaches here has begun work.
 		started = true
 	)
 	switch method {
@@ -63,7 +65,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 	case "stop":
 		err = h.svc.Stop(c.Request.Context(), ns)
 	case "_update", "update":
-		err = h.svc.Execute(c.Request.Context(), ns, domain.MethodUpdate, req.Variables)
+		started, err = h.svc.Update(c.Request.Context(), ns, req.Variables)
 	default:
 		err = h.svc.Execute(c.Request.Context(), ns, method, req.Variables)
 	}
@@ -85,7 +87,7 @@ func (h *Handlers) Execute(c *gin.Context) {
 // Get returns the runtime snapshot for a single arrow.
 //
 // @Summary      Get runtime
-// @Description  Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.
+// @Description  Returns the current runtime state for an arrow, including the active execution and the last completed return. settling is true while an update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.
 // @Tags         runtime
 // @Produce      json
 // @Param        ns   path  string  true  "Arrow namespace"
@@ -107,13 +109,13 @@ func (h *Handlers) Get(c *gin.Context) {
 		libs.WriteErr(c, status, msg, string(ns))
 		return
 	}
-	libs.WriteQueryOK(c, apidto.ArrowRuntimeDTOFrom(*rt))
+	libs.WriteQueryOK(c, h.runtimeDTO(*rt))
 }
 
 // List returns runtime snapshots for every arrow in the catalog.
 //
 // @Summary      List runtimes
-// @Description  Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state "absent". Use the WebSocket upgrade on the same route to stream updates instead.
+// @Description  Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state "absent". settling marks an arrow whose update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.
 // @Tags         runtime
 // @Produce      json
 // @Success      200  {object}  libs.QueryResponse{data=[]apidto.ArrowRuntimeDTO}
@@ -129,7 +131,13 @@ func (h *Handlers) List(c *gin.Context) {
 
 	dtos := make([]apidto.ArrowRuntimeDTO, 0, len(runtimes))
 	for _, rt := range runtimes {
-		dtos = append(dtos, apidto.ArrowRuntimeDTOFrom(rt))
+		dtos = append(dtos, h.runtimeDTO(rt))
 	}
 	libs.WriteQueryOK(c, dtos)
+}
+
+func (h *Handlers) runtimeDTO(rt domainRuntime.ArrowRuntime) apidto.ArrowRuntimeDTO {
+	out := apidto.ArrowRuntimeDTOFrom(rt)
+	out.Settling = h.svc.Settling(rt.Ref)
+	return out
 }

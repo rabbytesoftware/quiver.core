@@ -35,25 +35,23 @@ func keysOf(t *testing.T, v any, marshal func(any) ([]byte, error)) []string {
 
 // A DTO carrying a json tag but no yaml tag serializes under two different key
 // names, because yaml.v3 falls back to the lowercased Go field name. That made
-// `-o yaml` disagree with the documented API: InstalledConstraint emitted
-// "installed_constraint" as json and "installedconstraint" as yaml.
+// `-o yaml` disagree with the documented API: UserInstalled emitted
+// "user_installed" as json and "userinstalled" as yaml.
 func TestDTO_JSONAndYAMLKeysAgree(t *testing.T) {
 	testCases := []struct {
 		name  string
 		value any
 	}{
 		{"arrow detail", dto.ArrowDetailDTO{
-			Namespace:           "github.com/u/r",
-			InstalledAt:         "2026-08-16T00:00:00Z",
-			InstalledConstraint: "^1.2",
-			UserInstalled:       true,
+			Namespace:     "github.com/u/r",
+			InstalledAt:   "2026-08-16T00:00:00Z",
+			UserInstalled: true,
 		}},
 		{"arrow list item", dto.ArrowListItemDTO{Namespace: "github.com/u/r", Name: "repo"}},
 		{"installed version", dto.InstalledVersionItemDTO{
 			Ref:         "v1.2.0",
 			State:       "ready",
 			InstalledAt: "2026-08-16T00:00:00Z",
-			Constraint:  "^1.2",
 		}},
 		{"collection arrow", dto.CollectionArrowDTO{Namespace: "github.com/u/c", Resolved: true}},
 		{"search result", dto.SearchResultDTO{

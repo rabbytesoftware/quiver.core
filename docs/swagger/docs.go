@@ -137,7 +137,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Registers an arrow by its namespace. The manifest must already exist in the registry.",
+                "description": "Registers an arrow by its namespace. The ref after @ is the selector the row tracks; a refless namespace follows the repository's default channel. The request takes no body.",
                 "tags": [
                     "arrows"
                 ],
@@ -149,14 +149,6 @@ const docTemplate = `{
                         "name": "ns",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "Optional install preferences (e.g. channel)",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions"
-                        }
                     }
                 ],
                 "responses": {
@@ -179,7 +171,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Arrow already registered",
+                        "description": "A concurrent registration of the same identity won the race (re-registering is otherwise idempotent, 201), or another identity's workdir occupies this identity's path",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -229,14 +221,14 @@ const docTemplate = `{
                 }
             },
             "patch": {
-                "description": "Fetches the latest manifest for the arrow and updates its registration. Optional body fields: \"channel\" switches which release channel the arrow tracks (its latest ref is taken unless \"ref\" pins to a specific ref within that channel); \"upgrade_ref\" resolves the arrow's existing installed constraint to its latest matching ref instead.",
-                "consumes": [
+                "description": "Re-checks the arrow's selector against its repository. A row nothing is installed from advances to the available ref at once and reports its dependency changes; an installed row keeps its version and reports the ref in ` + "`" + `available` + "`" + `, which the runtime update moves it to. ` + "`" + `available` + "`" + ` is absent when the row is current. The request takes no body.",
+                "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "arrows"
                 ],
-                "summary": "Update arrow manifest",
+                "summary": "Update arrow",
                 "parameters": [
                     {
                         "type": "string",
@@ -244,25 +236,29 @@ const docTemplate = `{
                         "name": "ns",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "Optional update preferences (e.g. channel, ref, upgrade_ref)",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions"
-                        }
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Arrow updated",
+                        "description": "Update result",
                         "schema": {
-                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResultResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.UpdateResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
-                        "description": "Requested channel or ref does not exist",
+                        "description": "Invalid namespace",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -273,8 +269,88 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
+                    "409": {
+                        "description": "Another identity's workdir occupies this identity's path",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/arrow/{ns}/adopt": {
+            "post": {
+                "description": "Registers the arrow under the identity POST /arrow/{ns} would file it under (the ref after @ is the selector; a refless namespace follows the repository's default channel), recording it as already installed at resolved_ref instead of at what the selector points at now. For a client that installed itself and announces the build it actually runs, so the next version check offers the update that build needs. resolved_ref must be a tag or branch the repository holds and one the selector could resolve to: a member of the channel, a tag the constraint matches, the pin's own ref, or a ref at the commit. Re-adopting the same state writes nothing; adopting another state moves the row in place. The row is marked user-installed. Adopt declares the catalog state only and leaves the runtime untouched: a client that also needs the arrow's installed state detected (its preinstalled probe) must POST /arrow/{ns} first and then call /adopt.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "arrows"
+                ],
+                "summary": "Adopt installed arrow",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace (e.g. github.com/user/repo@stable)",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The ref the caller has installed",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AdoptRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Arrow adopted, or already at the declared state",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid namespace, a body that is not JSON, a missing resolved_ref, or a ref the selector could never resolve to",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Repository or ref not found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "A concurrent registration of the same identity won the race",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Invalid manifest at the declared ref",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Repository unreachable",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -443,7 +519,7 @@ const docTemplate = `{
         },
         "/arrow/{ns}/manifest": {
             "get": {
-                "description": "Returns the full manifest definition including targets, variables, and lifecycle steps.",
+                "description": "Returns the manifest as its author wrote it (metadata, variables, netbridge, targets, readme). Quiver's own bookkeeping for the row (selector, resolved and available refs) is on the arrow detail, not here.",
                 "produces": [
                     "application/json"
                 ],
@@ -540,7 +616,13 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Failed to read body",
+                        "description": "Failed to read body, or a namespace without a ref or with an empty ref component",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "A concurrent registration of the same identity won the race",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -1432,7 +1514,7 @@ const docTemplate = `{
         },
         "/runtime": {
             "get": {
-                "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". Use the WebSocket upgrade on the same route to stream updates instead.",
+                "description": "Returns the current runtime state of every arrow in the catalog. Arrows that have never been installed report state \"absent\". settling marks an arrow whose update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -1473,7 +1555,7 @@ const docTemplate = `{
         },
         "/runtime/{ns}": {
             "get": {
-                "description": "Returns the current runtime state for an arrow, including the active execution and the last completed return. Use the WebSocket upgrade on the same route to stream updates instead.",
+                "description": "Returns the current runtime state for an arrow, including the active execution and the last completed return. settling is true while an update has not committed yet, even after its steps ended. Use the WebSocket upgrade on the same route to stream updates instead.",
                 "produces": [
                     "application/json"
                 ],
@@ -1526,7 +1608,7 @@ const docTemplate = `{
         },
         "/runtime/{ns}/{method}": {
             "post": {
-                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately; progress is streamed via WebSocket.",
+                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1560,7 +1642,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "No-op: arrow already in the requested state",
+                        "description": "No-op: already installed, or nothing newer to update to",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
                         }
@@ -1584,7 +1666,13 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Arrow already running",
+                        "description": "Arrow already running, a cyclic dependency, or another identity's workdir occupies this identity's path (no step runs)",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "State violation, e.g. an update while the previous one is still settling",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -1886,12 +1974,34 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResultResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "namespace": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse": {
             "type": "object",
             "properties": {
                 "data": {},
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AdoptRequestDTO": {
+            "type": "object",
+            "properties": {
+                "resolved_ref": {
+                    "description": "ResolvedRef is the tag or branch the caller runs. It must be one the\nnamespace's selector could resolve to: a member of the channel, a tag\nthe constraint matches, the pin's own ref, or a ref at the commit.",
+                    "type": "string",
+                    "example": "v1.2.0"
                 }
             }
         },
@@ -1940,8 +2050,8 @@ const docTemplate = `{
                 "active_run": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RunRecordDTO"
                 },
-                "channel": {
-                    "type": "string"
+                "available": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO"
                 },
                 "description": {
                     "type": "string"
@@ -1952,13 +2062,16 @@ const docTemplate = `{
                 "installed_at": {
                     "type": "string"
                 },
-                "installed_constraint": {
+                "installed_commit": {
                     "type": "string"
                 },
                 "last_return": {
                     "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO"
                 },
                 "last_used_at": {
+                    "type": "string"
+                },
+                "license": {
                     "type": "string"
                 },
                 "name": {
@@ -1971,10 +2084,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "outdated": {
+                    "description": "Outdated is true exactly when Available is set.",
                     "type": "boolean"
                 },
-                "recommended_ref": {
+                "resolved_ref": {
                     "type": "string"
+                },
+                "selector_kind": {
+                    "description": "SelectorKind is one of \"pin\", \"channel\", \"constraint\" or \"commit\".",
+                    "type": "string",
+                    "enum": [
+                        "pin",
+                        "channel",
+                        "constraint",
+                        "commit"
+                    ]
                 },
                 "state": {
                     "type": "string"
@@ -2032,7 +2156,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "manifest": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Arrow"
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifestContentDTO"
                 },
                 "name": {
                     "type": "string"
@@ -2083,7 +2207,22 @@ const docTemplate = `{
                 "namespace": {
                     "type": "string"
                 },
+                "settling": {
+                    "description": "Settling is true while an update has not committed yet, including the\nmoment after its steps ended and before its row advanced. Only REST\nreads set it; streamed runtime events omit it.",
+                    "type": "boolean"
+                },
                 "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO": {
+            "type": "object",
+            "properties": {
+                "commit": {
+                    "type": "string"
+                },
+                "ref": {
                     "type": "string"
                 }
             }
@@ -2271,6 +2410,20 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConstrainedDepDTO": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string"
+                },
+                "new_constraint": {
+                    "type": "string"
+                },
+                "old_constraint": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.DeviceDTO": {
             "type": "object",
             "properties": {
@@ -2433,9 +2586,6 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.InstalledVersionItemDTO": {
             "type": "object",
             "properties": {
-                "constraint": {
-                    "type": "string"
-                },
                 "installed_at": {
                     "type": "string"
                 },
@@ -2445,8 +2595,40 @@ const docTemplate = `{
                 "ref": {
                     "type": "string"
                 },
+                "resolved_ref": {
+                    "type": "string"
+                },
                 "state": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ManifestContentDTO": {
+            "type": "object",
+            "properties": {
+                "metadata": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMeta"
+                },
+                "netbridge": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef"
+                    }
+                },
+                "readme": {
+                    "type": "string"
+                },
+                "targets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target"
+                    }
+                },
+                "variables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
+                    }
                 }
             }
         },
@@ -2498,11 +2680,20 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO": {
             "type": "object",
             "properties": {
+                "execution_id": {
+                    "description": "ExecutionID names the run this return ended; two returns of the same\nmethod are the same run exactly when their IDs match.",
+                    "type": "string"
+                },
                 "method": {
                     "type": "string"
                 },
                 "outcome": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "success",
+                        "failed",
+                        "cancelled"
+                    ]
                 },
                 "steps": {
                     "type": "array",
@@ -2638,6 +2829,38 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.UpdateResultDTO": {
+            "type": "object",
+            "properties": {
+                "added_deps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "available": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.AvailableDTO"
+                },
+                "constrained_deps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ConstrainedDepDTO"
+                    }
+                },
+                "removed_from_manifest": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "safe_to_uninstall": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ValidationErrorDTO": {
             "type": "object",
             "properties": {
@@ -2710,28 +2933,6 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_rabbytesoftware_quiver_core_internal_app_models.AddOptions": {
-            "type": "object",
-            "properties": {
-                "channel": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_rabbytesoftware_quiver_core_internal_app_models.UpdateOptions": {
-            "type": "object",
-            "properties": {
-                "channel": {
-                    "type": "string"
-                },
-                "ref": {
-                    "type": "string"
-                },
-                "upgradeRef": {
-                    "type": "boolean"
-                }
-            }
-        },
         "github_com_rabbytesoftware_quiver_core_internal_app_usecases.Config": {
             "type": "object",
             "properties": {
@@ -2795,6 +2996,9 @@ const docTemplate = `{
                     "minimum": 1
                 },
                 "self_update_channel": {
+                    "type": "string"
+                },
+                "version_check_interval": {
                     "type": "string"
                 },
                 "version_check_ttl": {
@@ -2976,117 +3180,6 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_rabbytesoftware_quiver_core_internal_domain.Arrow": {
-            "type": "object",
-            "properties": {
-                "already_ready": {
-                    "description": "AlreadyReady is set only on an arrow.upgraded.* event raised after this\narrow's own update lifecycle already finished successfully: the software\nat the new ref is already fetched, placed and running, so the reaction\nthat lands the new row must seed it Ready directly rather than install\nit again. Never set on an upgrade_ref-driven swap, where the new ref\ngenuinely has not been installed yet.",
-                    "type": "boolean"
-                },
-                "channel": {
-                    "description": "Channel names the release channel this arrow's default drift check\ntracks (e.g. \"stable\", \"rc\", \"beta\"). Empty is treated as \"stable\" —\nthe default before any channel was ever explicitly selected.",
-                    "type": "string"
-                },
-                "credits": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "generator": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator"
-                },
-                "installed_at": {
-                    "type": "string"
-                },
-                "installed_constraint": {
-                    "type": "string"
-                },
-                "last_used_at": {
-                    "description": "LastUsedAt is stamped when an _execute run completes successfully; zero\nmeans the arrow has never been run.",
-                    "type": "string"
-                },
-                "license": {
-                    "type": "string"
-                },
-                "maintainers": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit"
-                    }
-                },
-                "media": {
-                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "namespace": {
-                    "type": "string"
-                },
-                "netbridge": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain_netbridge.PortDef"
-                    }
-                },
-                "outdated": {
-                    "description": "Outdated is true once a version check found a better ref available.",
-                    "type": "boolean"
-                },
-                "pinned_ref": {
-                    "description": "PinnedRef, when set, is the exact ref within Channel this arrow tracks,\noverriding that channel's own latest. Empty means \"track the channel's\nlatest\", the plain behavior before any specific version was pinned.",
-                    "type": "string"
-                },
-                "readme": {
-                    "description": "Readme is the prose surrounding the fenced manifest block when the arrow\nis delivered as ARROW.md; it is empty for the plain arrow.yaml form. It\nlives here rather than on ArrowMeta so it never rides into the lightweight\ncatalog/search row, which embeds ArrowMeta directly.",
-                    "type": "string"
-                },
-                "recommended_ref": {
-                    "description": "RecommendedRef names the tag a version check found to replace the\ninstalled ref. Empty when Outdated is true for plain branch drift with\nno better named ref to switch to.",
-                    "type": "string"
-                },
-                "ref_commit_sha": {
-                    "description": "RefCommitSHA is the commit hash the branch ref pointed at when resolved.\nMeaningful only when RefIsBranch is true.",
-                    "type": "string"
-                },
-                "ref_is_branch": {
-                    "description": "RefIsBranch marks a namespace resolved onto a moving branch rather than\npinned as written or matched to a tag — stamped only by the\nrefless-resolution fallback when no stable release exists.",
-                    "type": "boolean"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "targets": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Target"
-                    }
-                },
-                "upgraded_from_ns": {
-                    "description": "UpgradedFromNs is set only on the arrow.upgraded.* event; it names the\nold namespace that was replaced so the runtime reaction can clean up.",
-                    "type": "string"
-                },
-                "url": {
-                    "type": "string"
-                },
-                "user_installed": {
-                    "type": "boolean"
-                },
-                "variables": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Variable"
-                    }
-                }
-            }
-        },
         "github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator": {
             "type": "object",
             "properties": {
@@ -3111,6 +3204,47 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "icon": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMeta": {
+            "type": "object",
+            "properties": {
+                "credits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit"
+                    }
+                },
+                "description": {
+                    "type": "string"
+                },
+                "generator": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowGenerator"
+                },
+                "license": {
+                    "type": "string"
+                },
+                "maintainers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.Credit"
+                    }
+                },
+                "media": {
+                    "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_domain.ArrowMedia"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "url": {
                     "type": "string"
                 }
             }

@@ -4,7 +4,7 @@
 
 `manifold` is the engine that resolves a `Namespace` (`domain/user/repo[/auid][@ref]`) to a fully validated, OS-compiled domain aggregate. The app layer hands it a namespace and gets back either a `*domain.Arrow` (with `Targets` precompiled for every supported `domain.OS`) or a `*domain.Collection` (with arrow entries materialized as namespaces). The app layer never sees git, HTTP, YAML, JSON Schema, or markdown.
 
-Manifold is a stateless, in-memory pipeline. It does **no** disk I/O, holds **no** cache, and emits **no** events. Caching is the job of `vault`; orchestration is the job of `runtime`. Manifold is pure resolution + validation.
+Manifold is an in-memory pipeline. It does **no** disk I/O and emits **no** events. Its only state is a TTL-bounded, in-memory cache of ref snapshots (§2.1); manifest caching is the job of `vault`, orchestration the job of `runtime`. Manifold is resolution + validation.
 
 The package lives at `internal/engine/manifold` and is composed of five concrete sub-modules: `resolver`, `translator`, `compiler`, `ruleset`, and the in-package `manifold` service that wires them together.
 
@@ -20,16 +20,38 @@ The `Manifold` interface is the only surface the app layer imports.
 | `ResolveCollection` | `ctx`, `namespace` | `*domain.Collection`, `error` |
 | `ParseArrow` | raw `[]byte` | `*domain.Arrow`, `error` |
 | `ParseCollection` | raw `[]byte`, `domain.Namespace` (collection ns) | `*domain.Collection`, `error` |
-| `ResolveConstraint` | `ctx`, `namespace`, glob `pattern` | concrete tag/ref string, `error` |
-| `ResolveLatestStable` | `ctx`, `namespace` | ref of the latest stable release, `error` |
+| `ResolveArrowAt` | `ctx`, `namespace`, `path` | as `ResolveArrow`, at an explicit path inside the repository |
+| `ResolveArrowAtCommit` | `ctx`, `namespace`, `ref`, `commit` | as `ResolveArrow`, fetched at `commit` (falling back to `ref`) and stamped with `namespace` |
+| `ListChannels` | `ctx`, `namespace` | `[]ChannelInfo`, `error` |
+| `Snapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (cached), `error` |
+| `FreshSnapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (read live, refreshes the cache), `error` |
 
 `ResolveArrow` returns the raw bytes alongside the parsed aggregate so the app layer (Vault, primarily) can persist exactly what was fetched without re-serializing. The filename is whichever of `ARROW.md` / `arrow.yaml` / `<auid>.md` / `<auid>.yaml` was actually picked up.
 
 `Parse*` skip the resolver entirely — they translate, validate, and compile bytes already in hand. Used in tests, by the wizard for ad-hoc validation, and anywhere the bytes come from a non-resolver source.
 
-`ResolveConstraint` does no manifest fetching at all — it lists the remote's tags via `git ls-remote` (in-memory `gogit.Remote.ListContext`), filters by `path.Match`, and sorts semver-aware to pick the highest. Used by deptree to resolve `@v1.*` style globs to concrete refs before the next `ResolveArrow` call.
+`ResolveArrowAtCommit` is how every install, adoption and advance reads a manifest: at the commit the selector points at (`namespace.WithRef(commit)`), which raw-file hosts serve as a ref. `ref` is the ref that commit was resolved from (`Resolved.Ref`, the update's target ref, or the admitted ref of an adoption). When the fetch at the commit fails for any reason other than an invalid manifest — the clone path only checks out tags and branches, so a self-hosted git server never serves a SHA — it falls back to `namespace.WithRef(ref)`: the resolved ref, never the namespace's own selector, which for a channel or constraint (`stable`, `v1.*`) names no git ref at all. No fallback runs when `ref` is empty or is the commit itself. The ref may have moved since it was resolved. Only the update bracket verifies the commit afterwards (its snapshot re-check before it stamps anything); an add or an adoption on such a host records the snapshot's commit, so a tag that moved in between is simply offered as an update by the next check.
 
-`ResolveLatestStable` is what a namespace with no `@ref` resolves through. It tries the platform's `LatestReleaseURL` permalink first, reading only the redirect `Location` — a `Location` naming `/releases/tag/<ref>` is a hit, anything else is a miss — then falls back to `ResolveConstraint(ns, "*")`, keeping that answer only when it is a stable semver tag. A repository with neither returns `ErrNoLatestStable`, which is the caller's cue to fall back to the platform's default branches. Because `ls-remote` enumerates every ref, this runs where a refless namespace is resolved to a version — add, and details of an uncatalogued namespace — and inside Fletcher's ref selection (§4.1), never on `GET /v0/search`. Discovery resolves each candidate at the default branch its search response named. See [manifests/v0/versioning.md §6](./manifests/v0/versioning.md).
+### 2.1 Ref snapshots, selectors and drift
+
+`Snapshot` reads every tag (annotated tags peeled to their commit), every branch and the `HEAD` branch of a repository in one ref advertisement (`git ls-remote`, in-memory `gogit.Remote.ListContext`) and returns them as one `domain.RefSnapshot`. It is cached per bare namespace for the manifold's cache TTL, which production wiring ties to `arrows.version_check_ttl`; `FreshSnapshot` bypasses and refreshes that cache for decisions that must not act on a view up to a TTL old (version checks, the update commit). `ListChannels` is `ChannelsOf` over a `Snapshot`.
+
+Everything else is a pure function of a snapshot, re-exported from the package root:
+
+| Function | Purpose |
+|---|---|
+| `ChannelsOf(snap)` | Buckets tags into channels: ordered channels by classified name, every unclassified tag as its own pointer channel, and the `HEAD` branch only when there are no tags. Sorted `stable` first, then ordered channels, then pointers, each by name. |
+| `DefaultChannel(snap)` | The channel a refless namespace follows: the first entry of `ChannelsOf`. |
+| `ClassifySelector(selector, snap)` | The refined `SelectorKind` of an identity's selector: an ordered, pointer or default-branch channel, a tag or branch pin, a constraint or a commit (versioning §2.3). |
+| `RefCommit(kind, selector, ref, snap)` | The commit `ref` names right now, looked up where a row of that kind keeps its refs (tags or branches). The update commit's re-check uses it. |
+| `Target(kind, selector, snap)` | What a selector points at now, as `domain.Available{Ref, Commit}`. |
+| `Drift(kind, selector, resolved, snap)` | Whether a row that has `resolved` installed is behind, and its target. |
+
+A snapshot is the only remote view any of them sees, so a decision can never combine two inconsistent reads. There is no latest-release permalink lookup: a refless namespace is decided from the tag snapshot alone, on any git host. See [manifests/v0/versioning.md §2, §5 and §6](./manifests/v0/versioning.md).
+
+Fletcher's ref selection (§4.1) reads the same snapshot: its latest stable release is the `stable` channel's latest tag, its unstable fallback the first other listed channel that is not the default-branch fallback, and its default branch the snapshot's `HEAD`.
+
+**Layout.** Snapshots, selectors, drift and admission are the versioning subengine (`internal/engine/manifold/versioning`), shaped like Fletcher: its root is only the public API — `versioning.go` (`New`, which builds the TTL-bounded `Snapshots` cache over a `RefLister`, and the pure functions above plus `Admit`, `LatestStable` and `DefaultBranch`) and `errors.go` (`ErrUnknownSelector`, `ErrNotAdmitted`). The implementation is in `versioning/internal/`: `snapshot` (the cache), `selector` (channels, classification, ref lookup), `drift` (`Target`, `Drift`) and `admit` (`Admit`). Manifold builds it itself from its constraint resolver, clock and cache TTL; its `Snapshot`/`FreshSnapshot`/`ListChannels` methods and the root functions (`manifold.Drift`, `manifold.ClassifySelector`, …) only delegate to it. Versioning imports neither the manifold root nor Fletcher.
 
 The constructor `New(fetchTimeout time.Duration)` builds a default Manifold with HTTP+git fetchers and the v0 translator registries. `NewWithResolvers` exists for tests that need to inject stub resolvers.
 
@@ -156,10 +178,13 @@ questions Fletcher asks manifold; `New`) and `errors.go` (`NotFletchableError`, 
 selection, error mapping), `gather` (the per-tag build: sources, repo page, README, fetch bounds,
 draft), `confidence`, `picker`, `readme`, `forge`, `media` and `models`. Manifold builds its
 Fletcher itself when constructed with `manifold.WithFletcher(true)`, from its own host lookup and
-fetch timeout (0 means 30 s, as for the resolver), and answers `Releases` from
-`ResolveLatestStable`, `ListChannels` and `ResolveDefaultBranch` (`manifold/fletcher_releases.go`);
-nothing outside manifold builds one. `Fletcher` and `Releases` are declared in
-`fletcher/internal/models` and aliased from the root.
+fetch timeout (0 means 30 s, as for the resolver). `Releases` is a struct of three functions
+Fletcher calls; manifold fills it with its own methods, each answering from its ref snapshot
+through the versioning subengine (§2.1): `LatestStable` is `ResolveLatestStable` (the `stable`
+channel's latest tag), `Channels` is `ListChannels` (`ChannelsOf`), and `DefaultBranch` is
+`ResolveDefaultBranch` (the snapshot's `HEAD`); nothing outside manifold builds one. `Fletcher` and
+`Releases` are declared in `fletcher/internal/models` and aliased from the root. Fletcher imports
+neither the manifold root nor versioning.
 
 **When it runs.** `ResolveArrow` falls back to Fletcher only when all of these hold:
 
@@ -180,11 +205,23 @@ empty or a default branch, Fletcher retries on `ResolveLatestStable`, then on th
 the newest non-stable channel (`ListChannels` re-ordered by
 `resolvers.NewestFirst`: highest version core first, pointer channels last; the default-branch
 fallback entry is skipped), never an older channel just because its name sorts first; a
-prerelease-only repository resolves this way. An exact tag with no release never falls back.
+prerelease-only repository resolves this way. An exact tag with no release never falls back. No release is ever published under a commit, so
+when `ResolveArrowAtCommit` (§2) reads a manifest at a selector's target commit Fletcher finds
+none there, and the read falls back to the resolved ref — the tag whose release it drafts from.
 If no draft was produced and any of those lookups failed with anything other than
 `ErrNoLatestStable` / `ErrNoTagInChannel` (for example `ls-remote` failing), that lookup error
 is returned rather than `no_release_assets`, even when the other lookup did yield a tag that was
 tried: a failed lookup means a release may exist that was never seen.
+
+**A branch has no release of its own.** Drafting from releases when asked for a branch is what
+lets discovery build an arrow at the default branch a search named and file it under the tag it
+drafted from. A catalog row, though, is what it follows: a draft built from another release is
+not what the branch holds. `ResolveArrowAtCommit`, and the arrow store's resolver for a preview
+at an explicit ref, therefore treat a draft whose ref differs from the one asked
+(`manifold.DraftedElsewhere`) as no manifest: `resolver.ErrManifestNotFound` wrapping
+`NotFletchableError{Reason: not_a_release}` (`manifold.NotARelease`), which the API answers with
+404. So `repo@main` on a repository without an `ARROW.md` is not found, while `repo@v1.2.0`,
+`repo@stable` and a pointer channel such as `repo@tip` install the release they name.
 
 **Host sources.** Fletcher reaches the host only through `hosts.Host`, the same contract the
 declared-manifest lookup uses: `ReleaseAssets`, `RawFileURL`, `BlobFileURL`, `RepoPageURL`,
@@ -229,15 +266,21 @@ URL templates live in `internal/core/metadata/metadata.yaml`.
 differs from the ref asked. This matters for a branch: discovery asks for the default branch the
 search response named, but a repository whose only manifest is inferred has no release assets at
 a branch, so the draft comes from a release tag (the same tag details, add and install pick when
-they ask for the stable channel, or the newest non-stable one when there is no stable). Discovery
-files the arrow under that tag, so the ref shown in search is the ref installed, and opening the
-details, adding or installing a discovered arrow reads the vault row and builds nothing again. A
-declared manifest keeps the branch discovery fetched it from.
+a refless add picks through the stable channel, or the newest non-stable one when there is no
+stable). Discovery files the arrow under that tag, so the ref shown in search is the ref
+installed. Opening the details of a discovered arrow reads that vault row — a preview reads the
+vault at the ref its selector points at — and builds nothing again, and neither does an add, an
+adoption or an install: the arrow store reuses a vault copy recorded for the exact release it
+records (same ref, same commit; discovery records the tag's commit from the ref snapshot it reads
+first) and calls `ResolveArrowAtCommit` (§2) only when no such copy exists. A tag that moved names
+another commit, so its old build is never reused. `ResolveArrowAtCommit` stamps the identity over
+whatever ref the draft came from. A declared
+manifest keeps the branch discovery fetched it from.
 
-**Caching of resolution.** `ResolveLatestStable`, `ResolveConstraint` and `ListChannels` share
-one TTL cache keyed by the namespace as asked, so the release-permalink request that picks the
-stable tag happens once per TTL, not once per detail sub-endpoint (every one of them asks the
-same refless namespace). A failed lookup is never cached.
+**Caching of resolution.** Every ref question — channels, a constraint's match, Fletcher's latest
+stable — is answered from the one `Snapshot` cache (§2.1), so the detail sub-endpoints of one
+refless namespace list the remote's refs once per TTL, not once each. A failed lookup is never
+cached.
 
 A manifest built while `RepoMetadata` was failing is cached like any other (the vault has one TTL
 per entry and no per-entry override): no icon depends on that call any more, and the only loss
@@ -561,7 +604,7 @@ After all compiled rules run, the manifold ruleset adds one more check: `len(man
 | Parsing | Wrapped `fmt.Errorf` from YAML unmarshal, schema-line extraction, codeblock extraction, JSON Schema validation, mapper errors | Translator |
 | Validation | `aerrors.ErrInvalidManifest` (via `RuleError.Unwrap`); also `aerrors.ErrNoSupportedPlatform` | Ruleset |
 | Assembly/compile | Wrapped errors from selector (`AmbiguousTargetError`, `ErrNoTargetForOS`) and base-chain walk | Compiler / selector |
-| Constraint | Wrapped `fmt.Errorf` for "no tags match", invalid pattern, transport failure | Constraint resolver |
+| Selector | `manifold.ErrUnknownSelector` — a selector that names no channel, ref, glob or commit, a constraint no tag matches, or a target absent from the snapshot; transport failures while listing refs are wrapped | `versioning/internal/{selector,drift,admit}`, ref lister |
 | Synthesis | `fletcher.NotFletchableError` wrapped in `resolver.ErrManifestNotFound` (§4.1); transient failures as `resolver.ErrFetchFailed` | Fletcher |
 
 Callers use `errors.Is` for the sentinels and `errors.As` for `RuleErrors` / `AmbiguousTargetError` to extract structured detail.
