@@ -66,6 +66,23 @@ func (s *CollectionSuite) TestFollow_Resolves_Arrows() {
 	}
 }
 
+// A collection followed with no ref has local arrows with no ref either; they
+// must still be cached and show up resolved.
+func (s *CollectionSuite) TestFollow_RefLessCollection_ResolvesLocalArrows() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := "quiver.test/quiver-test/gaming-collection"
+
+	s.Equal(http.StatusCreated, tc.CollectionFollow(ns))
+
+	detail, status := tc.CollectionGet(ns)
+	s.Equal(http.StatusOK, status)
+	s.Require().Len(detail.Arrows, 2)
+	for _, a := range detail.Arrows {
+		s.True(a.Resolved, "arrow %s should be resolved after follow", a.Namespace)
+	}
+}
+
 // --- add arrow from quiver ---
 
 // Follow a quiver that has a local path arrow, then Add that arrow.
