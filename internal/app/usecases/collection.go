@@ -125,7 +125,11 @@ func (u *quiverUsecase) Follow(
 			if e != nil {
 				return e
 			}
-			return u.arrows.Adopt(ctx, arrowNS, domain.SelectorPin, domain.Resolved{Ref: arrowNS.Ref()}, b, filename)
+			seedNS, e := u.refBearing(ctx, arrowNS)
+			if e != nil {
+				return e
+			}
+			return u.arrows.Adopt(ctx, seedNS, domain.SelectorPin, domain.Resolved{Ref: seedNS.Ref()}, b, filename)
 		}
 		resolveRemote := func() error {
 			_, e := u.arrows.ResolveManifest(ctx, arrowNS)
@@ -143,6 +147,26 @@ func (u *quiverUsecase) Follow(
 	}
 
 	return u.repo.Follow(ctx, ns, coll, failures)
+}
+
+// refBearing returns ns carrying a ref. A collection followed without one has
+// ref-less local arrows, whose manifests were fetched from the repository's
+// default branch, so that branch is the ref the bytes are adopted at.
+func (u *quiverUsecase) refBearing(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if ns.Ref() != "" {
+		return ns, nil
+	}
+	snap, err := u.manifold.Snapshot(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("resolve default branch of %s: %w", ns, err)
+	}
+	if snap.Head == "" {
+		return "", fmt.Errorf("resolve default branch of %s: repository reports no default branch", ns)
+	}
+	return ns.WithRef(snap.Head), nil
 }
 
 func (u *quiverUsecase) Unfollow(

@@ -593,6 +593,48 @@ func TestFollow_LocalArrow_CallsSeed(t *testing.T) {
 	assert.False(t, resolveManifestCalled, "ResolveManifest must not be called for local arrows")
 }
 
+func TestFollow_RefLessLocalArrow_AdoptsAtDefaultBranch(t *testing.T) {
+	localNS := domain.Namespace("owner/my-collection/cs2")
+
+	var adoptedNS domain.Namespace
+	var adoptedResolved domain.Resolved
+	arrows := &ucmocks.MockArrow{
+		AdoptFn: func(
+			_ context.Context,
+			ns domain.Namespace,
+			_ domain.SelectorKind,
+			resolved domain.Resolved,
+			_ []byte,
+			_ string,
+		) error {
+			adoptedNS, adoptedResolved = ns, resolved
+			return nil
+		},
+	}
+	manifoldMock := &mocks.Manifold{
+		ResolveArrowAtFunc: func(_ context.Context, _ domain.Namespace, _ string) (*domain.Arrow, []byte, string, error) {
+			return &domain.Arrow{}, []byte("raw"), "arrow.yaml", nil
+		},
+		SnapshotResult: domain.RefSnapshot{Head: "master"},
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(_ context.Context, _ domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{
+				Arrows: []domain.CollectionArrow{{Namespace: localNS, IsLocal: true, SourcePath: "servers/cs2"}},
+			}, nil
+		},
+		FollowFn: func(_ context.Context, _ domain.Namespace, _ *domain.Collection, failures []domain.Namespace) error {
+			assert.Empty(t, failures)
+			return nil
+		},
+	}
+
+	uc := NewCollectionUsecase(repo, arrows, manifoldMock, nil)
+	require.NoError(t, uc.Follow(context.Background(), "owner/my-collection"))
+	assert.Equal(t, domain.Namespace("owner/my-collection/cs2@master"), adoptedNS)
+	assert.Equal(t, domain.Resolved{Ref: "master"}, adoptedResolved)
+}
+
 // --- not-found and dependency-failure paths ---
 
 func TestFollow_RepoGetFails_ReturnsError(t *testing.T) {
