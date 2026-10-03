@@ -3,6 +3,8 @@ package selfupdate_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +17,11 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/selfupdate"
 )
+
+func TestMain(m *testing.M) {
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
+}
 
 type start struct {
 	exe     string
