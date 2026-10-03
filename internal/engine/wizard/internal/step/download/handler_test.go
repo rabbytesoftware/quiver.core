@@ -196,6 +196,48 @@ func TestHandler_Execute_DownloadError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHandler_Execute_NonHTTPURL_ReturnsClearError(t *testing.T) {
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{name: "empty", url: ""},
+		{name: "local path", url: "/etc/hosts"},
+		{name: "file scheme", url: "file:///etc/hosts"},
+		{name: "ftp scheme", url: "ftp://example.com/quiver"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := filepath.Join(t.TempDir(), "out.bin")
+			s := domainstep.NewFetchStep("fetch", tc.url, dst, "", "5s", true)
+
+			err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+			require.ErrorIs(t, err, stepdownload.ErrUnsupportedURL)
+			assert.Contains(t, err.Error(), "http or https")
+			assert.NoFileExists(t, dst)
+		})
+	}
+}
+
+func TestHandler_Execute_TruncatedBody_LeavesNoFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("short"))
+	}))
+	defer srv.Close()
+
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	sum := sha256.Sum256([]byte("short"))
+	s := domainstep.NewFetchStep("fetch", srv.URL, dst, hex.EncodeToString(sum[:]), "5s", true)
+
+	err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.Error(t, err)
+	assert.NoFileExists(t, dst)
+}
+
 func TestHandler_Execute_Timeout(t *testing.T) {
 	// Use a handler that blocks with context-aware timeout
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

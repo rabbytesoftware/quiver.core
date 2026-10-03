@@ -275,6 +275,31 @@ func TestResolveVariables_MissingRequired_ProvidedByUser(t *testing.T) {
 	assert.Equal(t, "value", vars["REQUIRED_VAR"])
 }
 
+func TestResolveVariables_RequiredVar_EmptyValueCountsAsMissing(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "REQUIRED_VAR"}},
+	}
+
+	_, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSDarwinARM64,
+		testGetArrow(arrow),
+		newTestAsynxRuntimeForVars(t),
+		nil,
+		nil,
+		map[string]string{"REQUIRED_VAR": ""},
+		stepsUnderTest(arrow),
+	)
+
+	require.ErrorIs(t, err, apperrors.ErrMissingVariable)
+	assert.Contains(t, err.Error(), "REQUIRED_VAR")
+}
+
 func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 	ns := testNsForVars()
 	arrow := &domain.Arrow{Namespace: ns}
