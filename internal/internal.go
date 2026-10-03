@@ -222,6 +222,7 @@ type internalOpts struct {
 	commit            string
 	channel           string
 	selfUpdateTrigger *selfupdate.Trigger
+	stop              func()
 	listener          net.Listener
 	scheme            string
 	recommendations   bool
@@ -259,6 +260,13 @@ func WithChannel(channel string) Option {
 // Without the option the daemon never succeeds itself.
 func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
 	return func(o *internalOpts) { o.selfUpdateTrigger = trig }
+}
+
+// WithStop hands the container the daemon's own cancellation, which
+// POST /v0/system/shutdown triggers so the daemon leaves through the same
+// graceful sequence a SIGTERM would.
+func WithStop(stop func()) Option {
+	return func(o *internalOpts) { o.stop = stop }
 }
 
 // WithGateway hands New a listener PrepareGateway already bound, and the
@@ -322,6 +330,7 @@ func New(
 		app.WithCommit(cfg.commit),
 		app.WithChannel(cfg.channel),
 		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		app.WithStop(cfg.stop),
 	)
 	if err != nil {
 		_ = loggerShutdown()

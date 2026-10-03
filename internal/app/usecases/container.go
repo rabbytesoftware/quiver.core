@@ -22,6 +22,7 @@ type Container struct {
 	Config    ConfigUsecase
 	Auth      AuthUsecase
 	Path      PathUsecase
+	System    SystemUsecase
 	// Home is nil when the container was built without discovery, since there
 	// is nothing to recommend from.
 	Home HomeUsecase
@@ -32,6 +33,7 @@ func New(
 	m manifold.Manifold,
 	v vault.Vault,
 	w wizardPkg.Wizard,
+	stop func(),
 ) (*Container, error) {
 	pairingCodeTTL, err := time.ParseDuration(config.GetAuth().PairingCodeTTL)
 	if err != nil {
@@ -79,6 +81,7 @@ func New(
 		Config:     NewConfigUsecase(repos.Config),
 		Auth:       NewAuthUsecase(repos.PairingCode, repos.Device, pairingCodeTTL),
 		Path:       NewPathUsecase(w),
+		System:     NewSystemUsecase(stop),
 		Home:       homeUC,
 	}, nil
 }

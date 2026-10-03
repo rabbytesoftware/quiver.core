@@ -15,7 +15,7 @@ func TestContainerNew_ExposesConfigUsecase(t *testing.T) {
 		Graph:      &ucmocks.MockGraph{},
 	}
 
-	container, err := New(repos, nil, nil, nil)
+	container, err := New(repos, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -34,6 +34,10 @@ func TestContainerNew_ExposesConfigUsecase(t *testing.T) {
 
 	if container.Search == nil {
 		t.Error("container.Search is nil")
+	}
+
+	if container.System == nil {
+		t.Error("container.System is nil")
 	}
 
 	if container.Config == nil {

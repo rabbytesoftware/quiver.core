@@ -53,6 +53,7 @@ func newDaemonCmd() *cobra.Command {
 				internal.WithCommit(commit),
 				internal.WithChannel(channel),
 				internal.WithSelfUpdateTrigger(trigger),
+				internal.WithStop(stop),
 				internal.WithGateway(listener, scheme),
 				internal.WithRecommendations(),
 			)

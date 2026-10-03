@@ -79,12 +79,17 @@ func newRouter(svc usecases.ConfigUsecase) *gin.Engine {
 }
 
 func newRouterWithPath(svc usecases.ConfigUsecase, pathSvc usecases.PathUsecase) *gin.Engine {
+	return newRouterFull(svc, pathSvc, &stubSystemUsecase{})
+}
+
+func newRouterFull(svc usecases.ConfigUsecase, pathSvc usecases.PathUsecase, sysSvc usecases.SystemUsecase) *gin.Engine {
 	r := gin.New()
-	h := systemhandlers.New(svc, pathSvc)
+	h := systemhandlers.New(svc, pathSvc, sysSvc)
 	r.GET("/config", h.Config)
 	r.PATCH("/config", h.PatchConfig)
 	r.GET("/system/path", h.PathStatus)
 	r.POST("/system/path", h.SetupPath)
+	r.POST("/system/shutdown", h.Shutdown)
 	return r
 }
 
@@ -282,4 +287,39 @@ func TestPath_UsecaseErrorReturns500(t *testing.T) {
 			assert.Equal(t, http.StatusInternalServerError, w.Code)
 		})
 	}
+}
+
+type stubSystemUsecase struct {
+	info models.ShutdownInfo
+	err  error
+}
+
+func (s *stubSystemUsecase) Shutdown(
+	_ context.Context,
+) (models.ShutdownInfo, error) {
+	return s.info, s.err
+}
+
+func TestShutdown_ReturnsProcessToWaitFor(t *testing.T) {
+	sys := &stubSystemUsecase{info: models.ShutdownInfo{PID: 42, Exe: "/q/quiver", Args: []string{"daemon"}}}
+	r := newRouterFull(&stubConfigUsecase{}, &stubPathUsecase{}, sys)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/system/shutdown", strings.NewReader("")))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	data := decodeData(t, w)
+	assert.JSONEq(t, `42`, string(data["pid"]))
+	assert.JSONEq(t, `"/q/quiver"`, string(data["exe"]))
+	assert.JSONEq(t, `["daemon"]`, string(data["args"]))
+}
+
+func TestShutdown_MapsUsecaseError(t *testing.T) {
+	sys := &stubSystemUsecase{err: fmt.Errorf("shutdown: %w", apperrors.ErrStateViolation)}
+	r := newRouterFull(&stubConfigUsecase{}, &stubPathUsecase{}, sys)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/system/shutdown", strings.NewReader("")))
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }

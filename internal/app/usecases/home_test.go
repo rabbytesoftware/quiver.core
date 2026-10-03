@@ -113,13 +113,13 @@ func TestContainerNew_HomeIsWiredOnlyWithARecommendation(t *testing.T) {
 		}
 	}
 
-	without, err := New(base(), nil, nil, nil)
+	without, err := New(base(), nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, without.Home)
 
 	repos := base()
 	repos.Recommendation = &ucmocks.MockRecommendation{}
-	with, err := New(repos, nil, nil, nil)
+	with, err := New(repos, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, with.Home)
 }

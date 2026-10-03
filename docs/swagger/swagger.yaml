@@ -595,6 +595,17 @@ definitions:
       token:
         type: string
     type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ShutdownDTO:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      exe:
+        type: string
+      pid:
+        type: integer
+    type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.StepProgressDTO:
     properties:
       error:
@@ -2380,6 +2391,35 @@ paths:
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Set up PATH
+      tags:
+      - system
+  /system/shutdown:
+    post:
+      description: |-
+        Asks the daemon to leave through its graceful shutdown sequence, the same one a SIGTERM takes it through, and answers before it is gone with the process to wait for: its pid, executable and arguments. A caller that wants to replace the daemon waits for that pid and the socket to disappear, then starts the same command again.
+
+        Meant for a local caller (quiver self-update). Over tcp:// it needs a bearer token like every other route.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ShutdownDTO'
+              type: object
+        "422":
+          description: The daemon was built without a way to stop itself
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+      summary: Shut the daemon down
       tags:
       - system
 produces:
