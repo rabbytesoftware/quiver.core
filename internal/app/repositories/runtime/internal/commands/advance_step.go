@@ -66,5 +66,7 @@ func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 		Execution:      updatedRun,
 		LastReturn:     current.LastReturn,
 		PendingDepSync: current.PendingDepSync,
+
+		PendingActivation: current.PendingActivation,
 	}
 }

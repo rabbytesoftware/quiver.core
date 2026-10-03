@@ -93,6 +93,7 @@ func toTarget(t targetV0) (models.PrecompiledTarget, error) {
 		Lifecycle:    lifecycle,
 		Methods:      methods,
 		Expose:       toExpose(t.Expose),
+		Activation:   t.Activation,
 	}, nil
 }
 

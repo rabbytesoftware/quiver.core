@@ -298,3 +298,16 @@ func TestArrow_Generator_JSONOmittedWhenDeclared(t *testing.T) {
 	assert.NotContains(t, string(declared), `"generator"`)
 	assert.Contains(t, string(inferred), `"generator":{"name":"fletcher/1","confidence":"high"}`)
 }
+
+func TestArrow_ActivationFor(t *testing.T) {
+	arrow := &Arrow{Targets: map[OS]Target{
+		OSLinuxAMD64:  {Activation: map[string]string{"update": ActivationRestart}},
+		OSDarwinARM64: {},
+	}}
+
+	assert.Equal(t, ActivationRestart, arrow.ActivationFor(OSLinuxAMD64, MethodUpdate))
+	assert.Empty(t, arrow.ActivationFor(OSLinuxAMD64, MethodInstall))
+	assert.Empty(t, arrow.ActivationFor(OSDarwinARM64, MethodUpdate))
+	assert.Empty(t, arrow.ActivationFor(OSWindowsAMD64, MethodUpdate), "no target for the platform")
+	assert.Empty(t, (*Arrow)(nil).ActivationFor(OSLinuxAMD64, MethodUpdate))
+}

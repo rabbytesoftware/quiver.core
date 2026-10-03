@@ -42,6 +42,8 @@ targets:
       cpu_cores: 1
       ram_gb: 1
       disk_gb: 1
+    activation:
+      update: restart
     lifecycle:
       update:
         - type: fetch

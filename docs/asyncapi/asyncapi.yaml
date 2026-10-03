@@ -319,6 +319,18 @@ components:
             - type: "null"
             - $ref: '#/components/schemas/LastReturn'
           description: Last completed execution, null if no execution has ever completed
+        pending_activation:
+          anyOf:
+            - type: "null"
+            - type: object
+              required: [version, staged_at]
+              properties:
+                version:
+                  type: string
+                staged_at:
+                  type: string
+                  format: date-time
+          description: A binary an update staged and left waiting for a daemon restart to take effect (POST /v0/runtime/{ns}/activate applies it), null when nothing is staged
 
     CollectionEvent:
       type: object

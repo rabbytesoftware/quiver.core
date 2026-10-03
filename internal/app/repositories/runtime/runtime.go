@@ -144,6 +144,34 @@ type Runtime interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	// RecordPendingActivation stages a binary a finished method produced, to
+	// be applied by a daemon restart, replacing an earlier one that has not
+	// started activating.
+	RecordPendingActivation(
+		ctx context.Context,
+		ns domain.Namespace,
+		pending domainRuntime.PendingActivation,
+	) error
+	// MarkActivating records that the daemon is about to hand over to the
+	// staged binary; it fails with a state violation when nothing is staged
+	// or the handover is already under way.
+	MarkActivating(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	// ClearPendingActivation forgets the staged binary.
+	ClearPendingActivation(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	OnRuntimeActivationStaged(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
+	OnRuntimeActivationCleared(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	// MarkReady lands ns's runtime aggregate at Ready without an install ever
 	// having run, the same outcome MarkPreinstalled records for a preinstalled
 	// detection.
@@ -848,6 +876,75 @@ func (s *runtimeRepository) MarkReady(ctx context.Context, ns domain.Namespace) 
 		return fmt.Errorf("mark ready %s: %w", ns, apperrors.ErrStateViolation)
 	}
 	return fmt.Errorf("mark ready %s: %w", ns, err)
+}
+
+func (s *runtimeRepository) RecordPendingActivation(
+	ctx context.Context,
+	ns domain.Namespace,
+	pending domainRuntime.PendingActivation,
+) error {
+	return s.sendActivation(ctx, "record pending activation", ns, runtimecmds.RecordPendingActivation{Namespace: ns, Pending: pending})
+}
+
+func (s *runtimeRepository) MarkActivating(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	return s.sendActivation(ctx, "mark activating", ns, runtimecmds.MarkActivating{Namespace: ns})
+}
+
+func (s *runtimeRepository) ClearPendingActivation(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	return s.sendActivation(ctx, "clear pending activation", ns, runtimecmds.ClearPendingActivation{Namespace: ns})
+}
+
+// sendActivation waits for a command to land, so the staged state a caller
+// acts on next is already durable. Its callers run outside the runtime's own
+// event queue, never inside a handler it delivers.
+func (s *runtimeRepository) sendActivation(
+	ctx context.Context,
+	op string,
+	ns domain.Namespace,
+	cmd asynxModels.Command[domainRuntime.ArrowRuntime],
+) error {
+	_, err := s.axRuntime.SendWait(ctx, cmd)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynxModels.ErrValidation) || errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("%s %s: %w", op, ns, apperrors.ErrStateViolation)
+	}
+	return fmt.Errorf("%s %s: %w", op, ns, err)
+}
+
+func (s *runtimeRepository) OnRuntimeActivationStaged(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.activation_staged.*"), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		fn(ctx, evt.Aggregate)
+	})
+	return err
+}
+
+func (s *runtimeRepository) OnRuntimeActivationCleared(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.activation_cleared.*"), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		fn(ctx, evt.Aggregate)
+	})
+	return err
 }
 
 func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) error {

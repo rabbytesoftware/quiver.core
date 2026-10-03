@@ -43,7 +43,8 @@ func (c BeginUpdate) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 			Variables: c.Variables,
 			WorkDir:   c.WorkDir,
 		},
-		LastReturn:     preserveLastReturn(current),
-		PendingDepSync: nil,
+		LastReturn:        preserveLastReturn(current),
+		PendingDepSync:    nil,
+		PendingActivation: preservePendingActivation(current),
 	}
 }

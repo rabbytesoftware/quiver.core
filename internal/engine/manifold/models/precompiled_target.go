@@ -17,4 +17,5 @@ type PrecompiledTarget struct {
 	Lifecycle    domain.TargetLifecycle               `yaml:"lifecycle"    json:"lifecycle"`
 	Methods      map[string]domain.Method             `yaml:"methods"      json:"methods"`
 	Expose       domain.Expose                        `yaml:"expose"       json:"expose"`
+	Activation   map[string]string                    `yaml:"activation"   json:"activation"`
 }

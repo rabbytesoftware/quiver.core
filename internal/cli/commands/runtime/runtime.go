@@ -1,5 +1,5 @@
 // Package runtime implements the lifecycle and observation commands:
-// install, run, stop, uninstall, update, ps, status, watch.
+// install, run, stop, uninstall, update, activate, ps, status, watch.
 package runtime
 
 import (
@@ -9,7 +9,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
 
-// Commands builds the install/run/stop/uninstall/update/ps/status/watch
+// Commands builds the install/run/stop/uninstall/update/activate/ps/status/watch
 // commands.
 type Commands interface {
 	Cmd() []*cobra.Command
@@ -35,12 +35,12 @@ func New(
 	return &commands{sess: sess, rb: rb}
 }
 
-// Cmd returns the eight lifecycle and observation commands as root-level
+// Cmd returns the lifecycle and observation commands as root-level
 // commands — none of them nest under a shared parent, the same reasoning
 // as system.Commands.
 func (c *commands) Cmd() []*cobra.Command {
 	return []*cobra.Command{
-		c.installCmd(), c.runCmd(), c.stopCmd(), c.uninstallCmd(), c.updateCmd(),
+		c.installCmd(), c.runCmd(), c.stopCmd(), c.uninstallCmd(), c.updateCmd(), c.activateCmd(),
 		c.psCmd(), c.statusCmd(), c.watchCmd(),
 	}
 }

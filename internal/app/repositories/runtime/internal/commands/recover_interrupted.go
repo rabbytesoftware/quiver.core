@@ -67,6 +67,8 @@ func (c RecoverInterrupted) EmitEvent(current *domainRuntime.ArrowRuntime) domai
 		State:      stableStateFor(current.State),
 		Execution:  nil,
 		LastReturn: current.LastReturn,
+
+		PendingActivation: current.PendingActivation,
 	}
 }
 

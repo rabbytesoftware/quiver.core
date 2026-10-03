@@ -30,13 +30,11 @@ func TestSelfUpdateIntegration(t *testing.T) {
 	suite.Run(t, new(SelfUpdateSuite))
 }
 
-// selfNamespace is the exact namespace repositories/container.go's
-// claimSuccession matches on (strings.HasPrefix(rt.Ref.String(),
-// string(self)+"@"), self from metadata.GetSelfNamespaces()). The trigger
-// only ever fires for a runtime whose ref carries this literal prefix, so the
-// fixture standing in for quiver.core's own manifest has to be registered
-// under it — the usual "quiver.test/..." fixture convention would never be
-// recognized by that check.
+// selfNamespace is the namespace quiver.core registers its own row under
+// (metadata.GetSelfNamespaces). The fixture standing in for its manifest is
+// registered under it, so the boot-time self-registration and the library
+// listing recognize it; the usual "quiver.test/..." fixture convention would
+// never be.
 const selfNamespace = "github.com/rabbytesoftware/quiver.core"
 
 // noVersionCheck fails every live snapshot, so no version check can ever
@@ -144,8 +142,31 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 		"QUIVER_RELEASE_CHECKSUM":  checksum,
 	}))
 
+	// The update downloads and verifies the build and stops there: it is
+	// staged, nothing is handed over, and the supervised process is untouched.
+	require.Eventually(s.T(), func() bool {
+		return s.getDetail(tc1, selfNS).PendingActivation != nil
+	}, 10*time.Second, 50*time.Millisecond, "a finished update that declares activation: restart stages its binary")
+	staged := s.getDetail(tc1, selfNS).PendingActivation
+	s.Require().NotNil(staged)
+	s.Equal("v2", staged.Version)
+	s.False(trig.Fired(), "staging must not hand the daemon over: that waits for an explicit activate")
+	stillRunning := s.getDetail(tc1, fixtureNS)
+	s.Require().Equal(string(domain.ArrowStateRunning), stillRunning.State)
+	s.Require().NotNil(stillRunning.ActiveRun)
+	s.Equal(originalPID, stillRunning.ActiveRun.PID, "running arrows keep their process while an update waits")
+
+	// A second update while the first is staged has nothing new to do.
+	s.Equal(http.StatusOK, tc1.Execute(selfNS, "update", map[string]string{
+		"QUIVER_RELEASE_ASSET_URL": srv.URL,
+		"QUIVER_RELEASE_CHECKSUM":  checksum,
+	}), "an update already staged for its target is an idempotent no-op")
+	s.False(trig.Fired())
+
+	s.Equal(http.StatusAccepted, tc1.Execute(selfNS, "activate", nil))
 	require.Eventually(s.T(), trig.Fired, 10*time.Second, 50*time.Millisecond,
-		"the OnRuntimeEnded -> trigger wiring must fire through the real app-layer DI, not just Task 1.4's own unit test")
+		"activate fires the trigger through the real app-layer DI")
+	s.Equal(http.StatusOK, tc1.Execute(selfNS, "activate", nil), "a second activate while the handover is under way is a no-op")
 
 	s.Require().Equal(string(domain.ArrowStateOutdated), s.getDetail(tc1, selfNS).State,
 		"precondition: the drift check marked the self-arrow outdated before its own update")

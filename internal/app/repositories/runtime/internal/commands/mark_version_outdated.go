@@ -51,6 +51,8 @@ func (c MarkVersionOutdated) EmitEvent(current *domainRuntime.ArrowRuntime) doma
 		State:          domain.ArrowStateOutdated,
 		LastReturn:     preserveLastReturn(current),
 		PendingDepSync: preservePendingDepSync(current),
+
+		PendingActivation: preservePendingActivation(current),
 	}
 }
 

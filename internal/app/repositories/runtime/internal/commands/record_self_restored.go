@@ -54,5 +54,7 @@ func (c RecordSelfRestored) EmitEvent(current *domainRuntime.ArrowRuntime) domai
 		State:      domain.ArrowStateRunning,
 		Execution:  c.Execution,
 		LastReturn: current.LastReturn,
+
+		PendingActivation: current.PendingActivation,
 	}
 }

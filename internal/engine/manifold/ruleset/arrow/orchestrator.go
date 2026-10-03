@@ -35,6 +35,7 @@ func AllCompiled() []CompiledRule {
 		NoDependenciesStepRule{},
 		ExposeEntriesRule{},
 		PortableNameRule{},
+		ActivationRule{},
 	}
 }
 

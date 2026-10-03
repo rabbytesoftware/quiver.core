@@ -724,3 +724,27 @@ func TestArrowUsecase_Update_RechecksThroughTheLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
+
+func TestArrowGetDetail_CarriesTheStagedActivation(t *testing.T) {
+	ns := domain.Namespace("test/arrow@v1")
+	detail := &models.ArrowDetailView{Metadata: domain.Arrow{Namespace: ns}}
+	pending := &domainRuntime.PendingActivation{Version: "v2", Path: "/p"}
+	rt := &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady, PendingActivation: pending}
+
+	a := &ucmocks.MockArrow{
+		GetDetailFn: func(_ context.Context, _ domain.Namespace) (*models.ArrowDetailView, error) {
+			return detail, nil
+		},
+	}
+	mockRT := &ucmocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, _ domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return rt, nil
+		},
+	}
+
+	uc := newArrowUC(a, &ucmocks.MockGraph{}, mockRT)
+	got, err := uc.GetDetail(context.Background(), ns)
+
+	require.NoError(t, err)
+	assert.Same(t, pending, got.PendingActivation)
+}

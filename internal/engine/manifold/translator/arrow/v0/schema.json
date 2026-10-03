@@ -101,7 +101,11 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/Method" }
         },
-        "expose": { "$ref": "#/$defs/Expose" }
+        "expose": { "$ref": "#/$defs/Expose" },
+        "activation": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
       }
     },
     "Expose": {

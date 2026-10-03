@@ -219,6 +219,7 @@ func (u *arrowUsecase) GetDetail(
 		view.State = rt.State
 		view.ActiveRun = rt.Execution
 		view.LastReturn = rt.LastReturn
+		view.PendingActivation = rt.PendingActivation
 	}
 	return mappers.ArrowDetailDTOFrom(view), nil
 }

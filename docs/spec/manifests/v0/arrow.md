@@ -169,6 +169,8 @@ netbridge:                   # optional — declared port intent
 targets:                     # required — at least one entry; see §4
   <target-key>:
     base: string             # optional — parent target key (see §5)
+    activation:              # optional — methods whose success only takes effect after a daemon restart
+      update: restart        #   the only method that may declare one; the only value is restart
     requirements:            # optional — minimum system resources
       cpu_cores: integer     # ≥ 1
       ram_gb: integer        # ≥ 1
@@ -410,6 +412,29 @@ A target whose key starts with `_` is abstract:
   a partial lifecycle).
 - The `OverrideableCoverageRule` skips abstract targets — coverage is only enforced on
   concrete targets where it would actually matter at runtime.
+
+### 4.6 Activation
+
+A target may declare that a lifecycle method only takes effect once the daemon restarts:
+
+```yaml
+targets:
+  "*":
+    activation:
+      update: restart
+    lifecycle:
+      update: [...]
+```
+
+`update` is the only method that may declare one and `restart` the only value (`activation`
+validation rule: `invalid_activation_method`, `invalid_activation_value`). When such an update
+succeeds, the daemon does not commit it and does not restart: it records the binary the update
+left in its workdir (`quiver-new`, with its size and SHA-256) as the row's pending activation,
+reported as `pending_activation` on the runtime. The row keeps naming what is installed, running
+arrows are untouched, and a second update for the same target is a no-op. `POST
+/v0/runtime/{ns}/activate` hands the daemon over to the staged binary; a daemon that boots with
+one still staged applies it itself. The build that comes up moves the row onto its own state.
+`activation` follows `base:` inheritance per method: a child overrides the parent's entry.
 
 ---
 

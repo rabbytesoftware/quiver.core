@@ -45,5 +45,7 @@ func (c RestartExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainR
 		},
 		LastReturn:     current.LastReturn,
 		PendingDepSync: current.PendingDepSync,
+
+		PendingActivation: current.PendingActivation,
 	}
 }

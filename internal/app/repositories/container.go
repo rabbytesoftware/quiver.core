@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -65,8 +63,8 @@ type repoOpts struct {
 // Option configures repositories.New.
 type Option func(*repoOpts)
 
-// WithSelfUpdateTrigger hands the container the trigger fired when
-// quiver.core's own update lifecycle succeeds.
+// WithSelfUpdateTrigger hands the container the trigger an activation fires to
+// hand the daemon over to the binary an update staged.
 func WithSelfUpdateTrigger(
 	trig *selfupdate.Trigger,
 ) Option {
@@ -79,6 +77,18 @@ func WithVersionCheckInterval(
 	d time.Duration,
 ) Option {
 	return func(o *repoOpts) { o.versionCheckInterval = &d }
+}
+
+// lifecycleOptions lets an update that declares activation: restart stage the
+// binary it downloads, and Activate hand the daemon over to it through trig. A
+// process with no trigger can still stage.
+func lifecycleOptions(
+	trig *selfupdate.Trigger,
+) []lifecycle.Option {
+	if trig == nil {
+		return []lifecycle.Option{lifecycle.WithActivation(nil, selfarrow.UpdatedBinaryName)}
+	}
+	return []lifecycle.Option{lifecycle.WithActivation(trig, selfarrow.UpdatedBinaryName)}
 }
 
 func resolveOpts(
@@ -168,7 +178,7 @@ func New(
 		return nil, fmt.Errorf("repositories: device: %w", err)
 	}
 
-	lc := lifecycle.New(cat, rt, g)
+	lc := lifecycle.New(cat, rt, g, lifecycleOptions(cfg.selfUpdate)...)
 	targets.set(lc.UpdateTarget)
 
 	c := &Container{
@@ -185,7 +195,7 @@ func New(
 		Device:         dev,
 	}
 
-	if err := c.wireCallbacks(cfg.selfUpdate); err != nil {
+	if err := c.wireCallbacks(); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -554,9 +564,7 @@ func (c *Container) RecoverForgetCascade(ctx context.Context) {
 // the first reaction to every arrow event. The arrow repository invokes
 // callbacks in registration order and only makes the arrow readable afterwards,
 // which is what makes "readable in the catalog" imply "its edges exist".
-func (c *Container) wireCallbacks(
-	trig *selfupdate.Trigger,
-) error {
+func (c *Container) wireCallbacks() error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
 	}); err != nil {
@@ -578,7 +586,7 @@ func (c *Container) wireCallbacks(
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
 
-	return c.wireSelfUpdate(trig)
+	return nil
 }
 
 // wireLifecycle lets a version check hold the badge of a row whose update is
@@ -591,51 +599,6 @@ func (c *Container) wireLifecycle() error {
 	}
 
 	return nil
-}
-
-// wireSelfUpdate lets quiver.core's own update lifecycle claim this process.
-// A container built without a trigger (every command that is not the daemon)
-// registers nothing.
-func (c *Container) wireSelfUpdate(
-	trig *selfupdate.Trigger,
-) error {
-	if trig == nil {
-		return nil
-	}
-
-	if err := c.Runtime.OnRuntimeEnded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
-		claimSuccession(trig, rt)
-	}); err != nil {
-		return fmt.Errorf("repositories: wire self-update trigger: %w", err)
-	}
-
-	return nil
-}
-
-// claimSuccession fires trig when quiver.core's own arrow finishes its own
-// update lifecycle successfully. The workdir is read from LastReturn, not
-// Execution, since EndExecution clears Execution as it writes the return.
-func claimSuccession(
-	trig *selfupdate.Trigger,
-	rt domainRuntime.ArrowRuntime,
-) {
-	self, _ := metadata.GetSelfNamespaces()
-	if !strings.HasPrefix(rt.Ref.String(), string(self)+"@") {
-		return
-	}
-	if rt.LastReturn == nil || rt.LastReturn.Method != domain.MethodUpdate {
-		return
-	}
-	if rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
-		return
-	}
-
-	workdir := rt.LastReturn.Variables[domain.VarWorkdir]
-	if workdir == "" {
-		return
-	}
-
-	trig.Fire(filepath.Join(workdir, selfarrow.UpdatedBinaryName))
 }
 
 func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
@@ -691,6 +654,18 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnRuntimePreinstalled: %w", err)
+	}
+
+	if err := c.Runtime.OnRuntimeActivationStaged(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimeActivationStaged: %w", err)
+	}
+
+	if err := c.Runtime.OnRuntimeActivationCleared(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimeActivationCleared: %w", err)
 	}
 
 	if err := c.Collection.OnCollectionFollowed(func(_ context.Context, q domain.Collection) {

@@ -44,5 +44,7 @@ func (c RecordDetached) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 		State:      domain.ArrowStateDetached,
 		Execution:  nil,
 		LastReturn: current.LastReturn,
+
+		PendingActivation: current.PendingActivation,
 	}
 }

@@ -63,6 +63,22 @@ func (c *commands) updateCmd() *cobra.Command {
 	return c.lifecycleCmd("update", "Update an arrow to the latest matching version", false)
 }
 
+// activateCmd applies the update an arrow staged. It never streams a run: the
+// daemon restarts into the staged build instead of running steps, so the
+// command reports the request and returns.
+func (c *commands) activateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "activate <namespace>",
+		Short: "Restart the daemon to apply a staged update",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return c.runMethod(cmd, args[0], "activate", methodOpts{})
+		},
+	}
+	cmd.Annotations = map[string]string{clierr.AnnotationLifecycle: "true"}
+	return cmd
+}
+
 // apiMethod maps a CLI operation to its runtime endpoint method.
 func apiMethod(op string) string {
 	if op == "run" {
@@ -82,7 +98,7 @@ func (c *commands) runMethod(cmd *cobra.Command, ns, op string, opts methodOpts)
 		return err
 	}
 
-	if opts.detach {
+	if opts.detach || op == "activate" {
 		return c.fireAndForget(cmd, ns, op, vars)
 	}
 
@@ -119,9 +135,19 @@ func noOpDetail(op string) string {
 		return "already installed, nothing to do"
 	case "update":
 		return "already up to date, nothing to do"
+	case "activate":
+		return "nothing staged to activate"
 	default:
 		return "nothing to do"
 	}
+}
+
+// detachedReason describes a method that was started without being waited on.
+func detachedReason(op string) string {
+	if op == "activate" {
+		return "restarting to apply the update"
+	}
+	return "started, not waiting"
 }
 
 // renderDetached reports a method that was started without being waited on.
@@ -132,7 +158,7 @@ func (c *commands) renderDetached(cmd *cobra.Command, ns, op string) error {
 			return output.NoOp{
 				Subject: ns,
 				Method:  op,
-				Reason:  "started, not waiting",
+				Reason:  detachedReason(op),
 				At:      time.Now().UTC().Format(time.RFC3339),
 			}, nil
 		},

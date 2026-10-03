@@ -184,6 +184,19 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	RecordPendingActivationFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		pending domainRuntime.PendingActivation,
+	) error
+	MarkActivatingFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	ClearPendingActivationFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	ForgetFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -287,6 +300,27 @@ func (m *MockRuntime) MarkOutdated(
 func (m *MockRuntime) ReconcileVersionBadge(ctx context.Context, ns domain.Namespace) error {
 	if m.ReconcileVersionBadgeFn != nil {
 		return m.ReconcileVersionBadgeFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) RecordPendingActivation(ctx context.Context, ns domain.Namespace, pending domainRuntime.PendingActivation) error {
+	if m.RecordPendingActivationFn != nil {
+		return m.RecordPendingActivationFn(ctx, ns, pending)
+	}
+	return nil
+}
+
+func (m *MockRuntime) MarkActivating(ctx context.Context, ns domain.Namespace) error {
+	if m.MarkActivatingFn != nil {
+		return m.MarkActivatingFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) ClearPendingActivation(ctx context.Context, ns domain.Namespace) error {
+	if m.ClearPendingActivationFn != nil {
+		return m.ClearPendingActivationFn(ctx, ns)
 	}
 	return nil
 }

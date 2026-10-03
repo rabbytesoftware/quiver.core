@@ -89,6 +89,7 @@ type targetV0 struct {
 	Lifecycle    lifecycleV0                       `yaml:"lifecycle"`
 	Methods      map[string]methodV0               `yaml:"methods"`
 	Expose       exposeV0                          `yaml:"expose"`
+	Activation   map[string]string                 `yaml:"activation"`
 }
 
 type exposeV0 struct {

@@ -44,5 +44,7 @@ func (c RecordPID) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.
 		Execution:      exec,
 		LastReturn:     current.LastReturn,
 		PendingDepSync: current.PendingDepSync,
+
+		PendingActivation: current.PendingActivation,
 	}
 }

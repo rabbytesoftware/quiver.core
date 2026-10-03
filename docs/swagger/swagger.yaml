@@ -96,6 +96,12 @@ definitions:
       outdated:
         description: Outdated is true exactly when Available is set.
         type: boolean
+      pending_activation:
+        allOf:
+        - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO'
+        description: |-
+          PendingActivation is a staged binary waiting for a daemon restart, null
+          when nothing is staged.
       resolved_ref:
         type: string
       selector_kind:
@@ -176,6 +182,12 @@ definitions:
         $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ReturnDTO'
       namespace:
         type: string
+      pending_activation:
+        allOf:
+        - $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO'
+        description: |-
+          PendingActivation is a staged binary waiting for a daemon restart, null
+          when nothing is staged.
       settling:
         description: |-
           Settling is true while an update has not committed yet, including the
@@ -482,6 +494,13 @@ definitions:
         type: array
       on_path:
         type: boolean
+    type: object
+  github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO:
+    properties:
+      staged_at:
+        type: string
+      version:
+        type: string
     type: object
   github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.RedeemPairingCodeRequestDTO:
     properties:
@@ -984,6 +1003,13 @@ definitions:
     type: object
   github_com_rabbytesoftware_quiver_core_internal_domain.Target:
     properties:
+      activation:
+        additionalProperties:
+          type: string
+        description: |-
+          Activation maps a lifecycle method, by its manifest name, to what its
+          success leaves pending until it is applied.
+        type: object
       exports:
         additionalProperties:
           type: string
@@ -1033,6 +1059,8 @@ definitions:
       default:
         type: string
       description:
+        type: string
+      from:
         type: string
       max:
         type: integer
@@ -2143,10 +2171,14 @@ paths:
       consumes:
       - application/json
       description: 'Triggers a lifecycle method on an arrow (install, uninstall, execute,
-        stop, update, or any custom method defined in the manifest). Returns 202 Accepted
-        immediately when work started; progress is streamed via WebSocket. Returns
-        200 when there was nothing to do (install of an installed arrow, update of
-        an arrow with nothing newer): no runtime event follows.'
+        stop, update, activate, or any custom method defined in the manifest). Returns
+        202 Accepted immediately when work started; progress is streamed via WebSocket.
+        Returns 200 when there was nothing to do (install of an installed arrow, update
+        of an arrow with nothing newer, activate with nothing staged): no runtime
+        event follows. An update whose manifest declares activation: restart downloads
+        and verifies what it produced and stops there: the runtime reports pending_activation,
+        running arrows are untouched, and activate then hands the daemon over to it
+        (the connection drops and returns on the same address).'
       parameters:
       - description: Arrow namespace
         in: path
@@ -2154,7 +2186,7 @@ paths:
         required: true
         type: string
       - description: Method name (install | uninstall | execute | stop | update |
-          <custom>)
+          activate | <custom>)
         in: path
         name: method
         required: true
@@ -2166,7 +2198,8 @@ paths:
           $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.ExecuteMethodRequestDTO'
       responses:
         "200":
-          description: 'No-op: already installed, or nothing newer to update to'
+          description: 'No-op: already installed, nothing newer to update to, or nothing
+            staged to activate'
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse'
         "202":
@@ -2188,11 +2221,22 @@ paths:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "422":
           description: State violation, e.g. an update while the previous one is still
-            settling
+            settling, an activate in a process that cannot restart itself or whose
+            staged binary failed verification (it is discarded), or a required variable
+            that is missing or whose release could not be resolved
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "429":
+          description: The git host rate limited resolving a release-bound variable
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
         "500":
           description: Internal error
+          schema:
+            $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
+        "502":
+          description: The git host could not be reached to resolve a release-bound
+            variable
           schema:
             $ref: '#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse'
       summary: Execute method

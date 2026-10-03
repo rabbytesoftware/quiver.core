@@ -57,6 +57,7 @@ func (c RecordPreinstalled) EmitEvent(current *domainRuntime.ArrowRuntime) domai
 
 	next.LastReturn = current.LastReturn
 	next.PendingDepSync = current.PendingDepSync
+	next.PendingActivation = current.PendingActivation
 
 	return next
 }

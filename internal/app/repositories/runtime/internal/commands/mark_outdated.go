@@ -45,6 +45,7 @@ func (c MarkOutdated) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 	}
 	if current != nil {
 		rt.LastReturn = current.LastReturn
+		rt.PendingActivation = current.PendingActivation
 	}
 	return rt
 }

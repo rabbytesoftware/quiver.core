@@ -192,17 +192,17 @@ func runCLI(t *testing.T, f *fakeDaemon, outputFormat string, args ...string) (s
 
 // ─── Cmd ─────────────────────────────────────────────────────────────────────
 
-func TestCmd_ReturnsEightCommands(t *testing.T) {
+func TestCmd_ReturnsTheLifecycleAndObservationCommands(t *testing.T) {
 	got := runtime.New(newSession(t, "unix:///unused.sock", false), runner.New(&runner.Flags{})).Cmd()
 
-	require.Len(t, got, 8)
+	require.Len(t, got, 9)
 
 	names := make([]string, 0, len(got))
 	for _, c := range got {
 		names = append(names, strings.Fields(c.Use)[0])
 	}
 	assert.Equal(t, []string{
-		"install", "run", "stop", "uninstall", "update", "ps", "status", "watch",
+		"install", "run", "stop", "uninstall", "update", "activate", "ps", "status", "watch",
 	}, names)
 }
 

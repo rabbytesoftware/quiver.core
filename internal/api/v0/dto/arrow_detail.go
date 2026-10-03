@@ -21,8 +21,11 @@ type ArrowDetailDTO struct {
 	Outdated   bool          `json:"outdated" yaml:"outdated"`
 	ActiveRun  *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
 	LastReturn *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
-	Origin     string        `json:"origin" yaml:"origin"`
-	Inference  *InferenceDTO `json:"inference,omitempty" yaml:"inference,omitempty"`
+	// PendingActivation is a staged binary waiting for a daemon restart, null
+	// when nothing is staged.
+	PendingActivation *PendingActivationDTO `json:"pending_activation" yaml:"pending_activation"`
+	Origin            string                `json:"origin" yaml:"origin"`
+	Inference         *InferenceDTO         `json:"inference,omitempty" yaml:"inference,omitempty"`
 }
 
 func ArrowDetailDTOFrom(
@@ -55,5 +58,7 @@ func ArrowDetailDTOFrom(
 		LastReturn:      ReturnDTOFrom(a.LastReturn),
 		Origin:          a.Origin,
 		Inference:       InferenceDTOFrom(a.Generator),
+
+		PendingActivation: PendingActivationDTOFrom(a.PendingActivation),
 	}
 }

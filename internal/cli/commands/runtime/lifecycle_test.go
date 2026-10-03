@@ -288,6 +288,40 @@ func TestUpdate_NoOpAlreadyUpToDate(t *testing.T) {
 	assert.Contains(t, out, "already up to date, nothing to do")
 }
 
+func TestActivate_StartedSaysTheDaemonIsRestarting(t *testing.T) {
+	f := &fakeDaemon{t: t}
+
+	out, err := runCLI(t, f, "json", "activate", testNS)
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "restarting to apply the update")
+	assert.Contains(t, strings.Join(f.recorded(), "\n"), "POST /v0/runtime/github.com%2Fuser%2Fapp/activate")
+}
+
+func TestActivate_NothingStagedIsANoOp(t *testing.T) {
+	f := &fakeDaemon{t: t, mutationStatus: http.StatusOK}
+
+	out, err := runCLI(t, f, "json", "activate", testNS)
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "nothing staged to activate")
+}
+
+func TestActivate_NeverWaitsForARun(t *testing.T) {
+	f := &fakeDaemon{t: t, wsHold: make(chan struct{})}
+
+	out, err := runCLI(t, f, "json", "activate", testNS)
+
+	require.NoError(t, err, "no run events follow an activation: the daemon restarts instead")
+	assert.Contains(t, out, "restarting")
+}
+
+func TestActivate_InvalidNamespaceIsRefused(t *testing.T) {
+	_, err := runCLI(t, &fakeDaemon{t: t}, "json", "activate", "not a namespace")
+
+	require.Error(t, err)
+}
+
 func TestUninstall_NonTTYWithoutForceRefuses(t *testing.T) {
 	_, err := runCLI(t, &fakeDaemon{t: t}, "json", "uninstall", testNS)
 	require.Error(t, err)
