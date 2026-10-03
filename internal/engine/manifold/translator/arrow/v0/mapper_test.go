@@ -1066,3 +1066,31 @@ func TestMap_Generator_SchemaRejectsInvalidShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestToArrow_VariableFromIsMapped(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: "X"
+variables:
+  - name: ASSET
+    from: release.asset
+  - name: PLAIN
+targets:
+  "*":
+    lifecycle:
+      update:
+        - type: run
+          title: noop
+          command: "true"
+`)
+	mod := v0.New()
+	require.NoError(t, validateAgainstSchema(t, mod.Schema(), data))
+
+	arrow, _, err := mod.Parse(data)
+
+	require.NoError(t, err)
+	require.Len(t, arrow.Variables, 2)
+	assert.Equal(t, domain.VarSourceReleaseAsset, arrow.Variables[0].From)
+	assert.Empty(t, arrow.Variables[1].From)
+}

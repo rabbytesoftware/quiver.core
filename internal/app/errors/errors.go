@@ -22,7 +22,38 @@ var (
 	ErrInvalidPairingCode   = errors.New("invalid or expired pairing code")
 	ErrUnauthorized         = errors.New("unauthorized")
 	ErrChannelNotFound      = errors.New("channel not found")
+	ErrReleaseUnresolved    = errors.New("release unresolved")
 )
+
+// ReleaseKind says why a release-bound variable could not be resolved.
+type ReleaseKind string
+
+const (
+	ReleaseOffline             ReleaseKind = "offline"
+	ReleaseRateLimited         ReleaseKind = "rate_limited"
+	ReleaseNoRelease           ReleaseKind = "no_release"
+	ReleaseNoAsset             ReleaseKind = "no_asset"
+	ReleaseUnsupportedPlatform ReleaseKind = "unsupported_platform"
+	ReleaseUnverifiable        ReleaseKind = "unverifiable"
+)
+
+// ReleaseError is a release that could not name what a run needs. It
+// satisfies errors.Is(err, ErrReleaseUnresolved) and unwraps to the cause.
+type ReleaseError struct {
+	Kind ReleaseKind
+	Err  error
+}
+
+// NewReleaseError builds a ReleaseError of kind caused by err.
+func NewReleaseError(kind ReleaseKind, err error) *ReleaseError {
+	return &ReleaseError{Kind: kind, Err: err}
+}
+
+func (e *ReleaseError) Error() string {
+	return fmt.Sprintf("%s: %s: %v", ErrReleaseUnresolved, e.Kind, e.Err)
+}
+
+func (e *ReleaseError) Unwrap() []error { return []error{ErrReleaseUnresolved, e.Err} }
 
 // StateViolationError describes an operation rejected because the arrow was in
 // the wrong state. It satisfies errors.Is(err, ErrStateViolation), so existing

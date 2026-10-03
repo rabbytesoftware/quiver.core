@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,10 +24,31 @@ import (
 // GetArrowFn fetches the current state of an arrow aggregate by namespace.
 type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 
-// ResolveVariables builds the variable map for an execution using 6 priority
+// Option adjusts a single ResolveVariables call.
+type Option func(*resolveOptions)
+
+type resolveOptions struct {
+	releases ReleaseResolver
+	release  domain.Namespace
+}
+
+// WithReleases lets variables that declare a release source take their value
+// from release, the namespace at the ref the run is built from.
+func WithReleases(
+	releases ReleaseResolver,
+	release domain.Namespace,
+) Option {
+	return func(o *resolveOptions) {
+		o.releases = releases
+		o.release = release
+	}
+}
+
+// ResolveVariables builds the variable map for an execution using 7 priority
 // layers: built-ins -> dep built-ins + named exports -> version defaults ->
-// netbridge ports -> stored vars -> user vars. steps decides which declared
-// variables are required, by name, for this execution; see requireReferenced.
+// netbridge ports -> stored vars -> release-bound vars -> user vars. steps
+// decides which declared variables are required, by name, for this
+// execution; see requireReferenced.
 func ResolveVariables( //nolint:gocyclo
 	ctx context.Context,
 	ns domain.Namespace,
@@ -39,7 +61,13 @@ func ResolveVariables( //nolint:gocyclo
 	nb netbridge.Netbridge,
 	userVars map[string]string,
 	steps []domainStep.Step,
+	opts ...Option,
 ) (map[string]string, error) {
+	var o resolveOptions
+	for _, apply := range opts {
+		apply(&o)
+	}
+
 	// Layer 1: built-ins
 	vars, err := builtIns(ctx, ns, arrow, os, v)
 	if err != nil {
@@ -121,7 +149,12 @@ func ResolveVariables( //nolint:gocyclo
 		maps.Copy(vars, carryForward(arrow, runtime.LastReturn.Variables))
 	}
 
-	// Layer 6: user vars (highest priority, built-ins excepted)
+	// Layer 6: variables bound to the release the run is built from
+	if err := applyReleaseBound(ctx, o, arrow, os, steps, userVars, vars); err != nil {
+		return nil, err
+	}
+
+	// Layer 7: user vars (highest priority, built-ins excepted)
 	applyUserVars(vars, userVars)
 
 	if err := requireReferenced(arrow, steps, vars); err != nil {
@@ -129,6 +162,55 @@ func ResolveVariables( //nolint:gocyclo
 	}
 
 	return vars, nil
+}
+
+// applyReleaseBound fills the variables that declare a release source and that
+// this run both expands and was not given by its caller. The lookup happens
+// only when something is pending, so a method that expands none of them, or a
+// caller that supplied them all, never reaches the host.
+func applyReleaseBound(
+	ctx context.Context,
+	o resolveOptions,
+	arrow *domain.Arrow,
+	os domain.OS,
+	steps []domainStep.Step,
+	userVars map[string]string,
+	vars map[string]string,
+) error {
+	if o.releases == nil {
+		return nil
+	}
+
+	referenced := ReferencedVariables(steps)
+	var pending []domain.Variable
+	var sources, names []string
+	for _, declared := range arrow.Variables {
+		if declared.From == "" || userVars[declared.Name] != "" {
+			continue
+		}
+		if _, used := referenced[declared.Name]; !used {
+			continue
+		}
+		pending = append(pending, declared)
+		names = append(names, declared.Name)
+		if !slices.Contains(sources, declared.From) {
+			sources = append(sources, declared.From)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	resolved, err := o.releases.Resolve(ctx, o.release, os, sources)
+	if err != nil {
+		return fmt.Errorf("resolve %s from release %s: %w", strings.Join(names, ", "), o.release, err)
+	}
+	for _, declared := range pending {
+		if value := resolved[declared.From]; value != "" {
+			vars[declared.Name] = value
+		}
+	}
+	return nil
 }
 
 // builtIns computes the variables every run gets: its workdir, identity,

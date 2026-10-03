@@ -45,7 +45,7 @@ func retryOnChecksumMismatch(
 	if !worthRetrying(ctx, exec, report, req.Method, hooks) {
 		return nil, false
 	}
-	steps, ok := refreshedSteps(ctx, req, hooks)
+	steps, vars, ok := refreshedRun(ctx, req, hooks)
 	if !ok {
 		return nil, false
 	}
@@ -54,6 +54,7 @@ func retryOnChecksumMismatch(
 	}
 	slog.InfoContext(ctx, "runtime: checksum mismatch, retrying once with a refreshed manifest", "ns", req.Namespace, "method", req.Method)
 	req.Steps = steps
+	req.Variables = vars
 	return w.Start(ctx, req), true
 }
 
@@ -76,21 +77,22 @@ func worthRetrying(
 	return exec.Outcome() == domainRuntime.ExecutionOutcomeFailed
 }
 
-func refreshedSteps(
+func refreshedRun(
 	ctx context.Context,
 	req wizardPkg.RunRequest,
 	hooks CatalogHooks,
-) ([]domainStep.Step, bool) {
+) ([]domainStep.Step, map[string]string, bool) {
 	if err := hooks.RefreshManifest(ctx, req.Namespace, req.Method); err != nil {
 		slog.WarnContext(ctx, "runtime: refresh manifest after checksum mismatch", "ns", req.Namespace, "err", err)
-		return nil, false
+		return nil, nil, false
 	}
-	steps, err := hooks.Reassemble(ctx, req.Namespace, req.Method, req.Variables)
+	steps, vars, err := hooks.Reassemble(ctx, req.Namespace, req.Method, req.Variables)
 	if err != nil {
 		slog.WarnContext(ctx, "runtime: reassemble after checksum mismatch", "ns", req.Namespace, "err", err)
-		return nil, false
+		return nil, nil, false
 	}
-	return steps, !reflect.DeepEqual(steps, req.Steps)
+	changed := !reflect.DeepEqual(steps, req.Steps) || !reflect.DeepEqual(vars, req.Variables)
+	return steps, vars, changed
 }
 
 func restart(

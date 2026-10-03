@@ -118,6 +118,7 @@ type variableV0 struct {
 	Min         int      `yaml:"min"`
 	Max         int      `yaml:"max"`
 	Type        string   `yaml:"type"`
+	From        string   `yaml:"from"`
 }
 
 type portV0 struct {

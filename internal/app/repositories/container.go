@@ -132,7 +132,7 @@ func New(
 	}
 
 	targets := &updateTargets{}
-	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates, targets.lookup)
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, m, g, os, listRuntimeAggregates, targets.lookup)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -204,11 +204,16 @@ func newRuntime(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 	v vault.Vault,
+	m manifold.Manifold,
 	g graph.Graph,
 	os domain.OS,
 	listRuntimeAggregates runtime.ListRuntimeAggregatesFn,
 	updateTarget func(domain.Namespace) (domain.Available, bool),
 ) (runtime.Runtime, error) {
+	var opts []runtime.Option
+	if m != nil {
+		opts = append(opts, runtime.WithReleaseAsset(m.ResolveReleaseAsset))
+	}
 	return runtime.New(
 		arrowGetter(axArrow),
 		cat.Get,
@@ -223,6 +228,7 @@ func newRuntime(
 		os,
 		listRuntimeAggregates,
 		manifestRefresher(cat, updateTarget),
+		opts...,
 	)
 }
 

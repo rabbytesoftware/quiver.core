@@ -165,6 +165,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
+	getArrow              GetArrowFn
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -184,11 +185,23 @@ func New(
 	os domain.OS,
 	listRuntimeAggregates ListRuntimeAggregatesFn,
 	refreshManifest RefreshManifestFn,
+	opts ...Option,
 ) (Runtime, error) {
+	var cfg options
+	for _, apply := range opts {
+		apply(&cfg)
+	}
+
+	var assemblerOpts []assembler.Option
+	if cfg.releaseAsset != nil {
+		assemblerOpts = append(assemblerOpts, assembler.WithReleaseResolver(assembler.NewReleaseResolver(assembler.ReleaseAssetFn(cfg.releaseAsset))))
+	}
+
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os), getArrow, os},
+		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os, assemblerOpts...), getArrow, os},
+		getArrow:              getArrow,
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
@@ -218,16 +231,40 @@ func (s *runtimeRepository) reassemble(
 	ns domain.Namespace,
 	method string,
 	vars map[string]string,
-) ([]domainStep.Step, error) {
+) ([]domainStep.Step, map[string]string, error) {
 	var opts []assembler.AssembleOption
 	if method == domain.MethodUpdate {
 		opts = append(opts, assembler.WithTargetRef(vars[domain.VarRef]))
 	}
-	resolved, err := s.assembler.Assemble(ctx, ns, method, answersOf(vars), opts...)
+	answers := answersOf(vars)
+	s.dropReleaseBound(ctx, ns, answers)
+	resolved, err := s.assembler.Assemble(ctx, ns, method, answers, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("reassemble %s: %w", method, err)
+		return nil, nil, fmt.Errorf("reassemble %s: %w", method, err)
 	}
-	return resolved.Steps, nil
+	return resolved.Steps, resolved.Variables, nil
+}
+
+// dropReleaseBound forgets the answers that came from the release a failed run
+// was built from: a retry asks that release again, since a rolling release
+// republished under the same tag is the reason a run's download can mismatch.
+func (s *runtimeRepository) dropReleaseBound(
+	ctx context.Context,
+	ns domain.Namespace,
+	answers map[string]string,
+) {
+	if s.getArrow == nil {
+		return
+	}
+	arrow, err := s.getArrow(ctx, ns)
+	if err != nil {
+		return
+	}
+	for _, declared := range arrow.Variables {
+		if declared.From != "" {
+			delete(answers, declared.Name)
+		}
+	}
 }
 
 // answersOf keeps the values a run was given, dropping the ones Quiver

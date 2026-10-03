@@ -203,6 +203,7 @@ func toVariables(vars []variableV0) []domain.Variable {
 			Min:         v.Min,
 			Max:         v.Max,
 			Type:        domain.VariableType(v.Type),
+			From:        v.From,
 		}
 	}
 	return result

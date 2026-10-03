@@ -37,6 +37,9 @@ type Manifold struct {
 		ns domain.Namespace,
 	) (domain.RefSnapshot, error)
 
+	ResolveReleaseAssetResult domain.ReleaseAsset
+	ResolveReleaseAssetErr    error
+
 	ResolveArrowAtCommitResult   *domain.Arrow
 	ResolveArrowAtCommitRaw      []byte
 	ResolveArrowAtCommitFilename string
@@ -163,4 +166,12 @@ func (m *Manifold) ResolveArrowAtCommit(
 		return m.ResolveArrowAtCommitFn(ctx, ns, ref, commit)
 	}
 	return m.ResolveArrowAtCommitResult, m.ResolveArrowAtCommitRaw, m.ResolveArrowAtCommitFilename, m.ResolveArrowAtCommitErr
+}
+
+func (m *Manifold) ResolveReleaseAsset(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.OS,
+) (domain.ReleaseAsset, error) {
+	return m.ResolveReleaseAssetResult, m.ResolveReleaseAssetErr
 }

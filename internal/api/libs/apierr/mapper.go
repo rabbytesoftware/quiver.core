@@ -33,7 +33,7 @@ func StatusAndMessage(err error) (int, string) {
 	case errors.Is(err, apperrors.ErrPlatformNotSupported):
 		return http.StatusUnprocessableEntity, "no target for the current platform"
 	case errors.Is(err, apperrors.ErrMissingVariable):
-		return http.StatusUnprocessableEntity, "required variable not provided"
+		return http.StatusUnprocessableEntity, err.Error()
 	// The next two forward the error text instead of a constant message: the
 	// name of the offending variable or field is the whole point of the
 	// rejection, and the caller cannot act on the error without it.
@@ -62,8 +62,30 @@ func manifestStatusAndMessage(err error) (int, string) {
 	case errors.Is(err, deptree.ErrCyclicDependency):
 		return http.StatusConflict, "cyclic dependency"
 	default:
+		return releaseStatusAndMessage(err)
+	}
+}
+
+// releaseStatusAndMessage covers a release-bound variable that could not be
+// resolved. The kind decides the status: a limit the caller can wait out, a
+// host that could not be reached, or a release that cannot serve this run.
+func releaseStatusAndMessage(err error) (int, string) {
+	var release *apperrors.ReleaseError
+	if !errors.As(err, &release) {
 		return authStatusAndMessage(err)
 	}
+	switch release.Kind {
+	case apperrors.ReleaseRateLimited:
+		return http.StatusTooManyRequests, err.Error()
+	case apperrors.ReleaseOffline:
+		return http.StatusBadGateway, err.Error()
+	case apperrors.ReleaseNoRelease,
+		apperrors.ReleaseNoAsset,
+		apperrors.ReleaseUnsupportedPlatform,
+		apperrors.ReleaseUnverifiable:
+		return http.StatusUnprocessableEntity, err.Error()
+	}
+	return http.StatusUnprocessableEntity, err.Error()
 }
 
 // authStatusAndMessage covers the device-pairing sentinels. Split out of

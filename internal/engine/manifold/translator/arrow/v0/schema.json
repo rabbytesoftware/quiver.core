@@ -203,7 +203,8 @@
         },
         "min":  { "type": "integer" },
         "max":  { "type": "integer" },
-        "type": { "type": "string" }
+        "type": { "type": "string" },
+        "from": { "type": "string" }
       }
     },
     "Port": {
