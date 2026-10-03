@@ -53,6 +53,8 @@ type Container struct {
 	commit   string
 	channel  string
 	homeDir  string
+	// selfUpdate is nil in every process that is not the daemon.
+	selfUpdate *selfupdate.Trigger
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
@@ -73,7 +75,47 @@ func (c *Container) Start(ctx context.Context) {
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
 	}
+	c.reconcileStaged(ctx, channel)
 	c.repos.Arrow.WatchVersions(ctx)
+}
+
+// reconcileStaged applies, or discards, the binary an update staged and nobody
+// applied before the last shutdown. It runs after the build registered itself:
+// a binary that is the build now running is recognised by then, and the record
+// it settles lives on this build's own row.
+func (c *Container) reconcileStaged(
+	ctx context.Context,
+	channel string,
+) {
+	if c.version == "" || c.version == "dev" {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		slog.WarnContext(ctx, "app: resolving running executable failed", "err", err)
+	}
+
+	var handover selfarrow.Handover
+	if c.selfUpdate != nil {
+		handover = c.selfUpdate
+	}
+	row := selfarrow.Row(c.version, channel)
+	outcome, err := selfarrow.ReconcileStaged(ctx, c.repos.Runtime, handover, row, selfarrow.Running{
+		Version:    c.version,
+		Commit:     c.commit,
+		Executable: exe,
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "app: staged update not settled", "ns", row, "err", err)
+		return
+	}
+	switch outcome {
+	case selfarrow.StagedHandedOver:
+		slog.InfoContext(ctx, "app: handing over to the update staged before the last shutdown", "ns", row)
+	case selfarrow.StagedHandoverFailed:
+		slog.ErrorContext(ctx, "app: the handover to a staged update did not take; it is discarded", "ns", row)
+	case selfarrow.StagedDiscarded, selfarrow.StagedKept, selfarrow.StagedApplied, selfarrow.StagedNone:
+	}
 }
 
 // StartRecommendation launches the home refresh loop: it refreshes once at once
@@ -356,6 +398,8 @@ func assemble(
 		commit:     cfg.commit,
 		channel:    cfg.channel,
 		homeDir:    cfg.homeDir,
+
+		selfUpdate: cfg.selfUpdateTrigger,
 	}
 }
 

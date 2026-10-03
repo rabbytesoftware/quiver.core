@@ -94,9 +94,9 @@ func EnsureRegistered(
 	}
 
 	self, _ := metadata.GetSelfNamespaces()
-	ns, kind := self.WithRef(channel), selfChannelKind(version, channel)
-	if channel == "" {
-		ns, kind = self.WithRef(version), domain.SelectorTagPin
+	ns, kind := Row(version, channel), domain.SelectorTagPin
+	if channel != "" {
+		kind = selfChannelKind(version, channel)
 	}
 	resolved := domain.Resolved{Ref: version, Commit: commit, Fingerprint: commit}
 
@@ -108,6 +108,19 @@ func EnsureRegistered(
 	}
 	arrows.CheckVersionNow(ctx, ns)
 	return removeOtherSelfRows(ctx, arrows, self, ns)
+}
+
+// Row is the catalog row the build version, published under channel, registers
+// as: quiver.core@<channel> when it declares one, else pinned to its version.
+func Row(
+	version string,
+	channel string,
+) domain.Namespace {
+	self, _ := metadata.GetSelfNamespaces()
+	if channel == "" {
+		return self.WithRef(version)
+	}
+	return self.WithRef(channel)
 }
 
 // selfChannelKind names how the core's own channel row follows its channel,

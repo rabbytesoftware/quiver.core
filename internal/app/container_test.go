@@ -14,11 +14,14 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
 
@@ -519,4 +522,45 @@ func TestWithVersionAndCommit_SetOptions(t *testing.T) {
 
 	assert.Equal(t, "26.5.1", cfg.version)
 	assert.Equal(t, "abc123", cfg.commit)
+}
+
+// A daemon that boots with a newer, verified binary staged by an update nobody
+// applied hands over to it, once.
+func TestContainer_Start_AppliesABinaryStagedByAnEarlierRun(t *testing.T) {
+	c := newContainer(t)
+	trig := selfupdate.NewTrigger(nil)
+	c.selfUpdate = trig
+	c.version, c.commit, c.channel = "nightly-1", "c1", "nightly-latest"
+	ctx := context.Background()
+
+	self, _ := metadata.GetSelfNamespaces()
+	row := self.WithRef("nightly-latest")
+	staged := filepath.Join(t.TempDir(), selfarrow.UpdatedBinaryName)
+	require.NoError(t, os.WriteFile(staged, []byte("newer build"), 0o755))
+	size, digest, err := selfupdate.Fingerprint(ctx, staged)
+	require.NoError(t, err)
+	require.NoError(t, c.repos.Runtime.MarkReady(ctx, row))
+	require.NoError(t, c.repos.Runtime.RecordPendingActivation(ctx, row, domainRuntime.PendingActivation{
+		Version: "nightly-2", Commit: "c2", Path: staged, Size: size, Digest: digest,
+	}))
+
+	c.Start(ctx)
+
+	assert.True(t, trig.Fired())
+	assert.Equal(t, staged, trig.NewBinaryPath())
+	rt, err := c.repos.Runtime.GetRuntime(ctx, row)
+	require.NoError(t, err)
+	require.NotNil(t, rt.PendingActivation)
+	assert.True(t, rt.PendingActivation.Activating, "the attempt is on record before the handover")
+}
+
+// An unstamped build has no identity to look a staged binary up under.
+func TestContainer_Start_UnstampedBuild_LeavesAStagedBinaryAlone(t *testing.T) {
+	c := newContainer(t)
+	trig := selfupdate.NewTrigger(nil)
+	c.selfUpdate = trig
+
+	c.Start(context.Background())
+
+	assert.False(t, trig.Fired())
 }

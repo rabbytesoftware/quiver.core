@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -195,6 +196,7 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	require.True(s.T(), env2.ProcessAlive(originalPID), "unchanged PID — the process was never killed")
 
 	finalSelf := s.getDetail(tc2, selfNS)
+	s.Nil(finalSelf.PendingActivation, "the build that came up is the staged one, so nothing is left to apply")
 	require.Equal(s.T(), string(domain.ArrowStateReady), finalSelf.State,
 		"the self-arrow's own record settles back to Ready — it never reaches Running, see this task's header note")
 
@@ -329,4 +331,55 @@ targets:
 
 	s.Equal([]string{"v1"}, s.libraryRefs(tc2))
 	s.True(s.getDetail(tc2, selfNamespace+"@v1").UserInstalled)
+}
+
+// A user who quits after the update staged but before applying it is not left
+// on the old build: the next boot finds the staged binary, verifies it and
+// hands over to it once.
+func (s *SelfUpdateSuite) TestSelfUpdate_QuitBeforeActivating_NextBootHandsOverToTheStagedBinary() {
+	selfNS := selfNamespace + "@v*"
+	storer := kit.BuildUpgradeRepo(s.T(), kit.ReadFixture(s.T(), "self-update/v1/arrow.yaml"))
+	s.Repos.Set(selfNamespace, storer)
+	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
+
+	home := s.T().TempDir()
+	env1 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
+	tc1 := env1.TypedClient(s.T())
+	require.Equal(s.T(), http.StatusCreated, tc1.Add(selfNS))
+	require.Equal(s.T(), http.StatusAccepted, tc1.Install(selfNS, map[string]string{
+		"QUIVER_RELEASE_ASSET_URL": "unused-for-install",
+		"QUIVER_RELEASE_CHECKSUM":  "unused-for-install",
+	}))
+	env1.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 120*time.Second)
+	kit.AddV2ToRepo(s.T(), storer, kit.ReadFixture(s.T(), "self-update/v2/arrow.yaml"))
+
+	payload := []byte("fake quiver.core release binary contents")
+	sum := sha256.Sum256(payload)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+	require.Equal(s.T(), http.StatusAccepted, tc1.Execute(selfNS, "update", map[string]string{
+		"QUIVER_RELEASE_ASSET_URL": srv.URL,
+		"QUIVER_RELEASE_CHECKSUM":  hex.EncodeToString(sum[:]),
+	}))
+	require.Eventually(s.T(), func() bool {
+		return s.getDetail(tc1, selfNS).PendingActivation != nil
+	}, 10*time.Second, 50*time.Millisecond)
+	env1.Close()
+
+	trig := selfupdate.NewTrigger(nil)
+	env2 := kit.BuildEnv(s.T(), s.Repos, s.CollectionRepos, home,
+		kit.WithBuild("v1", "old-commit", "v*"),
+		kit.WithSelfUpdateTrigger(trig),
+		kit.WithManifoldWrapper(func(inner manifold.Manifold) manifold.Manifold {
+			return noVersionCheck{Manifold: inner}
+		}))
+	defer env2.Close()
+
+	s.True(trig.Fired(), "booting with a newer verified binary staged hands over to it")
+	s.Equal("quiver-new", filepath.Base(trig.NewBinaryPath()))
+	s.FileExists(trig.NewBinaryPath())
+	pending := s.getDetail(env2.TypedClient(s.T()), selfNS).PendingActivation
+	s.NotNil(pending, "the record stays until the build that comes up settles it, so a failed handover is told apart")
 }
