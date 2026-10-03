@@ -28,12 +28,6 @@ metadata:
   credits:
     - name: "Rabbyte Software"
 
-variables:
-  - name: "QUIVER_RELEASE_ASSET_URL"
-    description: "Download URL for the resolved quiver.core release binary for this platform."
-  - name: "QUIVER_RELEASE_CHECKSUM"
-    description: "SHA-256 checksum of the release binary, for fetch-step verification."
-
 targets:
   "*":
     requirements:
@@ -44,9 +38,23 @@ targets:
       update:
         - type: fetch
           title: "Download the new quiver.core binary"
-          url: "${QUIVER_RELEASE_ASSET_URL}"
-          to: "${WORKDIR}/quiver-new"
-          checksum: "${QUIVER_RELEASE_CHECKSUM}"
+          url:
+            darwin/arm64: "https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/quiver-darwin-arm64"
+            darwin/amd64: "https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/quiver-darwin-amd64"
+            linux/amd64: "https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/quiver-linux-amd64"
+            linux/arm64: "https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/quiver-linux-arm64"
+            "windows/*": "https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/quiver-windows-amd64.exe"
+          to:
+            default: "${WORKDIR}/quiver-new"
+            "windows/*": "${WORKDIR}\\quiver-new.exe"
+          checksum: "sha256sums:https://github.com/rabbytesoftware/quiver.core/releases/download/${REF}/checksums.txt"
           timeout: "120s"
+          exit_on_failure: true
+        - type: run
+          title: "Hand over to the new binary"
+          command:
+            default: 'chmod +x "${WORKDIR}/quiver-new" && "${WORKDIR}/quiver-new" self-update "${WORKDIR}/quiver-new"'
+            "windows/*": '"${WORKDIR}\quiver-new.exe" self-update "${WORKDIR}\quiver-new.exe"'
+          timeout: "30s"
           exit_on_failure: true
 ```
