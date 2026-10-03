@@ -49,7 +49,7 @@ func WithReleases(
 // netbridge ports -> stored vars -> release-bound vars -> user vars. steps
 // decides which declared variables are required, by name, for this
 // execution; see requireReferenced.
-func ResolveVariables( //nolint:gocyclo
+func ResolveVariables(
 	ctx context.Context,
 	ns domain.Namespace,
 	arrow *domain.Arrow,
@@ -75,46 +75,7 @@ func ResolveVariables( //nolint:gocyclo
 	}
 
 	// Layer 2: dep built-ins and named exports
-	for _, edge := range append(target.Tools, target.Services...) {
-		depNs := edge.Namespace.BareNamespace()
-
-		depArrow, err := getArrow(ctx, edge.Namespace)
-		if err != nil {
-			if !errors.Is(err, apperrors.ErrNotFound) {
-				slog.WarnContext(
-					ctx,
-					"resolveVariables: unexpected error fetching dep",
-					"dep",
-					depNs,
-					"err",
-					err,
-				)
-			}
-			continue
-		}
-
-		depTarget, ok := depArrow.Targets[os]
-		if !ok {
-			continue
-		}
-
-		// INSTALL_PATH from vault
-		if v != nil {
-			if workdir, err := v.WorkDir(ctx, depArrow.Namespace); err == nil {
-				vars[depNs.String()+".INSTALL_PATH"] = workdir
-			}
-		}
-
-		// Named exports — anchor relative paths to dep's INSTALL_PATH
-		installPath := vars[depNs.String()+".INSTALL_PATH"]
-		for exportName, exportValue := range depTarget.Exports {
-			resolved := exportValue
-			if strings.HasPrefix(exportValue, "./") && installPath != "" {
-				resolved = filepath.Join(installPath, exportValue)
-			}
-			vars[depNs.String()+"."+exportName] = resolved
-		}
-	}
+	addDependencyVariables(ctx, vars, target, os, getArrow, v)
 
 	// Layer 3: arrow defaults
 	for _, v := range arrow.Variables {
@@ -211,6 +172,58 @@ func applyReleaseBound(
 		}
 	}
 	return nil
+}
+
+// addDependencyVariables adds each dependency's built-ins and named exports to
+// vars, scoped by the dependency's namespace.
+func addDependencyVariables(
+	ctx context.Context,
+	vars map[string]string,
+	target domain.Target,
+	os domain.OS,
+	getArrow GetArrowFn,
+	v vault.Vault,
+) {
+	for _, edge := range append(target.Tools, target.Services...) {
+		depNs := edge.Namespace.BareNamespace()
+
+		depArrow, err := getArrow(ctx, edge.Namespace)
+		if err != nil {
+			if !errors.Is(err, apperrors.ErrNotFound) {
+				slog.WarnContext(
+					ctx,
+					"resolveVariables: unexpected error fetching dep",
+					"dep",
+					depNs,
+					"err",
+					err,
+				)
+			}
+			continue
+		}
+
+		depTarget, ok := depArrow.Targets[os]
+		if !ok {
+			continue
+		}
+
+		// INSTALL_PATH from vault
+		if v != nil {
+			if workdir, err := v.WorkDir(ctx, depArrow.Namespace); err == nil {
+				vars[depNs.String()+".INSTALL_PATH"] = workdir
+			}
+		}
+
+		// Named exports — anchor relative paths to dep's INSTALL_PATH
+		installPath := vars[depNs.String()+".INSTALL_PATH"]
+		for exportName, exportValue := range depTarget.Exports {
+			resolved := exportValue
+			if strings.HasPrefix(exportValue, "./") && installPath != "" {
+				resolved = filepath.Join(installPath, exportValue)
+			}
+			vars[depNs.String()+"."+exportName] = resolved
+		}
+	}
 }
 
 // builtIns computes the variables every run gets: its workdir, identity,

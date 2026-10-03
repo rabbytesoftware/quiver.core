@@ -63,11 +63,10 @@ func (c RecoverInterrupted) Validate(current *domainRuntime.ArrowRuntime) error 
 
 func (c RecoverInterrupted) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      stableStateFor(current.State),
-		Execution:  nil,
-		LastReturn: current.LastReturn,
-
+		Ref:               c.Namespace,
+		State:             stableStateFor(current.State),
+		Execution:         nil,
+		LastReturn:        current.LastReturn,
 		PendingActivation: current.PendingActivation,
 	}
 }

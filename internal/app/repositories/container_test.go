@@ -1124,16 +1124,15 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 	}
 
 	runtimeMock := &ucmocks.MockRuntime{
-		OnRuntimeBegunFn:           captureRuntime,
-		OnRuntimeEndedFn:           captureRuntime,
-		OnRuntimeRecoveredFn:       captureRuntime,
-		OnRuntimeDetachedFn:        captureRuntime,
-		OnRuntimePIDRecordedFn:     captureRuntime,
-		OnRuntimeOutdatedFn:        captureRuntime,
-		OnRuntimeOutdatedClearedFn: captureRuntime,
-		OnRuntimeStepAdvancedFn:    captureRuntime,
-		OnRuntimePreinstalledFn:    captureRuntime,
-
+		OnRuntimeBegunFn:             captureRuntime,
+		OnRuntimeEndedFn:             captureRuntime,
+		OnRuntimeRecoveredFn:         captureRuntime,
+		OnRuntimeDetachedFn:          captureRuntime,
+		OnRuntimePIDRecordedFn:       captureRuntime,
+		OnRuntimeOutdatedFn:          captureRuntime,
+		OnRuntimeOutdatedClearedFn:   captureRuntime,
+		OnRuntimeStepAdvancedFn:      captureRuntime,
+		OnRuntimePreinstalledFn:      captureRuntime,
 		OnRuntimeActivationStagedFn:  captureRuntime,
 		OnRuntimeActivationClearedFn: captureRuntime,
 	}

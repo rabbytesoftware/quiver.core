@@ -40,11 +40,10 @@ func (c RecordDetached) Validate(current *domainRuntime.ArrowRuntime) error {
 
 func (c RecordDetached) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Ref:        current.Ref,
-		State:      domain.ArrowStateDetached,
-		Execution:  nil,
-		LastReturn: current.LastReturn,
-
+		Ref:               current.Ref,
+		State:             domain.ArrowStateDetached,
+		Execution:         nil,
+		LastReturn:        current.LastReturn,
 		PendingActivation: current.PendingActivation,
 	}
 }

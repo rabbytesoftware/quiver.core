@@ -50,11 +50,10 @@ func (c RecordSelfRestored) Validate(current *domainRuntime.ArrowRuntime) error 
 
 func (c RecordSelfRestored) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Ref:        current.Ref,
-		State:      domain.ArrowStateRunning,
-		Execution:  c.Execution,
-		LastReturn: current.LastReturn,
-
+		Ref:               current.Ref,
+		State:             domain.ArrowStateRunning,
+		Execution:         c.Execution,
+		LastReturn:        current.LastReturn,
 		PendingActivation: current.PendingActivation,
 	}
 }

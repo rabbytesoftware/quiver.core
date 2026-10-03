@@ -18,11 +18,10 @@ type ArrowRuntimeDTO struct {
 
 func ArrowRuntimeDTOFrom(rt domainRuntime.ArrowRuntime) ArrowRuntimeDTO {
 	return ArrowRuntimeDTO{
-		Namespace:  string(rt.Ref),
-		State:      string(rt.State),
-		ActiveRun:  RunRecordDTOFrom(rt.Execution),
-		LastReturn: ReturnDTOFrom(rt.LastReturn),
-
+		Namespace:         string(rt.Ref),
+		State:             string(rt.State),
+		ActiveRun:         RunRecordDTOFrom(rt.Execution),
+		LastReturn:        ReturnDTOFrom(rt.LastReturn),
 		PendingActivation: PendingActivationDTOFrom(rt.PendingActivation),
 	}
 }

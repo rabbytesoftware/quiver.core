@@ -158,7 +158,7 @@ variables:                   # optional — manifest-level user-configurable par
     values: [string]         # optional — allowed values; required when type is select
     min: integer             # optional — minimum value (numeric variables)
     max: integer             # optional — maximum value (numeric variables)
-    from: string             # optional — release.asset | release.checksum; filled from the arrow's own release
+    from: string             # optional: release.asset | release.checksum; filled from the arrow's own release
 
 netbridge:                   # optional — declared port intent
   - name: string             # required — identifier used in ${PORT} interpolation
@@ -169,7 +169,7 @@ netbridge:                   # optional — declared port intent
 targets:                     # required — at least one entry; see §4
   <target-key>:
     base: string             # optional — parent target key (see §5)
-    activation:              # optional — methods whose success only takes effect after a daemon restart
+    activation:              # optional: methods whose success only takes effect after a daemon restart
       update: restart        #   the only method that may declare one; the only value is restart
     requirements:            # optional — minimum system resources
       cpu_cores: integer     # ≥ 1

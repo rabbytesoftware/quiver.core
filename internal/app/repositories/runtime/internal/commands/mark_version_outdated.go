@@ -47,11 +47,10 @@ func (c MarkVersionOutdated) Validate(current *domainRuntime.ArrowRuntime) error
 
 func (c MarkVersionOutdated) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Ref:            c.Namespace,
-		State:          domain.ArrowStateOutdated,
-		LastReturn:     preserveLastReturn(current),
-		PendingDepSync: preservePendingDepSync(current),
-
+		Ref:               c.Namespace,
+		State:             domain.ArrowStateOutdated,
+		LastReturn:        preserveLastReturn(current),
+		PendingDepSync:    preservePendingDepSync(current),
 		PendingActivation: preservePendingActivation(current),
 	}
 }

@@ -69,7 +69,7 @@ func (r *releaseResolver) Resolve(
 }
 
 // classifyRelease types a failed lookup. An error that is not the release's
-// own and not the host's -- the caller giving up -- passes through, so a
+// own and not the host's (the caller giving up) passes through, so a
 // cancelled run is not reported as an unreachable host.
 func classifyRelease(
 	ctx context.Context,
