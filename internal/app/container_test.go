@@ -17,7 +17,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -416,33 +415,6 @@ func TestContainer_Start_SelfRegistrationFails_LogsAndContinues(t *testing.T) {
 	assert.NotPanics(t, func() { c.Start(context.Background()) })
 }
 
-func TestWithSelfUpdateTrigger_SetsOption(t *testing.T) {
-	trig := selfupdate.NewTrigger(nil)
-
-	cfg := appOpts{}
-	WithSelfUpdateTrigger(trig)(&cfg)
-
-	assert.Same(t, trig, cfg.selfUpdateTrigger)
-}
-
-func TestNew_WithSelfUpdateTrigger_BuildsTheContainer(t *testing.T) {
-	home := t.TempDir()
-
-	engines, err := engine.New(context.Background(), engine.WithHomeDir(home))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = engines.Shutdown(context.Background()) })
-
-	adapters, err := adapter.New(adapter.WithHomeDir(home))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapters.Close() })
-
-	c, err := New(engines, adapters, WithHomeDir(home), WithSelfUpdateTrigger(selfupdate.NewTrigger(nil)))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.Shutdown(context.Background()) })
-
-	assert.NotNil(t, c.Runtime)
-}
-
 func TestWithChannel_SetsOption(t *testing.T) {
 	cfg := appOpts{}
 	WithChannel("beta")(&cfg)
@@ -526,12 +498,12 @@ func TestContainer_DrainUpdates(t *testing.T) {
 }
 
 func TestRepoOptions_CarryTheVersionCheckInterval(t *testing.T) {
-	assert.Len(t, repoOptions(appOpts{}), 1)
+	assert.Empty(t, repoOptions(appOpts{}))
 
 	cfg := appOpts{}
 	WithVersionCheckInterval(0)(&cfg)
 
-	assert.Len(t, repoOptions(cfg), 2)
+	assert.Len(t, repoOptions(cfg), 1)
 }
 
 func TestWithVersionAndCommit_SetOptions(t *testing.T) {

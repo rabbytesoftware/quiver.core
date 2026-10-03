@@ -16,10 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// UpdatedBinaryName is the name the self-arrow's update fetch step downloads
-// to, and the binary handover reads back.
-const UpdatedBinaryName = "quiver-new"
-
 // arrowCatalog is the subset of the arrow catalog EnsureRegistered needs.
 type arrowCatalog interface {
 	Adopt(

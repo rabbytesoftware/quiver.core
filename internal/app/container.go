@@ -22,7 +22,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -206,7 +205,6 @@ type appOpts struct {
 	version              string
 	commit               string
 	channel              string
-	selfUpdateTrigger    *selfupdate.Trigger
 	stop                 func()
 	versionCheckInterval *time.Duration
 }
@@ -234,12 +232,6 @@ func WithCommit(c string) Option {
 // An explicit self_update_channel config still wins. See selfarrow.Channel.
 func WithChannel(c string) Option {
 	return func(o *appOpts) { o.channel = c }
-}
-
-// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
-// the repositories, fired when quiver.core's own update lifecycle succeeds.
-func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
-	return func(o *appOpts) { o.selfUpdateTrigger = trig }
 }
 
 // WithStop hands the container the daemon's own cancellation, the one
@@ -379,7 +371,7 @@ func assemble(
 func repoOptions(
 	cfg appOpts,
 ) []repositories.Option {
-	opts := []repositories.Option{repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger)}
+	var opts []repositories.Option
 	if cfg.versionCheckInterval != nil {
 		opts = append(opts, repositories.WithVersionCheckInterval(*cfg.versionCheckInterval))
 	}

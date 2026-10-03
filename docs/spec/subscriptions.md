@@ -110,7 +110,7 @@ The lifecycle repository (`app/repositories/lifecycle`) registers one further ca
 
 - **`MethodStop`** → `onStopEnded` cascades stops to non-shared service deps and may auto-uninstall the just-stopped arrow if it was a non-user-installed dep with no remaining live parents.
 - **`MethodUninstall`** → `onUninstallEnded` walks the dep plan and stops/uninstalls each non-user-installed dep with no other live parents.
-- **`MethodUpdate`** → the settling (`lifecycle/internal/settle`, `OnUpdateEnded`) closes the update bracket: it releases the row's remembered target and, on success, re-resolves the target and advances the row only if the target ref still stands at the target commit (`arrow.Advance`, then `runtime.ReconcileVersionBadge`), detached from the handler. quiver.core's own row is skipped. See [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
+- **`MethodUpdate`** → the settling (`lifecycle/internal/settle`, `OnUpdateEnded`) closes the update bracket: it releases the row's remembered target and, on success, re-resolves the target and advances the row only if the target ref still stands at the target commit (`arrow.Advance`, then `runtime.ReconcileVersionBadge`), detached from the handler. quiver.core's own row is skipped (it updates through `quiver self-update`). See [manifests/v0/versioning.md §8](manifests/v0/versioning.md).
 - All other methods fall through with no side effect.
 
 ---

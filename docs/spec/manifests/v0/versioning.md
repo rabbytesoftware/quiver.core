@@ -643,9 +643,9 @@ gives up aborts it, and one that would begin after the drain started is refused.
 nothing is stamped: the row stays outdated at what it had installed, and the next update
 runs the update steps again. That is the same worst case as a target that moved.
 
-quiver.core's own row is excluded from step 7: its update replaces the running process,
-and the relaunched build adopts its new state on boot (§10.2). A failed update of it is not:
-the running build stays in charge, so its manifest is restored as in step 8.
+quiver.core's own row is excluded from step 7: its update replaces the running daemon (§10.3),
+and the new build adopts its new state on boot (§10.2). A failed update of it is not: the
+running build stays in charge, so its manifest is restored as in step 8.
 
 ---
 
@@ -738,6 +738,34 @@ On every boot `selfarrow.EnsureRegistered`:
 
 Because the identity is the channel, an update of core keeps `quiver.core@stable` for its
 whole life; the boot after an update only moves `Resolved` onto the new build.
+
+### 10.3 How core updates itself
+
+Core's own arrow updates like any other: its `ARROW.md` declares ordinary `update:` steps.
+A `fetch` downloads the release binary for the platform from the release being updated to
+(`${REF}`), checked against that release's published `checksums.txt`
+(`checksum: sha256sums:<url>`), and a `run` executes **that new binary** with the hidden
+`quiver self-update <binary>` command. Run by the daemon it is about to replace, the command
+only starts a detached copy of itself (no stdio, so the run's pipes close) and exits 0: the
+update run ends normally and the settling skips core's row.
+
+The detached copy does the swap, the same on every OS:
+
+1. Calls `POST /v0/system/shutdown` on the local daemon, which answers with its pid,
+   executable and arguments and shuts down through its graceful sequence.
+2. Waits (up to 90 s, the shutdown phases' budgets add up to about 54 s) for that pid and the
+   socket to be gone.
+3. Moves the binary at the self path aside as `quiver.old-<n>` in the same directory, then
+   puts the new one in its place.
+4. Starts the new daemon, detached, with the recorded arguments and its own environment, and
+   waits up to 30 s for `GET /v0/health`.
+5. If any step after the shutdown fails, puts the previous binary back and starts it again.
+   The row is left outdated, which is correct: the update did not take.
+
+Processes the old daemon supervised are not its children, so they survive and are found
+detached by the new daemon (the same recovery as any restart). At boot the daemon removes any
+`quiver.old-*` left next to the self path, after promoting the running binary there. Its
+steps are logged to `logs/self-update.log`.
 
 The release workflows name their tags with `.github/scripts/release-tag.sh`, pinned by
 `tests/releasetags`. A `beta/<series>` branch must name a calendar series (`26.5`) or a date

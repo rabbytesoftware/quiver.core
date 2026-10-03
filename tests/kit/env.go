@@ -21,7 +21,6 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -52,13 +51,12 @@ type Env struct {
 // envConfig collects the pieces a test may swap into the wiring before the
 // containers are built.
 type envConfig struct {
-	providers         []provider.Provider
-	manifold          func(manifold.Manifold) manifold.Manifold
-	selfUpdateTrigger *selfupdate.Trigger
-	clock             func() time.Time
-	build             buildStamp
-	cloneOnly         bool
-	fletcher          hosts.Lookup
+	providers []provider.Provider
+	manifold  func(manifold.Manifold) manifold.Manifold
+	clock     func() time.Time
+	build     buildStamp
+	cloneOnly bool
+	fletcher  hosts.Lookup
 }
 
 // buildStamp is what the release pipeline injects into a daemon binary.
@@ -105,12 +103,6 @@ func WithFletcher(
 	lookup hosts.Lookup,
 ) EnvOption {
 	return func(c *envConfig) { c.fletcher = lookup }
-}
-
-// WithSelfUpdateTrigger threads a real *selfupdate.Trigger through app.New,
-// so a test can observe it firing through genuine app-layer DI.
-func WithSelfUpdateTrigger(trig *selfupdate.Trigger) EnvOption {
-	return func(c *envConfig) { c.selfUpdateTrigger = trig }
 }
 
 // WithBuild stamps the daemon as a released build, so it registers itself into
@@ -306,7 +298,6 @@ func BuildEnv(
 		engines,
 		adapters,
 		app.WithHomeDir(home),
-		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
 		app.WithVersion(cfg.build.version),
 		app.WithCommit(cfg.build.commit),
 		app.WithChannel(cfg.build.channel),
@@ -408,12 +399,6 @@ func (s *IntegrationSuite) NewEnv(opts ...EnvOption) *Env {
 // Used for restart-survival tests that need two envs pointing at the same storage.
 func (s *IntegrationSuite) NewEnvWithHome(home string) *Env {
 	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, home)
-}
-
-// NewEnvWithSelfUpdateTrigger creates an Env with trig wired through app.New,
-// the same way cmd/quiver's daemon command wires its own.
-func (s *IntegrationSuite) NewEnvWithSelfUpdateTrigger(trig *selfupdate.Trigger) *Env {
-	return BuildEnv(s.T(), s.Repos, s.CollectionRepos, s.T().TempDir(), WithSelfUpdateTrigger(trig))
 }
 
 // runtimeEvent mirrors the relevant fields of ArrowRuntimeDTO from the WebSocket stream.

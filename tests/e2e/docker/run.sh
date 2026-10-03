@@ -924,7 +924,7 @@ fresh_self_home() {
 }
 
 # self_get NS prints GET /v0/arrow/NS's data. The CLI is never used here: a
-# CLI that finds no daemon boots its own, which during a handover would take
+# CLI that finds no daemon boots its own, which during the swap would take
 # the socket from the successor.
 self_get() {
 	api GET "$1" >/dev/null
@@ -973,33 +973,29 @@ runtime_post() {
 }
 
 # self_update NS TAG BUILD_ID runs quiver.core's own update the way a client
-# does: the asset URL and checksum of release TAG for this platform, from the
-# release's own checksums.txt. It then waits for the handover: the same PID
-# answering as build BUILD_ID, its image the downloaded binary.
+# does: no variables, the arrow's own steps download the release for this
+# platform and hand over to it. It then waits for the successor: another
+# process answering as build BUILD_ID, run from the self path.
 self_update() {
-	local ns=$1 tag=$2 build_id=$3 asset url sum
-	asset="quiver-linux-$(container_goarch)"
-	url="$SELF_URL/releases/download/$tag/$asset"
-	sum=$(curl -sf "$SELF_URL/releases/download/$tag/checksums.txt" | awk -v a="./$asset" '$2 == a { print $1 }')
-	[[ -n "$sum" ]] || fail "no checksum for $asset in release $tag"
-	expect_eq "POST /v0/runtime/$ns/update ($url)" \
-		"$(runtime_post "$ns" update "$(jq -nc --arg u "$url" --arg c "$sum" '{variables: {QUIVER_RELEASE_ASSET_URL: $u, QUIVER_RELEASE_CHECKSUM: $c}}')")" 202
+	local ns=$1 tag=$2 build_id=$3 old=$DAEMON_PID
+	expect_eq "POST /v0/runtime/$ns/update" "$(runtime_post "$ns" update)" 202
 
 	local deadline=$((SECONDS + WAIT_SECONDS))
 	until [[ "$(versions | jq -r '.build_id // empty' 2>/dev/null)" == "$build_id" ]]; do
-		kill -0 "$DAEMON_PID" 2>/dev/null || fail "the daemon (pid $DAEMON_PID) exited instead of handing over"
-		((SECONDS < deadline)) || fail "the daemon never answered as build $build_id: $(versions)"
+		((SECONDS < deadline)) || fail "no daemon answered as build $build_id after the update to $tag: $(versions)"
 		sleep 0.5
 	done
-	ok "pid $DAEMON_PID now answers as build $build_id"
+	DAEMON_PID=$(pgrep -f "$HOME/.quiver/self/quiver daemon" | head -n1)
+	[[ -n "$DAEMON_PID" && "$DAEMON_PID" != "$old" ]] || fail "the successor of pid $old was not found"
+	ok "pid $DAEMON_PID answers as build $build_id (was pid $old)"
 	local exe
 	exe=$(readlink "/proc/$DAEMON_PID/exe")
 	case "$exe" in
 	/run/rosetta/* | */qemu-*)
-		ok "emulated: $exe hides the process image; the handover is proven by the new build id on the same pid"
+		ok "emulated: $exe hides the process image; the swap is proven by the new build id on a new pid"
 		;;
 	*)
-		expect_eq "the process image" "$exe" "$HOME/.quiver/namespaces/$ns/quiver-new"
+		expect_eq "the process image" "$exe" "$HOME/.quiver/self/quiver"
 		;;
 	esac
 }
@@ -1042,10 +1038,8 @@ phase_e() {
 	expect_eq "state (the runtime badge)" "$(jq -r .state <<<"$detail")" outdated
 	expect_eq "installed_commit (not yet updated)" "$(jq -r .installed_commit <<<"$detail")" "$N1"
 
-	step "self-update: download nightly-latest through ARROW.md, exec it"
-	local pid=$DAEMON_PID
+	step "self-update: download nightly-latest through ARROW.md, swap and restart"
 	self_update "$ns" nightly-latest 171
-	expect_eq "same pid" "$DAEMON_PID" "$pid"
 	wait_self "$ns" ".installed_commit == \"$N2\" and .available == null and .state == \"ready\"" \
 		"the successor adopted $N2 with nothing ahead"
 	detail=$(self_get "$ns")
@@ -1073,7 +1067,7 @@ phase_e() {
 
 	stop_daemon
 	self_hosts off
-	phase_done E "quiver.core@nightly-latest: $N1 -> $N2 by its own update, same pid, same identity, one row"
+	phase_done E "quiver.core@nightly-latest: $N1 -> $N2 by its own update, same identity, one row"
 }
 
 phase_f() {
