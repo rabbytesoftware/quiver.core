@@ -57,7 +57,8 @@ type Container struct {
 }
 
 // Start recovers any in-flight forget cascade, starts the runtime usecase,
-// promotes the running binary to the stable self-install path, and only then
+// promotes the running binary to the stable self-install path, sweeps the
+// binaries a self-update left aside beside it, and only then
 // registers this build into its own arrow catalog. Promotion must precede
 // registration: after a self-update the process may be exec'd out of a
 // self-arrow row's vault workdir, and EnsureRegistered removes the rows
@@ -70,6 +71,7 @@ func (c *Container) Start(ctx context.Context) {
 	c.repos.RecoverForgetCascade(ctx)
 	c.Runtime.Start(ctx)
 	c.promoteRunningBinary(ctx)
+	c.sweepSelfAsides(ctx)
 	channel := selfarrow.Channel(config.GetArrows().SelfUpdateChannel, c.channel)
 	if err := selfarrow.EnsureRegistered(ctx, c.repos.Arrow, c.repos.Runtime, c.version, c.commit, channel); err != nil {
 		slog.WarnContext(ctx, "app: self-registration failed", "err", err)
@@ -94,6 +96,12 @@ func (c *Container) promoteRunningBinary(ctx context.Context) {
 	}
 	if err := selfarrow.PromoteRunningBinary(exe, c.homeDir); err != nil {
 		slog.WarnContext(ctx, "app: promoting running binary failed", "err", err)
+	}
+}
+
+func (c *Container) sweepSelfAsides(ctx context.Context) {
+	if err := selfarrow.SweepAsides(c.homeDir); err != nil {
+		slog.WarnContext(ctx, "app: sweeping previous binaries failed", "err", err)
 	}
 }
 

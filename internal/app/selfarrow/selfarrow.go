@@ -231,6 +231,20 @@ func BinaryPath(
 	return filepath.Join(selfDir, binaryName()), nil
 }
 
+// SweepAsides removes the previous binaries a self-update moved aside next to
+// the self path. They are only needed while that update can still roll back,
+// and the boot of the new build is past that.
+func SweepAsides(
+	homeDir string,
+) error {
+	bin, err := BinaryPath(homeDir)
+	if err != nil {
+		return fmt.Errorf("selfarrow: sweep: %w", err)
+	}
+	paths.SweepSelfAsides(filepath.Dir(bin))
+	return nil
+}
+
 // PromoteRunningBinary copies src (the running executable's own path) to the
 // stable self-install path under homeDir, so a fresh launch -- a reboot, or
 // Desktop spawning a sidecar -- picks up the version currently running.

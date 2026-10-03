@@ -171,3 +171,24 @@ func TestEnsure_MkdirAllError_ReturnsError(t *testing.T) {
 	_, gotErr := paths.Ensure(badPath)
 	assert.Error(t, gotErr)
 }
+
+func TestSweepSelfAsides_RemovesOnlyAsides(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{paths.SelfAsidePrefix + "1", paths.SelfAsidePrefix + "20", "quiver", "quiver.new-1"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644))
+	}
+
+	paths.SweepSelfAsides(dir)
+
+	left, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	names := []string{}
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	assert.ElementsMatch(t, []string{"quiver", "quiver.new-1"}, names)
+}
+
+func TestSweepSelfAsides_MissingDirIsFine(t *testing.T) {
+	assert.NotPanics(t, func() { paths.SweepSelfAsides(filepath.Join(t.TempDir(), "nope")) })
+}

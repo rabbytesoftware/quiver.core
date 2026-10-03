@@ -716,3 +716,46 @@ func TestPromoteRunningBinary_CopiesADifferentBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "the newly downloaded build", string(got))
 }
+
+func TestSweepAsides_RemovesLeftoverBinariesOnly(t *testing.T) {
+	home := t.TempDir()
+	src := filepath.Join(t.TempDir(), "quiver")
+	require.NoError(t, os.WriteFile(src, []byte("bin"), 0o755))
+	require.NoError(t, selfarrow.PromoteRunningBinary(src, home))
+	self, err := selfarrow.BinaryPath(home)
+	require.NoError(t, err)
+	dir := filepath.Dir(self)
+	for _, name := range []string{"quiver.old-1", "quiver.old-12", "keep.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644))
+	}
+
+	require.NoError(t, selfarrow.SweepAsides(home))
+
+	left, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(left))
+	for _, e := range left {
+		names = append(names, e.Name())
+	}
+	assert.ElementsMatch(t, []string{filepath.Base(self), "keep.txt"}, names)
+}
+
+func TestSweepAsides_NothingToSweepIsFine(t *testing.T) {
+	require.NoError(t, selfarrow.SweepAsides(t.TempDir()))
+}
+
+func TestSweepAsides_SelfDirUnavailable_ReturnsError(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+
+	require.Error(t, selfarrow.SweepAsides(notADir))
+}
+
+func TestBinaryPath_EmptyHomeDir_UsesProcessSelfPath(t *testing.T) {
+	t.Setenv("QUIVER_HOME", t.TempDir())
+
+	got, err := selfarrow.BinaryPath("")
+
+	require.NoError(t, err)
+	assert.Equal(t, "self", filepath.Base(filepath.Dir(got)))
+}

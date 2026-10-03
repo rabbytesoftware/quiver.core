@@ -363,6 +363,28 @@ func TestContainer_Start_PromotesRunningBinaryToSelfPath(t *testing.T) {
 	assert.Positive(t, info.Size())
 }
 
+func TestContainer_Start_SweepsBinariesAFinishedUpdateLeftAside(t *testing.T) {
+	c := newContainer(t)
+	self, err := paths.SelfAt(c.homeDir)
+	require.NoError(t, err)
+	aside := filepath.Join(self, "quiver.old-3")
+	require.NoError(t, os.WriteFile(aside, []byte("previous build"), 0o755))
+
+	c.Start(context.Background())
+
+	_, statErr := os.Stat(aside)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestContainer_SweepSelfAsides_UnwritableHome_LogsAndContinues(t *testing.T) {
+	c := newContainer(t)
+	notADir := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+	c.homeDir = notADir
+
+	assert.NotPanics(t, func() { c.sweepSelfAsides(context.Background()) })
+}
+
 // TestContainer_PromoteRunningBinary_UnwritableHome_LogsAndContinues checks
 // the same contract EnsureRegistered already has: a failure here must never
 // propagate, since promoteRunningBinary has no error return at all. homeDir
