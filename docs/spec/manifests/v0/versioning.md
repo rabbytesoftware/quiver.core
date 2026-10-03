@@ -763,9 +763,9 @@ The detached copy does the swap, the same on every OS:
    The row is left outdated, which is correct: the update did not take.
 
 Processes the old daemon supervised are not its children, so they survive and are found
-detached by the new daemon (the same recovery as any restart). At boot the daemon removes any
-`quiver.old-*` left next to the self path, after promoting the running binary there. Its
-steps are logged to `logs/self-update.log`.
+detached by the new daemon (the same recovery as any restart). The aside is removed only once
+the new daemon is healthy, since it is the rollback; a crash in between leaves it for the next
+swap to clear. Steps are logged to `logs/self-update.log`.
 
 The release workflows name their tags with `.github/scripts/release-tag.sh`, pinned by
 `tests/releasetags`. A `beta/<series>` branch must name a calendar series (`26.5`) or a date

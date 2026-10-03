@@ -284,3 +284,19 @@ func TestUpdater_Run_UnreadableNewBinaryRestartsTheOldDaemon(t *testing.T) {
 	require.Len(t, w.starts, 1)
 	assert.Equal(t, w.self, w.starts[0].exe)
 }
+
+func TestUpdater_Run_AsideStaysUntilTheNewDaemonIsHealthy(t *testing.T) {
+	w := newWorld(t)
+	var asideDuringHealth bool
+	w.updater.Healthy = func(context.Context) bool {
+		matches, _ := filepath.Glob(filepath.Join(w.dir, "quiver.old-*"))
+		asideDuringHealth = len(matches) == 1
+		return false
+	}
+
+	err := w.updater.Run(context.Background(), w.newBin)
+
+	require.Error(t, err)
+	assert.True(t, asideDuringHealth, "the previous binary must still be there while health is checked")
+	assert.Equal(t, "old", w.content(), "a daemon that died after boot, before health, is rolled back")
+}

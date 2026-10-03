@@ -58,8 +58,9 @@ a `run` of **the new binary** with the hidden `quiver self-update` command
 (`cmd/quiver/selfupdate.go`, logic in `internal/cli/selfupdate`). It detaches itself and exits,
 then the detached copy calls `POST /v0/system/shutdown`, waits for the old daemon to die, swaps
 the binary at the self path (the old one aside as `quiver.old-<n>`), starts the new daemon
-with the recorded arguments, health-checks it and rolls back on failure. The daemon sweeps
-leftover `quiver.old-*` at boot (`selfarrow.SweepAsides`). Nothing else in the codebase is
+with the recorded arguments, health-checks it and rolls back on failure. The updater removes its own
+aside once the new daemon is healthy (never earlier: it is the rollback), and stale ones at the
+start of the next swap. Nothing else in the codebase is
 specific to core's update; do not add runtime-aggregate fields or lifecycle special cases
 for it. See `docs/spec/manifests/v0/versioning.md` §10.3.
 
