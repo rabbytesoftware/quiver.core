@@ -31,7 +31,11 @@ const (
 	// about 54s.
 	stopTimeout   = 90 * time.Second
 	healthTimeout = 30 * time.Second
-	pollInterval  = 200 * time.Millisecond
+	// killTimeout is how long a killed daemon gets to disappear before its
+	// binary is replaced. A zombie still counts as alive until its parent, this
+	// process, exits, so it is not waited on for long.
+	killTimeout  = 5 * time.Second
+	pollInterval = 200 * time.Millisecond
 )
 
 // Updater holds what a swap needs from the machine, so a test can replace the
@@ -183,7 +187,7 @@ func (u *Updater) startAndCheck(
 	}
 	if !u.poll(ctx, u.HealthTimeout, func() bool { return u.Healthy(ctx) }) {
 		u.Kill(pid)
-		u.poll(ctx, u.HealthTimeout, func() bool { return !u.Alive(pid) })
+		u.poll(ctx, killTimeout, func() bool { return !u.Alive(pid) })
 		return fmt.Errorf("selfupdate: new daemon %d not healthy after %s", pid, u.HealthTimeout)
 	}
 	return nil
