@@ -38,6 +38,14 @@ type RuntimeUsecase interface {
 		ns domain.Namespace,
 		userVars map[string]string,
 	) (bool, error)
+	// Activate applies the activation an update of ns staged, handing the
+	// daemon over to the binary it left, and reports whether it did: false
+	// when nothing is staged or a handover is already under way, an
+	// idempotent no-op.
+	Activate(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
 	Stop(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -141,6 +149,13 @@ func (u *runtimeUsecase) Update(
 		return false, fmt.Errorf("update: %w", err)
 	}
 	return u.lifecycle.Update(ctx, ns, userVars)
+}
+
+func (u *runtimeUsecase) Activate(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	return u.lifecycle.Activate(ctx, ns)
 }
 
 func (u *runtimeUsecase) Stop(

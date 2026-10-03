@@ -43,7 +43,8 @@ func (c RestartExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainR
 			Variables: current.Execution.Variables,
 			WorkDir:   current.Execution.WorkDir,
 		},
-		LastReturn:     current.LastReturn,
-		PendingDepSync: current.PendingDepSync,
+		LastReturn:        current.LastReturn,
+		PendingDepSync:    current.PendingDepSync,
+		PendingActivation: current.PendingActivation,
 	}
 }

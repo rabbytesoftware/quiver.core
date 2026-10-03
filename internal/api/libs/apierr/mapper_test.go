@@ -93,3 +93,38 @@ func TestStatusAndMessage_InvalidConfig_NamesTheField(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, status)
 	assert.Contains(t, message, "logger.level")
 }
+
+func TestStatusAndMessage_ReleaseUnresolved(t *testing.T) {
+	testCases := []struct {
+		kind       apperrors.ReleaseKind
+		wantStatus int
+	}{
+		{apperrors.ReleaseOffline, http.StatusBadGateway},
+		{apperrors.ReleaseRateLimited, http.StatusTooManyRequests},
+		{apperrors.ReleaseNoRelease, http.StatusUnprocessableEntity},
+		{apperrors.ReleaseNoAsset, http.StatusUnprocessableEntity},
+		{apperrors.ReleaseUnsupportedPlatform, http.StatusUnprocessableEntity},
+		{apperrors.ReleaseUnverifiable, http.StatusUnprocessableEntity},
+	}
+
+	for _, tc := range testCases {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			err := fmt.Errorf("update: variable %q: %w", "QUIVER_RELEASE_ASSET_URL", apperrors.NewReleaseError(tc.kind, errors.New("cause")))
+
+			status, msg := apierr.StatusAndMessage(err)
+
+			assert.Equal(t, tc.wantStatus, status)
+			assert.Contains(t, msg, "QUIVER_RELEASE_ASSET_URL")
+			assert.Contains(t, msg, string(tc.kind))
+		})
+	}
+}
+
+func TestStatusAndMessage_MissingVariable_NamesTheVariable(t *testing.T) {
+	err := fmt.Errorf("update: %w: %q", apperrors.ErrMissingVariable, "QUIVER_RELEASE_ASSET_URL")
+
+	status, msg := apierr.StatusAndMessage(err)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, status)
+	assert.Contains(t, msg, "QUIVER_RELEASE_ASSET_URL")
+}

@@ -93,6 +93,7 @@ func toTarget(t targetV0) (models.PrecompiledTarget, error) {
 		Lifecycle:    lifecycle,
 		Methods:      methods,
 		Expose:       toExpose(t.Expose),
+		Activation:   t.Activation,
 	}, nil
 }
 
@@ -203,6 +204,7 @@ func toVariables(vars []variableV0) []domain.Variable {
 			Min:         v.Min,
 			Max:         v.Max,
 			Type:        domain.VariableType(v.Type),
+			From:        v.From,
 		}
 	}
 	return result

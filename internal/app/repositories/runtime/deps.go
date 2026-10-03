@@ -49,3 +49,26 @@ type RefreshManifestFn func(
 	ns domain.Namespace,
 	method string,
 ) error
+
+// ReleaseAssetFn names the asset of the release ns's ref publishes that os
+// runs, for the variables a manifest binds to its release.
+type ReleaseAssetFn func(
+	ctx context.Context,
+	ns domain.Namespace,
+	os domain.OS,
+) (domain.ReleaseAsset, error)
+
+type options struct {
+	releaseAsset ReleaseAssetFn
+}
+
+// Option configures New.
+type Option func(*options)
+
+// WithReleaseAsset lets variables that declare a release source be filled
+// from the release a run is built from.
+func WithReleaseAsset(
+	fn ReleaseAssetFn,
+) Option {
+	return func(o *options) { o.releaseAsset = fn }
+}

@@ -3,14 +3,18 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/mocks"
+	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -139,4 +143,94 @@ func TestLifecycle_NothingSettling_HoldsNoBadgeAndDrainsAtOnce(t *testing.T) {
 	_, updating := lc.UpdateTarget(row)
 	assert.False(t, updating)
 	require.NoError(t, lc.Drain(context.Background()))
+}
+
+type fakeTrigger struct{ fired []string }
+
+func (f *fakeTrigger) Fire(path string) { f.fired = append(f.fired, path) }
+func (f *fakeTrigger) Fired() bool      { return len(f.fired) > 0 }
+
+func TestLifecycle_Activate_AppliesTheStagedBinary(t *testing.T) {
+	trig := &fakeTrigger{}
+	marked := false
+	staged := filepath.Join(t.TempDir(), "quiver-new")
+	require.NoError(t, os.WriteFile(staged, []byte("new build"), 0o755))
+	size, digest, err := selfupdate.Fingerprint(context.Background(), staged)
+	require.NoError(t, err)
+	rt := &mocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, PendingActivation: &domainRuntime.PendingActivation{Version: "v2", Path: staged, Size: size, Digest: digest}}, nil
+		},
+		MarkActivatingFn: func(context.Context, domain.Namespace) error { marked = true; return nil },
+	}
+	lc := lifecycle.New(&mocks.MockArrow{}, rt, &mocks.MockGraph{}, lifecycle.WithActivation(trig, "quiver-new"))
+
+	started, err := lc.Activate(context.Background(), row)
+
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.True(t, marked)
+	assert.Equal(t, []string{staged}, trig.fired)
+}
+
+func TestLifecycle_Activate_WithoutAnActivationRefuses(t *testing.T) {
+	rt := &mocks.MockRuntime{
+		GetRuntimeFn: func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+			return &domainRuntime.ArrowRuntime{Ref: ns, PendingActivation: &domainRuntime.PendingActivation{Version: "v2", Path: "/p"}}, nil
+		},
+	}
+
+	started, err := lifecycle.New(&mocks.MockArrow{}, rt, &mocks.MockGraph{}).Activate(context.Background(), row)
+
+	require.ErrorIs(t, err, apperrors.ErrStateViolation)
+	assert.False(t, started)
+}
+
+func TestLifecycle_Activate_NothingStagedIsANoOp(t *testing.T) {
+	rt := &mocks.MockRuntime{}
+
+	started, err := lifecycle.New(&mocks.MockArrow{}, rt, &mocks.MockGraph{}, lifecycle.WithActivation(&fakeTrigger{}, "quiver-new")).Activate(context.Background(), row)
+
+	require.NoError(t, err)
+	assert.False(t, started)
+}
+
+func TestLifecycle_StagesWhatAnUpdateDeclaredItWouldLeavePending(t *testing.T) {
+	workdir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workdir, "quiver-new"), []byte("new build"), 0o755))
+	var recorded domainRuntime.PendingActivation
+	a := &mocks.MockArrow{
+		GetFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			return &domain.Arrow{Namespace: ns, Targets: map[domain.OS]domain.Target{
+				domain.CurrentOS(): {Activation: map[string]string{"update": domain.ActivationRestart}},
+			}}, nil
+		},
+	}
+	rt := &mocks.MockRuntime{
+		RecordPendingActivationFn: func(_ context.Context, _ domain.Namespace, p domainRuntime.PendingActivation) error {
+			recorded = p
+			return nil
+		},
+		ReconcileVersionBadgeFn: func(context.Context, domain.Namespace) error { return nil },
+	}
+	var reaction func(context.Context, domainRuntime.ArrowRuntime)
+	rt.OnRuntimeEndedFn = func(fn func(context.Context, domainRuntime.ArrowRuntime)) error {
+		reaction = fn
+		return nil
+	}
+	lc := lifecycle.New(a, rt, &mocks.MockGraph{}, lifecycle.WithActivation(&fakeTrigger{}, "quiver-new"))
+	require.NoError(t, lc.Start())
+
+	reaction(context.Background(), domainRuntime.ArrowRuntime{
+		Ref: row,
+		LastReturn: &domainRuntime.Return{
+			Method:    domain.MethodUpdate,
+			Outcome:   domainRuntime.ExecutionOutcomeSuccess,
+			Variables: map[string]string{domain.VarWorkdir: workdir, domain.VarRef: "v2"},
+		},
+	})
+	require.NoError(t, lc.Drain(context.Background()))
+
+	assert.Equal(t, "v2", recorded.Version)
+	assert.Equal(t, filepath.Join(workdir, "quiver-new"), recorded.Path)
 }

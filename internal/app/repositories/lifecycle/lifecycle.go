@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/activation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/bracket"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/commits"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/lifecycle/internal/deps"
@@ -71,6 +72,14 @@ type Lifecycle interface {
 	// UpdateTarget reports the target the update of ns in flight began
 	// toward: the release its run builds, whatever the row records since.
 	UpdateTarget(ns domain.Namespace) (domain.Available, bool)
+	// Activate applies the activation staged for ns: it hands the daemon over
+	// to the binary an update of it left waiting, and reports whether it did.
+	// False means nothing is staged or a handover is already under way, an
+	// idempotent no-op; a process that cannot hand itself over refuses.
+	Activate(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
 	// Drain waits for every update commit in flight and refuses new ones,
 	// so a shutdown never closes the stores under a commit. When ctx ends
 	// first it aborts them and reports why: those rows stay outdated and
@@ -93,6 +102,8 @@ type Runtime interface {
 	bracket.Runtime
 	settle.Runtime
 	deps.Runtime
+	activation.Runtime
+	activation.Recorder
 	OnRuntimeEnded(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
@@ -105,6 +116,31 @@ type Graph interface {
 	deps.Graph
 }
 
+// Trigger hands the daemon over to a binary: Fire asks it to shut down and
+// relaunch into path.
+type Trigger = activation.Trigger
+
+type options struct {
+	trigger  Trigger
+	artifact string
+}
+
+// Option configures New.
+type Option func(*options)
+
+// WithActivation lets an update that declares activation: restart leave the
+// file named artifact in its workdir staged, and Activate apply it through
+// trigger. Without it nothing is deferred: every update is committed.
+func WithActivation(
+	trigger Trigger,
+	artifact string,
+) Option {
+	return func(o *options) {
+		o.trigger = trigger
+		o.artifact = artifact
+	}
+}
+
 type lifecycle struct {
 	runtime  Runtime
 	targets  bracket.Targets
@@ -113,16 +149,27 @@ type lifecycle struct {
 	deps     deps.Deps
 	updater  bracket.Updater
 	advancer bracket.Advancer
+	activate activation.Activator
 }
 
 func New(
 	arrow Arrow,
 	runtime Runtime,
 	graph Graph,
+	opts ...Option,
 ) Lifecycle {
+	var cfg options
+	for _, apply := range opts {
+		apply(&cfg)
+	}
+
 	targets := bracket.NewTargets()
 	inFlight := commits.New()
-	settler := settle.New(arrow, runtime, targets, inFlight)
+	var settleOpts []settle.Option
+	if cfg.artifact != "" {
+		settleOpts = append(settleOpts, settle.WithStager(activation.NewStager(runtime, cfg.artifact)))
+	}
+	settler := settle.New(arrow, runtime, targets, inFlight, settleOpts...)
 	depsRunner := deps.New(arrow, runtime, graph, targets, settler.OnUpdateEnded)
 
 	return &lifecycle{
@@ -133,6 +180,7 @@ func New(
 		deps:     depsRunner,
 		updater:  bracket.NewUpdater(arrow, runtime, targets, settler, depsRunner),
 		advancer: bracket.NewAdvancer(arrow, runtime, graph, targets),
+		activate: activation.NewActivator(arrow, runtime, cfg.trigger),
 	}
 }
 
@@ -188,6 +236,13 @@ func (l *lifecycle) Recheck(
 	ns domain.Namespace,
 ) (models.UpdateResult, error) {
 	return l.advancer.Recheck(ctx, ns)
+}
+
+func (l *lifecycle) Activate(
+	ctx context.Context,
+	ns domain.Namespace,
+) (bool, error) {
+	return l.activate.Activate(ctx, ns)
 }
 
 func (l *lifecycle) Settling(ns domain.Namespace) bool {

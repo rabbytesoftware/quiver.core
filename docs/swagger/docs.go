@@ -1608,7 +1608,7 @@ const docTemplate = `{
         },
         "/runtime/{ns}/{method}": {
             "post": {
-                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.",
+                "description": "Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, activate, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer, activate with nothing staged): no runtime event follows. An update whose manifest declares activation: restart downloads and verifies what it produced and stops there: the runtime reports pending_activation, running arrows are untouched, and activate then hands the daemon over to it (the connection drops and returns on the same address).",
                 "consumes": [
                     "application/json"
                 ],
@@ -1626,7 +1626,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Method name (install | uninstall | execute | stop | update | \u003ccustom\u003e)",
+                        "description": "Method name (install | uninstall | execute | stop | update | activate | \u003ccustom\u003e)",
                         "name": "method",
                         "in": "path",
                         "required": true
@@ -1642,7 +1642,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "No-op: already installed, or nothing newer to update to",
+                        "description": "No-op: already installed, nothing newer to update to, or nothing staged to activate",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.MutationResponse"
                         }
@@ -1672,13 +1672,25 @@ const docTemplate = `{
                         }
                     },
                     "422": {
-                        "description": "State violation, e.g. an update while the previous one is still settling",
+                        "description": "State violation, e.g. an update while the previous one is still settling, an activate in a process that cannot restart itself or whose staged binary failed verification (it is discarded), or a required variable that is missing or whose release could not be resolved",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "The git host rate limited resolving a release-bound variable",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
                     },
                     "500": {
                         "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "The git host could not be reached to resolve a release-bound variable",
                         "schema": {
                             "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_libs.ErrResponse"
                         }
@@ -2087,6 +2099,14 @@ const docTemplate = `{
                     "description": "Outdated is true exactly when Available is set.",
                     "type": "boolean"
                 },
+                "pending_activation": {
+                    "description": "PendingActivation is a staged binary waiting for a daemon restart, null\nwhen nothing is staged.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO"
+                        }
+                    ]
+                },
                 "resolved_ref": {
                     "type": "string"
                 },
@@ -2206,6 +2226,14 @@ const docTemplate = `{
                 },
                 "namespace": {
                     "type": "string"
+                },
+                "pending_activation": {
+                    "description": "PendingActivation is a staged binary waiting for a daemon restart, null\nwhen nothing is staged.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO"
+                        }
+                    ]
                 },
                 "settling": {
                     "description": "Settling is true while an update has not committed yet, including the\nmoment after its steps ended and before its row advanced. Only REST\nreads set it; streamed runtime events omit it.",
@@ -2660,6 +2688,17 @@ const docTemplate = `{
                 },
                 "on_path": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_rabbytesoftware_quiver_core_internal_api_v0_dto.PendingActivationDTO": {
+            "type": "object",
+            "properties": {
+                "staged_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         },
@@ -3386,6 +3425,13 @@ const docTemplate = `{
         "github_com_rabbytesoftware_quiver_core_internal_domain.Target": {
             "type": "object",
             "properties": {
+                "activation": {
+                    "description": "Activation maps a lifecycle method, by its manifest name, to what its\nsuccess leaves pending until it is applied.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "exports": {
                     "type": "object",
                     "additionalProperties": {
@@ -3457,6 +3503,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "description": {
+                    "type": "string"
+                },
+                "from": {
                     "type": "string"
                 },
                 "max": {

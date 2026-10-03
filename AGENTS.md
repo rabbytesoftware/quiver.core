@@ -50,7 +50,11 @@ namespace (`internal/engine/manifold/.../resolver.go`), so it has to live
 there. `internal/core/selfmanifest` embeds a checked-in copy of it
 (`internal/core/selfmanifest/ARROW.md`), kept in sync by `make
 sync-manifest` and enforced by CI the same way `docs/swagger/` is: a stale
-copy fails the build. No `.go` file lives at the repo root.
+copy fails the build. No `.go` file lives at the repo root. The manifest declares
+`activation: update: restart` and binds its two release variables with `from:`,
+so quiver.core's own row goes through the generic update, staging and activation
+mechanisms (§12) with nothing keyed on its namespace; the only quiver.core-specific
+code is `selfarrow`'s boot handling of a staged binary.
 
 ### DI construction order (in `internal.New`)
 
@@ -108,7 +112,7 @@ A followed catalog of arrows. Holds namespace, follow timestamp, list of arrows 
 
 ### 3.5 Target
 
-Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, and a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, `preinstalled`, user-defined methods).
+Per-OS entry inside an Arrow manifest. Contains hardware requirements, tool/service dependency edges, exported environment values, a lifecycle map (`install`, `update`, `execute`, `stop`, `uninstall`, `preinstalled`, user-defined methods) and an `activation` map (`update: restart` means a successful update only takes effect once the daemon restarts). A manifest variable may declare `from: release.asset` or `from: release.checksum`: core fills it from the release the run is built from (see §12), so no caller types a URL or digest.
 
 ### 3.6 Lifecycle method constants
 
@@ -188,7 +192,7 @@ Read `internal/app/` for current code.
 
 ### 5.1 Sentinel errors
 
-All app-layer sentinel errors live in `internal/app/errors/errors.go`. The available sentinels are: `ErrNotFound`, `ErrAlreadyExists`, `ErrStateViolation`, `ErrMethodNotFound`, `ErrFetchFailed`, `ErrInvalidNamespace`, `ErrDependentsExist`, `ErrInvalidManifest`, `ErrPlatformNotSupported`, `ErrMissingVariable`.
+All app-layer sentinel errors live in `internal/app/errors/errors.go`. The available sentinels are: `ErrNotFound`, `ErrAlreadyExists`, `ErrStateViolation`, `ErrMethodNotFound`, `ErrFetchFailed`, `ErrInvalidNamespace`, `ErrDependentsExist`, `ErrInvalidManifest`, `ErrPlatformNotSupported`, `ErrMissingVariable`, `ErrReleaseUnresolved` (carried by `ReleaseError`, whose kind is `offline`, `rate_limited`, `no_release`, `no_asset`, `unsupported_platform` or `unverifiable`).
 
 Always wrap with context: `fmt.Errorf("operation name: %w", apperrors.ErrXxx)`. Never create new sentinel errors in usecases or handlers — add to `errors.go` if a new one is truly needed.
 
@@ -389,11 +393,15 @@ RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topologi
 
 ### Update arrow (advance)
 
-`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. An update whose target manifest declares `activation: update: restart` (quiver.core's own, among any) is not committed: the settler (`lifecycle/internal/settle`, through `activation.Stager`) fingerprints the binary the run left in its workdir (`selfarrow.UpdatedBinaryName`) and records it as the runtime's `PendingActivation` (size, SHA-256, version, commit; event-sourced like the rest, preserved by every other runtime command), the row keeps naming what is installed and running arrows are untouched; a failed one restores the installed manifest like any row's. A second update whose target is the one already staged is a 200 no-op. The build that later comes up adopts its own state on boot.
+
+### Activate a staged update (POST /v0/runtime/:ns/activate)
+
+RuntimeUsecase.Activate → lifecycle.Activate (`activation.Activator`): nothing staged, or a handover already under way → 200 no-op; a process with no `selfupdate.Trigger` → state violation; the staged file is verified against its recorded size and SHA-256 (a mismatch discards the record and the file and refuses, never executing it); then `MarkActivating` is made durable before `Trigger.Fire(path)` starts the one graceful shutdown and exec-replace handover. At boot, `selfarrow.ReconcileStaged` (called by `app.Container.Start` after self-registration) settles what is still staged: already the running build → record cleared; a handover that was marked but did not take → discarded, never retried; unverifiable or older → discarded; newer and verified (the user quit before activating) → marked and handed over to once.
 
 ### Runtime reaction flow
 
-The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine: the manifest of the release the run builds (the row's `Resolved` for an install, the target the update began toward, `Lifecycle.UpdateTarget`, remembered for every row including quiver.core's own, for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
+The runtime repository subscribes to `runtime.begun.*`. On receipt: starts wizard, drains WizardEvent channel in a goroutine, translates events to Asynx commands (StepAdvanced, RecordPID, EndExecution). On successful install: calls arrow.MarkInstalled. An `_install` or `_update` run that fails on a checksum mismatch (`wizard.ErrChecksumMismatch` on its `step.failed` event) gets exactly one retry from the same drain goroutine (release-bound variables are asked of their release again for it): the manifest of the release the run builds (the row's `Resolved` for an install, the target the update began toward, `Lifecycle.UpdateTarget`, remembered for every row including quiver.core's own, for an update) is fetched again at its commit and staged on the row (`manifestRefresher` in `repositories/container.go` → `arrow.RefreshToTarget`), the steps are re-assembled with the answers the run was given, and `RestartExecution` swaps them into the running execution before `wizard.Start` runs them again. An identical re-assembled run, a failed refresh or any other failure is not retried.
 
 ### WebSocket broadcast
 
@@ -515,13 +523,13 @@ Injected into usecases. Methods include: `Get`, `Exists`, `List`, `GetDetail`, `
 
 ### 15.13 Runtime execution state — `app/repositories/runtime`
 
-Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, `ReconcileVersionBadge`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
+Injected into usecases. Methods include: `GetState`, `GetRuntime`, `BeginInstall`, `BeginExecution`, `BeginStop`, `BeginUninstall`, `BeginUpdate`, `MarkOutdated`, `ListenEnded`, `ReconcileVersionBadge`, `RecordPendingActivation` / `MarkActivating` / `ClearPendingActivation`, and event hooks. Read the interface in `internal/app/repositories/runtime/runtime.go`.
 
 **Do NOT:** check process state via `os.FindProcess`, subscribe to Asynx topics for runtime events from usecases.
 
 ### 15.14 Runtime verbs + update bracket — `app/repositories/lifecycle`
 
-Injected into usecases. Methods: `Install` (with dependencies), `Uninstall`, `Execute`, `Update`, `Stop`, `Reset`, `Recheck` (PATCH re-check / catalog advance), `Settling`, `HoldBadge`, `Drain`, `Start` (subscribes its `runtime.ended` reaction; called by `repositories.New` through `wireLifecycle`). Read the interface in `internal/app/repositories/lifecycle/lifecycle.go`.
+Injected into usecases. Methods: `Install` (with dependencies), `Uninstall`, `Execute`, `Update`, `Activate`, `Stop`, `Reset`, `Recheck` (PATCH re-check / catalog advance, also the way to force a version check for one namespace), `Settling`, `HoldBadge`, `Drain`, `Start` (subscribes its `runtime.ended` reaction; called by `repositories.New` through `wireLifecycle`). Read the interface in `internal/app/repositories/lifecycle/lifecycle.go`. `lifecycle.WithActivation(trigger, artifact)` enables staging and activation (`internal/activation`: `Stager`, `Activator`); the trigger may be nil.
 
 **Do NOT:** orchestrate runtime verbs, take per-row locks or start goroutines in usecases; import the arrow, runtime or graph repository packages from `lifecycle` (declare the interface it needs in `lifecycle.go`).
 

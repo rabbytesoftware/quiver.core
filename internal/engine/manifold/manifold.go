@@ -107,6 +107,16 @@ type Manifold interface {
 		ref string,
 		commit string,
 	) (*domain.Arrow, []byte, string, error)
+
+	// ResolveReleaseAsset names the asset of the release ns's ref publishes
+	// that os runs, with the SHA-256 digest its host published for it. The
+	// failures are ErrNoRelease, ErrUnsupportedPlatform, ErrNoAsset and
+	// ErrUnverifiable; a host that could not be asked returns its own error.
+	ResolveReleaseAsset(
+		ctx context.Context,
+		ns domain.Namespace,
+		os domain.OS,
+	) (domain.ReleaseAsset, error)
 }
 
 // ErrInvalidManifest reports that manifest content — fetched or handed in

@@ -26,5 +26,7 @@ type ArrowDetailDTO struct {
 	ActiveRun     *domainRuntime.Execution    `json:"active_run,omitempty"`
 	LastReturn    *domainRuntime.Return       `json:"last_return,omitempty"`
 	Origin        string                      `json:"origin"`
-	Generator     *domain.ArrowGenerator      `json:"generator,omitempty"`
+
+	PendingActivation *domainRuntime.PendingActivation `json:"pending_activation,omitempty"`
+	Generator         *domain.ArrowGenerator           `json:"generator,omitempty"`
 }

@@ -77,8 +77,8 @@ func newRetryFixture(t *testing.T) *retryFixture {
 		MarkUninstalled: noopMarkUninstalled,
 		MarkLastUsed:    noopMarkLastUsed,
 		RefreshManifest: func(context.Context, domain.Namespace, string) error { f.refreshes.Add(1); return nil },
-		Reassemble: func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, error) {
-			return freshSteps(), nil
+		Reassemble: func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, map[string]string, error) {
+			return freshSteps(), map[string]string{"K": "v"}, nil
 		},
 	}
 	f.wizard = &mocks.Wizard{StartFn: func(_ context.Context, req wizard.RunRequest) wizard.Execution {
@@ -209,8 +209,8 @@ func TestSuperviseExecution_NoRetry(t *testing.T) {
 			method: domain.MethodInstall,
 			first:  mismatchExecution,
 			tweak: func(f *retryFixture) {
-				f.hooks.Reassemble = func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, error) {
-					return []domainStep.Step{testStep()}, nil
+				f.hooks.Reassemble = func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, map[string]string, error) {
+					return []domainStep.Step{testStep()}, map[string]string{"K": "v"}, nil
 				}
 			},
 		},
@@ -227,8 +227,8 @@ func TestSuperviseExecution_NoRetry(t *testing.T) {
 			method: domain.MethodInstall,
 			first:  mismatchExecution,
 			tweak: func(f *retryFixture) {
-				f.hooks.Reassemble = func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, error) {
-					return nil, errBoom
+				f.hooks.Reassemble = func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, map[string]string, error) {
+					return nil, nil, errBoom
 				}
 			},
 		},
@@ -283,6 +283,20 @@ func TestSuperviseExecution_NoRetry(t *testing.T) {
 			assert.Zero(t, f.installs.Load())
 		})
 	}
+}
+
+func TestSuperviseExecution_SameStepsButNewVariables_RetriesWithTheNewVariables(t *testing.T) {
+	f := newRetryFixture(t)
+	seedInstallingRuntimeForHooks(t, f.ax, f.ns)
+	f.next = []wizard.Execution{succeedingExecution()}
+	f.hooks.Reassemble = func(context.Context, domain.Namespace, string, map[string]string) ([]domainStep.Step, map[string]string, error) {
+		return []domainStep.Step{testStep()}, map[string]string{"K": "resolved again"}, nil
+	}
+
+	f.supervise(context.Background(), mismatchExecution(), domain.MethodInstall)
+
+	require.Len(t, f.retryRuns, 1)
+	assert.Equal(t, map[string]string{"K": "resolved again"}, f.retryRuns[0].Variables)
 }
 
 func TestSuperviseExecution_SuccessfulRun_DoesNotTouchTheManifest(t *testing.T) {

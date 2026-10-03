@@ -135,6 +135,14 @@ func (m *countingManifold) FreshSnapshot(
 	return m.Snapshot(ctx, ns)
 }
 
+func (m *countingManifold) ResolveReleaseAsset(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.OS,
+) (domain.ReleaseAsset, error) {
+	return domain.ReleaseAsset{}, fmt.Errorf("manifold: no release")
+}
+
 func (m *countingManifold) ResolveArrowAtCommit(
 	ctx context.Context,
 	ns domain.Namespace,

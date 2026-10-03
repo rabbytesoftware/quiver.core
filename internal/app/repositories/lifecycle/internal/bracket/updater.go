@@ -148,7 +148,7 @@ func (u *updater) executeUpdate(
 	if err != nil {
 		return false, fmt.Errorf("update: %w", err)
 	}
-	if available == nil {
+	if available == nil || u.alreadyStaged(ctx, ns, *available) {
 		return false, nil
 	}
 
@@ -159,6 +159,26 @@ func (u *updater) executeUpdate(
 		return false, err
 	}
 	return true, nil
+}
+
+// alreadyStaged reports whether the binary waiting to be applied is the
+// target's own, so running the update again would fetch it a second time. A
+// runtime that cannot be read says nothing about it.
+func (u *updater) alreadyStaged(
+	ctx context.Context,
+	ns domain.Namespace,
+	target domain.Available,
+) bool {
+	rt, err := u.runtime.GetRuntime(ctx, ns)
+	if err != nil {
+		slog.WarnContext(ctx, "update: read runtime for a staged activation", "ns", ns, "err", err)
+		return false
+	}
+	if rt == nil || rt.PendingActivation == nil {
+		return false
+	}
+	pending := rt.PendingActivation
+	return pending.Version == target.Ref && (pending.Commit == "" || pending.Commit == target.Commit)
 }
 
 // stageAndBegin stages the target's manifest, syncs the dependencies it

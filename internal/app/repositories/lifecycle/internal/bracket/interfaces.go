@@ -5,6 +5,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Arrow interface {
@@ -37,6 +38,10 @@ type Runtime interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.ArrowState, error)
+	GetRuntime(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (*domainRuntime.ArrowRuntime, error)
 	BeginExecution(
 		ctx context.Context,
 		ns domain.Namespace,

@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -27,10 +26,8 @@ func CatalogHas(
 }
 
 // WireCallbacks exposes wireCallbacks for unit tests.
-func (c *Container) WireCallbacks(
-	trig *selfupdate.Trigger,
-) error {
-	return c.wireCallbacks(trig)
+func (c *Container) WireCallbacks() error {
+	return c.wireCallbacks()
 }
 
 // ArrowGetter exposes arrowGetter for unit tests.

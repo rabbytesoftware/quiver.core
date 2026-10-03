@@ -583,9 +583,9 @@ func TestRuntimeUpdate_SelfNamespace_RemembersTheTargetItsRunBuilds(t *testing.T
 	assert.Equal(t, target, peeked)
 }
 
-// quiver.core's relaunched binary adopts its own new state, so its update's
-// end advances nothing from here and releases the target it remembered.
-func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
+// quiver.core's own row goes through the bracket like any other: with no
+// activation declared its update remembers a target and commits it.
+func TestRuntimeUpdate_SelfNamespace_CommitsLikeAnyOtherRow(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
 	target := rollingTarget()
@@ -602,7 +602,57 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	assert.Contains(t, f.log.all(), "begin update")
 	_, remembered := uc.targets.Take(selfRow)
 	assert.False(t, remembered)
-	assert.Equal(t, []string{"reconcile badge"}, log.all(), "nothing is committed; the badge follows the row")
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
+}
+
+// An update already staged for the target is not run again: it would download
+// the same binary over the one waiting to be applied.
+func TestRuntimeUpdate_AlreadyStagedForTheTarget_IsANoOp(t *testing.T) {
+	testCases := []struct {
+		name    string
+		pending *domainRuntime.PendingActivation
+		want    bool
+	}{
+		{name: "same version and commit", pending: &domainRuntime.PendingActivation{Version: "nightly-latest", Commit: "c2"}, want: false},
+		{name: "same version, no commit recorded", pending: &domainRuntime.PendingActivation{Version: "nightly-latest"}, want: false},
+		{name: "same version, newer commit", pending: &domainRuntime.PendingActivation{Version: "nightly-latest", Commit: "c1"}, want: true},
+		{name: "older version staged", pending: &domainRuntime.PendingActivation{Version: "nightly-old", Commit: "c0"}, want: true},
+		{name: "nothing staged", pending: nil, want: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := rollingTarget()
+			f := newBracketFixture(domain.ArrowStateReady, &target)
+			f.runtime.GetRuntimeFn = func(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+				return &domainRuntime.ArrowRuntime{Ref: ns, State: f.currentState(), PendingActivation: tc.pending}, nil
+			}
+
+			started, err := f.usecase().Update(context.Background(), rollingRow, nil)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, started)
+			if !tc.want {
+				assert.NotContains(t, f.log.all(), "refresh to c2")
+				assert.NotContains(t, f.log.all(), "begin update")
+			}
+		})
+	}
+}
+
+// A runtime that cannot be read says nothing about a staged binary, so the
+// update goes on.
+func TestRuntimeUpdate_RuntimeUnreadable_StillUpdates(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	f.runtime.GetRuntimeFn = func(context.Context, domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+		return nil, errors.New("event store down")
+	}
+
+	started, err := f.usecase().Update(context.Background(), rollingRow, nil)
+
+	require.NoError(t, err)
+	assert.True(t, started)
 }
 
 // quiver.core's own update is no exception to the bracket: a self row that is

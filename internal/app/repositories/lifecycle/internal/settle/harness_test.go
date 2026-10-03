@@ -21,13 +21,13 @@ type harness struct {
 	detach  func(fn func())
 }
 
-func newHarness(a *mocks.MockArrow, rt *mocks.MockRuntime, g *mocks.MockGraph, detach func(fn func())) *harness {
+func newHarness(a *mocks.MockArrow, rt *mocks.MockRuntime, g *mocks.MockGraph, detach func(fn func()), opts ...Option) *harness {
 	h := &harness{
 		targets: bracket.NewTargets(),
 		commits: commits.New(),
 		detach:  detach,
 	}
-	h.settler = New(a, rt, h.targets, h.commits, WithDetach(func(fn func()) { h.detach(fn) })).(*settler)
+	h.settler = New(a, rt, h.targets, h.commits, append([]Option{WithDetach(func(fn func()) { h.detach(fn) })}, opts...)...).(*settler)
 	h.deps = deps.New(a, rt, g, h.targets, h.settler.OnUpdateEnded)
 	h.updater = bracket.NewUpdater(a, rt, h.targets, h.settler, h.deps)
 	return h
@@ -37,6 +37,11 @@ func newHarness(a *mocks.MockArrow, rt *mocks.MockRuntime, g *mocks.MockGraph, d
 // waiting on a goroutine.
 func newUC(a *mocks.MockArrow, rt *mocks.MockRuntime, g *mocks.MockGraph) *harness {
 	return newHarness(a, rt, g, func(fn func()) { fn() })
+}
+
+// newUCWithStager is newUC for a settler that can stage an activation.
+func newUCWithStager(a *mocks.MockArrow, rt *mocks.MockRuntime, g *mocks.MockGraph, stager Stager) *harness {
+	return newHarness(a, rt, g, func(fn func()) { fn() }, WithStager(stager))
 }
 
 // newDetachedUC settles an update off the delivering goroutine, as the

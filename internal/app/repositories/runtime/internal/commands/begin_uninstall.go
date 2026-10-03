@@ -53,6 +53,7 @@ func (c BeginUninstall) EmitEvent(current *domainRuntime.ArrowRuntime) domainRun
 			Variables: c.Variables,
 			WorkDir:   c.WorkDir,
 		},
-		LastReturn: preserveLastReturn(current),
+		LastReturn:        preserveLastReturn(current),
+		PendingActivation: preservePendingActivation(current),
 	}
 }

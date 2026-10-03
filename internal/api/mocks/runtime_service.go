@@ -14,6 +14,9 @@ type RuntimeService struct {
 	ExecuteErr          error
 	UpdateStarted       bool
 	UpdateErr           error
+	ActivateStarted     bool
+	ActivateErr         error
+	ActivateCalls       int
 	StopErr             error
 	ResetErr            error
 	RuntimeExistsResult bool
@@ -70,6 +73,14 @@ func (m *RuntimeService) Update(
 	_ map[string]string,
 ) (bool, error) {
 	return m.UpdateStarted, m.UpdateErr
+}
+
+func (m *RuntimeService) Activate(
+	_ context.Context,
+	_ domain.Namespace,
+) (bool, error) {
+	m.ActivateCalls++
+	return m.ActivateStarted, m.ActivateErr
 }
 
 func (m *RuntimeService) Stop(

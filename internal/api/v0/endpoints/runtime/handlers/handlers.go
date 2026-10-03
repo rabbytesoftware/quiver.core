@@ -25,18 +25,20 @@ func New(svc usecases.RuntimeUsecase) *Handlers {
 // Execute triggers a lifecycle method on an arrow.
 //
 // @Summary      Execute method
-// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer): no runtime event follows.
+// @Description  Triggers a lifecycle method on an arrow (install, uninstall, execute, stop, update, activate, or any custom method defined in the manifest). Returns 202 Accepted immediately when work started; progress is streamed via WebSocket. Returns 200 when there was nothing to do (install of an installed arrow, update of an arrow with nothing newer, activate with nothing staged): no runtime event follows. An update whose manifest declares activation: restart downloads and verifies what it produced and stops there: the runtime reports pending_activation, running arrows are untouched, and activate then hands the daemon over to it (the connection drops and returns on the same address).
 // @Tags         runtime
 // @Accept       json
 // @Param        ns      path  string                          true   "Arrow namespace"
-// @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | <custom>)"
+// @Param        method  path  string                          true   "Method name (install | uninstall | execute | stop | update | activate | <custom>)"
 // @Param        body    body  apidto.ExecuteMethodRequestDTO  false  "Optional variables"
-// @Success      200     {object}  libs.MutationResponse             "No-op: already installed, or nothing newer to update to"
+// @Success      200     {object}  libs.MutationResponse             "No-op: already installed, nothing newer to update to, or nothing staged to activate"
 // @Success      202     {object}  libs.MutationResponse             "Method accepted"
 // @Failure      400     {object}  libs.ErrResponse                  "Invalid request, or a reserved variable was set"
 // @Failure      404     {object}  libs.ErrResponse                  "Arrow not found"
 // @Failure      409     {object}  libs.ErrResponse                  "Arrow already running, a cyclic dependency, or another identity's workdir occupies this identity's path (no step runs)"
-// @Failure      422     {object}  libs.ErrResponse                  "State violation, e.g. an update while the previous one is still settling"
+// @Failure      422     {object}  libs.ErrResponse                  "State violation, e.g. an update while the previous one is still settling, an activate in a process that cannot restart itself or whose staged binary failed verification (it is discarded), or a required variable that is missing or whose release could not be resolved"
+// @Failure      429     {object}  libs.ErrResponse                  "The git host rate limited resolving a release-bound variable"
+// @Failure      502     {object}  libs.ErrResponse                  "The git host could not be reached to resolve a release-bound variable"
 // @Failure      500     {object}  libs.ErrResponse                  "Internal error"
 // @Router       /runtime/{ns}/{method} [post]
 func (h *Handlers) Execute(c *gin.Context) {
@@ -66,6 +68,8 @@ func (h *Handlers) Execute(c *gin.Context) {
 		err = h.svc.Stop(c.Request.Context(), ns)
 	case "_update", "update":
 		started, err = h.svc.Update(c.Request.Context(), ns, req.Variables)
+	case "activate":
+		started, err = h.svc.Activate(c.Request.Context(), ns)
 	default:
 		err = h.svc.Execute(c.Request.Context(), ns, method, req.Variables)
 	}

@@ -367,3 +367,38 @@ func TestIsReservedVariable(t *testing.T) {
 		})
 	}
 }
+
+func TestVariable_Validate_ReleaseSource(t *testing.T) {
+	testCases := []struct {
+		name    string
+		from    string
+		wantErr bool
+	}{
+		{name: "no source", from: ""},
+		{name: "release asset", from: VarSourceReleaseAsset},
+		{name: "release checksum", from: VarSourceReleaseChecksum},
+		{name: "unknown source", from: "release.size", wantErr: true},
+		{name: "case matters", from: "Release.Asset", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := Variable{Name: "X", From: tc.from}
+
+			err := v.Validate()
+
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.from)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestVariable_Validate_ReleaseSourceRejectsDefault(t *testing.T) {
+	v := Variable{Name: "X", From: VarSourceReleaseAsset, Default: "https://example.test/a"}
+
+	require.Error(t, v.Validate())
+}

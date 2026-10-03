@@ -34,6 +34,10 @@ var ErrChecksumMismatch = errors.New("download: checksum mismatch")
 // ErrChecksumMismatch.
 var ErrChecksumUnresolved = errors.New("download: checksum: variable reference resolved to an empty value")
 
+// ErrUnsupportedURL means a fetch step's URL is not an http or https URL,
+// usually because the variable carrying it resolved empty or to a local path.
+var ErrUnsupportedURL = errors.New("download: url must be http or https")
+
 var ErrUnsupportedChecksumAlgorithm = errors.New("download: unsupported checksum algorithm")
 
 const checksumAlgorithmSHA256 = "sha256"
@@ -75,6 +79,9 @@ func (h *handler) Execute(
 	}
 
 	url := req.Expand(s.URL.Resolve(req.OSArch.String()))
+	if !isHTTPURL(url) {
+		return fmt.Errorf("download: url %q: expected http or https: %w", url, ErrUnsupportedURL)
+	}
 
 	staged, err := stagingPath(dst)
 	if err != nil {
@@ -156,4 +163,11 @@ func expectedDigest(
 		return "", fmt.Errorf("download: checksum: %q: %w", algorithm, ErrUnsupportedChecksumAlgorithm)
 	}
 	return digest, nil
+}
+
+func isHTTPURL(
+	raw string,
+) bool {
+	lower := strings.ToLower(raw)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }

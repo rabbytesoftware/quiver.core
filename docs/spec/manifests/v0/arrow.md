@@ -158,6 +158,7 @@ variables:                   # optional — manifest-level user-configurable par
     values: [string]         # optional — allowed values; required when type is select
     min: integer             # optional — minimum value (numeric variables)
     max: integer             # optional — maximum value (numeric variables)
+    from: string             # optional: release.asset | release.checksum; filled from the arrow's own release
 
 netbridge:                   # optional — declared port intent
   - name: string             # required — identifier used in ${PORT} interpolation
@@ -168,6 +169,8 @@ netbridge:                   # optional — declared port intent
 targets:                     # required — at least one entry; see §4
   <target-key>:
     base: string             # optional — parent target key (see §5)
+    activation:              # optional: methods whose success only takes effect after a daemon restart
+      update: restart        #   the only method that may declare one; the only value is restart
     requirements:            # optional — minimum system resources
       cpu_cores: integer     # ≥ 1
       ram_gb: integer        # ≥ 1
@@ -409,6 +412,29 @@ A target whose key starts with `_` is abstract:
   a partial lifecycle).
 - The `OverrideableCoverageRule` skips abstract targets — coverage is only enforced on
   concrete targets where it would actually matter at runtime.
+
+### 4.6 Activation
+
+A target may declare that a lifecycle method only takes effect once the daemon restarts:
+
+```yaml
+targets:
+  "*":
+    activation:
+      update: restart
+    lifecycle:
+      update: [...]
+```
+
+`update` is the only method that may declare one and `restart` the only value (`activation`
+validation rule: `invalid_activation_method`, `invalid_activation_value`). When such an update
+succeeds, the daemon does not commit it and does not restart: it records the binary the update
+left in its workdir (`quiver-new`, with its size and SHA-256) as the row's pending activation,
+reported as `pending_activation` on the runtime. The row keeps naming what is installed, running
+arrows are untouched, and a second update for the same target is a no-op. `POST
+/v0/runtime/{ns}/activate` hands the daemon over to the staged binary; a daemon that boots with
+one still staged applies it itself. The build that comes up moves the row onto its own state.
+`activation` follows `base:` inheritance per method: a child overrides the parent's entry.
 
 ---
 
@@ -1184,7 +1210,8 @@ ones.
 | 3 | Manifest-level `variables:` defaults | `variables[].default` |
 | 4 | Netbridge port allocations | Port `name` → allocated port number as string |
 | 5 | Stored variables | Most recent completed execution — answers only: never a built-in such as `${REF}` or a dependency's value, which are computed for every run |
-| 6 (highest) | User-provided overrides | Key-value pairs from the request body |
+| 6 | Release-bound variables | `variables[].from`, see §11.4 |
+| 7 (highest) | User-provided overrides | Key-value pairs from the request body |
 
 ### 10.1 Built-in variables
 
@@ -1281,6 +1308,27 @@ reaching the mapper.
 - For `type: select`, `values:` must be non-empty.
 - If `default` is set, it must appear in `values:` (for select variables).
 - If both are set, `min ≤ max`.
+- `from`, if set, is `release.asset` or `release.checksum`, and the variable has no `default`.
+
+### 11.4 Release-bound variables
+
+A variable with `from:` takes its value from the release the run is built from, not from the
+caller:
+
+| `from` | Value |
+|--------|-------|
+| `release.asset` | Download URL of the release asset for the current platform |
+| `release.checksum` | SHA-256 of that asset, bare hex, as the host published it |
+
+The release is the one at the ref the run builds: the target of an `update`, otherwise the
+installed ref (the selector's own ref before anything is installed). Both values come from one
+lookup of the release, so a rolling release replaced mid-run cannot pair one build's URL with
+another's checksum. Resolution happens only when the method about to run expands the variable and
+the caller did not supply it; a caller-supplied value always wins. A lookup that fails stops the
+run before any step, with a typed reason: `offline`, `rate_limited`, `no_release`, `no_asset`,
+`unsupported_platform` (no asset for the platform) or `unverifiable` (the asset has no published
+digest). A release-bound variable that resolves empty is reported as a missing required
+variable.
 
 ---
 

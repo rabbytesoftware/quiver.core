@@ -137,3 +137,15 @@ func (s ArrowState) IsActive() bool {
 		s == ArrowStateInstalling ||
 		s == ArrowStateUpdating
 }
+
+// ActivationFor is the activation method declares for os, "" when the arrow is
+// unknown, has no target for os, or its success takes effect at once.
+func (a *Arrow) ActivationFor(
+	os OS,
+	method string,
+) string {
+	if a == nil {
+		return ""
+	}
+	return a.Targets[os].ActivationFor(method)
+}

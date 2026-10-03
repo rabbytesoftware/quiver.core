@@ -2,9 +2,11 @@ package errors_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 )
@@ -31,4 +33,22 @@ func TestStateViolationError_IsStateViolation(t *testing.T) {
 	err := apperrors.NewStateViolation("stop", "ready")
 	assert.True(t, errors.Is(err, apperrors.ErrStateViolation),
 		"must satisfy errors.Is for the sentinel so mapping still works")
+}
+
+func TestReleaseError_Message(t *testing.T) {
+	err := apperrors.NewReleaseError(apperrors.ReleaseNoAsset, errors.New("host said no"))
+
+	assert.Equal(t, "release unresolved: no_asset: host said no", err.Error())
+}
+
+func TestReleaseError_IsTheSentinelAndItsCause(t *testing.T) {
+	cause := errors.New("connection refused")
+
+	err := fmt.Errorf("variable %q: %w", "X", apperrors.NewReleaseError(apperrors.ReleaseOffline, cause))
+
+	assert.ErrorIs(t, err, apperrors.ErrReleaseUnresolved)
+	assert.ErrorIs(t, err, cause)
+	var re *apperrors.ReleaseError
+	require.ErrorAs(t, err, &re)
+	assert.Equal(t, apperrors.ReleaseOffline, re.Kind)
 }

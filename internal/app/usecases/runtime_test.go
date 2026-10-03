@@ -432,3 +432,37 @@ func TestRuntimeGetRuntime_Failures(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeUsecase_Activate_ReachesTheLifecycle(t *testing.T) {
+	ns := domain.Namespace("github.com/user/app@stable")
+	testCases := []struct {
+		name    string
+		started bool
+		err     error
+	}{
+		{name: "started", started: true},
+		{name: "nothing staged", started: false},
+		{name: "refused", err: assert.AnError},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			lc := &ucmocks.MockLifecycle{
+				ActivateFn: func(_ context.Context, got domain.Namespace) (bool, error) {
+					assert.Equal(t, ns, got)
+					return tc.started, tc.err
+				},
+			}
+			uc := NewRuntimeUsecase(&ucmocks.MockArrow{}, &ucmocks.MockRuntime{}, lc)
+
+			started, err := uc.Activate(context.Background(), ns)
+
+			assert.Equal(t, tc.started, started)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

@@ -139,6 +139,7 @@ func mergeTargets(parent, child models.PrecompiledTarget) models.PrecompiledTarg
 		Lifecycle:    mergeLifecycle(parent.Lifecycle, child.Lifecycle),
 		Methods:      mergeMethods(parent.Methods, child.Methods),
 		Expose:       mergeExpose(parent.Expose, child.Expose),
+		Activation:   domain.MergeActivation(parent.Activation, child.Activation),
 	}
 }
 
@@ -262,6 +263,7 @@ func buildResolvedTarget(t models.PrecompiledTarget, os domain.OS) (domain.Targe
 		Lifecycle:    lifecycle,
 		Methods:      methods,
 		Expose:       t.Expose,
+		Activation:   t.Activation,
 	}, nil
 }
 

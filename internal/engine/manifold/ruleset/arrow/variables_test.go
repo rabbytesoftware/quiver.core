@@ -91,3 +91,19 @@ func TestVariablesRule_NoVariables(t *testing.T) {
 		t.Fatalf("expected no errors for empty variables, got: %v", errs)
 	}
 }
+
+func TestVariablesRule_UnknownReleaseSourceRejected(t *testing.T) {
+	rule := VariablesRule{}
+	m := &domain.Arrow{
+		Variables: []domain.Variable{
+			{Name: "OK", From: domain.VarSourceReleaseChecksum},
+			{Name: "BAD", From: "release.nope"},
+		},
+	}
+
+	errs := rule.Validate(m, map[string]models.PrecompiledTarget{})
+
+	if len(errs) != 1 || errs[0].Rule != "invalid_variable" || errs[0].Field != "variables[1]" {
+		t.Fatalf("expected one invalid_variable error on variables[1], got: %v", errs)
+	}
+}

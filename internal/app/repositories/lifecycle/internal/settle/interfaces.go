@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
 type Arrow interface {
@@ -52,4 +53,13 @@ type Commits interface {
 		parent context.Context,
 		timeout time.Duration,
 	) (context.Context, context.CancelFunc)
+}
+
+// Stager records what an update left waiting for a daemon restart.
+type Stager interface {
+	Stage(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+		target domain.Available,
+	) error
 }

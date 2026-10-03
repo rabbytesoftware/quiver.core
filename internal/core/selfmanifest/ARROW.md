@@ -31,8 +31,10 @@ metadata:
 variables:
   - name: "QUIVER_RELEASE_ASSET_URL"
     description: "Download URL for the resolved quiver.core release binary for this platform."
+    from: release.asset
   - name: "QUIVER_RELEASE_CHECKSUM"
     description: "SHA-256 checksum of the release binary, for fetch-step verification."
+    from: release.checksum
 
 targets:
   "*":
@@ -40,6 +42,8 @@ targets:
       cpu_cores: 1
       ram_gb: 1
       disk_gb: 1
+    activation:
+      update: restart
     lifecycle:
       update:
         - type: fetch

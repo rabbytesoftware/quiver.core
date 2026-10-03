@@ -60,8 +60,9 @@ func (c ClearVersionOutdated) Validate(current *domainRuntime.ArrowRuntime) erro
 
 func (c ClearVersionOutdated) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
 	return domainRuntime.ArrowRuntime{
-		Ref:        c.Namespace,
-		State:      domain.ArrowStateReady,
-		LastReturn: preserveLastReturn(current),
+		Ref:               c.Namespace,
+		State:             domain.ArrowStateReady,
+		LastReturn:        preserveLastReturn(current),
+		PendingActivation: preservePendingActivation(current),
 	}
 }

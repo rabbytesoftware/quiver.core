@@ -53,6 +53,32 @@ func WithTargetRef(ref string) AssembleOption {
 	}
 }
 
+// ReleaseResolver answers the variables a manifest binds to its release.
+type ReleaseResolver = assemblerinternal.ReleaseResolver
+
+// ReleaseAssetFn names the asset of a release that an OS runs.
+type ReleaseAssetFn = assemblerinternal.ReleaseAssetFn
+
+// NewReleaseResolver builds a ReleaseResolver over a release lookup.
+func NewReleaseResolver(
+	asset ReleaseAssetFn,
+) ReleaseResolver {
+	return assemblerinternal.NewReleaseResolver(asset)
+}
+
+// Option configures New.
+type Option func(*assemblerService)
+
+// WithReleaseResolver lets variables that declare a release source be filled
+// from the release the run is built from.
+func WithReleaseResolver(
+	releases ReleaseResolver,
+) Option {
+	return func(a *assemblerService) {
+		a.releases = releases
+	}
+}
+
 type assemblerService struct {
 	getArrow    GetArrowFn
 	getDepArrow GetArrowFn
@@ -60,6 +86,7 @@ type assemblerService struct {
 	vault       vault.Vault
 	netbridge   netbridge.Netbridge
 	os          domain.OS
+	releases    ReleaseResolver
 }
 
 func New(
@@ -69,8 +96,9 @@ func New(
 	v vault.Vault,
 	nb netbridge.Netbridge,
 	os domain.OS,
+	opts ...Option,
 ) Assembler {
-	return &assemblerService{
+	a := &assemblerService{
 		getArrow:    getArrow,
 		getDepArrow: getDepArrow,
 		axRuntime:   axRuntime,
@@ -78,6 +106,10 @@ func New(
 		netbridge:   nb,
 		os:          os,
 	}
+	for _, apply := range opts {
+		apply(a)
+	}
+	return a
 }
 
 func (a *assemblerService) Assemble(
@@ -130,6 +162,7 @@ func (a *assemblerService) Assemble(
 		// The steps this method is about to run: only the variables THEY
 		// expand are required of the caller.
 		steps,
+		assemblerinternal.WithReleases(a.releases, releaseOf(ns, arrow, o.targetRef)),
 	)
 	if err != nil {
 		return ResolvedExecution{}, err
@@ -152,4 +185,17 @@ func (a *assemblerService) Assemble(
 		AvailableIn: availableIn,
 		WorkDir:     workDir,
 	}, nil
+}
+
+// releaseOf names the release a run is built from: the target of an update,
+// else what the row has installed, else what its selector names.
+func releaseOf(
+	ns domain.Namespace,
+	arrow *domain.Arrow,
+	targetRef string,
+) domain.Namespace {
+	if targetRef != "" {
+		return ns.WithRef(targetRef)
+	}
+	return ns.WithRef(arrow.Resolved.RefOr(ns.Ref()))
 }

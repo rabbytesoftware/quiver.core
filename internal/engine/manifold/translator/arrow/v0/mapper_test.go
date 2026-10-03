@@ -1066,3 +1066,89 @@ func TestMap_Generator_SchemaRejectsInvalidShapes(t *testing.T) {
 		})
 	}
 }
+
+func TestToArrow_VariableFromIsMapped(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: "X"
+variables:
+  - name: ASSET
+    from: release.asset
+  - name: PLAIN
+targets:
+  "*":
+    lifecycle:
+      update:
+        - type: run
+          title: noop
+          command: "true"
+`)
+	mod := v0.New()
+	require.NoError(t, validateAgainstSchema(t, mod.Schema(), data))
+
+	arrow, _, err := mod.Parse(data)
+
+	require.NoError(t, err)
+	require.Len(t, arrow.Variables, 2)
+	assert.Equal(t, domain.VarSourceReleaseAsset, arrow.Variables[0].From)
+	assert.Empty(t, arrow.Variables[1].From)
+}
+
+func TestMap_ActivationIsMappedAndInheritedThroughBase(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: "X"
+targets:
+  _common:
+    activation:
+      update: restart
+  "*":
+    base: _common
+    lifecycle:
+      update:
+        - type: run
+          title: noop
+          command: "true"
+`)
+	mod := v0.New()
+	require.NoError(t, validateAgainstSchema(t, mod.Schema(), data))
+
+	_, precompiled, err := mod.Parse(data)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"update": "restart"}, precompiled["_common"].Activation)
+
+	target, err := v0.SelectTarget(precompiled, domain.OSLinuxAMD64)
+	require.NoError(t, err)
+	assert.Equal(t, domain.ActivationRestart, target.ActivationFor(domain.MethodUpdate))
+}
+
+func TestMap_ActivationChildOverridesParentPerMethod(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: "X"
+targets:
+  _common:
+    activation:
+      update: restart
+      install: restart
+  "*":
+    base: _common
+    activation:
+      install: other
+    lifecycle:
+      update:
+        - type: run
+          title: noop
+          command: "true"
+`)
+	_, precompiled, err := v0.New().Parse(data)
+	require.NoError(t, err)
+
+	target, err := v0.SelectTarget(precompiled, domain.OSLinuxAMD64)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"update": "restart", "install": "other"}, target.Activation)
+}

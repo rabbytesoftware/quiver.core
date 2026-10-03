@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -2010,4 +2011,69 @@ func TestBeginInstall_ChecksumMismatch_ArrowUnreadableAfterRefresh_FailsWithoutR
 		require.FailNow(t, "install never ended")
 	}
 	assert.EqualValues(t, 1, starts.Load())
+}
+
+func TestBeginInstall_ReleaseBoundVariables_ReachTheRunAndAreResolvedAgainOnRetry(t *testing.T) {
+	ns := testNs()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "ASSET_URL", From: domain.VarSourceReleaseAsset}},
+		Targets: map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{
+				domainStep.NewFetchStep("fetch", "${ASSET_URL}", "a", "sha256:aa", "1m", true),
+			}}},
+		},
+	}
+	var mu sync.Mutex
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		copied := *arrow
+		return &copied, nil
+	}
+	var lookups atomic.Int32
+	asset := func(_ context.Context, got domain.Namespace, os domain.OS) (domain.ReleaseAsset, error) {
+		assert.Equal(t, ns.WithRef(ns.Ref()), got)
+		assert.Equal(t, domain.OSDarwinARM64, os)
+		n := lookups.Add(1)
+		return domain.ReleaseAsset{URL: fmt.Sprintf("https://example.test/build-%d", n), Digest: "sha256:aa"}, nil
+	}
+	runs := make(chan wizardPkg.RunRequest, 2)
+	w := &mocks.Wizard{StartFn: func(_ context.Context, req wizardPkg.RunRequest) wizardPkg.Execution {
+		runs <- req
+		if len(runs) == 1 {
+			return newScriptedExecution(
+				domainRuntime.ExecutionOutcomeFailed,
+				wizardPkg.Event{Kind: wizardPkg.EventKindStepFailed, StepIndex: 1, Err: wizardPkg.ErrChecksumMismatch},
+			)
+		}
+		return mocks.NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
+	}}
+	f := catToFuncs(&runtimeMocks.MockArrow{})
+	refresh := func(context.Context, domain.Namespace, string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		arrow.Targets = map[domain.OS]domain.Target{
+			domain.OSDarwinARM64: {Lifecycle: domain.TargetLifecycle{Install: domainStep.StepList{
+				domainStep.NewFetchStep("fetch", "${ASSET_URL}", "a", "sha256:bb", "1m", true),
+			}}},
+		}
+		return nil
+	}
+	lc, err := runtime.New(getArrow, getArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh, runtime.WithReleaseAsset(asset))
+	require.NoError(t, err)
+	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
+	require.NoError(t, err)
+	defer unsub()
+
+	require.NoError(t, lc.BeginInstall(context.Background(), ns, nil))
+
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "install never ended")
+	}
+	first, second := <-runs, <-runs
+	assert.Equal(t, "https://example.test/build-1", first.Variables["ASSET_URL"])
+	assert.Equal(t, "https://example.test/build-2", second.Variables["ASSET_URL"], "a retry asks the release again instead of replaying the first answer")
 }

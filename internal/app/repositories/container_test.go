@@ -21,10 +21,8 @@ import (
 	repositories "github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/discovery"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
-	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -951,7 +949,7 @@ func TestWireCallbacks_PropagatesRegistrationErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &repositories.Container{Arrow: tc.arrow}
 
-			err := c.WireCallbacks(nil)
+			err := c.WireCallbacks()
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, boom)
@@ -1005,7 +1003,7 @@ func TestWireCallbacks_RegisteredReactionsDriveGraphAndCascade(t *testing.T) {
 	}
 
 	c := &repositories.Container{Arrow: arrow, Graph: graphMock, Cascade: cascadeMock}
-	require.NoError(t, c.WireCallbacks(nil))
+	require.NoError(t, c.WireCallbacks())
 
 	require.NoError(t, added(context.Background(), ns, domain.Arrow{Namespace: ns}))
 	require.NoError(t, updated(context.Background(), ns, &domain.Arrow{Namespace: ns}))
@@ -1051,6 +1049,10 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 			m.OnRuntimeStepAdvancedFn = fail
 		case "preinstalled":
 			m.OnRuntimePreinstalledFn = fail
+		case "activation staged":
+			m.OnRuntimeActivationStagedFn = fail
+		case "activation cleared":
+			m.OnRuntimeActivationClearedFn = fail
 		}
 		return m
 	}
@@ -1068,6 +1070,8 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 		{name: "outdated cleared"},
 		{name: "step advanced"},
 		{name: "preinstalled"},
+		{name: "activation staged"},
+		{name: "activation cleared"},
 		{
 			name: "collection followed",
 			collection: &ucmocks.MockCollection{
@@ -1120,15 +1124,17 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 	}
 
 	runtimeMock := &ucmocks.MockRuntime{
-		OnRuntimeBegunFn:           captureRuntime,
-		OnRuntimeEndedFn:           captureRuntime,
-		OnRuntimeRecoveredFn:       captureRuntime,
-		OnRuntimeDetachedFn:        captureRuntime,
-		OnRuntimePIDRecordedFn:     captureRuntime,
-		OnRuntimeOutdatedFn:        captureRuntime,
-		OnRuntimeOutdatedClearedFn: captureRuntime,
-		OnRuntimeStepAdvancedFn:    captureRuntime,
-		OnRuntimePreinstalledFn:    captureRuntime,
+		OnRuntimeBegunFn:             captureRuntime,
+		OnRuntimeEndedFn:             captureRuntime,
+		OnRuntimeRecoveredFn:         captureRuntime,
+		OnRuntimeDetachedFn:          captureRuntime,
+		OnRuntimePIDRecordedFn:       captureRuntime,
+		OnRuntimeOutdatedFn:          captureRuntime,
+		OnRuntimeOutdatedClearedFn:   captureRuntime,
+		OnRuntimeStepAdvancedFn:      captureRuntime,
+		OnRuntimePreinstalledFn:      captureRuntime,
+		OnRuntimeActivationStagedFn:  captureRuntime,
+		OnRuntimeActivationClearedFn: captureRuntime,
 	}
 	collectionMock := &ucmocks.MockCollection{
 		OnCollectionFollowedFn: func(fn func(context.Context, domain.Collection)) error {
@@ -1145,11 +1151,11 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 	hub := &stubHub{}
 	require.NoError(t, c.RegisterHubProjections(hub))
 
-	require.Len(t, runtimeHooks, 9)
+	require.Len(t, runtimeHooks, 11)
 	for _, fn := range runtimeHooks {
 		fn(context.Background(), domainRuntime.ArrowRuntime{})
 	}
-	assert.Equal(t, int32(9), hub.runtimeBroadcasts.Load())
+	assert.Equal(t, int32(11), hub.runtimeBroadcasts.Load())
 
 	require.NotNil(t, followedHook)
 	require.NotNil(t, unfollowedHook)
@@ -1358,157 +1364,19 @@ func TestDiscardCollection_LogsShutdownFailure(t *testing.T) {
 	assert.True(t, called)
 }
 
-// ─── self-update succession ──────────────────────────────────────────────────
+// ─── self-update activation ──────────────────────────────────────────────────
 
-func selfUpdateReturn(
-	method string,
-	outcome domainRuntime.ExecutionOutcome,
-	vars map[string]string,
-) *domainRuntime.Return {
-	return &domainRuntime.Return{Method: method, Outcome: outcome, Variables: vars}
-}
-
-// Only quiver.core's own arrow, finishing its own update lifecycle
-// successfully, may claim this process. Everything else that ends has to leave
-// the daemon alone.
-func TestWireCallbacks_SelfUpdateTriggerFiresOnlyForItsOwnSuccessfulUpdate(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	selfNs := self.WithRef("v26.0.0")
-	workdir := filepath.Join("home", "user", ".quiver", "vault", "quiver-core")
-	okVars := map[string]string{domain.VarWorkdir: workdir}
-
-	testCases := []struct {
-		name string
-		rt   domainRuntime.ArrowRuntime
-		want string
-	}{
-		{
-			name: "its own successful update",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        selfNs,
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
-			},
-			want: filepath.Join(workdir, selfarrow.UpdatedBinaryName),
-		},
-		{
-			name: "another arrow's successful update",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        domain.Namespace("github.com/user/pkg@v1.0.0"),
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
-			},
-		},
-		{
-			name: "a namespace that merely starts the same way",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        domain.Namespace("github.com/rabbytesoftware/quiver.core.plugin@v1.0.0"),
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, okVars),
-			},
-		},
-		{
-			name: "its own install rather than its own update",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        selfNs,
-				LastReturn: selfUpdateReturn(domain.MethodInstall, domainRuntime.ExecutionOutcomeSuccess, okVars),
-			},
-		},
-		{
-			name: "its own update, failed",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        selfNs,
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeFailed, okVars),
-			},
-		},
-		{
-			name: "its own update, cancelled",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        selfNs,
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeCancelled, okVars),
-			},
-		},
-		{
-			name: "no return at all",
-			rt:   domainRuntime.ArrowRuntime{Ref: selfNs},
-		},
-		{
-			name: "its own successful update with no resolved workdir",
-			rt: domainRuntime.ArrowRuntime{
-				Ref:        selfNs,
-				LastReturn: selfUpdateReturn(domain.MethodUpdate, domainRuntime.ExecutionOutcomeSuccess, nil),
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var ended func(context.Context, domainRuntime.ArrowRuntime)
-			rtMock := &ucmocks.MockRuntime{
-				OnRuntimeEndedFn: func(fn func(context.Context, domainRuntime.ArrowRuntime)) error {
-					ended = fn
-					return nil
-				},
-			}
-
-			stopped := false
-			trig := selfupdate.NewTrigger(func() { stopped = true })
-			c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
-			require.NoError(t, c.WireCallbacks(trig))
-			require.NotNil(t, ended)
-
-			ended(context.Background(), tc.rt)
-
-			assert.Equal(t, tc.want, trig.NewBinaryPath())
-			assert.Equal(t, tc.want != "", trig.Fired())
-			assert.Equal(t, tc.want != "", stopped, "firing the trigger is what starts the shutdown")
-		})
-	}
-}
-
-// The daemon reaches Start through internal.New with no trigger in every test
-// that builds a container, so a nil trigger has to wire nothing rather than
-// register a callback that would dereference it.
-func TestWireCallbacks_NilSelfUpdateTrigger_RegistersNothing(t *testing.T) {
-	registered := false
-	rtMock := &ucmocks.MockRuntime{
-		OnRuntimeEndedFn: func(func(context.Context, domainRuntime.ArrowRuntime)) error {
-			registered = true
-			return nil
-		},
-	}
-
-	c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
-
-	require.NoError(t, c.WireCallbacks(nil))
-	assert.False(t, registered)
-}
-
-func TestWireCallbacks_SelfUpdateRegistrationFails_PropagatesTheError(t *testing.T) {
-	boom := errors.New("register failed")
-	rtMock := &ucmocks.MockRuntime{
-		OnRuntimeEndedFn: func(func(context.Context, domainRuntime.ArrowRuntime)) error {
-			return boom
-		},
-	}
-
-	c := &repositories.Container{Arrow: &ucmocks.MockArrow{}, Runtime: rtMock}
-
-	err := c.WireCallbacks(selfupdate.NewTrigger(nil))
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, boom)
-}
-
-// The option has to survive the whole of New, not just wireCallbacks: a
-// trigger that never reaches a runtime.ended subscription is a daemon that
-// updates itself and then keeps running the old build. The lifecycle's own
-// reaction is subscribed either way.
-func TestNew_SelfUpdateTriggerOption_SubscribesToRuntimeEnded(t *testing.T) {
+// The trigger belongs to the lifecycle, which Activate fires it through: it
+// must not add a subscription of its own, or the daemon would hand itself over
+// the moment an update finished instead of when the user asks.
+func TestNew_SelfUpdateTriggerOption_AddsNoRuntimeEndedSubscription(t *testing.T) {
 	testCases := []struct {
 		name string
 		trig *selfupdate.Trigger
 		want int
 	}{
 		{name: "without a trigger", trig: nil, want: 1},
-		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 2},
+		{name: "with a trigger", trig: selfupdate.NewTrigger(nil), want: 1},
 	}
 
 	for _, tc := range testCases {

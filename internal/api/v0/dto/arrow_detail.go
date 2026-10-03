@@ -21,8 +21,11 @@ type ArrowDetailDTO struct {
 	Outdated   bool          `json:"outdated" yaml:"outdated"`
 	ActiveRun  *RunRecordDTO `json:"active_run,omitempty" yaml:"active_run,omitempty"`
 	LastReturn *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
-	Origin     string        `json:"origin" yaml:"origin"`
-	Inference  *InferenceDTO `json:"inference,omitempty" yaml:"inference,omitempty"`
+	// PendingActivation is a staged binary waiting for a daemon restart, null
+	// when nothing is staged.
+	PendingActivation *PendingActivationDTO `json:"pending_activation" yaml:"pending_activation"`
+	Origin            string                `json:"origin" yaml:"origin"`
+	Inference         *InferenceDTO         `json:"inference,omitempty" yaml:"inference,omitempty"`
 }
 
 func ArrowDetailDTOFrom(
@@ -37,23 +40,24 @@ func ArrowDetailDTOFrom(
 		lastUsedAt = a.LastUsedAt.Format("2006-01-02T15:04:05Z07:00")
 	}
 	return ArrowDetailDTO{
-		Namespace:       string(a.Namespace),
-		Name:            a.Name,
-		Description:     a.Description,
-		License:         a.License,
-		State:           string(a.State),
-		Tags:            a.Tags,
-		InstalledAt:     installedAt,
-		LastUsedAt:      lastUsedAt,
-		UserInstalled:   a.UserInstalled,
-		SelectorKind:    SelectorKindName(a.SelectorKind),
-		ResolvedRef:     a.Resolved.Ref,
-		InstalledCommit: a.Resolved.Commit,
-		Available:       AvailableDTOFrom(a.Available),
-		Outdated:        a.Outdated,
-		ActiveRun:       RunRecordDTOFrom(a.ActiveRun),
-		LastReturn:      ReturnDTOFrom(a.LastReturn),
-		Origin:          a.Origin,
-		Inference:       InferenceDTOFrom(a.Generator),
+		Namespace:         string(a.Namespace),
+		Name:              a.Name,
+		Description:       a.Description,
+		License:           a.License,
+		State:             string(a.State),
+		Tags:              a.Tags,
+		InstalledAt:       installedAt,
+		LastUsedAt:        lastUsedAt,
+		UserInstalled:     a.UserInstalled,
+		SelectorKind:      SelectorKindName(a.SelectorKind),
+		ResolvedRef:       a.Resolved.Ref,
+		InstalledCommit:   a.Resolved.Commit,
+		Available:         AvailableDTOFrom(a.Available),
+		Outdated:          a.Outdated,
+		ActiveRun:         RunRecordDTOFrom(a.ActiveRun),
+		LastReturn:        ReturnDTOFrom(a.LastReturn),
+		Origin:            a.Origin,
+		Inference:         InferenceDTOFrom(a.Generator),
+		PendingActivation: PendingActivationDTOFrom(a.PendingActivation),
 	}
 }

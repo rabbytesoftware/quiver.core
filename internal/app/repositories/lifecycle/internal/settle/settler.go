@@ -3,10 +3,8 @@ package settle
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -51,6 +49,7 @@ type settler struct {
 	runtime Runtime
 	targets Targets
 	commits Commits
+	stager  Stager
 	holds   *badgeHolds
 	detach  func(fn func())
 	// commitTimeout bounds a detached update commit, which has no caller
@@ -66,6 +65,15 @@ func WithDetach(
 	detach func(fn func()),
 ) Option {
 	return func(s *settler) { s.detach = detach }
+}
+
+// WithStager lets the settling of an update that declares an activation stage
+// what the update produced. Without one nothing is deferred: every update is
+// committed.
+func WithStager(
+	stager Stager,
+) Option {
+	return func(s *settler) { s.stager = stager }
 }
 
 // WithCommitTimeout replaces the bound of a detached update commit.
@@ -131,8 +139,9 @@ func (s *settler) RestoreAbandoned(
 // remembered target, so the next update is admitted, and settles the row:
 // it commits the target once the update steps succeeded, and otherwise puts
 // the installed release's manifest back on the row.
-// quiver.core's own update is excluded: its relaunched binary adopts its new
-// state on boot.
+// An update whose manifest declares activation: restart is not committed: what
+// it produced takes effect on a daemon restart, and the row is moved onto it
+// by the build that comes up.
 //
 // The settling runs detached because this handler is delivered on the
 // runtime aggregate's own ordered event queue, and clearing the badge waits
@@ -192,10 +201,8 @@ func (s *settler) settleUpdate(
 	recorded bool,
 ) {
 	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
-	if isSelfNamespace(rt.Ref) {
-		if !succeeded {
-			s.restoreInstalled(ctx, rt.Ref)
-		}
+	if s.defersToActivation(ctx, rt.Ref) {
+		s.settleDeferred(ctx, rt, target, succeeded)
 		return
 	}
 	if !recorded {
@@ -213,6 +220,41 @@ func (s *settler) settleUpdate(
 	}
 	defer cancel()
 	s.restoreInstalled(restoreCtx, rt.Ref)
+}
+
+// defersToActivation reports whether ns's update is declared to take effect
+// only on a daemon restart. A row that cannot be read declares nothing.
+func (s *settler) defersToActivation(
+	ctx context.Context,
+	ns domain.Namespace,
+) bool {
+	if s.stager == nil {
+		return false
+	}
+	row, err := s.arrow.Get(ctx, ns)
+	if err != nil {
+		slog.WarnContext(ctx, "update: read row to find its activation", "ns", ns, "err", err)
+		return false
+	}
+	return row.ActivationFor(domain.CurrentOS(), domain.MethodUpdate) == domain.ActivationRestart
+}
+
+// settleDeferred closes an update that waits for a restart: a succeeded one
+// stages what it produced and leaves the row as it is, a failed one puts the
+// installed manifest back.
+func (s *settler) settleDeferred(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+	target domain.Available,
+	succeeded bool,
+) {
+	if !succeeded {
+		s.restoreInstalled(ctx, rt.Ref)
+		return
+	}
+	if err := s.stager.Stage(ctx, rt, target); err != nil {
+		slog.ErrorContext(ctx, "update: stage the activation", "ns", rt.Ref, "err", err)
+	}
 }
 
 // afterSettle gives the writes that close a settling their own context once
@@ -299,11 +341,4 @@ func (s *settler) restoreInstalled(
 	if _, err := s.arrow.RefreshToTarget(ctx, ns, installed); err != nil {
 		slog.WarnContext(ctx, "update: restore the installed manifest", "ns", ns, "err", err)
 	}
-}
-
-// isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow
-// namespace; the "@" matters, or any namespace merely starting with it would match.
-func isSelfNamespace(ns domain.Namespace) bool {
-	self, _ := metadata.GetSelfNamespaces()
-	return strings.HasPrefix(ns.String(), string(self)+"@")
 }

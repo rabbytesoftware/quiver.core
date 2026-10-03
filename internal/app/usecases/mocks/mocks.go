@@ -551,6 +551,21 @@ type MockRuntime struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
+	OnRuntimeActivationStagedFn  func(fn func(context.Context, domainRuntime.ArrowRuntime)) error
+	OnRuntimeActivationClearedFn func(fn func(context.Context, domainRuntime.ArrowRuntime)) error
+	RecordPendingActivationFn    func(
+		ctx context.Context,
+		ns domain.Namespace,
+		pending domainRuntime.PendingActivation,
+	) error
+	MarkActivatingFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	ClearPendingActivationFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	ReconcileVersionBadgeFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -771,6 +786,41 @@ func (m *MockRuntime) ClearVersionBadge(ctx context.Context, ns domain.Namespace
 func (m *MockRuntime) MarkReady(ctx context.Context, ns domain.Namespace) error {
 	if m.MarkReadyFn != nil {
 		return m.MarkReadyFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) RecordPendingActivation(ctx context.Context, ns domain.Namespace, pending domainRuntime.PendingActivation) error {
+	if m.RecordPendingActivationFn != nil {
+		return m.RecordPendingActivationFn(ctx, ns, pending)
+	}
+	return nil
+}
+
+func (m *MockRuntime) MarkActivating(ctx context.Context, ns domain.Namespace) error {
+	if m.MarkActivatingFn != nil {
+		return m.MarkActivatingFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) ClearPendingActivation(ctx context.Context, ns domain.Namespace) error {
+	if m.ClearPendingActivationFn != nil {
+		return m.ClearPendingActivationFn(ctx, ns)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimeActivationStaged(fn func(context.Context, domainRuntime.ArrowRuntime)) error {
+	if m.OnRuntimeActivationStagedFn != nil {
+		return m.OnRuntimeActivationStagedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimeActivationCleared(fn func(context.Context, domainRuntime.ArrowRuntime)) error {
+	if m.OnRuntimeActivationClearedFn != nil {
+		return m.OnRuntimeActivationClearedFn(fn)
 	}
 	return nil
 }
@@ -1258,6 +1308,10 @@ type MockLifecycle struct {
 		ns domain.Namespace,
 		vars map[string]string,
 	) (bool, error)
+	ActivateFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (bool, error)
 	StopFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -1301,6 +1355,13 @@ func (m *MockLifecycle) Execute(ctx context.Context, ns domain.Namespace, method
 func (m *MockLifecycle) Update(ctx context.Context, ns domain.Namespace, vars map[string]string) (bool, error) {
 	if m.UpdateFn != nil {
 		return m.UpdateFn(ctx, ns, vars)
+	}
+	return false, nil
+}
+
+func (m *MockLifecycle) Activate(ctx context.Context, ns domain.Namespace) (bool, error) {
+	if m.ActivateFn != nil {
+		return m.ActivateFn(ctx, ns)
 	}
 	return false, nil
 }

@@ -53,6 +53,7 @@ func (c BeginStop) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.
 			PID:       pid,
 			WorkDir:   c.WorkDir,
 		},
-		LastReturn: preserveLastReturn(current),
+		LastReturn:        preserveLastReturn(current),
+		PendingActivation: preservePendingActivation(current),
 	}
 }

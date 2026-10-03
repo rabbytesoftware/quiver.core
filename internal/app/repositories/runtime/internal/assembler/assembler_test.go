@@ -296,3 +296,74 @@ func TestAssemble_RefVariable(t *testing.T) {
 		})
 	}
 }
+
+type recordingReleases struct {
+	got    domain.Namespace
+	values map[string]string
+}
+
+func (r *recordingReleases) Resolve(
+	_ context.Context,
+	ns domain.Namespace,
+	_ domain.OS,
+	_ []string,
+) (map[string]string, error) {
+	r.got = ns
+	return r.values, nil
+}
+
+func releaseBoundUpdateArrow() *domain.Arrow {
+	return &domain.Arrow{
+		Namespace: domain.Namespace("github.com/user/repo@nightly-latest"),
+		Resolved:  domain.Resolved{Ref: "nightly-old"},
+		Variables: []domain.Variable{{Name: "ASSET_URL", From: domain.VarSourceReleaseAsset}},
+		Targets: map[domain.OS]domain.Target{
+			testOs(): {
+				Lifecycle: domain.TargetLifecycle{
+					Update: domainStep.StepList{
+						domainStep.NewRunStep("update", "fetch ${ASSET_URL}", false, "", true),
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestAssemble_ReleaseBound_ResolvesAgainstTheInstalledRef(t *testing.T) {
+	arrow := releaseBoundUpdateArrow()
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+	releases := &recordingReleases{values: map[string]string{domain.VarSourceReleaseAsset: "https://example.test/old"}}
+	asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), nil, nil, testOs(), assembler.WithReleaseResolver(releases))
+
+	result, err := asm.Assemble(context.Background(), arrow.Namespace, domain.MethodUpdate, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/repo@nightly-old"), releases.got)
+	assert.Equal(t, "https://example.test/old", result.Variables["ASSET_URL"])
+}
+
+func TestAssemble_ReleaseBound_UpdateResolvesAgainstTheTargetRef(t *testing.T) {
+	arrow := releaseBoundUpdateArrow()
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+	releases := &recordingReleases{values: map[string]string{domain.VarSourceReleaseAsset: "https://example.test/new"}}
+	asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), nil, nil, testOs(), assembler.WithReleaseResolver(releases))
+
+	result, err := asm.Assemble(context.Background(), arrow.Namespace, domain.MethodUpdate, nil, assembler.WithTargetRef("nightly-new"))
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.Namespace("github.com/user/repo@nightly-new"), releases.got)
+	assert.Equal(t, "nightly-new", result.Variables[domain.VarRef])
+}
+
+func TestAssemble_ReleaseBound_FallsBackToTheSelectorWhenNothingIsResolved(t *testing.T) {
+	arrow := releaseBoundUpdateArrow()
+	arrow.Resolved = domain.Resolved{}
+	getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
+	releases := &recordingReleases{values: map[string]string{domain.VarSourceReleaseAsset: "u"}}
+	asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), nil, nil, testOs(), assembler.WithReleaseResolver(releases))
+
+	_, err := asm.Assemble(context.Background(), arrow.Namespace, domain.MethodUpdate, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, arrow.Namespace, releases.got)
+}

@@ -36,13 +36,15 @@ type CatalogHooks struct {
 	// RefreshManifest resolves the manifest again from its host, at the release
 	// method is running, and stages the result on the arrow.
 	RefreshManifest func(ctx context.Context, ns domain.Namespace, method string) error
-	// Reassemble rebuilds a method's steps from the arrow as it now stands.
+	// Reassemble rebuilds a method's steps and variables from the arrow as it
+	// now stands. The variables matter on their own: a release-bound one is
+	// asked of its release again.
 	Reassemble func(
 		ctx context.Context,
 		ns domain.Namespace,
 		method string,
 		vars map[string]string,
-	) ([]domainStep.Step, error)
+	) ([]domainStep.Step, map[string]string, error)
 }
 
 // drainExecution translates one wizard execution's events into commands on the

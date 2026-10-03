@@ -180,6 +180,7 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 | State | `state` | `string` | One of: `absent`, `installing`, `updating`, `ready`, `running`, `stopping`, `draining`, `detached`, `uninstalling`, `removed`, `outdated` (see [domain.md § ArrowState](domain.md#3-arrowstate-and-the-runtime-state-machine)). |
 | ActiveRun | `active_run` | `RunRecordDTO \| null` | `omitempty` — `null` when no execution is in progress. |
 | LastReturn | `last_return` | `ReturnDTO \| null` | `omitempty` — `null` when no execution has completed yet. |
+| PendingActivation | `pending_activation` | `{version, staged_at} \| null` | Always present; `null` unless an update whose manifest declares `activation: restart` finished and staged a binary that waits for `POST /v0/runtime/{ns}/activate` (`staged_at` is RFC 3339 UTC). Broadcast when it is staged and when it is cleared. |
 
 `settling` (an update that has not committed yet) is a REST-only field of `GET /v0/runtime[/{ns}]`: WebSocket events do not carry it, so idle decisions must use the REST runtime read ([http-api.md](http-api.md)).
 

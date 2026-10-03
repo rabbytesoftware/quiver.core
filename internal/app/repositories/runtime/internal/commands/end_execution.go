@@ -41,12 +41,26 @@ func (c EndExecution) EmitEvent(current *domainRuntime.ArrowRuntime) domainRunti
 	newState := stateAfterEnd(exec.Method, c.Outcome)
 
 	return domainRuntime.ArrowRuntime{
-		Ref:            c.Namespace,
-		State:          newState,
-		Execution:      nil,
-		LastReturn:     &ret,
-		PendingDepSync: current.PendingDepSync,
+		Ref:               c.Namespace,
+		State:             newState,
+		Execution:         nil,
+		LastReturn:        &ret,
+		PendingDepSync:    current.PendingDepSync,
+		PendingActivation: pendingAfterEnd(current, exec.Method, c.Outcome),
 	}
+}
+
+// pendingAfterEnd keeps what an earlier method staged, except through an
+// uninstall that took the arrow away: nothing is left to activate.
+func pendingAfterEnd(
+	current *domainRuntime.ArrowRuntime,
+	method string,
+	outcome domainRuntime.ExecutionOutcome,
+) *domainRuntime.PendingActivation {
+	if method == domain.MethodUninstall && outcome == domainRuntime.ExecutionOutcomeSuccess {
+		return nil
+	}
+	return current.PendingActivation
 }
 
 func stateAfterEnd(method string, outcome domainRuntime.ExecutionOutcome) domain.ArrowState {

@@ -113,6 +113,33 @@ func TestUpdate_StatusFollowsWhetherAnUpdateStarted(t *testing.T) {
 	}
 }
 
+func TestActivate_StatusFollowsWhetherAHandoverStarted(t *testing.T) {
+	testCases := []struct {
+		name    string
+		started bool
+		err     error
+		want    int
+	}{
+		{name: "a handover that started", started: true, want: http.StatusAccepted},
+		{name: "nothing staged is an idempotent no-op", want: http.StatusOK},
+		{name: "a process that cannot restart itself", err: apperrors.ErrStateViolation, want: http.StatusUnprocessableEntity},
+		{name: "a row that is not catalogued", err: apperrors.ErrNotFound, want: http.StatusNotFound},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &mocks.RuntimeService{ActivateStarted: tc.started, ActivateErr: tc.err}
+			_, r := setup(svc)
+			w := httptest.NewRecorder()
+
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/activate", nil))
+
+			assert.Equal(t, tc.want, w.Code)
+			assert.Equal(t, 1, svc.ActivateCalls)
+		})
+	}
+}
+
 func TestUninstall_Accepted(t *testing.T) {
 	_, r := setup(nil)
 	w := httptest.NewRecorder()

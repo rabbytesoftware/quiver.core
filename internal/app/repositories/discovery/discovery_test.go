@@ -192,6 +192,14 @@ func (s *stubManifold) ResolveArrowAtCommit(
 	return nil, nil, "", errors.New("not used")
 }
 
+func (s *stubManifold) ResolveReleaseAsset(
+	_ context.Context,
+	_ domain.Namespace,
+	_ domain.OS,
+) (domain.ReleaseAsset, error) {
+	return domain.ReleaseAsset{}, errors.New("not used")
+}
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 func newVault(t *testing.T) vault.Vault {

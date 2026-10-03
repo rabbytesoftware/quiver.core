@@ -203,32 +203,101 @@ func TestRuntimeOnUpdateEnded_ReconcileBadgeFails_IsOnlyLogged(t *testing.T) {
 	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge failed"}, log.all())
 }
 
-// A failed update of quiver.core's own row leaves the running build in
-// charge, so its manifest is put back like any other row's; a succeeded one
-// is left to the relaunched build.
-func TestRuntimeOnUpdateEnded_SelfNamespace_RestoresOnlyAfterFailure(t *testing.T) {
-	self, _ := metadata.GetSelfNamespaces()
-	selfRow := self.WithRef("stable")
+type stagerLog struct {
+	log *callLog
+	err error
+}
 
+func (s *stagerLog) Stage(_ context.Context, rt domainRuntime.ArrowRuntime, target domain.Available) error {
+	s.log.add("stage " + rt.Ref.String() + " " + target.Commit)
+	return s.err
+}
+
+// activationArrow is a row whose update declares that it only takes effect
+// once the daemon restarts.
+func activationArrow(a *mocks.MockArrow) {
+	inner := a.GetFn
+	a.GetFn = func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+		row, err := inner(ctx, ns)
+		row.Targets = map[domain.OS]domain.Target{
+			domain.CurrentOS(): {Activation: map[string]string{"update": domain.ActivationRestart}},
+		}
+		return row, err
+	}
+}
+
+// An update whose manifest declares activation: restart is not committed: the
+// row keeps naming what is installed until the restart that applies it, so a
+// succeeded one stages what it produced instead, and a failed one restores
+// the installed manifest like any other row's.
+func TestRuntimeOnUpdateEnded_ActivationRestart_StagesInsteadOfCommitting(t *testing.T) {
 	testCases := []struct {
-		name    string
-		outcome domainRuntime.ExecutionOutcome
-		want    []string
+		name     string
+		outcome  domainRuntime.ExecutionOutcome
+		stageErr error
+		want     []string
 	}{
+		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"stage " + rollingRow.String() + " c2", "reconcile badge"}},
+		{name: "succeeded but staging fails", outcome: domainRuntime.ExecutionOutcomeSuccess, stageErr: errors.New("digest unreadable"), want: []string{"stage " + rollingRow.String() + " c2", "reconcile badge"}},
 		{name: "failed", outcome: domainRuntime.ExecutionOutcomeFailed, want: []string{"restore c1", "reconcile badge"}},
-		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"reconcile badge"}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			a, rt, log := commitFixture(true, nil)
-			uc := newUC(a, rt, &mocks.MockGraph{})
+			activationArrow(a)
+			uc := newUCWithStager(a, rt, &mocks.MockGraph{}, &stagerLog{log: log, err: tc.stageErr})
+			uc.targets.Put(rollingRow, rollingTarget())
 
-			uc.onUpdateEnded(context.Background(), updateEnded(selfRow, tc.outcome))
+			uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, tc.outcome))
 
 			assert.Equal(t, tc.want, log.all())
+			_, remembered := uc.targets.Take(rollingRow)
+			assert.False(t, remembered, "the bracket's target is released either way")
 		})
 	}
+}
+
+// quiver.core's own row is a row like any other: with no activation declared
+// its update is committed, and the namespace decides nothing.
+func TestRuntimeOnUpdateEnded_SelfNamespaceWithoutActivation_CommitsLikeAnyOtherRow(t *testing.T) {
+	self, _ := metadata.GetSelfNamespaces()
+	selfRow := self.WithRef("stable")
+	a, rt, log := commitFixture(true, nil)
+	uc := newUCWithStager(a, rt, &mocks.MockGraph{}, &stagerLog{log: log})
+	uc.targets.Put(selfRow, rollingTarget())
+
+	uc.onUpdateEnded(context.Background(), updateEnded(selfRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
+}
+
+// A settler built without a stager cannot defer anything, so a declared
+// activation does not stop it from committing.
+func TestRuntimeOnUpdateEnded_ActivationWithoutAStager_Commits(t *testing.T) {
+	a, rt, log := commitFixture(true, nil)
+	activationArrow(a)
+	uc := newUC(a, rt, &mocks.MockGraph{})
+	uc.targets.Put(rollingRow, rollingTarget())
+
+	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
+}
+
+// A row that cannot be read declares nothing, so the settling goes on the way
+// it does for any other row.
+func TestRuntimeOnUpdateEnded_RowUnreadable_SettlesAsNoActivation(t *testing.T) {
+	a, rt, log := commitFixture(true, nil)
+	a.GetFn = func(context.Context, domain.Namespace) (*domain.Arrow, error) {
+		return nil, errors.New("event store down")
+	}
+	uc := newUCWithStager(a, rt, &mocks.MockGraph{}, &stagerLog{log: log})
+	uc.targets.Put(rollingRow, rollingTarget())
+
+	uc.onUpdateEnded(context.Background(), updateEnded(rollingRow, domainRuntime.ExecutionOutcomeSuccess))
+
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
 }
 
 // The commit leaves the runtime aggregate's ordered delivery before it
