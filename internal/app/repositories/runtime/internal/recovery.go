@@ -3,14 +3,11 @@ package runtimeinternal
 import (
 	"context"
 	"log/slog"
-	"strings"
 
 	"github.com/char2cs/asynx"
-	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
@@ -102,7 +99,7 @@ func recoverRunning(
 	}
 
 	if pid > 0 && w.ProcessAlive(pid) {
-		cmd := recoveryCommandFor(ns, rt)
+		cmd := runtimecmds.RecordDetached{Namespace: ns}
 		if _, err := axRuntime.SendWait(ctx, cmd); err != nil {
 			slog.WarnContext(
 				ctx,
@@ -132,23 +129,6 @@ func recoverRunning(
 		domain.ArrowStateRunning,
 		axRuntime,
 	)
-}
-
-// recoveryCommandFor chooses RecordSelfRestored only for quiver.core's own
-// self-namespace — every other arrow always gets RecordDetached, preserving
-// today's "user must stop and restart to restore monitoring" contract. A
-// process surviving alongside a crashed quiver.core is exactly the case that
-// contract exists for; it is quiver.core's own deliberate self-restart that is
-// the one exception.
-func recoveryCommandFor(
-	ns domain.Namespace,
-	rt domainRuntime.ArrowRuntime,
-) asynxModels.Command[domainRuntime.ArrowRuntime] {
-	self, _ := metadata.GetSelfNamespaces()
-	if strings.HasPrefix(ns.String(), string(self)+"@") {
-		return runtimecmds.RecordSelfRestored{Namespace: ns, Execution: rt.Execution}
-	}
-	return runtimecmds.RecordDetached{Namespace: ns}
 }
 
 func sendRecoverInterrupted(
