@@ -39,10 +39,12 @@ func fileIsTTY(f *os.File) bool {
 }
 
 // shouldManageDaemon reports whether the invocation may stop an idle local
-// daemon afterwards. Running the daemon itself is exempt.
+// daemon afterwards. Running the daemon itself is exempt, and so is
+// self-update, which replaces the daemon: the pid file it would signal names
+// the one that was just stopped.
 func shouldManageDaemon(args []string) bool {
 	for _, arg := range args {
-		if arg == "daemon" {
+		if arg == "daemon" || arg == "self-update" {
 			return false
 		}
 		if len(arg) > 0 && arg[0] != '-' {

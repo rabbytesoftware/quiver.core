@@ -182,7 +182,7 @@ func buildDaemonCmdIn(self, dir string) (*exec.Cmd, string, error) {
 	}
 
 	cmd := exec.Command(self, "daemon") // #nosec G204 -- argv is a literal; self is os.Executable()
-	cmd.SysProcAttr = detachAttrs()
+	cmd.SysProcAttr = DetachAttrs()
 	cmd.Stdout = nil
 	cmd.Stderr = stderrFile
 

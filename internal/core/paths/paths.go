@@ -8,6 +8,7 @@ package paths
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
@@ -118,4 +119,18 @@ func BinAt(
 	homeDir string,
 ) (string, error) {
 	return ensure(metadata.GetBinPathAt(homeDir))
+}
+
+// SelfAsidePrefix names the files a self-update moves the previous binary to,
+// next to the self path.
+const SelfAsidePrefix = "quiver.old-"
+
+// SweepSelfAsides removes the previous binaries earlier self-updates left in
+// dir. It is best effort: a file that cannot be removed now (still running on
+// Windows) is swept at the next boot.
+func SweepSelfAsides(dir string) {
+	stale, _ := filepath.Glob(filepath.Join(dir, SelfAsidePrefix+"*"))
+	for _, path := range stale {
+		_ = os.Remove(path)
+	}
 }

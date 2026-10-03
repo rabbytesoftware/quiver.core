@@ -89,6 +89,7 @@ func TestShouldManageDaemon(t *testing.T) {
 		{"regular command", []string{"list"}, true},
 		{"daemon run", []string{"daemon"}, false},
 		{"daemon with flag", []string{"daemon", "--host", "tcp://:1"}, false},
+		{"self-update", []string{"self-update", "--detached", "/tmp/q"}, false},
 		{"flags before command", []string{"-o", "json", "ps"}, true},
 	}
 	for _, tc := range testCases {
