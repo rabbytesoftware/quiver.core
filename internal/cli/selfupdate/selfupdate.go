@@ -17,11 +17,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/client"
-	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
@@ -108,27 +108,37 @@ func Detach(
 	exe string,
 	args ...string,
 ) error {
-	cmd := exec.Command(exe, args...) // #nosec G204 -- exe is this binary's own path and args are literals plus the new binary's path
-	cmd.SysProcAttr = daemon.DetachAttrs()
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("selfupdate: detach: %w", err)
-	}
-	return cmd.Process.Release()
+	_, err := launch(exe, args, detachAttempts())
+	return err
 }
 
 func startDetached(
 	exe string,
 	args []string,
 ) (int, error) {
-	cmd := exec.Command(exe, args...) // #nosec G204 -- the daemon's own recorded command line
-	cmd.SysProcAttr = daemon.DetachAttrs()
+	return launch(exe, args, detachAttempts())
+}
 
-	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("selfupdate: start %s: %w", exe, err)
+// launch starts exe with the first attributes that let it start: a detach
+// that asks for more (leaving a job on Windows) may be refused where a plainer
+// one is not.
+func launch(
+	exe string,
+	args []string,
+	attempts []*syscall.SysProcAttr,
+) (int, error) {
+	var errs []error
+	for _, attrs := range attempts {
+		cmd := exec.Command(exe, args...) // #nosec G204 G702 -- this binary's own path, or the daemon's own recorded command line
+		cmd.SysProcAttr = attrs
+		if err := cmd.Start(); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		pid := cmd.Process.Pid
+		return pid, cmd.Process.Release()
 	}
-	pid := cmd.Process.Pid
-	return pid, cmd.Process.Release()
+	return 0, fmt.Errorf("selfupdate: start %s: %w", exe, errors.Join(errs...))
 }
 
 // Run replaces the daemon's binary with newBin. The new binary is opened
