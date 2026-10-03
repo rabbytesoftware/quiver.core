@@ -107,14 +107,8 @@ func runSelfUpdate(ctx context.Context, newBin string) error {
 		return err
 	}
 
-	// Stop and the CLI signal the pid in quiver.pid; the daemon this run starts
-	// is not the one that file names.
 	if m, err := daemon.NewManager(); err == nil {
-		updater.Started = func(pid int) {
-			if err := m.RecordPID(pid); err != nil {
-				slog.WarnContext(ctx, "self-update: record daemon pid", "err", err)
-			}
-		}
+		updater.Started = followPID(ctx, m)
 	}
 
 	err = updater.Run(ctx, newBin)
@@ -122,4 +116,20 @@ func runSelfUpdate(ctx context.Context, newBin string) error {
 		slog.ErrorContext(ctx, "self-update failed", "err", err)
 	}
 	return err
+}
+
+// followPID keeps quiver.pid naming the daemon the update starts, but only
+// when the file exists now: it means the CLI booted the daemon being replaced.
+// Writing it for a daemon someone else started (the desktop app, a service
+// manager) would hand it to the CLI's stop-when-idle, which shuts down any
+// daemon the file names.
+func followPID(ctx context.Context, m *daemon.Manager) func(pid int) {
+	if _, err := m.ReadPID(); err != nil {
+		return nil
+	}
+	return func(pid int) {
+		if err := m.RecordPID(pid); err != nil {
+			slog.WarnContext(ctx, "self-update: record daemon pid", "err", err)
+		}
+	}
 }

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
 )
 
 type selfUpdateCalls struct {
@@ -185,4 +187,19 @@ func TestRunSelfUpdate_NoDaemonIsReportedAndLogged(t *testing.T) {
 	logged, readErr := os.ReadFile(filepath.Join(home, "logs", "self-update.log")) // #nosec G304 -- a temp dir this test owns
 	require.NoError(t, readErr)
 	assert.Contains(t, string(logged), "self-update failed")
+}
+
+func TestFollowPID_OnlyFollowsADaemonTheCLIBooted(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "quiver.pid")
+	m := &daemon.Manager{PIDFile: pidFile}
+
+	assert.Nil(t, followPID(context.Background(), m), "no pid file: someone else started the daemon, so nothing may name it")
+
+	require.NoError(t, m.RecordPID(100))
+	follow := followPID(context.Background(), m)
+	require.NotNil(t, follow)
+	follow(200)
+	pid, err := m.ReadPID()
+	require.NoError(t, err)
+	assert.Equal(t, 200, pid)
 }
