@@ -643,9 +643,9 @@ gives up aborts it, and one that would begin after the drain started is refused.
 nothing is stamped: the row stays outdated at what it had installed, and the next update
 runs the update steps again. That is the same worst case as a target that moved.
 
-quiver.core's own row is excluded from step 7: its update replaces the running daemon (§10.3),
-and the new build adopts its new state on boot (§10.2). A failed update of it is not: the
-running build stays in charge, so its manifest is restored as in step 8.
+quiver.core's own row is not special: its update run ends before the daemon is replaced
+(§10.3), so step 7 commits the target as for any row. If the swap then rolls back, the old
+build's boot adopts its own state (§10.2), which moves the row back onto what is running.
 
 ---
 

@@ -192,6 +192,24 @@ func TestAdopt_PresentRow_AdvancesItAndReplacesTheCache(t *testing.T) {
 	assert.Equal(t, yamlManifest, v.PutArrowFiles[0].Content)
 }
 
+// A self-update that rolls back leaves the row advanced to a release the old
+// build never became: the old build's boot adopts its own state and brings the
+// row back, so the settler needs no special case for core.
+func TestAdopt_RowAdvancedByARolledBackUpdate_IsBroughtBackToTheRunningBuild(t *testing.T) {
+	ns := domain.Namespace("github.com/rabbytesoftware/quiver.core@stable")
+	axArrow := newTestAsynxArrow(t)
+	seedSelectorRow(t, axArrow, ns, domain.SelectorChannel, domain.Resolved{Ref: "v1.2.0", Commit: "new222", Fingerprint: "new222"})
+	m := failOnNetworkManifold(t, adoptedManifest("Quiver"))
+	cat := newTestable(&arrowStoreMocks.MockCQRS{}, axArrow, &mocks.Vault{}, m)
+	running := domain.Resolved{Ref: "v1.1.0", Commit: "old111", Fingerprint: "old111"}
+
+	require.NoError(t, cat.Adopt(context.Background(), ns, domain.SelectorChannel, running, []byte("manifest"), "ARROW.md"))
+
+	got, err := axArrow.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, running, got.Resolved)
+}
+
 // Adopt runs on every core boot, so an adopt that changes nothing must write
 // nothing: no event and no cache churn.
 func TestAdopt_UnchangedResolvedAndManifest_WritesNothing(t *testing.T) {

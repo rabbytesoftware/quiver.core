@@ -401,7 +401,7 @@ RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topologi
 
 ### Update arrow (advance)
 
-`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its update replaces the daemon (`quiver self-update`, §2) and the new build adopts on boot.
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row settles like any other (its update ends by handing over to `quiver self-update`, §2); a rolled-back swap is corrected by the old build adopting itself on boot.
 
 ### Runtime reaction flow
 

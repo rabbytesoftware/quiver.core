@@ -3,10 +3,8 @@ package settle
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
@@ -131,8 +129,6 @@ func (s *settler) RestoreAbandoned(
 // remembered target, so the next update is admitted, and settles the row:
 // it commits the target once the update steps succeeded, and otherwise puts
 // the installed release's manifest back on the row.
-// quiver.core's own update is excluded: its relaunched binary adopts its new
-// state on boot.
 //
 // The settling runs detached because this handler is delivered on the
 // runtime aggregate's own ordered event queue, and clearing the badge waits
@@ -192,12 +188,6 @@ func (s *settler) settleUpdate(
 	recorded bool,
 ) {
 	succeeded := rt.LastReturn != nil && rt.LastReturn.Outcome == domainRuntime.ExecutionOutcomeSuccess
-	if isSelfNamespace(rt.Ref) {
-		if !succeeded {
-			s.restoreInstalled(ctx, rt.Ref)
-		}
-		return
-	}
 	if !recorded {
 		if succeeded {
 			slog.WarnContext(ctx, "update: no target recorded for a finished update", "ns", rt.Ref)
@@ -299,11 +289,4 @@ func (s *settler) restoreInstalled(
 	if _, err := s.arrow.RefreshToTarget(ctx, ns, installed); err != nil {
 		slog.WarnContext(ctx, "update: restore the installed manifest", "ns", ns, "err", err)
 	}
-}
-
-// isSelfNamespace reports whether ns is a ref of quiver.core's own self-arrow
-// namespace; the "@" matters, or any namespace merely starting with it would match.
-func isSelfNamespace(ns domain.Namespace) bool {
-	self, _ := metadata.GetSelfNamespaces()
-	return strings.HasPrefix(ns.String(), string(self)+"@")
 }
