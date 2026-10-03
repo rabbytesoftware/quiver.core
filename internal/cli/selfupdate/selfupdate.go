@@ -55,6 +55,10 @@ type Updater struct {
 	Start func(exe string, args []string) (int, error)
 	// Kill ends a process this updater started.
 	Kill func(pid int)
+	// Started, when set, is told the pid of every daemon left running.
+	Started func(pid int)
+	// Socket names the socket Shutdown talks to, for error messages.
+	Socket string
 
 	StopTimeout   time.Duration
 	HealthTimeout time.Duration
@@ -74,6 +78,7 @@ func New(
 
 	return &Updater{
 		Self:     self,
+		Socket:   socket,
 		Shutdown: c.Shutdown,
 		Alive:    alive,
 		Listening: func(ctx context.Context) bool {
@@ -144,7 +149,8 @@ func (u *Updater) Run(
 
 	proc, err := u.Shutdown(ctx)
 	if err != nil {
-		return fmt.Errorf("selfupdate: shutdown: %w", err)
+		return fmt.Errorf("selfupdate: no daemon answered on %s (self-update supports only a daemon on the "+
+			"default local socket, not one started with a custom --host): %w", u.Socket, err)
 	}
 	slog.InfoContext(ctx, "selfupdate: daemon stopping", "pid", proc.PID)
 
@@ -190,6 +196,7 @@ func (u *Updater) startAndCheck(
 		u.poll(ctx, killTimeout, func() bool { return !u.Alive(pid) })
 		return fmt.Errorf("selfupdate: new daemon %d not healthy after %s", pid, u.HealthTimeout)
 	}
+	u.recorded(pid)
 	return nil
 }
 
@@ -294,6 +301,18 @@ func (u *Updater) rollback(
 func (u *Updater) restart(
 	proc dto.ShutdownDTO,
 ) error {
-	_, err := u.Start(proc.Exe, proc.Args)
-	return err
+	pid, err := u.Start(proc.Exe, proc.Args)
+	if err != nil {
+		return err
+	}
+	u.recorded(pid)
+	return nil
+}
+
+func (u *Updater) recorded(
+	pid int,
+) {
+	if u.Started != nil {
+		u.Started(pid)
+	}
 }

@@ -300,3 +300,35 @@ func TestUpdater_Run_AsideStaysUntilTheNewDaemonIsHealthy(t *testing.T) {
 	assert.True(t, asideDuringHealth, "the previous binary must still be there while health is checked")
 	assert.Equal(t, "old", w.content(), "a daemon that died after boot, before health, is rolled back")
 }
+
+func TestUpdater_Run_NoDaemonOnTheSocketNamesTheLimit(t *testing.T) {
+	w := newWorld(t)
+	w.updater.Socket = "/home/u/.quiver/quiver.sock"
+	w.updater.Shutdown = func(context.Context) (dto.ShutdownDTO, error) {
+		return dto.ShutdownDTO{}, errors.New("connection refused")
+	}
+
+	err := w.updater.Run(context.Background(), w.newBin)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "/home/u/.quiver/quiver.sock")
+	assert.Contains(t, err.Error(), "default local socket")
+	assert.Contains(t, err.Error(), "--host")
+}
+
+func TestUpdater_Run_ReportsEveryDaemonItStarts(t *testing.T) {
+	w := newWorld(t)
+	var recorded []int
+	w.updater.Started = func(pid int) { recorded = append(recorded, pid) }
+
+	require.NoError(t, w.updater.Run(context.Background(), w.newBin))
+	assert.Equal(t, []int{201}, recorded)
+
+	w = newWorld(t)
+	recorded = nil
+	w.updater.Started = func(pid int) { recorded = append(recorded, pid) }
+	w.healthy = func(int) bool { return false }
+
+	require.Error(t, w.updater.Run(context.Background(), w.newBin))
+	assert.Equal(t, []int{202}, recorded, "the killed daemon is not recorded; the restored one is")
+}

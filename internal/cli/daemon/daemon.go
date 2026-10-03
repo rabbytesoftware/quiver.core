@@ -292,11 +292,19 @@ func (m *Manager) Ensure(ctx context.Context) error {
 	// file, so cleanup runs after it, not before.
 	defer m.cleanupStderrFile()
 
-	if err := os.WriteFile(m.PIDFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
-		return fmt.Errorf("daemon: write pid file: %w", err)
+	if err := m.RecordPID(pid); err != nil {
+		return err
 	}
 
 	return m.waitLive(ctx)
+}
+
+// RecordPID writes pid as the daemon Stop will signal.
+func (m *Manager) RecordPID(pid int) error {
+	if err := os.WriteFile(m.PIDFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
+		return fmt.Errorf("daemon: write pid file: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) lockPath() string { return m.PIDFile + ".lock" }
