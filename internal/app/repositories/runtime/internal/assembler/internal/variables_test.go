@@ -1161,3 +1161,31 @@ func TestResolveVariables_OwnWorkDirError_IsFatal(t *testing.T) {
 
 	require.ErrorIs(t, err, boom)
 }
+
+func TestResolveVariables_ReferencedRequiredVarGivenEmpty_IsMissingAndNamed(t *testing.T) {
+	ns := testNsForVars()
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		Variables: []domain.Variable{{Name: "QUIVER_RELEASE_ASSET_URL", Default: ""}},
+	}
+	updateSteps := []domainStep.Step{
+		domainStep.NewFetchStep("download", "${QUIVER_RELEASE_ASSET_URL}", "./x", "", "10m", true),
+	}
+
+	_, err := assemblerinternal.ResolveVariables(
+		context.Background(),
+		ns,
+		arrow,
+		domain.Target{},
+		domain.OSLinuxAMD64,
+		testGetArrow(arrow),
+		newTestAsynxRuntimeForVars(t),
+		nil,
+		nil,
+		map[string]string{"QUIVER_RELEASE_ASSET_URL": ""},
+		updateSteps,
+	)
+
+	require.ErrorIs(t, err, apperrors.ErrMissingVariable)
+	assert.Contains(t, err.Error(), "QUIVER_RELEASE_ASSET_URL")
+}
