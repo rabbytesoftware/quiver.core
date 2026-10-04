@@ -4,4 +4,7 @@ package api
 type BuildInfo struct {
 	Version string
 	BuildID string
+	Commit  string
+	BuiltAt string
+	Channel string
 }

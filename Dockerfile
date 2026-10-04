@@ -35,8 +35,9 @@ RUN QUIVER_EPOCH=1775932380; \
     BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 )); \
     RESOLVED_VERSION=${VERSION:-$(git describe --tags --always --dirty --exclude='nightly*' 2>/dev/null || echo dev)}; \
     COMMIT=$(git rev-parse HEAD 2>/dev/null || true); \
+    BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-      -ldflags "-X main.version=${RESOLVED_VERSION} -X main.commit=${COMMIT} -X main.channel=${QUIVER_CHANNEL} -X main.buildID=${BUILD_ID}" \
+      -ldflags "-X main.version=${RESOLVED_VERSION} -X main.commit=${COMMIT} -X main.channel=${QUIVER_CHANNEL} -X main.builtAt=${BUILT_AT} -X main.buildID=${BUILD_ID}" \
       -o quiver ./cmd/quiver
 
 # Stage 2: Create the final image

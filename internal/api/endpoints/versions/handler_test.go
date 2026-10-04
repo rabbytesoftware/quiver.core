@@ -19,7 +19,18 @@ func TestMain(m *testing.M) {
 }
 
 func TestGet(t *testing.T) {
-	h := versions.New("1.2.3", "42", []string{"v0"}, "v0")
+	h := versions.New(
+		versions.Build{
+			Version: "1.2.3",
+			BuildID: "42",
+			Commit:  "9dd0b183177a64ec71a2672d1cd7cf0c70bb4877",
+			BuiltAt: "2026-10-04T13:47:00Z",
+			Channel: "nightly-latest",
+		},
+		[]string{"console.v1"},
+		[]string{"v0"},
+		"v0",
+	)
 
 	r := gin.New()
 	r.GET("/versions", h.Get)
@@ -33,9 +44,13 @@ func TestGet(t *testing.T) {
 	var resp struct {
 		Success bool `json:"success"`
 		Data    struct {
-			Version string `json:"version"`
-			BuildID string `json:"build_id"`
-			API     struct {
+			Version  string   `json:"version"`
+			BuildID  string   `json:"build_id"`
+			Commit   string   `json:"commit"`
+			BuiltAt  string   `json:"built_at"`
+			Channel  string   `json:"channel"`
+			Features []string `json:"features"`
+			API      struct {
 				Supported []string `json:"supported"`
 				Latest    string   `json:"latest"`
 			} `json:"api"`
@@ -46,6 +61,10 @@ func TestGet(t *testing.T) {
 	assert.True(t, resp.Success)
 	assert.Equal(t, "1.2.3", resp.Data.Version)
 	assert.Equal(t, "42", resp.Data.BuildID)
+	assert.Equal(t, "9dd0b183177a64ec71a2672d1cd7cf0c70bb4877", resp.Data.Commit)
+	assert.Equal(t, "2026-10-04T13:47:00Z", resp.Data.BuiltAt)
+	assert.Equal(t, "nightly-latest", resp.Data.Channel)
+	assert.Equal(t, []string{"console.v1"}, resp.Data.Features)
 	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
 	assert.Equal(t, "v0", resp.Data.API.Latest)
 }

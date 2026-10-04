@@ -47,7 +47,7 @@ printf 'N1=%s\nN2=%s\nN3=%s\nS1=%s\nS2=%s\n' "$N1" "$N2" "$N3" "$S1" "$S2" >"$OU
 # build NAME VERSION COMMIT CHANNEL BUILD_ID
 build() {
 	VERSION=$2 COMMIT=$3 CHANNEL=$4 BUILD_ID=$5
-	LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.channel=${CHANNEL} -X main.buildID=${BUILD_ID}"
+	LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.channel=${CHANNEL} -X main.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.buildID=${BUILD_ID}"
 	mkdir -p "$OUT/$1"
 	CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -installsuffix cgo -ldflags "$LDFLAGS" \
 		-o "$OUT/$1/quiver-$TARGETOS-$TARGETARCH" ./cmd/quiver

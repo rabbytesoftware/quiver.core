@@ -219,6 +219,7 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 type internalOpts struct {
 	homeDir         string
 	commit          string
+	builtAt         string
 	channel         string
 	stop            func()
 	listener        net.Listener
@@ -243,6 +244,13 @@ func WithHomeDir(dir string) Option {
 // tag can be told apart from the build already installed.
 func WithCommit(commit string) Option {
 	return func(o *internalOpts) { o.commit = commit }
+}
+
+// WithBuiltAt sets the RFC 3339 UTC time the running build was compiled,
+// which GET /versions reports so a client can tell two builds of the same
+// rolling release apart.
+func WithBuiltAt(builtAt string) Option {
+	return func(o *internalOpts) { o.builtAt = builtAt }
 }
 
 // WithChannel sets the release channel the running build was published under,
@@ -331,7 +339,13 @@ func New(
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
-	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Version: version, BuildID: buildID}, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{
+		Version: version,
+		BuildID: buildID,
+		Commit:  cfg.commit,
+		BuiltAt: cfg.builtAt,
+		Channel: cfg.channel,
+	}, v0Container)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api: %w", err)
