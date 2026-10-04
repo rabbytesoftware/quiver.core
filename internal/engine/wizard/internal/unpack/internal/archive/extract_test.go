@@ -282,7 +282,9 @@ func TestArchive_Extract_ZipHonoursTimeout(t *testing.T) {
 	dir := t.TempDir()
 	from := mocks.WriteFile(t, filepath.Join(dir, "a.zip"), helloZip(t))
 
-	err := runUnpack(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), time.Nanosecond)
+	// A deadline already in the past expires at once on every platform; a 1ns
+	// timeout can still be in the future on Windows, whose clock is coarser.
+	err := runUnpack(t, mocks.TestMaxBytes, from, filepath.Join(dir, "out"), -time.Hour)
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
