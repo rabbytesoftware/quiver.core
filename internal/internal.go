@@ -13,6 +13,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
@@ -44,6 +45,10 @@ type Container struct {
 	// scheme is known — see middleware.AuthGate's doc comment for why that
 	// reaches routes built before the flip.
 	authGate *middleware.AuthGate
+
+	// consoleAddress is the same holder the v0 router's console reads. Start
+	// records the daemon's own dial address in it once the listener is bound.
+	consoleAddress command.Address
 
 	// listener is set only via WithGateway -- PrepareGateway's caller already
 	// paid for the bind before New ever touched the adapter layer, so Start
@@ -212,6 +217,7 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
+	c.consoleAddress.Set(gateway.DialURI(listener.Addr()))
 
 	return listener, nil
 }
@@ -333,7 +339,7 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v0Container, err := apiv0.New(appContainer)
+	v0Container, err := apiv0.New(appContainer, apiv0.WithVersion(version))
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
@@ -357,6 +363,7 @@ func New(
 	// scheme PrepareGateway already resolved it from.
 	if cfg.listener != nil {
 		v0Container.AuthGate.SetRequired(cfg.scheme == "tcp")
+		v0Container.ConsoleAddress.Set(gateway.DialURI(cfg.listener.Addr()))
 	}
 
 	return &Container{
@@ -365,6 +372,7 @@ func New(
 		App:             appContainer,
 		API:             apiContainer,
 		authGate:        v0Container.AuthGate,
+		consoleAddress:  v0Container.ConsoleAddress,
 		listener:        cfg.listener,
 		recommendations: cfg.recommendations,
 		loggerShutdown:  loggerShutdown,

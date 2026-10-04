@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
@@ -106,6 +107,37 @@ func LocalURI(
 		return "npipe://" + name
 	}
 	return "unix://" + socket
+}
+
+// DialURI turns the address a bound listener reports into the host URI a client
+// on the same machine dials to reach it. A TCP listener bound to every
+// interface is reached through loopback.
+func DialURI(
+	addr net.Addr,
+) string {
+	if addr == nil {
+		return ""
+	}
+	if strings.HasPrefix(addr.String(), pipePrefix) {
+		return LocalURI(addr.String())
+	}
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		return "tcp://" + net.JoinHostPort(dialHost(tcp.IP), strconv.Itoa(tcp.Port))
+	}
+	return "unix://" + addr.String()
+}
+
+func dialHost(
+	ip net.IP,
+) string {
+	switch {
+	case ip == nil || ip.Equal(net.IPv4zero):
+		return "127.0.0.1"
+	case ip.IsUnspecified():
+		return "::1"
+	default:
+		return ip.String()
+	}
 }
 
 // Dial connects to a local daemon endpoint as LocalSocket returns it.

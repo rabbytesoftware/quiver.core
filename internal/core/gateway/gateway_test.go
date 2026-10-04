@@ -149,3 +149,24 @@ func TestNew_NPipeScheme_UnsupportedOffWindows(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestDialURI(t *testing.T) {
+	cases := map[string]net.Addr{
+		"unix:///tmp/quiver.sock": &net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"},
+		"tcp://127.0.0.1:40257":   &net.TCPAddr{IP: net.IPv4zero, Port: 40257},
+		"tcp://[::1]:40257":       &net.TCPAddr{IP: net.IPv6unspecified, Port: 40257},
+		"tcp://10.1.2.3:9000":     &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 9000},
+		"tcp://[fe80::1]:9000":    &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 9000},
+		"tcp://127.0.0.1:0":       &net.TCPAddr{Port: 0},
+		"npipe://quiver":          namedAddr(`\\.\pipe\quiver`),
+		"":                        nil,
+	}
+	for want, addr := range cases {
+		assert.Equal(t, want, gateway.DialURI(addr), want)
+	}
+}
+
+type namedAddr string
+
+func (a namedAddr) Network() string { return "pipe" }
+func (a namedAddr) String() string  { return string(a) }

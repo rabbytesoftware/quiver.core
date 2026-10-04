@@ -47,8 +47,19 @@ func RedactValue(
 func scrub(
 	text string,
 ) string {
-	text = bearerValue.ReplaceAllString(text, "${1}"+Redacted)
-	return userinfo.ReplaceAllString(text, "${1}"+Redacted+"@")
+	if mentionsBearer(text) {
+		text = bearerValue.ReplaceAllString(text, "${1}"+Redacted)
+	}
+	if strings.Contains(text, "://") {
+		text = userinfo.ReplaceAllString(text, "${1}"+Redacted+"@")
+	}
+	return text
+}
+
+func mentionsBearer(
+	text string,
+) bool {
+	return strings.Contains(strings.ToLower(text), "bearer")
 }
 
 // RedactLine returns a command line with every secret-looking value replaced,

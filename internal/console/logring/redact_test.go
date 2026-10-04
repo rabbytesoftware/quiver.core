@@ -53,3 +53,13 @@ func TestLevelHelpers(t *testing.T) {
 	assert.Equal(t, "error", logring.LevelName(12))
 	assert.Equal(t, "warn", logring.LevelName(5))
 }
+
+func TestRedactValue_BearerCredentialsAnyCase(t *testing.T) {
+	for _, in := range []string{"Bearer abc", "BEARER abc", "bEaReR abc", "sent bearer  abc.def"} {
+		got, _ := logring.RedactValue("hdr", in).(string)
+		assert.NotContains(t, got, "abc", in)
+		assert.Contains(t, got, logring.Redacted, in)
+	}
+	assert.Equal(t, "no secrets here", logring.RedactValue("hdr", "no secrets here"))
+	assert.Equal(t, "https://host/path", logring.RedactValue("url", "https://host/path"))
+}

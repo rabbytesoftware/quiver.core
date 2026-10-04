@@ -413,6 +413,35 @@ func (c *Client) DialRuntime(ns string) (*websocket.Conn, error) {
 	return conn, err
 }
 
+// ConsoleExec runs one console command line and returns the response, whose
+// body is the newline-delimited JSON frame stream.
+func (c *Client) ConsoleExec(line string) *http.Response {
+	c.t.Helper()
+	body, err := json.Marshal(map[string]string{"line": line})
+	if err != nil {
+		c.t.Fatalf("Client.ConsoleExec: marshal: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.url("/v0/console/exec"), bytes.NewReader(body))
+	if err != nil {
+		c.t.Fatalf("Client.ConsoleExec: create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.t.Fatalf("Client.ConsoleExec: do request: %v", err)
+	}
+	return resp
+}
+
+// DialConsoleLogs opens the console log stream; query is appended verbatim,
+// for example "?level=debug".
+func (c *Client) DialConsoleLogs(query string) (*websocket.Conn, error) {
+	c.t.Helper()
+	wsURL := strings.Replace(c.baseURL, "http://", "ws://", 1) + "/v0/console/logs" + query
+	conn, _, err := unixWSDialer(c.socketPath).Dial(wsURL, nil) //nolint:bodyclose
+	return conn, err
+}
+
 func (c *Client) url(path string) string {
 	return c.baseURL + path
 }

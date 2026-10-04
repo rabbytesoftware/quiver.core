@@ -6,6 +6,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/arrows"
 	authendpoint "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/auth"
 	quivers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/collections"
+	consoleendpoint "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/health"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/home"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime"
@@ -29,6 +30,7 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	search.Register(protected, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
 	home.Register(protected, c.homeSvc)
 	system.Register(protected, c.configSvc, c.pathSvc, c.systemSvc)
+	consoleendpoint.Register(protected, c.consoleLogs, c.consoleExec)
 	health.Register(rg)
 	authendpoint.Register(rg, c.authSvc, c.AuthGate, c.rateLimiter)
 }

@@ -21,6 +21,7 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -324,6 +325,7 @@ func BuildEnv(
 
 	ln, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
+	v0Container.ConsoleAddress.Set(gateway.DialURI(ln.Addr()))
 
 	baseURL := "http://localhost"
 	runDone := make(chan struct{})

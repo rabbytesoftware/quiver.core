@@ -9,6 +9,8 @@ import (
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
+	"github.com/rabbytesoftware/quiver.core/internal/console/command"
+	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 )
 
@@ -31,13 +33,28 @@ type Container struct {
 	// for why a later SetRequired call still reaches every route already
 	// built into the router.
 	AuthGate *middleware.AuthGate
+
+	// ConsoleAddress is where internal.Container.Start records the address the
+	// daemon's own console commands dial, once its listener is bound. The
+	// router is built before that address exists, so the executor reads it
+	// lazily.
+	ConsoleAddress command.Address
+
+	consoleLogs logring.Ring
+	consoleExec command.Executor
 }
 
 func New(
 	appContainer *app.Container,
+	opts ...Option,
 ) (*Container, error) {
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
+	}
+
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	var wsOpts []wshandler.Option
@@ -60,6 +77,8 @@ func New(
 		return nil, fmt.Errorf("v0: %w", err)
 	}
 
+	address := command.NewAddress()
+
 	return &Container{
 		arrowSvc:      appContainer.Arrow,
 		runtimeSvc:    appContainer.Runtime,
@@ -74,6 +93,10 @@ func New(
 		wsHandler:     wsHandler,
 		rateLimiter:   rateLimiter,
 		AuthGate:      authGate,
+
+		ConsoleAddress: address,
+		consoleLogs:    logring.Default(),
+		consoleExec:    command.New(command.Options{ServerURI: address.Get, Version: cfg.version}),
 	}, nil
 }
 
