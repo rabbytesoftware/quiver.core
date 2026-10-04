@@ -435,3 +435,17 @@ func TestMetadataYAML_PlatformsAgreeWithDefault(t *testing.T) {
 
 	assert.Equal(t, defaultMetadata().Platforms, parsed.Platforms)
 }
+
+func TestGetRunPath(t *testing.T) {
+	path := GetRunPath()
+	assert.True(
+		t,
+		strings.HasSuffix(path, "/run") || strings.HasSuffix(path, `\run`),
+		"expected path to end in /run, got: %s", path,
+	)
+}
+
+func TestGetRunPathAt_UsesProvidedHome(t *testing.T) {
+	home := t.TempDir()
+	assert.Equal(t, filepath.Join(home, "run"), GetRunPathAt(home))
+}

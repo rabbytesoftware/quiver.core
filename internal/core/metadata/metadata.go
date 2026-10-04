@@ -57,6 +57,7 @@ type Paths struct {
 	Vault      string          `yaml:"vault"`
 	Self       string          `yaml:"self"`
 	Bin        string          `yaml:"bin"`
+	Run        string          `yaml:"run"`
 }
 
 // Kind names the host a platform is, which is what decides how its answers are
@@ -248,6 +249,14 @@ func GetBinPathAt(
 	return resolvePath(Get().Paths.Bin, homeDir)
 }
 
+func GetRunPath() string {
+	return resolvePath(Get().Paths.Run, resolveHome())
+}
+
+func GetRunPathAt(homeDir string) string {
+	return resolvePath(Get().Paths.Run, homeDir)
+}
+
 // resolvePath replaces {{home}} in a path template with the resolved home,
 // then normalizes separators to the OS-native form.
 func resolvePath(tmpl, home string) string {
@@ -295,6 +304,7 @@ func defaultMetadata() *Metadata {
 			Vault:      "{{home}}/vault",
 			Self:       "{{home}}/self",
 			Bin:        "{{home}}/bin",
+			Run:        "{{home}}/run",
 		},
 		Namespaces: Namespaces{
 			Core:    "github.com/rabbytesoftware/quiver.core",

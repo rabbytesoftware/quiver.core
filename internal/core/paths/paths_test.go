@@ -192,3 +192,13 @@ func TestSweepSelfAsides_RemovesOnlyAsides(t *testing.T) {
 func TestSweepSelfAsides_MissingDirIsFine(t *testing.T) {
 	assert.NotPanics(t, func() { paths.SweepSelfAsides(filepath.Join(t.TempDir(), "nope")) })
 }
+
+func TestRunAt_CreatesDir(t *testing.T) {
+	home := t.TempDir()
+	got, err := paths.RunAt(home)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, "run"), got)
+	info, statErr := os.Stat(got)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}

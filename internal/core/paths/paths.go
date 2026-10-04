@@ -121,6 +121,22 @@ func BinAt(
 	return ensure(metadata.GetBinPathAt(homeDir))
 }
 
+// Run returns the absolute path to the arrow surface socket directory,
+// creating it if it does not exist.
+func Run() (string, error) {
+	return ensure(
+		metadata.GetRunPath(),
+	)
+}
+
+// RunAt returns the absolute path to the arrow surface socket directory rooted
+// at homeDir instead of the process-level HOME, creating it if it does not exist.
+func RunAt(homeDir string) (string, error) {
+	return ensure(
+		metadata.GetRunPathAt(homeDir),
+	)
+}
+
 // SelfAsidePrefix names the files a self-update moves the previous binary to,
 // next to the self path.
 const SelfAsidePrefix = "quiver.old-"
