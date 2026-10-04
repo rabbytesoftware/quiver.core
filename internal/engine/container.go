@@ -18,6 +18,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -29,6 +30,7 @@ type Container struct {
 	Wizard    wizard.Wizard
 	Netbridge netbridge.Netbridge
 	DepTree   deptree.DepTree
+	Surface   surface.Surface
 	// Providers holds one entry per platform. Search is a capability, not an
 	// entry requirement: a platform without a search API still answers where it
 	// serves a raw file and which refs it defaults to, and discovery skips it.
@@ -121,6 +123,12 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		return nil, fmt.Errorf("engine container: %w", err)
 	}
 
+	// Resolved before any store opens, so a failure here owes nothing a close.
+	runDir, err := resolveRunDir(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("engine container: run dir: %w", err)
+	}
+
 	es, err := sqlite.NewEventStore(filepath.Join(
 		eventsPath,
 		"netbridge.db",
@@ -202,11 +210,19 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),
+		Surface:   surface.New(runDir),
 		Providers: providers,
 
 		netbridgeEvents:    es,
 		netbridgeSnapshots: ss,
 	}, nil
+}
+
+func resolveRunDir(cfg engineOpts) (string, error) {
+	if cfg.homeDir != "" {
+		return paths.RunAt(cfg.homeDir)
+	}
+	return paths.Run()
 }
 
 func wizardOptions(
