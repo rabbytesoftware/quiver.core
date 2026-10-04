@@ -19,7 +19,7 @@ import (
 
 func pairedConns(
 	t *testing.T,
-) (server *websocket.Conn, client *websocket.Conn) {
+) (server, client *websocket.Conn) {
 	t.Helper()
 
 	accepted := make(chan *websocket.Conn, 1)
