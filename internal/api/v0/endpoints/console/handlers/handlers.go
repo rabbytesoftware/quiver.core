@@ -16,6 +16,7 @@ const (
 	defaultPerDevice   = 2
 	defaultGlobal      = 8
 	defaultStuckLimit  = 5 * time.Second
+	defaultPingEvery   = 30 * time.Second
 )
 
 // Handlers serves the console endpoints.
@@ -26,6 +27,7 @@ type Handlers struct {
 	execTimeout time.Duration
 	outputLimit int
 	stuckLimit  time.Duration
+	pingEvery   time.Duration
 }
 
 // New returns Handlers reading logs from logs and running commands through
@@ -44,6 +46,7 @@ func New(
 		execTimeout: defaultExecTimeout,
 		outputLimit: defaultOutputLimit,
 		stuckLimit:  defaultStuckLimit,
+		pingEvery:   defaultPingEvery,
 	}
 	for _, opt := range opts {
 		opt(h)

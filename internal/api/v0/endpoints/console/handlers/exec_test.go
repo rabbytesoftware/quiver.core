@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	handlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console/handlers"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
@@ -459,7 +460,12 @@ func TestHandlers_Exec_LogsDeniedAttemptsWithoutSecrets(t *testing.T) {
 }
 
 func TestHandlers_Commands_ReturnsTheExecutorsList(t *testing.T) {
-	exec := &fakeExecutor{describes: []command.CommandInfo{{Path: []string{"arrow", "add"}, Short: "s", Usage: "arrow add <ns>"}}}
+	exec := &fakeExecutor{describes: []command.CommandInfo{{
+		Path:  []string{"arrow", "add"},
+		Short: "s",
+		Usage: "arrow add <ns>",
+		Flags: []command.FlagInfo{{Name: "yes", Shorthand: "y", Usage: "skip", Takes: false}},
+	}}}
 	r := newRouter(exec, nil)
 
 	w := httptest.NewRecorder()
@@ -467,13 +473,13 @@ func TestHandlers_Commands_ReturnsTheExecutorsList(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	var body struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Commands []command.CommandInfo `json:"commands"`
-		} `json:"data"`
+		Success bool                      `json:"success"`
+		Data    apidto.ConsoleCommandsDTO `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.True(t, body.Success)
 	require.Len(t, body.Data.Commands, 1)
 	assert.Equal(t, []string{"arrow", "add"}, body.Data.Commands[0].Path)
+	assert.Equal(t, []apidto.ConsoleFlagDTO{{Name: "yes", Shorthand: "y", Usage: "skip", TakesValue: false}}, body.Data.Commands[0].Flags)
+	assert.NotNil(t, body.Data.Commands[0].Aliases)
 }

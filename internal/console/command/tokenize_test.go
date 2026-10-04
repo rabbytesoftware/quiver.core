@@ -70,3 +70,17 @@ func TestTokenize_LimitsAreInclusive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, tokens, command.MaxTokens)
 }
+
+func TestTokenize_LastTokenOverTheLimitIsRejected(t *testing.T) {
+	_, err := command.Tokenize(strings.Repeat("a ", command.MaxTokens) + "b")
+
+	var lineErr *command.LineError
+	require.True(t, errors.As(err, &lineErr))
+	assert.Contains(t, err.Error(), "too many")
+}
+
+func TestTokenize_ErrorsAreStickyAcrossTheRestOfTheLine(t *testing.T) {
+	_, err := command.Tokenize("a\x00b c d")
+
+	assert.ErrorContains(t, err, "control")
+}

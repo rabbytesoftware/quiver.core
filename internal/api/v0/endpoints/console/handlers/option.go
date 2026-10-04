@@ -33,3 +33,10 @@ func WithStuckLimit(
 ) Option {
 	return func(h *Handlers) { h.stuckLimit = d }
 }
+
+// WithPingInterval sets how often the log stream pings an idle client.
+func WithPingInterval(
+	d time.Duration,
+) Option {
+	return func(h *Handlers) { h.pingEvery = d }
+}

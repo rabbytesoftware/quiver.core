@@ -3,7 +3,9 @@ package logring_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -358,3 +360,102 @@ type failingHandler struct{ slog.Handler }
 
 func (failingHandler) Enabled(context.Context, slog.Level) bool  { return true }
 func (failingHandler) Handle(context.Context, slog.Record) error { return assert.AnError }
+
+type panickyError struct{}
+
+func (panickyError) Error() string { panic("no message") }
+
+func TestRing_Tee_NonFiniteFloatsBecomeStrings(t *testing.T) {
+	ring := logring.New(10)
+	log, _ := logger(t, ring)
+
+	log.Info("floats", "nan", math.NaN(), "inf", math.Inf(1))
+
+	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
+	assert.Equal(t, "NaN", fields["nan"])
+	assert.Equal(t, "+Inf", fields["inf"])
+}
+
+func TestRing_Tee_AnErrorWhoseMessagePanicsIsMarkedUnprintable(t *testing.T) {
+	ring := logring.New(10)
+	handler := ring.Tee(slog.NewTextHandler(io.Discard, nil))
+	record := slog.NewRecord(time.Now(), slog.LevelError, "boom", 0)
+	record.AddAttrs(slog.Any("err", panickyError{}))
+
+	require.NoError(t, handler.Handle(context.Background(), record))
+
+	assert.Equal(t, "[unprintable]", ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields["err"])
+}
+
+func TestRing_Tee_UnsignedAndArbitraryValuesAreKept(t *testing.T) {
+	ring := logring.New(10)
+	log, _ := logger(t, ring)
+
+	log.Info("kinds", "n", uint64(7), "shape", struct{ A int }{A: 1})
+
+	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
+	assert.Equal(t, uint64(7), fields["n"])
+	assert.Equal(t, "{1}", fields["shape"])
+}
+
+func TestRing_Tee_EmptyAttrsAreIgnoredAndUnnamedGroupsInline(t *testing.T) {
+	ring := logring.New(10)
+	log, _ := logger(t, ring)
+
+	log.LogAttrs(context.Background(), slog.LevelInfo, "attrs",
+		slog.Attr{},
+		slog.Group("", slog.Int("inlined", 1)),
+		slog.Any("lazy", lazyValue{}),
+	)
+
+	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
+	assert.Equal(t, map[string]any{"inlined": int64(1), "lazy": "resolved"}, fields)
+}
+
+type lazyValue struct{}
+
+func (lazyValue) LogValue() slog.Value { return slog.StringValue("resolved") }
+
+func TestRing_Tee_ALongComponentIsTruncated(t *testing.T) {
+	ring := logring.New(10)
+	log, _ := logger(t, ring)
+
+	log.Info("long", "component", strings.Repeat("é", 3000))
+
+	component := ring.Snapshot(0, slog.LevelDebug, 1)[0].Component
+	assert.LessOrEqual(t, len(component), 2048+len("…"))
+	assert.True(t, strings.HasSuffix(component, "…"))
+}
+
+func TestRing_Tee_AMessageLongerThanTheCapIsTruncated(t *testing.T) {
+	ring := logring.New(10)
+	log, _ := logger(t, ring)
+
+	log.Info(strings.Repeat("m", 5000))
+
+	assert.True(t, strings.HasSuffix(ring.Snapshot(0, slog.LevelDebug, 1)[0].Msg, "…"))
+}
+
+func TestRing_Tee_EmptyWithAttrsAndWithGroupReturnTheSameHandler(t *testing.T) {
+	handler := logring.New(10).Tee(slog.NewTextHandler(io.Discard, nil))
+
+	assert.Same(t, handler, handler.WithAttrs(nil))
+	assert.Same(t, handler, handler.WithGroup(""))
+}
+
+func TestRing_Tee_AZeroRecordTimeBecomesNow(t *testing.T) {
+	ring := logring.New(10)
+	handler := ring.Tee(slog.NewTextHandler(io.Discard, nil))
+	before := time.Now().UTC().Add(-time.Second)
+
+	require.NoError(t, handler.Handle(context.Background(), slog.NewRecord(time.Time{}, slog.LevelInfo, "now", 0)))
+
+	assert.True(t, ring.Snapshot(0, slog.LevelDebug, 1)[0].Time.After(before))
+}
+
+func TestRing_Tee_DisabledLevelsAreReportedFromTheWrappedHandler(t *testing.T) {
+	handler := logring.New(10).Tee(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	assert.False(t, handler.Enabled(context.Background(), slog.LevelInfo))
+	assert.True(t, handler.Enabled(context.Background(), slog.LevelError))
+}

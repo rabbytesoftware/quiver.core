@@ -34,6 +34,6 @@ func (h *Handlers) Logs(c *gin.Context) {
 		return
 	}
 
-	stream := &logStream{conn: conn, ring: h.logs, params: params, stuckLimit: h.stuckLimit}
+	stream := &logStream{conn: conn, ring: h.logs, params: params, stuckLimit: h.stuckLimit, pingEvery: h.pingEvery}
 	stream.run(c.Request.Context())
 }

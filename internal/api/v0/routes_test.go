@@ -11,6 +11,8 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/console/command"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
@@ -127,4 +129,33 @@ func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/home", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func consoleAppContainer() *app.Container {
+	return &app.Container{
+		Arrow:      &mocks.ArrowService{},
+		Runtime:    &mocks.RuntimeService{},
+		Collection: &mocks.CollectionService{},
+	}
+}
+
+func TestContainer_Register_MountsTheConsoleOnlyWhenGivenOne(t *testing.T) {
+	cases := map[string]struct {
+		opts []Option
+		want int
+	}{
+		"with console":    {opts: []Option{WithConsole(logring.New(1), command.New(command.Options{}))}, want: http.StatusOK},
+		"without console": {opts: nil, want: http.StatusNotFound},
+	}
+	for name, tc := range cases {
+		c, err := New(consoleAppContainer(), tc.opts...)
+		require.NoError(t, err, name)
+		r := gin.New()
+		c.Register(r.Group(""))
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/console/commands", nil))
+
+		assert.Equal(t, tc.want, w.Code, name)
+	}
 }

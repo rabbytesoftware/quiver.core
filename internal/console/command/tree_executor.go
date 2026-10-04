@@ -55,7 +55,6 @@ func (e *treeExecutor) newRoot(
 
 	commands.New(commands.Deps{
 		Version: e.opts.Version,
-		IsTTY:   func() bool { return false },
 		Session: sess,
 	}).Attach(root)
 

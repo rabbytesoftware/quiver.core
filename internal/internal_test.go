@@ -4,10 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -342,4 +346,106 @@ func TestContainer_Start_WithRecommendations_LaunchesTheLoopAndShutsDownCleanly(
 	cancel()
 
 	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
+}
+
+func shortSocketPath(
+	t *testing.T,
+) string {
+	t.Helper()
+
+	f, err := os.CreateTemp("", "qv-int-*.sock")
+	require.NoError(t, err)
+	path := f.Name()
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(path))
+	t.Cleanup(func() { _ = os.Remove(path) })
+	return path
+}
+
+func postExec(
+	c *Container,
+	line string,
+) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/v0/console/exec", strings.NewReader(`{"line":"`+line+`"}`))
+	rec := httptest.NewRecorder()
+	c.API.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestNew_WithGateway_ConsoleCommandsDialTheDaemonsOwnListener(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	ln, scheme, err := PrepareGateway("unix://" + shortSocketPath(t))
+	require.NoError(t, err)
+	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()), WithGateway(ln, scheme))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown() })
+	go func() { _ = c.API.Run(ln) }()
+
+	rec := postExec(c, "health")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"data":"daemon: ok\n"`)
+	assert.Contains(t, rec.Body.String(), `"type":"exit","code":0`)
+}
+
+func TestNew_WithoutAListener_ConsoleExecIsUnavailable(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	assert.Equal(t, http.StatusServiceUnavailable, postExec(c, "health").Code)
+}
+
+func TestNew_AdvertisesTheConsoleFeatureAndBuildStamps(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	c, err := New(
+		context.Background(), "v0.0.0-test", "7",
+		WithHomeDir(t.TempDir()),
+		WithCommit("abc123"),
+		WithBuiltAt("2026-10-04T13:47:00Z"),
+		WithChannel("nightly-latest"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	rec := httptest.NewRecorder()
+	c.API.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/versions", nil))
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"features":["console.v1"]`)
+	assert.Contains(t, body, `"commit":"abc123"`)
+	assert.Contains(t, body, `"built_at":"2026-10-04T13:47:00Z"`)
+	assert.Contains(t, body, `"channel":"nightly-latest"`)
+}
+
+func TestNew_ConsoleLogStreamSeesTheDaemonsOwnLogs(t *testing.T) {
+	c := newTestContainer(t)
+	t.Cleanup(func() { _ = c.Shutdown() })
+
+	slog.Info("console ring probe", "component", "internal-test")
+
+	srv := httptest.NewServer(c.API)
+	defer srv.Close()
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/v0/console/logs?replay=2000", nil) //nolint:bodyclose
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	for {
+		var frame map[string]any
+		require.NoError(t, conn.ReadJSON(&frame))
+		if frame["msg"] == "console ring probe" {
+			assert.Equal(t, "internal-test", frame["component"])
+			return
+		}
+		require.NotEqual(t, "ready", frame["type"], "the probe record must be replayed before ready")
+	}
+}
+
+func TestWithBuiltAt_SetsOption(t *testing.T) {
+	cfg := internalOpts{}
+
+	WithBuiltAt("2026-10-04T13:47:00Z")(&cfg)
+
+	assert.Equal(t, "2026-10-04T13:47:00Z", cfg.builtAt)
 }

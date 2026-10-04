@@ -11,10 +11,10 @@ import (
 
 const (
 	logWriteTimeout = 5 * time.Second
-	logPingInterval = 30 * time.Second
 	logPongTimeout  = 60 * time.Second
 	logReadLimit    = 1024
 	watchInterval   = 250 * time.Millisecond
+	closeGrace      = 250 * time.Millisecond
 )
 
 type logStream struct {
@@ -22,6 +22,7 @@ type logStream struct {
 	ring       logring.Ring
 	params     logParams
 	stuckLimit time.Duration
+	pingEvery  time.Duration
 	last       uint64
 }
 
@@ -43,7 +44,7 @@ func (s *logStream) run(
 		return
 	}
 
-	ping := time.NewTicker(logPingInterval)
+	ping := time.NewTicker(s.pingEvery)
 	defer ping.Stop()
 	for s.step(ctx, sub, ping.C, readDone) {
 	}
@@ -193,7 +194,7 @@ func (s *logStream) checkStuck(
 	}
 
 	message := websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "slow consumer")
-	_ = s.conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(logWriteTimeout))
+	_ = s.conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(closeGrace))
 	_ = s.conn.Close()
 	return false
 }

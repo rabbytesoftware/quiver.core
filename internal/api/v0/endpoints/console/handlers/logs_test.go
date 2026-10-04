@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,9 +24,33 @@ import (
 )
 
 type logsFixture struct {
-	ring   logring.Ring
-	log    *slog.Logger
-	server *httptest.Server
+	ring     logring.Ring
+	log      *slog.Logger
+	server   *httptest.Server
+	released chan struct{}
+}
+
+type spyRing struct {
+	logring.Ring
+	released chan struct{}
+	once     *sync.Once
+}
+
+func (r spyRing) Subscribe(
+	min slog.Level,
+) logring.Subscription {
+	return spySubscription{Subscription: r.Ring.Subscribe(min), released: r.released, once: r.once}
+}
+
+type spySubscription struct {
+	logring.Subscription
+	released chan struct{}
+	once     *sync.Once
+}
+
+func (s spySubscription) Close() {
+	s.Subscription.Close()
+	s.once.Do(func() { close(s.released) })
 }
 
 type smallBufferListener struct{ net.Listener }
@@ -44,15 +70,17 @@ func newLogsFixture(
 	t.Helper()
 
 	ring := logring.New(100)
+	released := make(chan struct{})
+	spy := spyRing{Ring: ring, released: released, once: &sync.Once{}}
 	r := gin.New()
-	r.GET("/console/logs", handlers.New(ring, command.New(command.Options{}), opts...).Logs)
+	r.GET("/console/logs", handlers.New(spy, command.New(command.Options{}), opts...).Logs)
 	server := httptest.NewUnstartedServer(r)
 	server.Listener = smallBufferListener{server.Listener}
 	server.Start()
 	t.Cleanup(server.Close)
 
 	log := slog.New(ring.Tee(slog.NewTextHandler(discard{}, nil)))
-	return &logsFixture{ring: ring, log: log, server: server}
+	return &logsFixture{ring: ring, log: log, server: server, released: released}
 }
 
 type discard struct{}
@@ -67,6 +95,25 @@ func (f *logsFixture) dial(
 
 	url := "ws" + strings.TrimPrefix(f.server.URL, "http") + "/console/logs" + query
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+func (f *logsFixture) dialSmallBuffer(
+	t *testing.T,
+) *websocket.Conn {
+	t.Helper()
+
+	dialer := websocket.Dialer{NetDial: func(network, addr string) (net.Conn, error) {
+		conn, err := net.Dial(network, addr)
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetReadBuffer(2048)
+		}
+		return conn, err
+	}}
+	url := "ws" + strings.TrimPrefix(f.server.URL, "http") + "/console/logs"
+	conn, _, err := dialer.Dial(url, nil) //nolint:bodyclose
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -235,12 +282,11 @@ func TestHandlers_Logs_AClosedClientReleasesItsSubscription(t *testing.T) {
 
 	require.NoError(t, conn.Close())
 
-	assert.Eventually(t, func() bool {
-		f.log.Info("poke")
-		sub := f.ring.Subscribe(slog.LevelDebug)
-		defer sub.Close()
-		return true
-	}, time.Second, 10*time.Millisecond)
+	select {
+	case <-f.released:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subscription was not released after the client closed")
+	}
 }
 
 func flood(
@@ -255,7 +301,7 @@ func flood(
 
 func TestHandlers_Logs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testing.T) {
 	f := newLogsFixture(t, handlers.WithStuckLimit(time.Hour))
-	conn := f.dial(t, "")
+	conn := f.dialSmallBuffer(t)
 	next(t, conn)
 
 	done := make(chan struct{})
@@ -282,22 +328,32 @@ func TestHandlers_Logs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testin
 
 func TestHandlers_Logs_AClientStalledForTooLongIsDisconnectedWithoutBlockingTheDaemon(t *testing.T) {
 	f := newLogsFixture(t, handlers.WithStuckLimit(100*time.Millisecond))
-	conn := f.dial(t, "")
+	conn := f.dialSmallBuffer(t)
 	next(t, conn)
 
-	done := make(chan struct{})
+	stop := make(chan struct{})
+	finished := make(chan struct{})
 	go func() {
-		defer close(done)
-		for i := 0; i < 40; i++ {
-			flood(f.log, 100)
-			time.Sleep(20 * time.Millisecond)
+		defer close(finished)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				flood(f.log, 10)
+				runtime.Gosched()
+			}
 		}
 	}()
+
 	select {
-	case <-done:
+	case <-f.released:
 	case <-time.After(20 * time.Second):
-		t.Fatal("logging blocked on a client that stopped reading")
+		t.Fatal("the stalled client was never disconnected")
 	}
+	close(stop)
+	<-finished
+	assert.Positive(t, f.ring.Latest(), "logging must have kept going while the client stalled")
 
 	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	for {
@@ -305,5 +361,41 @@ func TestHandlers_Logs_AClientStalledForTooLongIsDisconnectedWithoutBlockingTheD
 			assert.False(t, os.IsTimeout(err), "the server must close the stalled connection, not leave it hanging")
 			return
 		}
+	}
+}
+
+func TestHandlers_Logs_RejectsARequestThatIsNotAWebSocketUpgrade(t *testing.T) {
+	f := newLogsFixture(t)
+
+	resp, err := http.Get(f.server.URL + "/console/logs")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestHandlers_Logs_PingsAnIdleClient(t *testing.T) {
+	f := newLogsFixture(t, handlers.WithPingInterval(5*time.Millisecond))
+	conn := f.dial(t, "")
+	pinged := make(chan struct{}, 1)
+	conn.SetPingHandler(func(string) error {
+		select {
+		case pinged <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+	go func() {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-pinged:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no ping reached an idle client")
 	}
 }
