@@ -21,7 +21,9 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -58,6 +60,13 @@ type envConfig struct {
 	build     buildStamp
 	cloneOnly bool
 	fletcher  hosts.Lookup
+	logs      logring.Ring
+}
+
+// WithLogRing sets the ring the console's log stream reads from, so a test can
+// tee the process logger into it.
+func WithLogRing(ring logring.Ring) EnvOption {
+	return func(c *envConfig) { c.logs = ring }
 }
 
 // buildStamp is what the release pipeline injects into a daemon binary.
@@ -306,15 +315,6 @@ func BuildEnv(
 	)
 	require.NoError(t, err)
 
-	v0Container, err := apiv0.New(appContainer)
-	require.NoError(t, err)
-
-	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)
-	require.True(t, ok, "v0 must expose the concrete websocket handler")
-
-	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{}, v0Container)
-	require.NoError(t, err)
-
 	// Short path required: macOS enforces UNIX_PATH_MAX = 104 chars.
 	f, err := os.CreateTemp("", "qv-test-*.sock")
 	require.NoError(t, err)
@@ -325,7 +325,21 @@ func BuildEnv(
 
 	ln, err := net.Listen("unix", socketPath)
 	require.NoError(t, err)
-	v0Container.ConsoleAddress.Set(gateway.DialURI(ln.Addr()))
+
+	logs := cfg.logs
+	if logs == nil {
+		logs = logring.New(logring.DefaultCapacity)
+	}
+	consoleExec := command.New(command.Options{ServerURI: gateway.DialURI(ln.Addr()), Version: cfg.build.version})
+
+	v0Container, err := apiv0.New(appContainer, apiv0.WithConsole(logs, consoleExec))
+	require.NoError(t, err)
+
+	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)
+	require.True(t, ok, "v0 must expose the concrete websocket handler")
+
+	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Features: []string{api.FeatureConsole}}, v0Container)
+	require.NoError(t, err)
 
 	baseURL := "http://localhost"
 	runDone := make(chan struct{})

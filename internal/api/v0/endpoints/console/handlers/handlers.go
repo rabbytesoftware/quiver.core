@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 const (

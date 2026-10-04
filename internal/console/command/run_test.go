@@ -66,7 +66,7 @@ func (d *fakeDaemon) count() int {
 
 func (d *fakeDaemon) executor() command.Executor {
 	return command.New(command.Options{
-		ServerURI: func() string { return d.server.URL },
+		ServerURI: d.server.URL,
 		Version:   "test-build",
 	})
 }
@@ -171,7 +171,7 @@ func TestRun_ReportsUsageErrorsWithTheCLIExitCode(t *testing.T) {
 }
 
 func TestRun_AnUnreachableDaemonExitsWithTheUnreachableCode(t *testing.T) {
-	exec := command.New(command.Options{ServerURI: func() string { return "http://127.0.0.1:1" }})
+	exec := command.New(command.Options{ServerURI: "http://127.0.0.1:1"})
 
 	result, _, _ := run(t, exec, "", "health")
 

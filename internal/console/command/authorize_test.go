@@ -15,7 +15,7 @@ import (
 
 func executor() command.Executor {
 	return command.New(command.Options{
-		ServerURI: func() string { return "http://127.0.0.1:1" },
+		ServerURI: "http://127.0.0.1:1",
 		Version:   "test",
 	})
 }
@@ -157,10 +157,9 @@ func TestPrepare_UnknownFlagsAreLeftToCobra(t *testing.T) {
 }
 
 func TestPrepare_WithoutAServerAddressIsUnavailable(t *testing.T) {
-	for _, uri := range []func() string{nil, func() string { return "" }} {
-		_, err := command.New(command.Options{ServerURI: uri}).Prepare([]string{"list"}, "")
-		assert.ErrorIs(t, err, command.ErrUnavailable)
-	}
+	_, err := command.New(command.Options{}).Prepare([]string{"list"}, "")
+
+	assert.ErrorIs(t, err, command.ErrUnavailable)
 }
 
 func TestDefaultDeny_NoCommandWithoutTheAnnotationIsReachable(t *testing.T) {

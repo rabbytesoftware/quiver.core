@@ -40,7 +40,7 @@ func flagDenied(
 func deniedFlag(
 	cmd *cobra.Command,
 ) string {
-	names := append(clierr.ConsoleDeniedFlags(cmd), redirectFlags...)
+	names := append(clierr.ConsoleDeniedFlags(cmd), redirectFlags()...)
 	index := slices.IndexFunc(names, func(name string) bool {
 		return flagChanged(cmd, name)
 	})

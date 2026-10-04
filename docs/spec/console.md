@@ -12,7 +12,7 @@ The console lets a client (quiver.desktop's quake-style console) read the daemon
 
 A daemon advertises the feature in `GET /versions` (`features` contains `console.v1`). A client treats a missing `features` field as "none".
 
-Source: `internal/console/logring` (log capture), `internal/console/command` (execution and policy), `internal/api/v0/endpoints/console` (HTTP/WS). The desktop side of the contract is in quiver.desktop's `docs/console-spec.md`; both files describe the same wire format.
+Source: `internal/core/logring` (log capture), `internal/console/command` (execution and policy), `internal/api/v0/endpoints/console` (HTTP/WS). The desktop side of the contract is in quiver.desktop's `docs/console-spec.md`; both files describe the same wire format.
 
 ## 0. Principles
 
@@ -158,4 +158,4 @@ Left off on purpose:
 
 ## 6. Tests
 
-`internal/console/logring` (ring, wrap, `since`, level, subscription drop and stuck, tee, groups, caps, truncation, redaction, races), `internal/console/command` (tokeniser; default-deny walk over the real tree; ancestor rule; exact approved set; forbidden names; shadowing hooks; cobra switches; denial matrix for aliases, abbreviations, case, help, completion, root dispatch, redirect flags in every spelling, `--watch`; real execution against a fake daemon; config isolation; stdin; no flag leakage between calls; panic and timeout), `cmd/quiver` (the same walk over the real root including `daemon` and `self-update`), `internal/api/v0/endpoints/console` (handlers, limits, caps, timeout, cancel, late output, audit, bearer forwarding, and a stack test with the real auth gate), and `tests/integration/console` (`-tags integration`: the real daemon over its unix socket).
+`internal/core/logring` (ring, wrap, `since`, level, subscription drop and stuck, tee, groups, caps, truncation, redaction, races), `internal/console/command` (tokeniser; default-deny walk over the real tree; ancestor rule; exact approved set; forbidden names; shadowing hooks; cobra switches; denial matrix for aliases, abbreviations, case, help, completion, root dispatch, redirect flags in every spelling, `--watch`; real execution against a fake daemon; config isolation; stdin; no flag leakage between calls; panic and timeout), `cmd/quiver` (the same walk over the real root including `daemon` and `self-update`), `internal/api/v0/endpoints/console` (handlers, limits, caps, timeout, cancel, late output, audit, bearer forwarding, and a stack test with the real auth gate), and `tests/integration/console` (`-tags integration`: the real daemon over its unix socket).

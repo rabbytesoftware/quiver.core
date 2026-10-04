@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func logger(
@@ -342,10 +342,6 @@ func TestRing_ConcurrentWritersAndReadersAreRaceFree(t *testing.T) {
 	sub.Close()
 
 	assert.Equal(t, uint64(800), ring.Latest())
-}
-
-func TestDefault_IsOneSharedRing(t *testing.T) {
-	assert.Same(t, logring.Default(), logring.Default())
 }
 
 func TestTee_HandleReturnsTheWrappedHandlersError(t *testing.T) {

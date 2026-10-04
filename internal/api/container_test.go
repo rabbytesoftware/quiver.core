@@ -22,7 +22,7 @@ func newTestContainer(t *testing.T) *api.Container {
 	t.Helper()
 	v0, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
-	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0"}, v0)
+	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0", Features: []string{api.FeatureConsole}}, v0)
 	require.NoError(t, err)
 	return c
 }

@@ -5,7 +5,7 @@ import (
 
 	consolehandlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console/handlers"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 // Register mounts the console routes: the live log stream, the list of

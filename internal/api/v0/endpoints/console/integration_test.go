@@ -16,7 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
 
@@ -71,7 +71,7 @@ func newStack(
 	r := gin.New()
 	protected := r.Group("")
 	protected.Use(gate.RequireBearer())
-	exec := command.New(command.Options{ServerURI: func() string { return daemon.URL }})
+	exec := command.New(command.Options{ServerURI: daemon.URL})
 	console.Register(protected, logring.New(10), exec)
 
 	server := httptest.NewServer(r)

@@ -9,8 +9,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 )
 
-var redirectFlags = []string{"server", "context", "config"}
-
 // Authorize resolves tokens against root and returns the one command the
 // console may run for them, or a *DeniedError.
 //
@@ -120,7 +118,7 @@ func redirectFlagName(
 	}
 
 	name, _, _ := strings.Cut(strings.TrimPrefix(token, "--"), "=")
-	if !slices.Contains(redirectFlags, name) {
+	if !slices.Contains(redirectFlags(), name) {
 		return ""
 	}
 	return "--" + name
@@ -130,4 +128,8 @@ func quote(
 	path string,
 ) string {
 	return "\"" + strings.TrimPrefix(path, "quiver ") + "\""
+}
+
+func redirectFlags() []string {
+	return []string{"server", "context", "config"}
 }

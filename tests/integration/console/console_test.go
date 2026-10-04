@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
@@ -92,10 +92,11 @@ func (s *ConsoleSuite) TestConsole_RefusesWhatTheCLIWouldAllowButTheConsoleMustN
 }
 
 func (s *ConsoleSuite) TestConsole_StreamsTheDaemonsLogsIncludingItsOwnAuditRecord() {
+	ring := logring.New(logring.DefaultCapacity)
 	previous := slog.Default()
-	slog.SetDefault(slog.New(logring.Default().Tee(slog.NewTextHandler(io.Discard, nil))))
+	slog.SetDefault(slog.New(ring.Tee(slog.NewTextHandler(io.Discard, nil))))
 	defer slog.SetDefault(previous)
-	env := s.NewEnv()
+	env := s.NewEnv(kit.WithLogRing(ring))
 	c := env.Client(s.T())
 
 	conn, err := c.DialConsoleLogs("?level=info")

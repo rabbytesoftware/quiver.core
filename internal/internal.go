@@ -17,6 +17,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -45,10 +46,6 @@ type Container struct {
 	// scheme is known — see middleware.AuthGate's doc comment for why that
 	// reaches routes built before the flip.
 	authGate *middleware.AuthGate
-
-	// consoleAddress is the same holder the v0 router's console reads. Start
-	// records the daemon's own dial address in it once the listener is bound.
-	consoleAddress command.Address
 
 	// listener is set only via WithGateway -- PrepareGateway's caller already
 	// paid for the bind before New ever touched the adapter layer, so Start
@@ -217,7 +214,6 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("internal: gateway: %w", err)
 	}
-	c.consoleAddress.Set(gateway.DialURI(listener.Addr()))
 
 	return listener, nil
 }
@@ -306,11 +302,12 @@ func New(
 
 	// core.New configures the process-lifetime logger and metadata/config
 	// singletons before anything downstream can log or read a config value.
+	logs := logring.New(logring.DefaultCapacity)
 	var loggerShutdown func() error
 	if cfg.homeDir != "" {
-		_, loggerShutdown = core.NewAt(cfg.homeDir)
+		_, loggerShutdown = core.NewAt(cfg.homeDir, core.WithLogRing(logs))
 	} else {
-		_, loggerShutdown = core.New()
+		_, loggerShutdown = core.New(core.WithLogRing(logs))
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
@@ -339,7 +336,10 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v0Container, err := apiv0.New(appContainer, apiv0.WithVersion(version))
+	v0Container, err := apiv0.New(
+		appContainer,
+		apiv0.WithConsole(logs, command.New(consoleOptions(cfg, version))),
+	)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
@@ -351,6 +351,8 @@ func New(
 		Commit:  cfg.commit,
 		BuiltAt: cfg.builtAt,
 		Channel: cfg.channel,
+
+		Features: []string{api.FeatureConsole},
 	}, v0Container)
 	if err != nil {
 		_ = loggerShutdown()
@@ -363,7 +365,6 @@ func New(
 	// scheme PrepareGateway already resolved it from.
 	if cfg.listener != nil {
 		v0Container.AuthGate.SetRequired(cfg.scheme == "tcp")
-		v0Container.ConsoleAddress.Set(gateway.DialURI(cfg.listener.Addr()))
 	}
 
 	return &Container{
@@ -372,9 +373,23 @@ func New(
 		App:             appContainer,
 		API:             apiContainer,
 		authGate:        v0Container.AuthGate,
-		consoleAddress:  v0Container.ConsoleAddress,
 		listener:        cfg.listener,
 		recommendations: cfg.recommendations,
 		loggerShutdown:  loggerShutdown,
 	}, nil
+}
+
+// consoleOptions points the console's commands at this daemon's own listener.
+// Only a daemon handed a pre-bound listener (WithGateway, which is how the
+// daemon always starts) knows its address at construction; any other container
+// serves the console routes but answers command execution with 503, since the
+// address does not exist until Start binds it, after the router is built.
+func consoleOptions(
+	cfg internalOpts,
+	version string,
+) command.Options {
+	if cfg.listener == nil {
+		return command.Options{Version: version}
+	}
+	return command.Options{ServerURI: gateway.DialURI(cfg.listener.Addr()), Version: version}
 }

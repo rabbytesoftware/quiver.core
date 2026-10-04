@@ -51,7 +51,7 @@ func New(
 			BuiltAt: buildInfo.BuiltAt,
 			Channel: buildInfo.Channel,
 		},
-		features,
+		buildInfo.Features,
 		supported,
 		latest,
 	)

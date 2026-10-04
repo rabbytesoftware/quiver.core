@@ -9,7 +9,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestMain(m *testing.M) {

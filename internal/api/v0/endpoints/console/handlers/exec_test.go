@@ -21,7 +21,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	handlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/console/handlers"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
 

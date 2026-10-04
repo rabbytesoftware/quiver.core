@@ -19,9 +19,16 @@ type Core struct {
 // constructs a Core repeatedly in one process — tests above all — leaks a
 // held-open file every time otherwise, which Windows refuses to let a
 // later os.RemoveAll (e.g. t.TempDir's cleanup) delete.
-func New() (*Core, func() error) {
+func New(
+	opts ...Option,
+) (*Core, func() error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	cfg := config.Get()
-	shutdown := logger.Init(config.GetLogger())
+	shutdown := logger.Init(config.GetLogger(), o.loggerOptions()...)
 	logCorrections(config.Corrections())
 
 	return &Core{
@@ -34,9 +41,17 @@ func New() (*Core, func() error) {
 // when the caller was built with an explicit home override (tests, or a dev
 // build's checkout-local .quiver), so config and logging never touch the
 // real ~/.quiver.
-func NewAt(homeDir string) (*Core, func() error) {
+func NewAt(
+	homeDir string,
+	opts ...Option,
+) (*Core, func() error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	cfg, corrections := config.GetAt(homeDir)
-	shutdown := logger.InitAt(homeDir, cfg.Config.Logger)
+	shutdown := logger.InitAt(homeDir, cfg.Config.Logger, o.loggerOptions()...)
 	logCorrections(corrections)
 
 	return &Core{

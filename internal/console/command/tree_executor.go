@@ -16,7 +16,7 @@ func (e *treeExecutor) Prepare(
 	tokens []string,
 	bearer string,
 ) (Invocation, error) {
-	uri := e.serverURI()
+	uri := e.opts.ServerURI
 	if uri == "" {
 		return nil, ErrUnavailable
 	}
@@ -40,13 +40,6 @@ func (e *treeExecutor) Prepare(
 func (e *treeExecutor) Commands() []CommandInfo {
 	root := e.newRoot(&selfSession{})
 	return describe(root)
-}
-
-func (e *treeExecutor) serverURI() string {
-	if e.opts.ServerURI == nil {
-		return ""
-	}
-	return e.opts.ServerURI()
 }
 
 func (e *treeExecutor) newRoot(

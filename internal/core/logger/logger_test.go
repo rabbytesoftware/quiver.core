@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logger"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
@@ -48,13 +48,13 @@ func TestInit_EnabledConfig_CreatesLogFile(t *testing.T) {
 func TestInit_CapturesRecordsInTheConsoleRing(t *testing.T) {
 	prev := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"})
+	ring := logring.New(10)
+	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, logger.WithRing(ring))
 	t.Cleanup(func() { _ = shutdown() })
-	before := logring.Default().Latest()
 
 	slog.Info("ring probe", "component", "logger-test")
 
-	got := logring.Default().Snapshot(before, slog.LevelDebug, 10)
+	got := ring.Snapshot(0, slog.LevelDebug, 10)
 	require.NotEmpty(t, got)
 	assert.Equal(t, "ring probe", got[len(got)-1].Msg)
 	assert.Equal(t, "logger-test", got[len(got)-1].Component)
