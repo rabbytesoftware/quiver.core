@@ -26,6 +26,7 @@ type testRecord struct {
 	Completed []int
 	Failed    []int
 	PIDs      []int
+	Surfaces  []*domainRuntime.Surface
 	Notes     map[int]string
 	Outcome   domainRuntime.ExecutionOutcome
 }
@@ -50,6 +51,8 @@ func collectEvents(
 			rec.Failed = append(rec.Failed, e.StepIndex)
 		case EventKindPID:
 			rec.PIDs = append(rec.PIDs, e.PID)
+		case EventKindSurface:
+			rec.Surfaces = append(rec.Surfaces, e.Surface)
 		case EventKindEnded:
 		}
 	}
@@ -647,4 +650,18 @@ func TestProbe_NoWorkDir_RunsInAScratchDirectory(t *testing.T) {
 	where, err := os.ReadFile(record) // #nosec G304 -- a temp file this test owns
 	require.NoError(t, err)
 	assert.NoDirExists(t, strings.TrimSpace(string(where)), "the scratch directory is removed")
+}
+
+func TestStart_UIStaticEmitsSurface(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dist"), 0o755))
+	req := newTestReq(domainstep.NewUIStep("Docs", nil, "./dist", "", true))
+	req.WorkDir = dir
+
+	rec := runSync(context.Background(), newTestWizard(t), req)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	require.Len(t, rec.Surfaces, 1)
+	assert.Equal(t, domainRuntime.SurfaceModeStatic, rec.Surfaces[0].Mode)
+	assert.True(t, rec.Surfaces[0].Ready)
 }

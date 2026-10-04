@@ -10,6 +10,7 @@ const (
 	EventKindStepFailed    EventKind = "step.failed"
 	EventKindPID           EventKind = "pid"
 	EventKindEnded         EventKind = "ended"
+	EventKindSurface       EventKind = "surface"
 )
 
 type Event struct {
@@ -19,4 +20,6 @@ type Event struct {
 	Err       error
 	Note      string
 	Outcome   domainRuntime.ExecutionOutcome
+	// Surface is set on EventKindSurface: the interface the execution opened.
+	Surface *domainRuntime.Surface
 }
