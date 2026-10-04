@@ -47,10 +47,9 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 `ARROW.md` at the repo root is quiver.core's own arrow manifest — arrows
 are resolved from `["ARROW.md", "arrow.yaml"]` at the root of any
 namespace (`internal/engine/manifold/.../resolver.go`), so it has to live
-there. `internal/core/selfmanifest` embeds a checked-in copy of it
-(`internal/core/selfmanifest/ARROW.md`), kept in sync by `make
-sync-manifest` and enforced by CI the same way `docs/swagger/` is: a stale
-copy fails the build. No `.go` file lives at the repo root.
+there. The root package (`embed.go`) embeds it and `internal/core/selfmanifest.Raw()`
+exposes it, so there is a single copy. `go:embed` cannot reach a file above its own
+package directory, which is why that one `.go` file lives at the repo root.
 
 Core updates itself through that manifest's ordinary `update:` steps: a `fetch` of the
 release binary (`${REF}`, verified by `sha256sums:` against the release's `checksums.txt`) and
