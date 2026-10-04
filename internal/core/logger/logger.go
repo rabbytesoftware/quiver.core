@@ -9,6 +9,7 @@ import (
 
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
+	"github.com/rabbytesoftware/quiver.core/internal/console/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
@@ -22,6 +23,8 @@ const (
 // When cfg.Enabled is false, logs go to stderr only.
 // When cfg.Enabled is true, logs go to both stdout and a rotating file
 // under the Quiver logs directory (~/.quiver/logs/Quiver.log).
+// Whatever the destination, every record is also captured in logring.Default
+// as structured data, which is what the console log stream serves.
 // Returns a shutdown function that closes the log file; call it before process exit.
 func Init(cfg config.Logger) func() error {
 	return initAt("", cfg)
@@ -37,7 +40,7 @@ func InitAt(homeDir string, cfg config.Logger) func() error {
 
 func initAt(homeDir string, cfg config.Logger) func() error {
 	roller, handler := buildHandler(homeDir, cfg)
-	slog.SetDefault(slog.New(handler))
+	slog.SetDefault(slog.New(logring.Default().Tee(handler)))
 	return func() error {
 		if roller != nil {
 			return roller.Close()
