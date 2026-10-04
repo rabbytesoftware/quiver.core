@@ -29,7 +29,7 @@ metadata:
 paths:
   home:
     default: "~/.quiver"
-    windows: 'C:\Users\{{USER}}\Documents\.quiver'
+    windows: '{{PROFILE}}\Documents\.quiver'
   events: "{{home}}/state/events"
   store: "{{home}}/state/store"
   namespaces: "{{home}}/namespaces"

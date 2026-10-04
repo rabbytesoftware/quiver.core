@@ -19,12 +19,12 @@ func TestOsValue_UnmarshalYAML_Scalar(t *testing.T) {
 func TestOsValue_UnmarshalYAML_Map(t *testing.T) {
 	input := `
 default: "~/.quiver"
-windows: 'C:\Users\{{USER}}\Documents\.quiver'
+windows: '{{PROFILE}}\Documents\.quiver'
 `
 	var v OsValue[string]
 	require.NoError(t, yaml.Unmarshal([]byte(input), &v))
 	assert.Equal(t, "~/.quiver", v.Default)
-	assert.Equal(t, `C:\Users\{{USER}}\Documents\.quiver`, v.OS["windows"])
+	assert.Equal(t, `{{PROFILE}}\Documents\.quiver`, v.OS["windows"])
 }
 
 func TestOsValue_UnmarshalYAML_InvalidNode(t *testing.T) {

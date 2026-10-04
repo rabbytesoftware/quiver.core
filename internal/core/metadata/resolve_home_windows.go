@@ -3,27 +3,28 @@
 package metadata
 
 import (
+	"log/slog"
 	"os"
-	"os/user"
-	"strings"
 )
 
-// resolveHome expands the Windows home template into an absolute path,
-// substituting {{USER}} with the current OS username.
+// resolveHome expands the Windows home template into an absolute path using
+// the real profile directory. user.Current().Username is not usable here: on
+// Windows it is COMPUTERNAME\name or DOMAIN\name, not a directory name.
+// If the profile directory cannot be determined it logs a warning and expands
+// to a path relative to the working directory.
 func resolveHome() string {
 	if override := os.Getenv(homeOverrideEnv); override != "" {
 		return override
 	}
 
 	raw := Get().Paths.Home.Resolve()
-	return strings.ReplaceAll(raw, "{{USER}}", currentUsername())
-}
-
-// currentUsername returns the current OS username for Windows home path expansion.
-func currentUsername() string {
-	u, err := user.Current()
+	profile, err := os.UserHomeDir()
 	if err != nil {
-		return "unknown"
+		slog.Warn(
+			"cannot determine user profile directory; Quiver files will be written relative to the working directory",
+			"path", raw,
+		)
+		profile = "."
 	}
-	return u.Username
+	return expandProfile(raw, profile)
 }
