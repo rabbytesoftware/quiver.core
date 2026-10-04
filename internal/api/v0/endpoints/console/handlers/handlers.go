@@ -1,55 +1,65 @@
-// Package console serves the daemon console: the live log stream, the list of
-// commands the console may run, and command execution. See
-// docs/spec/console.md for the contract.
 package console
 
 import (
-	"time"
+	"strings"
 
-	"github.com/rabbytesoftware/quiver.core/internal/console/command"
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/cobra"
+
+	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
-const (
-	defaultExecTimeout = 10 * time.Minute
-	defaultOutputLimit = 256 * 1024
-	defaultPerDevice   = 2
-	defaultGlobal      = 8
-	defaultStuckLimit  = 5 * time.Second
-	defaultPingEvery   = 30 * time.Second
-)
+const maxRunning = 4
 
-// Handlers serves the console endpoints.
 type Handlers struct {
-	logs        logring.Ring
-	exec        command.Executor
-	limiter     ExecLimiter
-	execTimeout time.Duration
-	outputLimit int
-	stuckLimit  time.Duration
-	pingEvery   time.Duration
+	logs  *logring.Ring
+	slots chan struct{}
+	root  func(session.Session) *cobra.Command
 }
 
-// New returns Handlers reading logs from logs and running commands through
-// exec. Without options it applies the contract's limits: a 10 minute command
-// timeout, 256 KiB of output per call, 2 concurrent commands per device and 8
-// overall, and a 5 second tolerance for a log consumer that stops reading.
-func New(
-	logs logring.Ring,
-	exec command.Executor,
-	opts ...Option,
-) *Handlers {
-	h := &Handlers{
-		logs:        logs,
-		exec:        exec,
-		limiter:     NewExecLimiter(defaultPerDevice, defaultGlobal),
-		execTimeout: defaultExecTimeout,
-		outputLimit: defaultOutputLimit,
-		stuckLimit:  defaultStuckLimit,
-		pingEvery:   defaultPingEvery,
+// New returns Handlers that stream logs and run the daemon's own CLI tree,
+// which reports version as its own.
+func New(logs *logring.Ring, version string) *Handlers {
+	return &Handlers{
+		logs:  logs,
+		slots: make(chan struct{}, maxRunning),
+		root: func(sess session.Session) *cobra.Command {
+			root := &cobra.Command{Use: "quiver", SilenceUsage: true, SilenceErrors: true}
+			commands.New(commands.Deps{Version: version, Session: sess}).Attach(root)
+			_ = root.PersistentFlags().Set("output", "table")
+			return root
+		},
 	}
-	for _, opt := range opts {
-		opt(h)
+}
+
+// @Summary      List the commands the console may run
+// @Description  Returns the runnable commands that carry the console annotation along with all their ancestors.
+// @Tags         console
+// @Produce      json
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ConsoleCommandsDTO}
+// @Router       /console/commands [get]
+func (h *Handlers) Commands(c *gin.Context) {
+	libs.WriteQueryOK(c, apidto.ConsoleCommandsDTO{Commands: collect(h.root(nil), []apidto.ConsoleCommandDTO{})})
+}
+
+func collect(parent *cobra.Command, list []apidto.ConsoleCommandDTO) []apidto.ConsoleCommandDTO {
+	for _, cmd := range parent.Commands() {
+		if !clierr.IsConsole(cmd) {
+			continue
+		}
+		if cmd.Runnable() {
+			list = append(list, apidto.ConsoleCommandDTO{
+				Path:  strings.Fields(cmd.CommandPath())[1:],
+				Short: cmd.Short,
+				Usage: strings.TrimPrefix(cmd.UseLine(), "quiver "),
+			})
+		}
+		list = collect(cmd, list)
 	}
-	return h
+	return list
 }

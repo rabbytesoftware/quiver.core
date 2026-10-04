@@ -9,7 +9,6 @@ import (
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
-	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
@@ -34,21 +33,19 @@ type Container struct {
 	// built into the router.
 	AuthGate *middleware.AuthGate
 
-	consoleLogs logring.Ring
-	consoleExec command.Executor
+	logs    *logring.Ring
+	version string
 }
 
+// New builds the v0 container. logs feeds the console's log stream (nil serves
+// an empty ring) and version is what the console's CLI reports as its own.
 func New(
 	appContainer *app.Container,
-	opts ...Option,
+	logs *logring.Ring,
+	version string,
 ) (*Container, error) {
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
-	}
-
-	var cfg options
-	for _, opt := range opts {
-		opt(&cfg)
 	}
 
 	var wsOpts []wshandler.Option
@@ -56,6 +53,10 @@ func New(
 		wsOpts = append(wsOpts, wshandler.WithDiscoveryJobs(appContainer.Discovery))
 	}
 	wsHandler := wshandler.NewHandler(wsOpts...)
+
+	if logs == nil {
+		logs = logring.New()
+	}
 
 	// Discovery results are not domain aggregates and have no projection behind
 	// them, so they reach clients straight from the usecase rather than through
@@ -85,9 +86,8 @@ func New(
 		wsHandler:     wsHandler,
 		rateLimiter:   rateLimiter,
 		AuthGate:      authGate,
-
-		consoleLogs: cfg.consoleLogs,
-		consoleExec: cfg.consoleExec,
+		logs:          logs,
+		version:       version,
 	}, nil
 }
 

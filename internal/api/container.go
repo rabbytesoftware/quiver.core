@@ -43,18 +43,7 @@ func New(
 	}
 	latest := supported[len(supported)-1]
 
-	vh := versions.New(
-		versions.Build{
-			Version: buildInfo.Version,
-			BuildID: buildInfo.BuildID,
-			Commit:  buildInfo.Commit,
-			BuiltAt: buildInfo.BuiltAt,
-			Channel: buildInfo.Channel,
-		},
-		buildInfo.Features,
-		supported,
-		latest,
-	)
+	vh := versions.New(buildInfo, supported, latest)
 	r.GET("/versions", vh.Get)
 
 	for _, v := range vs {

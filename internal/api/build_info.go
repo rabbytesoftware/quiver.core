@@ -1,14 +1,7 @@
 package api
 
-// BuildInfo carries build-time version data injected via ldflags.
-type BuildInfo struct {
-	Version string
-	BuildID string
-	Commit  string
-	BuiltAt string
-	Channel string
+import "github.com/rabbytesoftware/quiver.core/internal/api/endpoints/versions"
 
-	// Features lists the optional capabilities this daemon serves, advertised
-	// on GET /versions so a client can tell what an older daemon lacks.
-	Features []string
-}
+// BuildInfo carries build-time version data injected via ldflags, and the
+// optional features the daemon serves.
+type BuildInfo = versions.Build

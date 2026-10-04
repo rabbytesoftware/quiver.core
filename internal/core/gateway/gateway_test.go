@@ -151,28 +151,25 @@ func TestNew_NPipeScheme_UnsupportedOffWindows(t *testing.T) {
 }
 
 func TestDialURI(t *testing.T) {
-	cases := map[string]net.Addr{
-		"unix:///tmp/quiver.sock": &net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"},
-		"tcp://127.0.0.1:40257":   &net.TCPAddr{IP: net.IPv4zero, Port: 40257},
-		"tcp://[::1]:40257":       &net.TCPAddr{IP: net.IPv6unspecified, Port: 40257},
-		"tcp://10.1.2.3:9000":     &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 9000},
-		"tcp://[fe80::1]:9000":    &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 9000},
-		"tcp://127.0.0.1:0":       &net.TCPAddr{Port: 0},
-		"npipe://quiver":          namedAddr(`\\.\pipe\quiver`),
-		"":                        nil,
+	testCases := []struct {
+		name string
+		addr net.Addr
+		want string
+	}{
+		{"unix socket", &net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"}, "unix:///tmp/quiver.sock"},
+		{"tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40257}, "tcp://127.0.0.1:40257"},
+		{"tcp v6", &net.TCPAddr{IP: net.IPv6loopback, Port: 9}, "tcp://[::1]:9"},
+		{"nil", nil, ""},
+		{"named pipe", pipeAddr(`\\.\pipe\quiver`), "npipe://quiver"},
 	}
-	for want, addr := range cases {
-		assert.Equal(t, want, gateway.DialURI(addr), want)
-	}
-}
-
-type namedAddr string
-
-func (a namedAddr) Network() string { return "pipe" }
-func (a namedAddr) String() string  { return string(a) }
-
-func TestDialURI_AddressesNoClientCanDialAreEmpty(t *testing.T) {
-	for _, name := range []string{`C:\Users\RUNNER~1\AppData\Local\Temp\q.sock`, "relative.sock", ""} {
-		assert.Empty(t, gateway.DialURI(&net.UnixAddr{Name: name, Net: "unix"}), name)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, gateway.DialURI(tc.addr))
+		})
 	}
 }
+
+type pipeAddr string
+
+func (a pipeAddr) Network() string { return "pipe" }
+func (a pipeAddr) String() string  { return string(a) }

@@ -34,10 +34,5 @@ func New(
 // none of them nest under a shared parent, the same reasoning as
 // system.Commands and runtime.Commands.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{
-		clierr.AllowInConsole(c.listCmd()),
-		clierr.AllowInConsole(c.searchCmd()),
-		clierr.AllowInConsole(c.infoCmd()),
-		clierr.AllowInConsole(c.methodsCmd()),
-	}
+	return clierr.AllowInConsole(c.listCmd(), c.searchCmd(), c.infoCmd(), c.methodsCmd())
 }

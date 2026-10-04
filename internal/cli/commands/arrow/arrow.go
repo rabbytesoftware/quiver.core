@@ -33,13 +33,10 @@ func (c *commands) Cmd() *cobra.Command {
 		Use:   "arrow",
 		Short: "Manage the arrow catalog",
 	}
-	cmd.AddCommand(
-		clierr.AllowInConsole(c.addCmd()),
-		clierr.AllowInConsole(c.removeCmd()),
-		clierr.AllowInConsole(c.refreshCmd()),
-		clierr.AllowInConsole(c.listCmd()),
-		clierr.AllowInConsole(c.showCmd()),
+	cmd.AddCommand(append(
+		clierr.AllowInConsole(c.addCmd(), c.removeCmd(), c.refreshCmd(), c.listCmd(), c.showCmd()),
 		c.seedCmd(),
-	)
-	return clierr.AllowInConsole(cmd)
+	)...)
+	clierr.AllowInConsole(cmd)
+	return cmd
 }

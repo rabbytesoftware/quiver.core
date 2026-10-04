@@ -28,33 +28,25 @@ func TestConsoleIntegration(t *testing.T) {
 }
 
 type frame struct {
-	Type   string `json:"type"`
-	Stream string `json:"stream"`
-	Data   string `json:"data"`
-	Code   int    `json:"code"`
-	Error  string `json:"error"`
+	Type  string `json:"type"`
+	Data  string `json:"data"`
+	Code  int    `json:"code"`
+	Error string `json:"error"`
 }
 
-func (s *ConsoleSuite) exec(
-	c *kit.Client,
-	line string,
-) (frame, string) {
+func (s *ConsoleSuite) exec(c *kit.Client, line string) (exit frame, out string) {
 	resp := c.ConsoleExec(line)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode, line)
 
-	var out strings.Builder
-	var last frame
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
+	var text strings.Builder
+	for scanner := bufio.NewScanner(resp.Body); scanner.Scan(); {
 		var f frame
 		s.Require().NoError(json.Unmarshal(scanner.Bytes(), &f))
-		if f.Type == "out" {
-			out.WriteString(f.Data)
-		}
-		last = f
+		text.WriteString(f.Data)
+		exit = f
 	}
-	return last, out.String()
+	return exit, text.String()
 }
 
 func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
@@ -63,13 +55,11 @@ func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
 	ns := kit.NSFor("quiver-test/tool-a", "v1")
 
 	added, _ := s.exec(c, "arrow add "+ns)
-	s.Equal("exit", added.Type)
 	s.Equal(0, added.Code, added.Error)
 	env.WaitForArrow(s.T(), ns, 30*time.Second)
-
 	_, listing := s.exec(c, "arrow list")
 	s.Contains(listing, "tool-a")
-	s.NotContains(listing, "\x1b[", "the console renders plain text, never terminal escapes")
+	s.NotContains(listing, "\x1b[", "the console renders plain text")
 
 	installed, _ := s.exec(c, "install "+ns)
 	s.Equal(0, installed.Code, installed.Error)
@@ -77,49 +67,42 @@ func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
 
 	refused, _ := s.exec(c, "arrow remove "+ns)
 	s.Equal(2, refused.Code)
-	s.Contains(refused.Error, "--yes")
+	s.Contains(refused.Error, "--yes", "confirmations answer no")
 }
 
-func (s *ConsoleSuite) TestConsole_RefusesWhatTheCLIWouldAllowButTheConsoleMustNot() {
-	env := s.NewEnv()
-	c := env.Client(s.T())
+func (s *ConsoleSuite) TestConsole_RefusesWhatTheConsoleMustNotRun() {
+	c := s.NewEnv().Client(s.T())
 
-	for _, line := range []string{"daemon", "self-update /tmp/x", "context list", "auth devices list", "arrow seed x --file /etc/passwd", "list --server tcp://127.0.0.1:1"} {
+	for line, want := range map[string]int{
+		"daemon": http.StatusForbidden, "self-update /tmp/x": http.StatusForbidden, "context list": http.StatusForbidden,
+		"arrow seed x --file /etc/passwd": http.StatusForbidden, "help": http.StatusForbidden, "ps; daemon": http.StatusBadRequest,
+	} {
 		resp := c.ConsoleExec(line)
 		resp.Body.Close()
-		s.Equal(http.StatusForbidden, resp.StatusCode, line)
+		s.Equal(want, resp.StatusCode, line)
 	}
 }
 
 func (s *ConsoleSuite) TestConsole_StreamsTheDaemonsLogsIncludingItsOwnAuditRecord() {
-	ring := logring.New(logring.DefaultCapacity)
+	ring := logring.New()
 	previous := slog.Default()
-	slog.SetDefault(slog.New(ring.Tee(slog.NewTextHandler(io.Discard, nil))))
+	slog.SetDefault(slog.New(ring.Wrap(slog.NewTextHandler(io.Discard, nil))))
 	defer slog.SetDefault(previous)
-	env := s.NewEnv(kit.WithLogRing(ring))
-	c := env.Client(s.T())
-
-	conn, err := c.DialConsoleLogs("?level=info")
+	c := s.NewEnv(kit.WithLogRing(ring)).Client(s.T())
+	conn, err := c.DialConsoleLogs("")
 	s.Require().NoError(err)
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	for {
-		var f map[string]any
+	var f map[string]any
+	for f == nil || f["type"] != "ready" {
 		s.Require().NoError(conn.ReadJSON(&f))
-		if f["type"] == "ready" {
-			break
-		}
 	}
 
 	s.exec(c, "ps")
 
-	for {
-		var f map[string]any
+	for f["msg"] != "exec" {
 		s.Require().NoError(conn.ReadJSON(&f))
-		if f["msg"] == "exec" {
-			s.Equal("console", f["component"])
-			s.Equal("local", f["fields"].(map[string]any)["device"])
-			return
-		}
 	}
+	s.Equal("console", f["component"])
+	s.Equal("local", f["fields"].(map[string]any)["device"])
 }

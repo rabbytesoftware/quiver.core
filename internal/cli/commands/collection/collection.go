@@ -34,10 +34,9 @@ func (c *commands) Cmd() *cobra.Command {
 		Short: "Manage followed collections",
 	}
 	cmd.AddCommand(
-		c.followCmd(), c.unfollowCmd(), c.updateCmd(),
-		clierr.AllowInConsole(c.listCmd()),
-		clierr.AllowInConsole(c.showCmd()),
-		c.seedCmd(),
+		c.followCmd(), c.unfollowCmd(), c.updateCmd(), c.seedCmd(),
 	)
-	return clierr.AllowInConsole(cmd)
+	cmd.AddCommand(clierr.AllowInConsole(c.listCmd(), c.showCmd())...)
+	clierr.AllowInConsole(cmd)
+	return cmd
 }

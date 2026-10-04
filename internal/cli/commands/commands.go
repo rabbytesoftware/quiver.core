@@ -34,9 +34,7 @@ type Deps struct {
 	// Unix socket. nil disables daemon management (remote contexts, tests).
 	EnsureDaemon func(ctx context.Context) error
 	// Session, when non-nil, replaces the session built from the process
-	// environment. The daemon's console injects one that dials the daemon's
-	// own address and never reads the CLI config file or the --server,
-	// --context and --config flags.
+	// environment and the --server, --context and --config flags.
 	Session session.Session
 }
 

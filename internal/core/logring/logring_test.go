@@ -3,13 +3,9 @@ package logring_test
 import (
 	"bytes"
 	"context"
-	"io"
 	"log/slog"
-	"math"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,453 +13,107 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
-func logger(
-	t *testing.T,
-	ring logring.Ring,
-) (*slog.Logger, *bytes.Buffer) {
-	t.Helper()
-
-	var buf bytes.Buffer
-	next := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	return slog.New(ring.Tee(next)), &buf
+func newLogger(ring *logring.Ring, level slog.Level) (*slog.Logger, *bytes.Buffer) {
+	var next bytes.Buffer
+	return slog.New(ring.Wrap(slog.NewTextHandler(&next, &slog.HandlerOptions{Level: level}))), &next
 }
 
-func TestRing_Snapshot_AssignsIncreasingSequenceNumbers(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("one")
-	log.Info("two")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.Len(t, got, 2)
-	assert.Equal(t, uint64(1), got[0].Seq)
-	assert.Equal(t, uint64(2), got[1].Seq)
-	assert.Equal(t, uint64(2), ring.Latest())
+func seqs(records []logring.Record) (out []uint64) {
+	for _, r := range records {
+		out = append(out, r.Seq)
+	}
+	return out
 }
 
-func TestRing_Snapshot_WrapKeepsTheNewestRecords(t *testing.T) {
-	ring := logring.New(3)
-	log, _ := logger(t, ring)
-
-	for _, msg := range []string{"a", "b", "c", "d", "e"} {
-		log.Info(msg)
+func TestRing_Stream_ReplaysTheLast500OrWhatFollowsSince(t *testing.T) {
+	ring := logring.New()
+	log, _ := newLogger(ring, slog.LevelInfo)
+	for range 5100 {
+		log.Info("m")
 	}
 
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.Len(t, got, 3)
-	assert.Equal(t, []string{"c", "d", "e"}, []string{got[0].Msg, got[1].Msg, got[2].Msg})
-	assert.Equal(t, uint64(3), got[0].Seq)
+	last, since, current, restarted := ring.Stream(0, slog.LevelInfo), ring.Stream(100, slog.LevelInfo), ring.Stream(5100, slog.LevelInfo), ring.Stream(9999, slog.LevelInfo)
+
+	assert.Equal(t, uint64(4601), last.Replay[0].Seq)
+	assert.Len(t, last.Replay, 500)
+	assert.Equal(t, uint64(5100), last.Seq)
+	assert.Equal(t, uint64(101), since.Replay[0].Seq, "the ring holds 5000: older records are gone")
+	assert.Len(t, since.Replay, 5000)
+	assert.Empty(t, current.Replay)
+	assert.False(t, current.Reset)
+	assert.True(t, restarted.Reset)
+	assert.Len(t, restarted.Replay, 500, "a newer since means the daemon restarted: replay the last 500")
 }
 
-func TestRing_Snapshot_SinceSkipsEarlierRecords(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	for _, msg := range []string{"a", "b", "c", "d"} {
-		log.Info(msg)
-	}
-
-	got := ring.Snapshot(2, slog.LevelDebug, 10)
-
-	require.Len(t, got, 2)
-	assert.Equal(t, "c", got[0].Msg)
-	assert.Equal(t, "d", got[1].Msg)
-}
-
-func TestRing_Snapshot_LimitKeepsTheMostRecent(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	for _, msg := range []string{"a", "b", "c", "d"} {
-		log.Info(msg)
-	}
-
-	got := ring.Snapshot(0, slog.LevelDebug, 2)
-
-	require.Len(t, got, 2)
-	assert.Equal(t, "c", got[0].Msg)
-	assert.Empty(t, ring.Snapshot(0, slog.LevelDebug, 0))
-}
-
-func TestRing_Snapshot_FiltersByLevel(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
+func TestRing_Stream_FiltersByLevelForReplayAndLive(t *testing.T) {
+	ring := logring.New()
+	log, _ := newLogger(ring, slog.LevelDebug)
 	log.Debug("d")
-	log.Info("i")
 	log.Warn("w")
+	s := ring.Stream(0, slog.LevelWarn)
+	defer s.Close()
+
+	log.Info("i")
 	log.Error("e")
 
-	got := ring.Snapshot(0, slog.LevelWarn, 10)
-
-	require.Len(t, got, 2)
-	assert.Equal(t, "warn", got[0].Level)
-	assert.Equal(t, "error", got[1].Level)
+	assert.Equal(t, []uint64{2}, seqs(s.Replay))
+	assert.Equal(t, "warn", s.Replay[0].Level)
+	assert.Equal(t, "e", (<-s.Live).Msg)
 }
 
-func TestRing_New_ZeroCapacityStillHoldsOneRecord(t *testing.T) {
-	ring := logring.New(0)
-	log, _ := logger(t, ring)
+func TestRing_Stream_DropsASubscriberThatFallsBehindAndCloseIsIdempotent(t *testing.T) {
+	ring := logring.New()
+	log, _ := newLogger(ring, slog.LevelInfo)
+	slow, closed := ring.Stream(0, slog.LevelInfo), ring.Stream(0, slog.LevelInfo)
+	closed.Close()
+	closed.Close()
 
-	log.Info("a")
-	log.Info("b")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.Len(t, got, 1)
-	assert.Equal(t, "b", got[0].Msg)
-}
-
-func TestRing_Tee_ForwardsEveryRecordToTheWrappedHandler(t *testing.T) {
-	ring := logring.New(10)
-	log, buf := logger(t, ring)
-
-	log.Info("hello", "k", "v")
-
-	assert.Contains(t, buf.String(), `"msg":"hello"`)
-	assert.Contains(t, buf.String(), `"k":"v"`)
-}
-
-func TestRing_Tee_RespectsTheWrappedHandlersLevel(t *testing.T) {
-	ring := logring.New(10)
-	var buf bytes.Buffer
-	next := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
-	log := slog.New(ring.Tee(next))
-
-	log.Info("quiet")
-	log.Warn("loud")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.Len(t, got, 1)
-	assert.Equal(t, "loud", got[0].Msg)
-}
-
-func TestRing_Tee_CapturesTextHandlerOutputStructurally(t *testing.T) {
-	ring := logring.New(10)
-	var buf bytes.Buffer
-	log := slog.New(ring.Tee(slog.NewTextHandler(&buf, nil)))
-
-	log.Info("hi", "n", 3, "ok", true, "took", 1800*time.Millisecond, "ratio", 0.5)
-
-	got := ring.Snapshot(0, slog.LevelDebug, 1)[0]
-	assert.Equal(t, int64(3), got.Fields["n"])
-	assert.Equal(t, true, got.Fields["ok"])
-	assert.Equal(t, "1.8s", got.Fields["took"])
-	assert.Equal(t, 0.5, got.Fields["ratio"])
-}
-
-func TestRing_Tee_ComponentLeavesTheFields(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Warn("slow", "component", "release", "retry", 1)
-
-	got := ring.Snapshot(0, slog.LevelDebug, 1)[0]
-	assert.Equal(t, "release", got.Component)
-	assert.NotContains(t, got.Fields, "component")
-	assert.Equal(t, int64(1), got.Fields["retry"])
-}
-
-func TestRing_Tee_WithAttrsAndGroupsFlattenWithDottedKeys(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.With("component", "arrow").WithGroup("req").With("id", 7).Info("done", "path", "/x")
-	log.Info("grouped", slog.Group("net", slog.String("addr", "a"), slog.Group("tls", slog.Bool("on", true))))
-
-	got := ring.Snapshot(0, slog.LevelDebug, 2)
-	assert.Equal(t, "arrow", got[0].Component)
-	assert.Equal(t, int64(7), got[0].Fields["req.id"])
-	assert.Equal(t, "/x", got[0].Fields["req.path"])
-	assert.Equal(t, "a", got[1].Fields["net.addr"])
-	assert.Equal(t, true, got[1].Fields["net.tls.on"])
-}
-
-func TestRing_Tee_ErrorAndStringerValuesBecomeStrings(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Error("failed", "err", assert.AnError, "when", time.Date(2026, 10, 4, 14, 2, 0, 0, time.UTC))
-
-	got := ring.Snapshot(0, slog.LevelDebug, 1)[0]
-	assert.Equal(t, assert.AnError.Error(), got.Fields["err"])
-	assert.Equal(t, "2026-10-04T14:02:00Z", got.Fields["when"])
-}
-
-func TestRing_Tee_CapsTheNumberOfFields(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	args := make([]any, 0, 80)
-	for i := 0; i < 40; i++ {
-		args = append(args, "k"+string(rune('A'+i%26))+string(rune('a'+i/26)), i)
+	for range 300 {
+		log.Info("m")
 	}
 
-	log.Info("wide", args...)
-
-	got := ring.Snapshot(0, slog.LevelDebug, 1)[0]
-	assert.Len(t, got.Fields, 32)
-	assert.True(t, got.FieldsTruncated)
-}
-
-func TestRing_Tee_TruncatesLongValuesOnARuneBoundary(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	long := strings.Repeat("é", 3000)
-
-	log.Info("long", "v", long)
-
-	value, ok := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields["v"].(string)
-	require.True(t, ok)
-	assert.LessOrEqual(t, len(value), 2048+len("…"))
-	assert.True(t, strings.HasSuffix(value, "…"))
-	assert.True(t, strings.HasPrefix(value, "é"))
-}
-
-func TestRing_Tee_RedactsSensitiveKeysInTheStoredRecord(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("auth",
-		"token", "abc", "Authorization", "Bearer xyz", "pairing_code", "123",
-		slog.Group("db", slog.String("password", "p")), "note", "fine")
-
-	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
-	assert.Equal(t, logring.Redacted, fields["token"])
-	assert.Equal(t, logring.Redacted, fields["Authorization"])
-	assert.Equal(t, logring.Redacted, fields["pairing_code"])
-	assert.Equal(t, logring.Redacted, fields["db.password"])
-	assert.Equal(t, "fine", fields["note"])
-}
-
-func TestRing_Tee_RedactsCredentialsEmbeddedInValues(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("fetch", "url", "https://user:hunter2@host/repo", "hdr", "sent Bearer abc.def-ghi ok")
-
-	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
-	assert.NotContains(t, fields["url"], "hunter2")
-	assert.Contains(t, fields["url"], "https://"+logring.Redacted+"@host/repo")
-	assert.NotContains(t, fields["hdr"], "abc.def-ghi")
-	assert.Contains(t, fields["hdr"], "Bearer "+logring.Redacted)
-}
-
-func TestRing_Subscribe_ReceivesLiveRecordsAtOrAboveItsLevel(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	sub := ring.Subscribe(slog.LevelWarn)
-	defer sub.Close()
-
-	log.Info("skip")
-	log.Warn("see")
-
-	select {
-	case rec := <-sub.C():
-		assert.Equal(t, "see", rec.Msg)
-	case <-time.After(time.Second):
-		t.Fatal("no record delivered")
+	got := 0
+	for range slow.Live {
+		got++
 	}
-}
-
-func TestRing_Subscribe_FullQueueDropsAndCountsInsteadOfBlocking(t *testing.T) {
-	ring := logring.New(1000)
-	log, _ := logger(t, ring)
-	sub := ring.Subscribe(slog.LevelDebug)
-	defer sub.Close()
-
-	done := make(chan struct{})
-	go func() {
-		for i := 0; i < 600; i++ {
-			log.Info("x")
-		}
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("producer blocked on a slow subscriber")
-	}
-	assert.Equal(t, uint64(600-256), sub.TakeDropped())
-	assert.Zero(t, sub.TakeDropped())
-}
-
-type fakeClock struct{ now time.Time }
-
-func (c *fakeClock) Now() time.Time { return c.now }
-
-func TestRing_Subscribe_StuckForCountsFromTheFirstDropAndResetsWhenTheQueueAcceptsAgain(t *testing.T) {
-	clock := &fakeClock{now: time.Unix(1000, 0)}
-	ring := logring.New(1000, logring.WithClock(clock.Now))
-	log, _ := logger(t, ring)
-	sub := ring.Subscribe(slog.LevelDebug)
-	defer sub.Close()
-	assert.Zero(t, sub.StuckFor())
-
-	for i := 0; i < 300; i++ {
-		log.Info("x")
-	}
-	clock.now = clock.now.Add(7 * time.Second)
-
-	assert.Equal(t, 7*time.Second, sub.StuckFor())
-
-	for len(sub.C()) > 0 {
-		<-sub.C()
-	}
-	log.Info("y")
-
-	assert.Zero(t, sub.StuckFor())
-}
-
-func TestRing_Subscribe_CloseStopsDeliveryAndIsIdempotent(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-	sub := ring.Subscribe(slog.LevelDebug)
-
-	sub.Close()
-	sub.Close()
-	log.Info("after")
-
-	_, open := <-sub.C()
+	_, open := <-closed.Live
+	assert.Equal(t, 256, got)
 	assert.False(t, open)
+	slow.Close()
 }
 
-func TestRing_Snapshot_ConcurrentWritersAndReadersAreRaceFree(t *testing.T) {
-	ring := logring.New(64)
-	log, _ := logger(t, ring)
-	sub := ring.Subscribe(slog.LevelDebug)
-	var wg sync.WaitGroup
+func TestRing_Wrap_RecordsStructuredFieldsAndPassesTheRecordOn(t *testing.T) {
+	ring := logring.New()
+	log, next := newLogger(ring, slog.LevelInfo)
+	log = log.With("component", "release", "api_key", "k").WithGroup("g")
 
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 200; j++ {
-				log.Info("m", "j", j)
-			}
-		}()
+	log.Warn("hello", "n", 3, "ok", true, "err", assert.AnError, "long", strings.Repeat("x", 3000), "token", "t",
+		slog.Group("in", "a", 1, "Password", "p"), slog.Group("", "inline", 1), "", "dropped")
+
+	rec := ring.Stream(0, slog.LevelInfo).Replay[0]
+	assert.Equal(t, "release", rec.Component)
+	assert.Equal(t, "log", rec.Type)
+	assert.Equal(t, map[string]any{
+		"api_key": "[redacted]", "g.token": "[redacted]", "g.in.Password": "[redacted]",
+		"g.in.a": int64(1), "g.inline": int64(1), "g.n": int64(3), "g.ok": true, "g.err": assert.AnError.Error(),
+		"g.long": strings.Repeat("x", 2048),
+	}, rec.Fields)
+	assert.Contains(t, next.String(), "token=t", "redaction is for the ring only")
+}
+
+func TestRing_Wrap_CapsAttributesAndFollowsTheWrappedHandlerLevel(t *testing.T) {
+	ring := logring.New()
+	log, _ := newLogger(ring, slog.LevelWarn)
+	args := make([]any, 0, 80)
+	for i := range 40 {
+		args = append(args, "k"+string(rune('A'+i)), i)
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for j := 0; j < 200; j++ {
-			ring.Snapshot(0, slog.LevelDebug, 10)
-			ring.Latest()
-		}
-	}()
-	wg.Wait()
-	sub.Close()
 
-	assert.Equal(t, uint64(800), ring.Latest())
-}
+	log.Info("quiet", args...)
+	log.Warn("many", args...)
 
-func TestRing_Tee_HandleReturnsTheWrappedHandlersError(t *testing.T) {
-	ring := logring.New(10)
-	handler := ring.Tee(failingHandler{})
-
-	err := handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "x", 0))
-
-	require.Error(t, err)
-	assert.Len(t, ring.Snapshot(0, slog.LevelDebug, 10), 1)
-}
-
-type failingHandler struct{ slog.Handler }
-
-func (failingHandler) Enabled(context.Context, slog.Level) bool  { return true }
-func (failingHandler) Handle(context.Context, slog.Record) error { return assert.AnError }
-
-type panickyError struct{}
-
-func (panickyError) Error() string { panic("no message") }
-
-func TestRing_Tee_NonFiniteFloatsBecomeStrings(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("floats", "nan", math.NaN(), "inf", math.Inf(1))
-
-	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
-	assert.Equal(t, "NaN", fields["nan"])
-	assert.Equal(t, "+Inf", fields["inf"])
-}
-
-func TestRing_Tee_AnErrorWhoseMessagePanicsIsMarkedUnprintable(t *testing.T) {
-	ring := logring.New(10)
-	handler := ring.Tee(slog.NewTextHandler(io.Discard, nil))
-	record := slog.NewRecord(time.Now(), slog.LevelError, "boom", 0)
-	record.AddAttrs(slog.Any("err", panickyError{}))
-
-	require.NoError(t, handler.Handle(context.Background(), record))
-
-	assert.Equal(t, "[unprintable]", ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields["err"])
-}
-
-func TestRing_Tee_UnsignedAndArbitraryValuesAreKept(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("kinds", "n", uint64(7), "shape", struct{ A int }{A: 1})
-
-	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
-	assert.Equal(t, uint64(7), fields["n"])
-	assert.Equal(t, "{1}", fields["shape"])
-}
-
-func TestRing_Tee_EmptyAttrsAreIgnoredAndUnnamedGroupsInline(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.LogAttrs(context.Background(), slog.LevelInfo, "attrs",
-		slog.Attr{},
-		slog.Group("", slog.Int("inlined", 1)),
-		slog.Any("lazy", lazyValue{}),
-	)
-
-	fields := ring.Snapshot(0, slog.LevelDebug, 1)[0].Fields
-	assert.Equal(t, map[string]any{"inlined": int64(1), "lazy": "resolved"}, fields)
-}
-
-type lazyValue struct{}
-
-func (lazyValue) LogValue() slog.Value { return slog.StringValue("resolved") }
-
-func TestRing_Tee_ALongComponentIsTruncated(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info("long", "component", strings.Repeat("é", 3000))
-
-	component := ring.Snapshot(0, slog.LevelDebug, 1)[0].Component
-	assert.LessOrEqual(t, len(component), 2048+len("…"))
-	assert.True(t, strings.HasSuffix(component, "…"))
-}
-
-func TestRing_Tee_AMessageLongerThanTheCapIsTruncated(t *testing.T) {
-	ring := logring.New(10)
-	log, _ := logger(t, ring)
-
-	log.Info(strings.Repeat("m", 5000))
-
-	assert.True(t, strings.HasSuffix(ring.Snapshot(0, slog.LevelDebug, 1)[0].Msg, "…"))
-}
-
-func TestRing_Tee_EmptyWithAttrsAndWithGroupReturnTheSameHandler(t *testing.T) {
-	handler := logring.New(10).Tee(slog.NewTextHandler(io.Discard, nil))
-
-	assert.Same(t, handler, handler.WithAttrs(nil))
-	assert.Same(t, handler, handler.WithGroup(""))
-}
-
-func TestRing_Tee_AZeroRecordTimeBecomesNow(t *testing.T) {
-	ring := logring.New(10)
-	handler := ring.Tee(slog.NewTextHandler(io.Discard, nil))
-	before := time.Now().UTC().Add(-time.Second)
-
-	require.NoError(t, handler.Handle(context.Background(), slog.NewRecord(time.Time{}, slog.LevelInfo, "now", 0)))
-
-	assert.True(t, ring.Snapshot(0, slog.LevelDebug, 1)[0].Time.After(before))
-}
-
-func TestRing_Tee_DisabledLevelsAreReportedFromTheWrappedHandler(t *testing.T) {
-	handler := logring.New(10).Tee(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
-
-	assert.False(t, handler.Enabled(context.Background(), slog.LevelInfo))
-	assert.True(t, handler.Enabled(context.Background(), slog.LevelError))
+	got := ring.Stream(0, slog.LevelDebug).Replay
+	require.Len(t, got, 1)
+	assert.Len(t, got[0].Fields, 32)
+	assert.False(t, log.Handler().Enabled(context.Background(), slog.LevelInfo))
 }

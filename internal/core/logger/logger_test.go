@@ -45,21 +45,6 @@ func TestInit_EnabledConfig_CreatesLogFile(t *testing.T) {
 	assert.NoError(t, statErr, "expected Quiver.log to be created in logs dir")
 }
 
-func TestInit_CapturesRecordsInTheConsoleRing(t *testing.T) {
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	ring := logring.New(10)
-	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, logger.WithRing(ring))
-	t.Cleanup(func() { _ = shutdown() })
-
-	slog.Info("ring probe", "component", "logger-test")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.NotEmpty(t, got)
-	assert.Equal(t, "ring probe", got[len(got)-1].Msg)
-	assert.Equal(t, "logger-test", got[len(got)-1].Component)
-}
-
 func TestInit_InvalidLevel_FallsBackToInfo(t *testing.T) {
 	prev := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(prev) })
@@ -120,4 +105,16 @@ func TestBuildHandler_At_UsesProvidedHome(t *testing.T) {
 	assert.NotNil(t, handler)
 	assert.Contains(t, roller.Filename, home)
 	_ = roller.Close()
+}
+
+func TestInit_Wrap_DecoratesTheDefaultHandler(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	ring := logring.New()
+
+	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, ring.Wrap)
+	slog.Info("captured")
+
+	require.NoError(t, shutdown())
+	assert.Equal(t, "captured", ring.Stream(0, slog.LevelInfo).Replay[0].Msg)
 }

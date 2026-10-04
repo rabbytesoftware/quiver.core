@@ -32,11 +32,7 @@ func New(
 // nests under a shared "system" subcommand today, so this returns a slice
 // rather than one parent Cmd() like every other resource package.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{
-		clierr.AllowInConsole(c.healthCmd()),
-		clierr.AllowInConsole(c.versionCmd()),
-		c.pathCmd(),
-	}
+	return append(clierr.AllowInConsole(c.healthCmd(), c.versionCmd()), c.pathCmd())
 }
 
 func (c *commands) healthCmd() *cobra.Command {

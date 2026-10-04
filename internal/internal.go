@@ -13,7 +13,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
-	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
@@ -248,9 +247,8 @@ func WithCommit(commit string) Option {
 	return func(o *internalOpts) { o.commit = commit }
 }
 
-// WithBuiltAt sets the RFC 3339 UTC time the running build was compiled,
-// which GET /versions reports so a client can tell two builds of the same
-// rolling release apart.
+// WithBuiltAt sets the RFC 3339 UTC time the running build was compiled, which
+// GET /versions reports.
 func WithBuiltAt(builtAt string) Option {
 	return func(o *internalOpts) { o.builtAt = builtAt }
 }
@@ -302,12 +300,12 @@ func New(
 
 	// core.New configures the process-lifetime logger and metadata/config
 	// singletons before anything downstream can log or read a config value.
-	logs := logring.New(logring.DefaultCapacity)
+	logs := logring.New()
 	var loggerShutdown func() error
 	if cfg.homeDir != "" {
-		_, loggerShutdown = core.NewAt(cfg.homeDir, core.WithLogRing(logs))
+		_, loggerShutdown = core.NewAt(cfg.homeDir, logs.Wrap)
 	} else {
-		_, loggerShutdown = core.New(core.WithLogRing(logs))
+		_, loggerShutdown = core.New(logs.Wrap)
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
@@ -336,23 +334,19 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v0Container, err := apiv0.New(
-		appContainer,
-		apiv0.WithConsole(logs, command.New(consoleOptions(cfg, version))),
-	)
+	v0Container, err := apiv0.New(appContainer, logs, version)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
 
 	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{
-		Version: version,
-		BuildID: buildID,
-		Commit:  cfg.commit,
-		BuiltAt: cfg.builtAt,
-		Channel: cfg.channel,
-
-		Features: []string{api.FeatureConsole},
+		Version:  version,
+		BuildID:  buildID,
+		Commit:   cfg.commit,
+		BuiltAt:  cfg.builtAt,
+		Channel:  cfg.channel,
+		Features: []string{"console.v1"},
 	}, v0Container)
 	if err != nil {
 		_ = loggerShutdown()
@@ -377,19 +371,4 @@ func New(
 		recommendations: cfg.recommendations,
 		loggerShutdown:  loggerShutdown,
 	}, nil
-}
-
-// consoleOptions points the console's commands at this daemon's own listener.
-// Only a daemon handed a pre-bound listener (WithGateway, which is how the
-// daemon always starts) knows its address at construction; any other container
-// serves the console routes but answers command execution with 503, since the
-// address does not exist until Start binds it, after the router is built.
-func consoleOptions(
-	cfg internalOpts,
-	version string,
-) command.Options {
-	if cfg.listener == nil {
-		return command.Options{Version: version}
-	}
-	return command.Options{ServerURI: gateway.DialURI(cfg.listener.Addr()), Version: version}
 }

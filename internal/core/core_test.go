@@ -1,15 +1,12 @@
 package core
 
 import (
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestNew(t *testing.T) {
@@ -86,44 +83,4 @@ func TestCoreInitialization(t *testing.T) {
 	assert.NotSame(t, core1, core2, "New() should create new instances each time")
 	assert.Same(t, core1.GetMetadata(), core2.GetMetadata(), "Metadata should be singleton across Core instances")
 	assert.Same(t, core1.GetConfig(), core2.GetConfig(), "Config should be singleton across Core instances")
-}
-
-func TestNewAt_WithLogRing_CapturesTheProcessLogger(t *testing.T) {
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	ring := logring.New(10)
-
-	_, shutdown := NewAt(t.TempDir(), WithLogRing(ring))
-	t.Cleanup(func() { _ = shutdown() })
-	slog.Info("captured", "component", "core-test")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.NotEmpty(t, got)
-	assert.Equal(t, "captured", got[len(got)-1].Msg)
-}
-
-func TestNew_WithLogRing_CapturesTheProcessLogger(t *testing.T) {
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	ring := logring.New(10)
-
-	_, shutdown := New(WithLogRing(ring))
-	t.Cleanup(func() { _ = shutdown() })
-	slog.Info("captured")
-
-	got := ring.Snapshot(0, slog.LevelDebug, 10)
-	require.NotEmpty(t, got)
-	assert.Equal(t, "captured", got[len(got)-1].Msg)
-}
-
-func TestNewAt_WithoutLogRing_CapturesNothing(t *testing.T) {
-	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
-	ring := logring.New(10)
-
-	_, shutdown := NewAt(t.TempDir())
-	t.Cleanup(func() { _ = shutdown() })
-	slog.Info("not captured")
-
-	assert.Empty(t, ring.Snapshot(0, slog.LevelDebug, 10))
 }

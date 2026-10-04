@@ -20,9 +20,9 @@ import (
 
 func newTestContainer(t *testing.T) *api.Container {
 	t.Helper()
-	v0, err := apiv0.New(&app.Container{})
+	v0, err := apiv0.New(&app.Container{}, nil, "")
 	require.NoError(t, err)
-	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0", Features: []string{api.FeatureConsole}}, v0)
+	c, err := api.New(api.NewHub(), api.BuildInfo{Version: "0.0.0", BuildID: "0"}, v0)
 	require.NoError(t, err)
 	return c
 }
@@ -58,10 +58,9 @@ func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
 	var resp struct {
 		Success bool `json:"success"`
 		Data    struct {
-			Version  string   `json:"version"`
-			BuildID  string   `json:"build_id"`
-			Features []string `json:"features"`
-			API      struct {
+			Version string `json:"version"`
+			BuildID string `json:"build_id"`
+			API     struct {
 				Supported []string `json:"supported"`
 				Latest    string   `json:"latest"`
 			} `json:"api"`
@@ -72,7 +71,6 @@ func TestAPIContainer_ServeHTTP_VersionsRoute_Returns200(t *testing.T) {
 	assert.True(t, resp.Success)
 	assert.Equal(t, "0.0.0", resp.Data.Version)
 	assert.Equal(t, "0", resp.Data.BuildID)
-	assert.Contains(t, resp.Data.Features, "console.v1")
 	assert.Equal(t, []string{"v0"}, resp.Data.API.Supported)
 	assert.Equal(t, "v0", resp.Data.API.Latest)
 }

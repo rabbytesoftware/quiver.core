@@ -6,7 +6,6 @@ import (
 	"net"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
@@ -109,43 +108,18 @@ func LocalURI(
 	return "unix://" + socket
 }
 
-// DialURI turns the address a bound listener reports into the host URI a client
-// on the same machine dials to reach it. A TCP listener bound to every
-// interface is reached through loopback.
-//
-// It returns "" for an address no client can dial: a unix socket whose path is
-// not absolute in the unix sense (a Windows drive path such as C:\q.sock, which
-// client.New cannot parse as a unix:// URI; on Windows the daemon's default
-// endpoint is the named pipe, which does round-trip).
+// DialURI turns the local address of a connection a listener accepted into the
+// host URI a client dials to reach that same listener; empty for a nil address.
 func DialURI(
 	addr net.Addr,
 ) string {
 	if addr == nil {
 		return ""
 	}
-	if strings.HasPrefix(addr.String(), pipePrefix) {
-		return LocalURI(addr.String())
-	}
 	if tcp, ok := addr.(*net.TCPAddr); ok {
-		return "tcp://" + net.JoinHostPort(dialHost(tcp.IP), strconv.Itoa(tcp.Port))
+		return "tcp://" + tcp.String()
 	}
-	if !strings.HasPrefix(addr.String(), "/") {
-		return ""
-	}
-	return "unix://" + addr.String()
-}
-
-func dialHost(
-	ip net.IP,
-) string {
-	switch {
-	case ip == nil || ip.Equal(net.IPv4zero):
-		return "127.0.0.1"
-	case ip.IsUnspecified():
-		return "::1"
-	default:
-		return ip.String()
-	}
+	return LocalURI(addr.String())
 }
 
 // Dial connects to a local daemon endpoint as LocalSocket returns it.
