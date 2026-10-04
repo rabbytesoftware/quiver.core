@@ -83,10 +83,10 @@ channels:
   consoleLogs:
     address: /v0/console/logs
     description: >
-      The daemon's own log records. The server replays retained records
-      (query: level, since, replay), sends one ready frame, then streams new
-      records. A client that stops reading receives a gap frame for what it
-      missed. Sensitive values are redacted before a record is stored.
+      The daemon's own log records. The server replays the last 500 records
+      (or those after the since query), sends one ready frame, then streams new
+      records. A client that falls behind is disconnected and reconnects with
+      since. Sensitive values are redacted before a record is stored.
     messages:
       consoleLog:
         $ref: '#/components/messages/ConsoleLogMessage'
@@ -174,7 +174,7 @@ components:
       properties:
         type:
           type: string
-          enum: [log, ready, gap]
+          enum: [log, ready]
         seq:
           type: integer
           description: Per-process sequence number of a log record; on ready, the last one sent.
@@ -191,14 +191,9 @@ components:
         fields:
           type: object
           additionalProperties: true
-        fields_truncated:
-          type: boolean
         reset:
           type: boolean
-          description: On ready, set when the requested since cursor predated a daemon restart and was discarded.
-        dropped:
-          type: integer
-          description: On gap, how many records this client missed.
+          description: On ready, set when since is newer than the daemon's newest record, which means it restarted.
 
     ArrowEvent:
       type: object

@@ -1427,7 +1427,7 @@ const docTemplate = `{
         },
         "/console/commands": {
             "get": {
-                "description": "Returns every command, with its usage and flags, that carries the console annotation and whose parent chain does too. Clients render help and completion from this list instead of keeping their own.",
+                "description": "Returns the runnable commands that carry the console annotation along with all their ancestors.",
                 "produces": [
                     "application/json"
                 ],
@@ -1459,7 +1459,7 @@ const docTemplate = `{
         },
         "/console/exec": {
             "post": {
-                "description": "Runs a command line against the daemon's own CLI command tree and streams newline-delimited JSON frames: ` + "`" + `out` + "`" + ` frames carrying stdout or stderr text, then exactly one ` + "`" + `exit` + "`" + ` frame with the exit code.\n\nThe line is split into arguments by a quote-aware tokenizer and never given to a shell. Only commands that opt in to the console are reachable (403 otherwise), the redirecting --server, --context and --config flags are refused, and confirmations never answer yes: destructive commands need --yes. Commands run with the caller's own credentials.\n\nLimits: lines up to 1024 bytes and 64 arguments, 256 KiB of output per call, a 10 minute timeout, 2 concurrent commands per device and 8 overall.",
+                "description": "Runs a line against the daemon's own CLI tree and streams newline-delimited JSON: ` + "`" + `out` + "`" + ` frames, then exactly one ` + "`" + `exit` + "`" + ` frame. Only commands marked for the console run (403 otherwise). The line is split on spaces and never reaches a shell; quoting is not supported. At most 4 commands run at once (429), each limited to 10 minutes and 256 KiB of output.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1486,7 +1486,7 @@ const docTemplate = `{
                         "description": "Stream of out and exit frames"
                     },
                     "400": {
-                        "description": "The line is empty, too long, or cannot be tokenized",
+                        "description": "The line is empty, too long or has forbidden characters",
                         "schema": {
                             "$ref": "#/definitions/libs.ErrResponse"
                         }
@@ -1498,13 +1498,7 @@ const docTemplate = `{
                         }
                     },
                     "429": {
-                        "description": "Too many commands are already running",
-                        "schema": {
-                            "$ref": "#/definitions/libs.ErrResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "The daemon's own address is not known yet",
+                        "description": "Too many commands are running",
                         "schema": {
                             "$ref": "#/definitions/libs.ErrResponse"
                         }
@@ -1514,7 +1508,7 @@ const docTemplate = `{
         },
         "/console/logs": {
             "get": {
-                "description": "Upgrades to a WebSocket. The server first replays retained records (the most recent ` + "`" + `replay` + "`" + `, or those after ` + "`" + `since` + "`" + `), then sends one ` + "`" + `ready` + "`" + ` frame, then every new record as it is logged. Frames are JSON text frames of type ` + "`" + `log` + "`" + `, ` + "`" + `ready` + "`" + ` or ` + "`" + `gap` + "`" + `; see docs/spec/console.md.\n\nA client that stops reading is not waited on: records it misses are counted and reported in a ` + "`" + `gap` + "`" + ` frame, and a consumer that stays stalled for 5 seconds is closed with code 1013. Sensitive attribute values are redacted before a record is stored.",
+                "description": "Upgrades to a WebSocket. Replays the last 500 records (or those after ` + "`" + `since` + "`" + `), sends one ` + "`" + `ready` + "`" + ` frame, then every new record. A client that falls behind is disconnected; reconnect with since=\u003clast seq\u003e.",
                 "tags": [
                     "console"
                 ],
@@ -1532,12 +1526,6 @@ const docTemplate = `{
                         "description": "Replay only records with a sequence number above this",
                         "name": "since",
                         "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Most records to replay (default 500, at most 2000)",
-                        "name": "replay",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1545,7 +1533,7 @@ const docTemplate = `{
                         "description": "Switching Protocols"
                     },
                     "400": {
-                        "description": "level, since or replay is invalid",
+                        "description": "level or since is invalid",
                         "schema": {
                             "$ref": "#/definitions/libs.ErrResponse"
                         }
@@ -3071,18 +3059,6 @@ const docTemplate = `{
         "dto.ConsoleCommandDTO": {
             "type": "object",
             "properties": {
-                "aliases": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "flags": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/dto.ConsoleFlagDTO"
-                    }
-                },
                 "path": {
                     "type": "array",
                     "items": {
@@ -3112,23 +3088,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "line": {
-                    "type": "string"
-                }
-            }
-        },
-        "dto.ConsoleFlagDTO": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "shorthand": {
-                    "type": "string"
-                },
-                "takes_value": {
-                    "type": "boolean"
-                },
-                "usage": {
                     "type": "string"
                 }
             }

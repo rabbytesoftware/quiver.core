@@ -50,7 +50,7 @@ The `{namespace}` placeholder in all endpoint definitions below refers to the **
 | `ws://host/v0/collection` | `collectionEventDTO` | All collections — follow/unfollow events |
 | `ws://host/v0/collection/{namespace}` | `collectionEventDTO` | Single collection (or glob) — follow/unfollow events |
 | `ws://host/v0/search/discover/{job}` | `SearchResultDTO` | One discovery job — verified search results |
-| `ws://host/v0/console/logs` | console log frames | The daemon's own log records — see [console.md](console.md) |
+| `ws://host/v0/console/logs` | log frames | The daemon's own log records — see [console.md](console.md) |
 
 Every arrow and collection message carries an `event` field (`"upserted"` or `"removed"`) so clients can act without re-fetching. Runtime messages carry no `event` field — the `state` field already communicates what happened.
 

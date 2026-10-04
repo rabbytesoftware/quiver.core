@@ -400,15 +400,7 @@ Errors: 422 (the daemon was built without a way to stop itself), 500.
 
 ### 6.7 Console
 
-Registered from `internal/api/v0/endpoints/console/routes.go`, behind the same bearer-token gate as every other v0 route. Full contract, limits and policy in [console.md](console.md).
-
-| Method | Path | Summary | Async? |
-|---|---|---|---|
-| GET | `/console/logs` | WebSocket: replay of recent daemon log records, then the live stream | WS |
-| GET | `/console/commands` | The commands the console may run, with usage and flags | Sync |
-| POST | `/console/exec` | Run one command line against the daemon's own CLI; NDJSON `out` / `exit` frames | Streamed |
-
-`GET /versions` also reports `commit`, `built_at`, `channel` and `features` (`console.v1` when these routes exist).
+`GET /console/logs` (WebSocket), `GET /console/commands` and `POST /console/exec` (NDJSON stream), behind the same bearer gate as every other route. See [console.md](console.md). `GET /versions` also reports `commit`, `built_at`, `channel` and `features` (`console.v1`).
 
 ---
 
@@ -506,7 +498,6 @@ The 202 only signals that the use case layer accepted the command (e.g. state ma
 
 ## 9. Cross-References
 
-- [console.md](console.md) — the console: log stream, command list, exec, and the default-deny policy.
 - [websocket.md](websocket.md) — full WebSocket protocol, DTO shapes, filter semantics, ping/pong cadence.
 - [usecases.md](usecases.md) — the business-logic layer this API delegates to; canonical contract for what each handler does.
 - [commands.md](commands.md) — the underlying state-machine commands that lifecycle methods translate into.

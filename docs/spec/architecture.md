@@ -10,7 +10,7 @@ For domain semantics, manifest schemas, and operational behaviour, follow the cr
 
 ## 1. Layer Map
 
-The codebase is organized into six layers under `internal/` plus two feature packages (`cli/`, `console/`), with one binary entry point — `cmd/quiver` — that wires them together. Each layer has a single, narrow responsibility and depends only on layers below it.
+The codebase is organized into six layers under `internal/`, with one binary entry point — `cmd/quiver` — that wires them together. Each layer has a single, narrow responsibility and depends only on layers below it.
 
 ```mermaid
 flowchart TD
@@ -20,9 +20,7 @@ flowchart TD
     app["app/<br/>orchestration: usecases + repositories + hub"]
     engine["engine/<br/>business engines: manifold, vault, wizard, deptree, netbridge, requirements"]
     adapter["adapter/<br/>event store + read-model store backends"]
-    console["console/<br/>default-deny execution of the CLI tree for the console"]
-    cli["cli/<br/>quiver command tree + API client"]
-    core["core/<br/>config, paths, metadata, logger, logring, fns"]
+    core["core/<br/>config, paths, metadata, logger, fns"]
     domain["domain/<br/>pure types and state machines"]
 
     cmd --> internal
@@ -31,11 +29,6 @@ flowchart TD
     internal --> engine
     internal --> adapter
     api --> app
-    api --> console
-    internal --> console
-    console --> cli
-    cli --> core
-    cmd --> cli
     app --> engine
     app --> adapter
     app --> domain
@@ -50,15 +43,13 @@ flowchart TD
 | Layer | Path | Responsibility |
 |-------|------|---------------|
 | `domain/` | `internal/domain/` | Pure types and state machines. No I/O, no imports from other internal packages. |
-| `core/` | `internal/core/` | Process-level infrastructure — config, embedded metadata, paths, logger, `logring` (bounded log ring the logger tees into), filesystem/HTTP I/O (`fns`). Imports no feature package. |
+| `core/` | `internal/core/` | Process-wide singletons and primitives — config, embedded metadata, paths, logger, filesystem/HTTP I/O (`fns`). |
 | `adapter/` | `internal/adapter/` | Pluggable storage backends. Event-store and read-model-store implementations (SQLite, in-memory). |
 | `engine/` | `internal/engine/` | Stateful business engines. Each is independently constructible and exposes a narrow interface. No engine imports another. |
 | `app/` | `internal/app/` | Orchestration. Owns Asynx aggregates, composes engines and adapters into usecases, owns the broadcast hub. |
-| `api/` | `internal/api/` | Delivery. Maps HTTP and WebSocket frames to usecase calls and back to DTOs. Knows nothing about Asynx, commands, or domain projections. The console endpoints are the one place it imports `console/`. |
-| `console/` | `internal/console/` | `command`: tokenizer, default-deny policy and executor that run the daemon's own CLI tree for the console (see [console.md](console.md)). Imports `cli/` and `core/`. |
-| `cli/` | `internal/cli/` | The `quiver` command tree and its HTTP/WebSocket client of the daemon. Imports `core/` and only the `api/v0/dto` wire types. |
+| `api/` | `internal/api/` | Delivery. Maps HTTP and WebSocket frames to usecase calls and back to DTOs. Knows nothing about Asynx, commands, or domain projections. |
 
-The dependency direction is enforced by the order of construction in `internal.New`: the log ring and logger first, then engines and adapters, then app, then api versions (with the console's ring and executor) are wired into the api container.
+The dependency direction is enforced by the order of construction in `internal.New`: engines and adapters are built first, then app, then api versions are wired into the api container.
 
 ---
 

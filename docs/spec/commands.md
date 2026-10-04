@@ -13,8 +13,6 @@ All real work — git fetch, manifest parse, dependency resolution, port allocat
 
 Aggregate removal does not always require a command. The Asynx kernel exposes a `Forget(aggregateID)` operation that emits a tombstone via the projection's `OnForget` hook. Both `arrow.Remove` and `collection.Unfollow` flow through `Forget`, not through dedicated commands. Commands therefore cover state transitions inside the lifetime of the aggregate; removal is a separate kernel-level mechanism that fires `OnForget` subscribers for downstream cleanup.
 
-The `quiver` CLI commands (`internal/cli/commands`: `install`, `arrow add`, …) are a different thing: they are the user-facing client of the HTTP API and send the commands below only indirectly. The daemon's console runs a default-deny subset of that CLI tree — see [console.md](console.md).
-
 ### Naming Convention
 
 Event names use dot notation: `aggregate.action`. Several runtime commands share an event family — for example, every `Begin*` command emits a `runtime.begun.<namespace>` event so subscribers can listen with one regex. Commands that target a single aggregate instance suffix the namespace string to the event name (`arrow.added.github.com/org/repo@v1.0.0`), enabling per-instance `Listen` semantics. Aggregate-wide subscribers use wildcard topics (`arrow.added.*`).
