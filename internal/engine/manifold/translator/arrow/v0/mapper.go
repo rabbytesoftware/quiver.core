@@ -331,6 +331,9 @@ func toStep(s stepV0) (step.Step, error) {
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
+	case "ui":
+		return step.NewUIStep(s.Title, s.Listen, s.Static, s.Path, exitOnFailure), nil
+
 	case "dependencies":
 		return nil, fmt.Errorf("step type \"dependencies\" is synthetic and must not appear in manifests")
 

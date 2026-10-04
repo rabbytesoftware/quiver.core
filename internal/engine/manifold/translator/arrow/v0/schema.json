@@ -174,7 +174,7 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type":            { "type": "string", "enum": ["run", "fetch", "extract", "portable", "signal"] },
+        "type":            { "type": "string", "enum": ["run", "fetch", "extract", "portable", "signal", "ui"] },
         "title":           { "type": "string" },
         "exit_on_failure": { "type": "boolean" },
         "command":         {},
@@ -185,7 +185,10 @@
         "signal":          {},
         "elevated":        {},
         "timeout":         {},
-        "name":            { "type": "string" }
+        "name":            { "type": "string" },
+        "listen":          { "type": "array", "items": { "type": "string", "enum": ["unix", "pipe"] }, "minItems": 1 },
+        "static":          { "type": "string" },
+        "path":            { "type": "string" }
       }
     },
     "Variable": {

@@ -153,5 +153,8 @@ type stepV0 struct {
 	Checksum      overrideableV0[string] `yaml:"checksum"`
 	Timeout       overrideableV0[string] `yaml:"timeout"`
 	Name          string                 `yaml:"name"`
+	Listen        []string               `yaml:"listen"`
+	Static        string                 `yaml:"static"`
+	Path          string                 `yaml:"path"`
 	ExitOnFailure *bool                  `yaml:"exit_on_failure"`
 }
