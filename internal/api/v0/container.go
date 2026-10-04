@@ -22,6 +22,7 @@ type Container struct {
 	configSvc     usecases.ConfigUsecase
 	authSvc       usecases.AuthUsecase
 	pathSvc       usecases.PathUsecase
+	systemSvc     usecases.SystemUsecase
 	wsHandler     *wshandler.Handler
 	rateLimiter   *middleware.RateLimiter
 
@@ -69,6 +70,7 @@ func New(
 		configSvc:     appContainer.Config,
 		authSvc:       appContainer.Auth,
 		pathSvc:       appContainer.Path,
+		systemSvc:     appContainer.System,
 		wsHandler:     wsHandler,
 		rateLimiter:   rateLimiter,
 		AuthGate:      authGate,

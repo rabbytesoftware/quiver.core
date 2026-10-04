@@ -22,7 +22,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -42,6 +41,7 @@ type Container struct {
 	Config    usecases.ConfigUsecase
 	Auth      usecases.AuthUsecase
 	Path      usecases.PathUsecase
+	System    usecases.SystemUsecase
 	// Home is nil when the container was built without discovery.
 	Home usecases.HomeUsecase
 	Hub  *hub.Hub
@@ -197,7 +197,7 @@ type appOpts struct {
 	version              string
 	commit               string
 	channel              string
-	selfUpdateTrigger    *selfupdate.Trigger
+	stop                 func()
 	versionCheckInterval *time.Duration
 }
 
@@ -226,10 +226,10 @@ func WithChannel(c string) Option {
 	return func(o *appOpts) { o.channel = c }
 }
 
-// WithSelfUpdateTrigger passes the daemon's self-succession trigger down to
-// the repositories, fired when quiver.core's own update lifecycle succeeds.
-func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
-	return func(o *appOpts) { o.selfUpdateTrigger = trig }
+// WithStop hands the container the daemon's own cancellation, the one
+// POST /v0/system/shutdown triggers.
+func WithStop(stop func()) Option {
+	return func(o *appOpts) { o.stop = stop }
 }
 
 // WithVersionCheckInterval overrides arrows.version_check_interval, the
@@ -321,7 +321,7 @@ func New(
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
 	}
 
-	uc, err := usecases.New(repos, engines.Manifold, engines.Vault, engines.Wizard)
+	uc, err := usecases.New(repos, engines.Manifold, engines.Vault, engines.Wizard, cfg.stop)
 	if err != nil {
 		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: usecases: %w", err)
@@ -347,6 +347,7 @@ func assemble(
 		Config:     uc.Config,
 		Auth:       uc.Auth,
 		Path:       uc.Path,
+		System:     uc.System,
 		Home:       uc.Home,
 		Hub:        h,
 		repos:      repos,
@@ -362,7 +363,7 @@ func assemble(
 func repoOptions(
 	cfg appOpts,
 ) []repositories.Option {
-	opts := []repositories.Option{repositories.WithSelfUpdateTrigger(cfg.selfUpdateTrigger)}
+	var opts []repositories.Option
 	if cfg.versionCheckInterval != nil {
 		opts = append(opts, repositories.WithVersionCheckInterval(*cfg.versionCheckInterval))
 	}

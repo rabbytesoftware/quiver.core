@@ -47,10 +47,21 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 `ARROW.md` at the repo root is quiver.core's own arrow manifest — arrows
 are resolved from `["ARROW.md", "arrow.yaml"]` at the root of any
 namespace (`internal/engine/manifold/.../resolver.go`), so it has to live
-there. `internal/core/selfmanifest` embeds a checked-in copy of it
-(`internal/core/selfmanifest/ARROW.md`), kept in sync by `make
-sync-manifest` and enforced by CI the same way `docs/swagger/` is: a stale
-copy fails the build. No `.go` file lives at the repo root.
+there. The root package (`embed.go`) embeds it and `internal/core/selfmanifest.Raw()`
+exposes it, so there is a single copy. `go:embed` cannot reach a file above its own
+package directory, which is why that one `.go` file lives at the repo root.
+
+Core updates itself through that manifest's ordinary `update:` steps: a `fetch` of the
+release binary (`${REF}`, verified by `sha256sums:` against the release's `checksums.txt`) and
+a `run` of **the new binary** with the hidden `quiver self-update` command
+(`cmd/quiver/selfupdate.go`, logic in `internal/cli/selfupdate`). It detaches itself and exits,
+then the detached copy calls `POST /v0/system/shutdown`, waits for the old daemon to die, swaps
+the binary at the self path (the old one aside as `quiver.old-<n>`), starts the new daemon
+with the recorded arguments, health-checks it and rolls back on failure. The updater removes its own
+aside once the new daemon is healthy (never earlier: it is the rollback), and stale ones at the
+start of the next swap. Nothing else in the codebase is
+specific to core's update; do not add runtime-aggregate fields or lifecycle special cases
+for it. See `docs/spec/manifests/v0/versioning.md` §10.3.
 
 ### DI construction order (in `internal.New`)
 
@@ -389,7 +400,7 @@ RuntimeUsecase.Install → lifecycle.Install: dependency graph resolves topologi
 
 ### Update arrow (advance)
 
-`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row is skipped — its relaunched build adopts on boot.
+`PATCH /v0/arrow/:ns` → ArrowUsecase.Update → lifecycle.Recheck: re-resolve against a fresh snapshot, record `Available`; advance in place only if nothing is installed. `POST /v0/runtime/:ns/update` → RuntimeUsecase.Update → the lifecycle opens a per-row bracket: re-resolve + record `Available` (nothing ahead → no-op, answered 200 instead of 202, no runtime events) → stop if running → stage the target manifest (`RefreshManifest`) → sync dep changes → `BeginUpdate` (target's `update:` steps). On `runtime.ended`: re-resolve, and only if the target ref still stands at the target commit, `Advance` + clear the runtime badge; otherwise stamp nothing. quiver.core's own row settles like any other (its update ends by handing over to `quiver self-update`, §2); a rolled-back swap is corrected by the old build adopting itself on boot.
 
 ### Runtime reaction flow
 

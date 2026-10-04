@@ -16,10 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-// UpdatedBinaryName is the name the self-arrow's update fetch step downloads
-// to, and the binary handover reads back.
-const UpdatedBinaryName = "quiver-new"
-
 // arrowCatalog is the subset of the arrow catalog EnsureRegistered needs.
 type arrowCatalog interface {
 	Adopt(
@@ -213,6 +209,24 @@ func removeOtherSelfRows(
 	return errors.Join(errs...)
 }
 
+// BinaryPath returns the stable self-install path of the quiver binary under
+// homeDir; an empty homeDir means the process home.
+func BinaryPath(
+	homeDir string,
+) (string, error) {
+	var selfDir string
+	var err error
+	if homeDir != "" {
+		selfDir, err = paths.SelfAt(homeDir)
+	} else {
+		selfDir, err = paths.Self()
+	}
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(selfDir, binaryName()), nil
+}
+
 // PromoteRunningBinary copies src (the running executable's own path) to the
 // stable self-install path under homeDir, so a fresh launch -- a reboot, or
 // Desktop spawning a sidecar -- picks up the version currently running.
@@ -224,18 +238,10 @@ func PromoteRunningBinary(
 	src string,
 	homeDir string,
 ) error {
-	var selfDir string
-	var err error
-	if homeDir != "" {
-		selfDir, err = paths.SelfAt(homeDir)
-	} else {
-		selfDir, err = paths.Self()
-	}
+	dst, err := BinaryPath(homeDir)
 	if err != nil {
 		return fmt.Errorf("selfarrow: promote: %w", err)
 	}
-
-	dst := filepath.Join(selfDir, binaryName())
 	if sameFile(src, dst) {
 		return nil
 	}

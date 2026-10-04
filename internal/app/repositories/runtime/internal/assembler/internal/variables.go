@@ -213,7 +213,7 @@ func requireReferenced(
 		if _, used := referenced[declared.Name]; !used {
 			continue
 		}
-		if _, resolved := vars[declared.Name]; !resolved {
+		if value, resolved := vars[declared.Name]; !resolved || value == "" {
 			return fmt.Errorf("%w: %q", apperrors.ErrMissingVariable, declared.Name)
 		}
 	}

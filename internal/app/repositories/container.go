@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -27,10 +25,8 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/pairingcode"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/recommendation"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime"
-	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	authdomain "github.com/rabbytesoftware/quiver.core/internal/domain/auth"
@@ -58,20 +54,11 @@ type Container struct {
 }
 
 type repoOpts struct {
-	selfUpdate           *selfupdate.Trigger
 	versionCheckInterval *time.Duration
 }
 
 // Option configures repositories.New.
 type Option func(*repoOpts)
-
-// WithSelfUpdateTrigger hands the container the trigger fired when
-// quiver.core's own update lifecycle succeeds.
-func WithSelfUpdateTrigger(
-	trig *selfupdate.Trigger,
-) Option {
-	return func(o *repoOpts) { o.selfUpdate = trig }
-}
 
 // WithVersionCheckInterval overrides arrows.version_check_interval, the
 // period of the installed rows' version check; zero turns it off.
@@ -185,7 +172,7 @@ func New(
 		Device:         dev,
 	}
 
-	if err := c.wireCallbacks(cfg.selfUpdate); err != nil {
+	if err := c.wireCallbacks(); err != nil {
 		discardCollection(coll)
 		return nil, err
 	}
@@ -548,9 +535,7 @@ func (c *Container) RecoverForgetCascade(ctx context.Context) {
 // the first reaction to every arrow event. The arrow repository invokes
 // callbacks in registration order and only makes the arrow readable afterwards,
 // which is what makes "readable in the catalog" imply "its edges exist".
-func (c *Container) wireCallbacks(
-	trig *selfupdate.Trigger,
-) error {
+func (c *Container) wireCallbacks() error {
 	if err := c.Arrow.OnArrowAdded(func(ctx context.Context, ns domain.Namespace, a domain.Arrow) error {
 		return c.Graph.SyncDependencies(ctx, ns, &a)
 	}); err != nil {
@@ -572,7 +557,7 @@ func (c *Container) wireCallbacks(
 		return fmt.Errorf("repositories: wire OnArrowRemoved: %w", err)
 	}
 
-	return c.wireSelfUpdate(trig)
+	return nil
 }
 
 // wireLifecycle lets a version check hold the badge of a row whose update is
@@ -585,51 +570,6 @@ func (c *Container) wireLifecycle() error {
 	}
 
 	return nil
-}
-
-// wireSelfUpdate lets quiver.core's own update lifecycle claim this process.
-// A container built without a trigger (every command that is not the daemon)
-// registers nothing.
-func (c *Container) wireSelfUpdate(
-	trig *selfupdate.Trigger,
-) error {
-	if trig == nil {
-		return nil
-	}
-
-	if err := c.Runtime.OnRuntimeEnded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
-		claimSuccession(trig, rt)
-	}); err != nil {
-		return fmt.Errorf("repositories: wire self-update trigger: %w", err)
-	}
-
-	return nil
-}
-
-// claimSuccession fires trig when quiver.core's own arrow finishes its own
-// update lifecycle successfully. The workdir is read from LastReturn, not
-// Execution, since EndExecution clears Execution as it writes the return.
-func claimSuccession(
-	trig *selfupdate.Trigger,
-	rt domainRuntime.ArrowRuntime,
-) {
-	self, _ := metadata.GetSelfNamespaces()
-	if !strings.HasPrefix(rt.Ref.String(), string(self)+"@") {
-		return
-	}
-	if rt.LastReturn == nil || rt.LastReturn.Method != domain.MethodUpdate {
-		return
-	}
-	if rt.LastReturn.Outcome != domainRuntime.ExecutionOutcomeSuccess {
-		return
-	}
-
-	workdir := rt.LastReturn.Variables[domain.VarWorkdir]
-	if workdir == "" {
-		return
-	}
-
-	trig.Fire(filepath.Join(workdir, selfarrow.UpdatedBinaryName))
 }
 
 func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {

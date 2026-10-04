@@ -11,10 +11,12 @@ func Register(
 	rg *gin.RouterGroup,
 	svc usecases.ConfigUsecase,
 	pathSvc usecases.PathUsecase,
+	systemSvc usecases.SystemUsecase,
 ) {
-	h := systemhandlers.New(svc, pathSvc)
+	h := systemhandlers.New(svc, pathSvc, systemSvc)
 	rg.GET("/config", h.Config)
 	rg.PATCH("/config", h.PatchConfig)
 	rg.GET("/system/path", h.PathStatus)
 	rg.POST("/system/path", h.SetupPath)
+	rg.POST("/system/shutdown", h.Shutdown)
 }

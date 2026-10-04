@@ -478,3 +478,126 @@ func TestHandler_Execute_RefetchKeepsTheDestinationsMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
+
+func sumsServer(t *testing.T, binary []byte, sums func(digest string) string) *httptest.Server {
+	t.Helper()
+	sum := sha256.Sum256(binary)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/quiver-linux-amd64":
+			_, _ = w.Write(binary)
+		case "/checksums.txt":
+			_, _ = w.Write([]byte(sums(hex.EncodeToString(sum[:]))))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestHandler_Execute_PublishedSums(t *testing.T) {
+	binary := []byte("the release binary")
+	other := strings.Repeat("0", 64)
+
+	testCases := []struct {
+		name     string
+		sums     func(digest string) string
+		entry    string
+		wantErr  error
+		wantFile bool
+	}{
+		{
+			name:     "default entry is the fetched file name",
+			sums:     func(d string) string { return other + "  ./quiver-darwin-arm64\n" + d + "  ./quiver-linux-amd64\n" },
+			wantFile: true,
+		},
+		{
+			name:     "explicit entry",
+			sums:     func(d string) string { return d + "  ./renamed\n" },
+			entry:    "#renamed",
+			wantFile: true,
+		},
+		{
+			name:     "binary mode marker and bare name",
+			sums:     func(d string) string { return d + " *quiver-linux-amd64\n" },
+			wantFile: true,
+		},
+		{
+			name:    "missing entry fails closed",
+			sums:    func(string) string { return other + "  ./quiver-darwin-arm64\n\nnot a sums line\n" },
+			wantErr: stepdownload.ErrChecksumEntryMissing,
+		},
+		{
+			name:    "mismatching digest",
+			sums:    func(string) string { return other + "  ./quiver-linux-amd64\n" },
+			wantErr: stepdownload.ErrChecksumMismatch,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := sumsServer(t, binary, tc.sums)
+			dst := filepath.Join(t.TempDir(), "quiver-new")
+			s := domainstep.NewFetchStep("fetch", srv.URL+"/quiver-linux-amd64?x=1", dst, "sha256sums:"+srv.URL+"/checksums.txt"+tc.entry, "10s", true)
+
+			err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				_, statErr := os.Stat(dst)
+				assert.True(t, os.IsNotExist(statErr), "a download the sums do not vouch for never reaches the destination")
+				return
+			}
+			require.NoError(t, err)
+			got, readErr := os.ReadFile(dst) // #nosec G304 -- a temp file this test owns
+			require.NoError(t, readErr)
+			assert.Equal(t, binary, got)
+		})
+	}
+}
+
+func TestHandler_Execute_PublishedSums_Unreachable(t *testing.T) {
+	srv := sumsServer(t, []byte("x"), func(string) string { return "" })
+	dst := filepath.Join(t.TempDir(), "quiver-new")
+	s := domainstep.NewFetchStep("fetch", srv.URL+"/quiver-linux-amd64", dst, "sha256sums:"+srv.URL+"/missing.txt", "10s", true)
+
+	err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fetch "+srv.URL+"/missing.txt")
+}
+
+func TestHandler_Execute_PublishedSums_NonHTTPListIsRefused(t *testing.T) {
+	srv := sumsServer(t, []byte("x"), func(string) string { return "" })
+	s := domainstep.NewFetchStep("fetch", srv.URL+"/quiver-linux-amd64", filepath.Join(t.TempDir(), "q"), "sha256sums:/etc/hosts", "10s", true)
+
+	err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp"}, s)
+
+	require.ErrorIs(t, err, stepdownload.ErrUnsupportedURL)
+}
+
+func TestHandler_Execute_NonHTTPURLIsRefused(t *testing.T) {
+	testCases := []struct {
+		name string
+		url  string
+	}{
+		{name: "local path", url: "/etc/hosts"},
+		{name: "file scheme", url: "file:///etc/hosts"},
+		{name: "empty after expansion", url: "${MISSING}"},
+		{name: "unparsable", url: "http://[::1"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := filepath.Join(t.TempDir(), "out")
+			s := domainstep.NewFetchStep("fetch", tc.url, dst, "", "10s", true)
+
+			err := newTestHandler().Execute(context.Background(), wizstep.Request{WorkDir: "/tmp", Vars: map[string]string{"MISSING": ""}}, s)
+
+			require.ErrorIs(t, err, stepdownload.ErrUnsupportedURL)
+			_, statErr := os.Stat(dst)
+			assert.True(t, os.IsNotExist(statErr))
+		})
+	}
+}

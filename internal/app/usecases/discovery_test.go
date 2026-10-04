@@ -431,7 +431,7 @@ func TestContainerNew_WithoutDiscovery_LeavesUsecaseNil(t *testing.T) {
 		Graph:      &ucmocks.MockGraph{},
 	}
 
-	c, err := New(repos, nil, nil, nil)
+	c, err := New(repos, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, c.Discovery)
 }
@@ -445,7 +445,7 @@ func TestContainerNew_WithDiscovery_BuildsUsecase(t *testing.T) {
 		Discovery:  &stubPipeline{},
 	}
 
-	c, err := New(repos, nil, nil, nil)
+	c, err := New(repos, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c.Discovery)
 

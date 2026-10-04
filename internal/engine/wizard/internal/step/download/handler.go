@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,7 +38,20 @@ var ErrChecksumUnresolved = errors.New("download: checksum: variable reference r
 
 var ErrUnsupportedChecksumAlgorithm = errors.New("download: unsupported checksum algorithm")
 
-const checksumAlgorithmSHA256 = "sha256"
+// ErrChecksumEntryMissing means a sha256sums checksum named a file its
+// published list does not contain. It fails closed: a list that does not vouch
+// for the download is not a reason to accept it.
+var ErrChecksumEntryMissing = errors.New("download: checksum: entry not in the published sums")
+
+// ErrUnsupportedURL means a fetch step's URL is not http or https. Other
+// schemes would reach the local file strategy and copy from the machine
+// instead of downloading.
+var ErrUnsupportedURL = errors.New("download: only http and https urls can be fetched")
+
+const (
+	checksumAlgorithmSHA256 = "sha256"
+	sha256SumsPrefix        = "sha256sums:"
+)
 
 type handler struct{}
 
@@ -74,7 +89,10 @@ func (h *handler) Execute(
 		dst = filepath.Join(req.WorkDir, dst)
 	}
 
-	url := req.Expand(s.URL.Resolve(req.OSArch.String()))
+	src := req.Expand(s.URL.Resolve(req.OSArch.String()))
+	if err := requireHTTP(src); err != nil {
+		return err
+	}
 
 	staged, err := stagingPath(dst)
 	if err != nil {
@@ -82,10 +100,10 @@ func (h *handler) Execute(
 	}
 	defer os.Remove(staged) //nolint:errcheck // gone already once it replaced dst
 
-	if err := fns.Download(stepCtx, url, staged, nil, downloadOpts...); err != nil {
+	if err := fns.Download(stepCtx, src, staged, nil, downloadOpts...); err != nil {
 		return err
 	}
-	if err := h.verify(stepCtx, req, s, staged); err != nil {
+	if err := h.verify(stepCtx, req, s, src, staged); err != nil {
 		return err
 	}
 	keepMode(staged, dst)
@@ -103,12 +121,13 @@ func (h *handler) verify(
 	ctx context.Context,
 	req wizstep.Request,
 	s domainstep.FetchStep,
+	src string,
 	staged string,
 ) error {
 	rawChecksum := s.Checksum.Resolve(req.OSArch.String())
 	checksum := req.Expand(rawChecksum)
 	if checksum != "" {
-		return verifyChecksum(ctx, staged, checksum)
+		return verifyChecksum(ctx, staged, checksum, src)
 	}
 	if strings.Contains(rawChecksum, "${") {
 		return fmt.Errorf("download: checksum: %q: %w", rawChecksum, ErrChecksumUnresolved)
@@ -118,36 +137,46 @@ func (h *handler) verify(
 
 func verifyChecksum(
 	ctx context.Context,
-	path string,
+	file string,
 	want string,
+	src string,
 ) error {
-	expected, err := expectedDigest(want)
+	expected, err := expectedDigest(ctx, want, src)
 	if err != nil {
 		return err
 	}
 
-	rc, err := fns.ReadStream(ctx, path)
+	rc, err := fns.ReadStream(ctx, file)
 	if err != nil {
-		return fmt.Errorf("download: checksum: open %s: %w", path, err)
+		return fmt.Errorf("download: checksum: open %s: %w", file, err)
 	}
 	defer rc.Close() //nolint:errcheck
 
 	digest := sha256.New()
 	if _, err := io.Copy(digest, rc); err != nil {
-		return fmt.Errorf("download: checksum: read %s: %w", path, err)
+		return fmt.Errorf("download: checksum: read %s: %w", file, err)
 	}
 
 	got := hex.EncodeToString(digest.Sum(nil))
 	if !strings.EqualFold(got, expected) {
-		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", path, expected, got, ErrChecksumMismatch)
+		return fmt.Errorf("download: checksum: %s: expected %s, got %s: %w", file, expected, got, ErrChecksumMismatch)
 	}
 	return nil
 }
 
+// expectedDigest turns a declared checksum into the hex digest to compare: a
+// bare hex digest, sha256:<hex>, or sha256sums:<url>[#<entry>] naming a
+// published sums list, where the entry defaults to the file name of the
+// fetched URL.
 func expectedDigest(
+	ctx context.Context,
 	checksum string,
+	src string,
 ) (string, error) {
 	checksum = strings.TrimSpace(checksum)
+	if list, ok := strings.CutPrefix(checksum, sha256SumsPrefix); ok {
+		return publishedDigest(ctx, list, src)
+	}
 	algorithm, digest, tagged := strings.Cut(checksum, ":")
 	if !tagged {
 		return checksum, nil
@@ -156,4 +185,49 @@ func expectedDigest(
 		return "", fmt.Errorf("download: checksum: %q: %w", algorithm, ErrUnsupportedChecksumAlgorithm)
 	}
 	return digest, nil
+}
+
+func publishedDigest(
+	ctx context.Context,
+	list string,
+	src string,
+) (string, error) {
+	sumsURL, entry, _ := strings.Cut(list, "#")
+	if err := requireHTTP(sumsURL); err != nil {
+		return "", err
+	}
+	if entry == "" {
+		parsed, err := url.Parse(src)
+		if err != nil {
+			return "", fmt.Errorf("download: checksum: parse %q: %w", src, err)
+		}
+		entry = path.Base(parsed.Path)
+	}
+
+	body, err := fns.Fetch(ctx, sumsURL)
+	if err != nil {
+		return "", fmt.Errorf("download: checksum: fetch %s: %w", sumsURL, err)
+	}
+
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(strings.TrimPrefix(fields[1], "*"), "./")
+		if name == strings.TrimPrefix(entry, "./") {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("download: checksum: %s: %q: %w", sumsURL, entry, ErrChecksumEntryMissing)
+}
+
+func requireHTTP(
+	raw string,
+) error {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("download: %q: %w", raw, ErrUnsupportedURL)
+	}
+	return nil
 }

@@ -583,9 +583,9 @@ func TestRuntimeUpdate_SelfNamespace_RemembersTheTargetItsRunBuilds(t *testing.T
 	assert.Equal(t, target, peeked)
 }
 
-// quiver.core's relaunched binary adopts its own new state, so its update's
-// end advances nothing from here and releases the target it remembered.
-func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
+// quiver.core's update ends like any other: its end commits the target and
+// releases the one the bracket remembered.
+func TestRuntimeUpdate_SelfNamespace_EndCommitsTheRememberedTarget(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
 	target := rollingTarget()
@@ -602,12 +602,12 @@ func TestRuntimeUpdate_SelfNamespace_RemembersAndCommitsNothing(t *testing.T) {
 	assert.Contains(t, f.log.all(), "begin update")
 	_, remembered := uc.targets.Take(selfRow)
 	assert.False(t, remembered)
-	assert.Equal(t, []string{"reconcile badge"}, log.all(), "nothing is committed; the badge follows the row")
+	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge"}, log.all())
 }
 
 // quiver.core's own update is no exception to the bracket: a self row that is
 // already at its selector's target runs no update steps, so the self-update
-// handover never fires for it. Only a selector that moved ahead of what is
+// swap never starts for it. Only a selector that moved ahead of what is
 // installed begins an update.
 func TestRuntimeUpdate_SelfNamespace_CurrentRowRunsNoSteps(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()

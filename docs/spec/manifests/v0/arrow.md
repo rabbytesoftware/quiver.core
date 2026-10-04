@@ -926,10 +926,15 @@ out independently.
   timeout: 5m
 ```
 
-The optional `checksum` field is a case-insensitive SHA-256 hex digest, accepted in two forms:
-bare (`abc123...`) or algorithm-tagged with a case-insensitive `sha256:` prefix
-(`sha256:abc123...`, `SHA256:abc123...`), the form GitHub publishes release asset digests in.
-Surrounding whitespace is ignored.
+The optional `checksum` field is a case-insensitive SHA-256 hex digest, accepted in three forms:
+bare (`abc123...`), algorithm-tagged with a case-insensitive `sha256:` prefix
+(`sha256:abc123...`, `SHA256:abc123...`, the form GitHub publishes release asset digests in),
+or `sha256sums:<url>[#<entry>]`, which names a published `sha256sum` list (`<hex>  ./<name>`
+per line, as a release's `checksums.txt`) and takes the digest of `<entry>` from it. The entry
+defaults to the file name of the fetched URL, and a list without it fails the step: a list
+that does not vouch for the download is not a reason to accept it.
+Surrounding whitespace is ignored. The `url` (and the list's) must be `http` or `https`; any
+other scheme or a path is refused instead of being copied from the local machine.
 The handler computes the downloaded file's own SHA-256 and compares it against the digest, and
 removes the downloaded file when the two differ. Any other algorithm prefix (`sha512:`, `md5:`,
 ...) is rejected with an "unsupported checksum algorithm" error rather than reported as a

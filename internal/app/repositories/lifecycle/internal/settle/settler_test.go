@@ -203,10 +203,10 @@ func TestRuntimeOnUpdateEnded_ReconcileBadgeFails_IsOnlyLogged(t *testing.T) {
 	assert.Equal(t, []string{"re-resolve c2", "advance c2", "reconcile badge failed"}, log.all())
 }
 
-// A failed update of quiver.core's own row leaves the running build in
-// charge, so its manifest is put back like any other row's; a succeeded one
-// is left to the relaunched build.
-func TestRuntimeOnUpdateEnded_SelfNamespace_RestoresOnlyAfterFailure(t *testing.T) {
+// quiver.core's own row settles like any other: the update run ends before
+// the daemon is replaced, a success commits the target, and a rollback is put
+// right by the old build adopting its own state at boot.
+func TestRuntimeOnUpdateEnded_SelfNamespace_SettlesLikeAnyRow(t *testing.T) {
 	self, _ := metadata.GetSelfNamespaces()
 	selfRow := self.WithRef("stable")
 
@@ -216,13 +216,14 @@ func TestRuntimeOnUpdateEnded_SelfNamespace_RestoresOnlyAfterFailure(t *testing.
 		want    []string
 	}{
 		{name: "failed", outcome: domainRuntime.ExecutionOutcomeFailed, want: []string{"restore c1", "reconcile badge"}},
-		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"reconcile badge"}},
+		{name: "succeeded", outcome: domainRuntime.ExecutionOutcomeSuccess, want: []string{"re-resolve c2", "advance c2", "reconcile badge"}},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			a, rt, log := commitFixture(true, nil)
 			uc := newUC(a, rt, &mocks.MockGraph{})
+			uc.targets.Put(selfRow, rollingTarget())
 
 			uc.onUpdateEnded(context.Background(), updateEnded(selfRow, tc.outcome))
 

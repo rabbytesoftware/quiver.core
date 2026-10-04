@@ -368,3 +368,21 @@ func TestStop_UnremovablePIDFileErrors(t *testing.T) {
 
 	assert.Error(t, m.Stop())
 }
+
+func TestManager_RecordPID_ReplacesTheRecordedPID(t *testing.T) {
+	m, _ := newManager(t, nil)
+	require.NoError(t, os.WriteFile(m.PIDFile, []byte("111"), 0o600))
+
+	require.NoError(t, m.RecordPID(222))
+
+	pid, err := m.ReadPID()
+	require.NoError(t, err)
+	assert.Equal(t, 222, pid)
+}
+
+func TestManager_RecordPID_UnwritablePIDFileFails(t *testing.T) {
+	m, _ := newManager(t, nil)
+	m.PIDFile = filepath.Join(t.TempDir(), "missing", "quiver.pid")
+
+	require.Error(t, m.RecordPID(1))
+}

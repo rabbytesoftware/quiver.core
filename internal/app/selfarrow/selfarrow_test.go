@@ -716,3 +716,12 @@ func TestPromoteRunningBinary_CopiesADifferentBinary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "the newly downloaded build", string(got))
 }
+
+func TestBinaryPath_EmptyHomeDir_UsesProcessSelfPath(t *testing.T) {
+	t.Setenv("QUIVER_HOME", t.TempDir())
+
+	got, err := selfarrow.BinaryPath("")
+
+	require.NoError(t, err)
+	assert.Equal(t, "self", filepath.Base(filepath.Dir(got)))
+}

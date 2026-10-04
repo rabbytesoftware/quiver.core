@@ -60,6 +60,16 @@ func (c *Client) SetupPath(
 	return out, err
 }
 
+// Shutdown asks the daemon to shut down gracefully and returns the process to
+// wait for.
+func (c *Client) Shutdown(
+	ctx context.Context,
+) (apidto.ShutdownDTO, error) {
+	var out apidto.ShutdownDTO
+	err := c.do(ctx, http.MethodPost, "/v0/system/shutdown", nil, &out)
+	return out, err
+}
+
 // ─── arrows ──────────────────────────────────────────────────────────────────
 
 // ListArrows returns catalog arrows. userInstalled filters when non-nil.

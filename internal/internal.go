@@ -16,7 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -218,13 +217,13 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 }
 
 type internalOpts struct {
-	homeDir           string
-	commit            string
-	channel           string
-	selfUpdateTrigger *selfupdate.Trigger
-	listener          net.Listener
-	scheme            string
-	recommendations   bool
+	homeDir         string
+	commit          string
+	channel         string
+	stop            func()
+	listener        net.Listener
+	scheme          string
+	recommendations bool
 }
 
 // Option configures internal.New.
@@ -252,13 +251,11 @@ func WithChannel(channel string) Option {
 	return func(o *internalOpts) { o.channel = channel }
 }
 
-// WithSelfUpdateTrigger hands the container the trigger quiver.core's own
-// update lifecycle fires when it succeeds. Firing it cancels the context Start
-// is blocked on, so the daemon leaves through the same graceful sequence a
-// SIGTERM would take it through; cmd/quiver then relaunches instead of exiting.
-// Without the option the daemon never succeeds itself.
-func WithSelfUpdateTrigger(trig *selfupdate.Trigger) Option {
-	return func(o *internalOpts) { o.selfUpdateTrigger = trig }
+// WithStop hands the container the daemon's own cancellation, which
+// POST /v0/system/shutdown triggers so the daemon leaves through the same
+// graceful sequence a SIGTERM would.
+func WithStop(stop func()) Option {
+	return func(o *internalOpts) { o.stop = stop }
 }
 
 // WithGateway hands New a listener PrepareGateway already bound, and the
@@ -321,7 +318,7 @@ func New(
 		app.WithVersion(version),
 		app.WithCommit(cfg.commit),
 		app.WithChannel(cfg.channel),
-		app.WithSelfUpdateTrigger(cfg.selfUpdateTrigger),
+		app.WithStop(cfg.stop),
 	)
 	if err != nil {
 		_ = loggerShutdown()

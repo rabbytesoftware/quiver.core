@@ -84,7 +84,7 @@ docs/plans/
 docs/superpowers/
 
 coverage.tmp
-Quiver/
+/Quiver/
 
 # LibreOffice lock files
 .~lock.*#

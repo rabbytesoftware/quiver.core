@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 
 func TestRegister_MountsConfigRoutes(t *testing.T) {
 	r := gin.New()
-	system.Register(r.Group(""), nil, nil)
+	system.Register(r.Group(""), nil, nil, nil)
 
 	mounted := make(map[string]bool)
 	for _, route := range r.Routes() {
@@ -31,11 +31,12 @@ func TestRegister_MountsConfigRoutes(t *testing.T) {
 	assert.True(t, mounted["PATCH /config"])
 	assert.True(t, mounted["GET /system/path"])
 	assert.True(t, mounted["POST /system/path"])
+	assert.True(t, mounted["POST /system/shutdown"])
 }
 
 func TestRegister_UnmountedMethodIsNotFound(t *testing.T) {
 	r := gin.New()
-	system.Register(r.Group(""), nil, nil)
+	system.Register(r.Group(""), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodDelete, "/config", strings.NewReader(""))
 	w := httptest.NewRecorder()

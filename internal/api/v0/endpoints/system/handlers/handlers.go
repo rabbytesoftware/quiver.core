@@ -16,14 +16,16 @@ import (
 type Handlers struct {
 	svc     usecases.ConfigUsecase
 	pathSvc usecases.PathUsecase
+	sysSvc  usecases.SystemUsecase
 }
 
 // New returns Handlers backed by the given configuration usecase.
 func New(
 	svc usecases.ConfigUsecase,
 	pathSvc usecases.PathUsecase,
+	sysSvc usecases.SystemUsecase,
 ) *Handlers {
-	return &Handlers{svc: svc, pathSvc: pathSvc}
+	return &Handlers{svc: svc, pathSvc: pathSvc, sysSvc: sysSvc}
 }
 
 // Config returns the daemon configuration.
@@ -130,4 +132,27 @@ func (h *Handlers) SetupPath(
 	}
 
 	libs.WriteQueryOK(c, apidto.PathStatusDTOFrom(st))
+}
+
+// @Summary      Shut the daemon down
+// @Description  Asks the daemon to leave through its graceful shutdown sequence, the same one a SIGTERM takes it through, and answers before it is gone with the process to wait for: its pid, executable and arguments. A caller that wants to replace the daemon waits for that pid and the socket to disappear, then starts the same command again.
+// @Description
+// @Description  Meant for a local caller (quiver self-update). Over tcp:// it needs a bearer token like every other route.
+// @Tags         system
+// @Produce      json
+// @Success      200  {object}  libs.QueryResponse{data=apidto.ShutdownDTO}
+// @Failure      422  {object}  libs.ErrResponse  "The daemon was built without a way to stop itself"
+// @Failure      500  {object}  libs.ErrResponse
+// @Router       /system/shutdown [post]
+func (h *Handlers) Shutdown(
+	c *gin.Context,
+) {
+	info, err := h.sysSvc.Shutdown(c.Request.Context())
+	if err != nil {
+		status, msg := apierr.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg, "", err)
+		return
+	}
+
+	libs.WriteQueryOK(c, apidto.ShutdownDTOFrom(info))
 }

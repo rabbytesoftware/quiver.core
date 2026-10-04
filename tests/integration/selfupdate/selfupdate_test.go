@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	dto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
-	"github.com/rabbytesoftware/quiver.core/internal/core/selfupdate"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
@@ -30,13 +29,10 @@ func TestSelfUpdateIntegration(t *testing.T) {
 	suite.Run(t, new(SelfUpdateSuite))
 }
 
-// selfNamespace is the exact namespace repositories/container.go's
-// claimSuccession matches on (strings.HasPrefix(rt.Ref.String(),
-// string(self)+"@"), self from metadata.GetSelfNamespaces()). The trigger
-// only ever fires for a runtime whose ref carries this literal prefix, so the
-// fixture standing in for quiver.core's own manifest has to be registered
-// under it — the usual "quiver.test/..." fixture convention would never be
-// recognized by that check.
+// selfNamespace is quiver.core's own namespace (metadata.GetSelfNamespaces()):
+// the lifecycle and the boot registration treat the row under it specially, so
+// the fixture standing in for quiver.core's own manifest has to be registered
+// under it.
 const selfNamespace = "github.com/rabbytesoftware/quiver.core"
 
 // noVersionCheck fails every live snapshot, so no version check can ever
@@ -60,13 +56,11 @@ func (s *SelfUpdateSuite) getDetail(tc *kit.TypedClient, ns string) dto.ArrowDet
 // TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart is the concrete,
 // automatable proof behind this feature's core promise: a process the daemon
 // is actively supervising is never killed by the daemon's own self-update.
-// It does not exercise the literal OS-level exec handover (impossible inside
-// this test binary — syscall.Exec would replace the test binary's own
-// process image); it exercises everything up to and through it, using the
-// same env1->env2 pairing this codebase's crash-recovery tests already use
-// (tests/integration/crash/crash_test.go) to simulate "a process restarted
-// with no in-memory state" — exactly what a real exec handover leaves the new
-// binary with.
+// It does not start a real replacement daemon (that is the end-to-end proof in
+// tests/integration/selfupdate/swap_test.go); it exercises the restart the swap
+// leaves the new binary with, using the same env1->env2 pairing this
+// codebase's crash-recovery tests already use (tests/integration/crash/crash_test.go)
+// to simulate "a process restarted with no in-memory state".
 func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart() {
 	// The self-arrow follows a selector (here the constraint v*, standing in
 	// for the release channel the fixture's v1/v2 tags do not classify into);
@@ -80,8 +74,7 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	s.Repos.Set(selfNamespace, storer)
 	s.T().Cleanup(func() { s.Repos.Delete(selfNamespace) })
 
-	trig := selfupdate.NewTrigger(nil)
-	env1 := s.NewEnvWithSelfUpdateTrigger(trig)
+	env1 := s.NewEnv()
 	tc1 := env1.TypedClient(s.T())
 
 	// --- the supervised process that must survive Core's own self-update ---
@@ -144,13 +137,11 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 		"QUIVER_RELEASE_CHECKSUM":  checksum,
 	}))
 
-	require.Eventually(s.T(), trig.Fired, 10*time.Second, 50*time.Millisecond,
-		"the OnRuntimeEnded -> trigger wiring must fire through the real app-layer DI, not just Task 1.4's own unit test")
+	kit.WaitForLastReturn(s.T(), tc1, selfNS, 1, 60*time.Second)
 
-	s.Require().Equal(string(domain.ArrowStateOutdated), s.getDetail(tc1, selfNS).State,
-		"precondition: the drift check marked the self-arrow outdated before its own update")
+	env1.WaitForState(s.T(), selfNS, domain.ArrowStateReady, 60*time.Second)
 
-	env1.CloseWithoutKilling() // the fixture's OS process survives — mirrors what a real exec handover leaves behind
+	env1.CloseWithoutKilling() // the fixture's OS process survives — mirrors what a real swap leaves behind
 
 	// The relaunched binary is the v2 build: it adopts its own new state on
 	// the self-arrow's identity, which is what settles that row. Its version

@@ -766,3 +766,16 @@ func TestClient_ConcurrentRequests_TokenAccessDoesNotRace(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestShutdown_ReturnsProcessToWaitFor(t *testing.T) {
+	srv, rec := fakeDaemon(t, http.StatusOK,
+		`{"success":true,"data":{"pid":42,"exe":"/q/quiver","args":["daemon","--host","unix://"]}}`)
+	c := newClient(t, srv)
+
+	got, err := c.Shutdown(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/v0/system/shutdown", rec.path)
+	assert.Equal(t, apidto.ShutdownDTO{PID: 42, Exe: "/q/quiver", Args: []string{"daemon", "--host", "unix://"}}, got)
+}

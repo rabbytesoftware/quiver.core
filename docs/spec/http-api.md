@@ -371,6 +371,7 @@ Registered from `internal/api/v0/endpoints/system/routes.go`.
 | PATCH | `/config` | Patch the daemon configuration | Sync |
 | GET | `/system/path` | Report whether `~/.quiver/bin` is on `PATH` | Sync |
 | POST | `/system/path` | Put `~/.quiver/bin` on `PATH` (explicit user action) | Sync |
+| POST | `/system/shutdown` | Ask the daemon to shut down gracefully and return the process to wait for | Sync |
 
 #### GET /system/path — PATH status
 
@@ -390,6 +391,12 @@ Errors: 500.
 Adds `bin_dir` to `PATH` — only ever on this explicit call, never on its own. On unix it appends a block to the shell rc files (never prepends); on Windows it appends to the user `Path` and broadcasts `WM_SETTINGCHANGE`, so Explorer and newly opened terminals pick it up. Idempotent: once configured, calling it again changes nothing. Returns **200 OK** with the updated `PathStatusDTO`. A shell already running does not see the change until it is restarted. The CLI equivalents are `quiver path status` and `quiver path setup`.
 
 Errors: 500.
+
+#### POST /system/shutdown: graceful shutdown
+
+Asks the daemon to leave through the same graceful sequence a SIGTERM takes it through. Returns **200 OK** with a `ShutdownDTO` (`pid`, `exe`, `args`) naming the process that is going away, so the caller can wait for that pid and the socket to disappear and then start the same command again. It is what `quiver self-update` uses to replace the daemon's binary. Over `tcp://` it needs a bearer token like every other route.
+
+Errors: 422 (the daemon was built without a way to stop itself), 500.
 
 ---
 
@@ -423,6 +430,7 @@ Errors: 500.
 | `GET /v0/health` | Sync | 200 |
 | `GET /v0/system/path` | Sync | 200 |
 | `POST /v0/system/path` | Sync | 200 |
+| `POST /v0/system/shutdown` | Sync | 200 |
 
 Async endpoints return immediately after the use case layer accepts the command. The client observes execution progress by connecting to the WebSocket feed at `/v0/runtime` or `/v0/runtime/{ns}` ([websocket.md](websocket.md)).
 
