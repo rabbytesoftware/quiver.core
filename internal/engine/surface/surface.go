@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -54,10 +55,21 @@ type Surface interface {
 	Ready(ctx context.Context, spec Spec, path string) bool
 }
 
-type engine struct{ runDir string }
+type cachedProxy struct {
+	handler   http.Handler
+	transport *http.Transport
+}
+
+type engine struct {
+	runDir  string
+	mu      sync.Mutex
+	proxies map[string]cachedProxy
+}
 
 // New builds a Surface that keeps its sockets under runDir.
-func New(runDir string) Surface { return &engine{runDir: runDir} }
+func New(runDir string) Surface {
+	return &engine{runDir: runDir, proxies: make(map[string]cachedProxy)}
+}
 
 func (e *engine) SocketPath(ns domain.Namespace) string {
 	sum := sha256.Sum256([]byte(ns.String()))
@@ -88,13 +100,34 @@ func (e *engine) Prepare(ns domain.Namespace) (string, error) {
 }
 
 func (e *engine) Cleanup(ns domain.Namespace) {
-	_ = os.Remove(e.SocketPath(ns))
+	path := e.SocketPath(ns)
+	e.mu.Lock()
+	cached, ok := e.proxies[path]
+	delete(e.proxies, path)
+	e.mu.Unlock()
+	if ok {
+		cached.transport.CloseIdleConnections()
+	}
+	_ = os.Remove(path)
+}
+
+// proxy returns the one proxy for socket, so every request shares a single
+// bounded connection pool.
+func (e *engine) proxy(socket string) http.Handler {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if cached, ok := e.proxies[socket]; ok {
+		return cached.handler
+	}
+	handler, transport := newProxy(socket)
+	e.proxies[socket] = cachedProxy{handler: handler, transport: transport}
+	return handler
 }
 
 func (e *engine) Handler(spec Spec) (http.Handler, error) {
 	switch spec.Mode {
 	case domainRuntime.SurfaceModeListen:
-		return newProxy(e.SocketPath(spec.Namespace)), nil
+		return e.proxy(e.SocketPath(spec.Namespace)), nil
 	case domainRuntime.SurfaceModeStatic:
 		return newStatic(spec.Dir)
 	default:
