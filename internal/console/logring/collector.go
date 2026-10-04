@@ -105,11 +105,7 @@ func floatValue(
 func safeString(
 	v any,
 ) (out string) {
-	defer func() {
-		if recover() != nil {
-			out = "[unprintable]"
-		}
-	}()
+	defer recoverString(&out)
 
 	if err, ok := v.(error); ok {
 		return err.Error()
@@ -129,4 +125,12 @@ func truncate(
 		cut--
 	}
 	return s[:cut] + ellipsis
+}
+
+func recoverString(
+	out *string,
+) {
+	if recover() != nil {
+		*out = "[unprintable]"
+	}
 }

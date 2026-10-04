@@ -65,12 +65,21 @@ func (r *ringBuffer) matching(
 	out := make([]Record, 0, r.count)
 	start := (r.next - r.count + len(r.entries)) % len(r.entries)
 	for i := 0; i < r.count; i++ {
-		rec := r.entries[(start+i)%len(r.entries)]
-		if rec.Seq > since && ParseLevel(rec.Level) >= min {
-			out = append(out, rec)
-		}
+		out = appendMatch(out, r.entries[(start+i)%len(r.entries)], since, min)
 	}
 	return out
+}
+
+func appendMatch(
+	out []Record,
+	rec Record,
+	since uint64,
+	min slog.Level,
+) []Record {
+	if rec.Seq <= since || ParseLevel(rec.Level) < min {
+		return out
+	}
+	return append(out, rec)
 }
 
 func (r *ringBuffer) Latest() uint64 {
