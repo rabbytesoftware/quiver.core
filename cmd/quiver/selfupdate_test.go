@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/testutil"
+
 	"github.com/rabbytesoftware/quiver.core/internal/cli/daemon"
 )
 
@@ -176,6 +178,9 @@ func TestRealSelfUpdateDeps_AreWired(t *testing.T) {
 }
 
 func TestRunSelfUpdate_NoDaemonIsReportedAndLogged(t *testing.T) {
+	// On Windows the default endpoint is one machine-wide named pipe: a real
+	// daemon answering it would be shut down by this test.
+	testutil.RequireUnix(t)
 	home := t.TempDir()
 	t.Setenv("QUIVER_HOME", home)
 	previous := slog.Default()
