@@ -102,7 +102,7 @@ func (h *Handlers) reject(
 ) {
 	var denied *command.DeniedError
 	if errors.As(err, &denied) {
-		slog.Warn("exec denied", "component", "console", "device", device, "line", logring.RedactLine(line), "reason", denied.Reason)
+		slog.WarnContext(c.Request.Context(), "exec denied", "component", "console", "device", device, "line", logring.RedactLine(line), "reason", denied.Reason)
 		libs.WriteErr(c, http.StatusForbidden, denied.Reason, "")
 		return
 	}
@@ -135,7 +135,7 @@ func (h *Handlers) stream(
 	result = h.explainTimeout(ctx, result)
 	frames.exit(result)
 
-	slog.Info("exec",
+	slog.InfoContext(c.Request.Context(), "exec",
 		"component", "console",
 		"device", device,
 		"line", logring.RedactLine(line),

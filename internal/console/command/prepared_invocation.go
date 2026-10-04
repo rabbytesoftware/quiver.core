@@ -36,7 +36,7 @@ func (p *preparedInvocation) Run(
 func (p *preparedInvocation) execute(
 	ctx context.Context,
 ) (result Result) {
-	defer recoverResult(&result)
+	defer recoverResult(ctx, &result)
 
 	err := p.root.ExecuteContext(ctx)
 	if err == nil {
@@ -46,6 +46,7 @@ func (p *preparedInvocation) execute(
 }
 
 func recoverResult(
+	ctx context.Context,
 	result *Result,
 ) {
 	recovered := recover()
@@ -53,6 +54,6 @@ func recoverResult(
 		return
 	}
 
-	slog.Error("console command panicked", "component", "console", "panic", recovered)
+	slog.ErrorContext(ctx, "console command panicked", "component", "console", "panic", recovered)
 	*result = Result{Code: 1, Err: "internal error"}
 }
