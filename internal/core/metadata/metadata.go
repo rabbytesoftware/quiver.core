@@ -284,7 +284,7 @@ func defaultMetadata() *Metadata {
 			Home: OsValue[string]{
 				Default: "~/.quiver",
 				OS: map[string]string{
-					"windows": `C:\Users\{{USER}}\Documents\.quiver`,
+					"windows": `{{PROFILE}}\Documents\.quiver`,
 				},
 			},
 			Events:     "{{home}}/state/events",

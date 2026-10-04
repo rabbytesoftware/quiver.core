@@ -107,7 +107,7 @@ func unpackNamed(
 	t.Helper()
 
 	ctx := context.Background()
-	if timeout > 0 {
+	if timeout != 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()

@@ -294,7 +294,7 @@ The binary is a single Cobra command tree. `quiver daemon` is the only subcomman
 
 Configuration sources are layered:
 
-1. `internal/core/metadata/metadata.yaml` is embedded at compile time. It declares paths templates (`{{home}}/state/events`, `{{home}}/vault`, etc.), platform raw-URL templates, and product identity. The `home` field has an OS-aware default (`~/.quiver` on Unix, `C:\Users\{{USER}}\Documents\.quiver` on Windows).
+1. `internal/core/metadata/metadata.yaml` is embedded at compile time. It declares paths templates (`{{home}}/state/events`, `{{home}}/vault`, etc.), platform raw-URL templates, and product identity. The `home` field has an OS-aware default (`~/.quiver` on Unix, `{{PROFILE}}\Documents\.quiver` on Windows).
 2. `internal/core/config/default.yaml` is also embedded — it provides defaults for `api.host`, `api.port`, `manifold.fetch_timeout`, `vault.sweep_interval`, `vault.ttl`, `netbridge`, `logger`, and `arrows.auto_retry`.
 3. At process start, `config.Get()` overlays any present fields from `~/.quiver/config.yaml` (resolved via `metadata.GetConfigPath()`) onto the embedded defaults. Missing fields keep their embedded values.
 

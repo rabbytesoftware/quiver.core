@@ -66,7 +66,7 @@ Vault never resolves absolute paths itself. The engine container injects two roo
 | OS | Home root |
 |----|-----------|
 | macOS / Linux | `~/.quiver` |
-| Windows | `C:\Users\{{USER}}\Documents\.quiver` |
+| Windows | `{{PROFILE}}\Documents\.quiver` |
 
 Path templates are defined in `internal/core/metadata/metadata.yaml`; resolution happens in `core/metadata` (template substitution + `filepath.FromSlash`). Directory creation for the named roots is the responsibility of `core/paths`. Vault `MkdirAll`s its own subdirectories on-demand at `Put`/`WorkDir` time.
 
