@@ -26,7 +26,7 @@ func logger(
 	return slog.New(ring.Tee(next)), &buf
 }
 
-func TestRing_AssignsIncreasingSequenceNumbers(t *testing.T) {
+func TestRing_Snapshot_AssignsIncreasingSequenceNumbers(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -40,7 +40,7 @@ func TestRing_AssignsIncreasingSequenceNumbers(t *testing.T) {
 	assert.Equal(t, uint64(2), ring.Latest())
 }
 
-func TestRing_WrapKeepsTheNewestRecords(t *testing.T) {
+func TestRing_Snapshot_WrapKeepsTheNewestRecords(t *testing.T) {
 	ring := logring.New(3)
 	log, _ := logger(t, ring)
 
@@ -54,7 +54,7 @@ func TestRing_WrapKeepsTheNewestRecords(t *testing.T) {
 	assert.Equal(t, uint64(3), got[0].Seq)
 }
 
-func TestRing_SnapshotSinceSkipsEarlierRecords(t *testing.T) {
+func TestRing_Snapshot_SinceSkipsEarlierRecords(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	for _, msg := range []string{"a", "b", "c", "d"} {
@@ -68,7 +68,7 @@ func TestRing_SnapshotSinceSkipsEarlierRecords(t *testing.T) {
 	assert.Equal(t, "d", got[1].Msg)
 }
 
-func TestRing_SnapshotLimitKeepsTheMostRecent(t *testing.T) {
+func TestRing_Snapshot_LimitKeepsTheMostRecent(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	for _, msg := range []string{"a", "b", "c", "d"} {
@@ -82,7 +82,7 @@ func TestRing_SnapshotLimitKeepsTheMostRecent(t *testing.T) {
 	assert.Empty(t, ring.Snapshot(0, slog.LevelDebug, 0))
 }
 
-func TestRing_SnapshotFiltersByLevel(t *testing.T) {
+func TestRing_Snapshot_FiltersByLevel(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	log.Debug("d")
@@ -97,7 +97,7 @@ func TestRing_SnapshotFiltersByLevel(t *testing.T) {
 	assert.Equal(t, "error", got[1].Level)
 }
 
-func TestRing_ZeroCapacityStillHoldsOneRecord(t *testing.T) {
+func TestRing_New_ZeroCapacityStillHoldsOneRecord(t *testing.T) {
 	ring := logring.New(0)
 	log, _ := logger(t, ring)
 
@@ -109,7 +109,7 @@ func TestRing_ZeroCapacityStillHoldsOneRecord(t *testing.T) {
 	assert.Equal(t, "b", got[0].Msg)
 }
 
-func TestTee_ForwardsEveryRecordToTheWrappedHandler(t *testing.T) {
+func TestRing_Tee_ForwardsEveryRecordToTheWrappedHandler(t *testing.T) {
 	ring := logring.New(10)
 	log, buf := logger(t, ring)
 
@@ -119,7 +119,7 @@ func TestTee_ForwardsEveryRecordToTheWrappedHandler(t *testing.T) {
 	assert.Contains(t, buf.String(), `"k":"v"`)
 }
 
-func TestTee_RespectsTheWrappedHandlersLevel(t *testing.T) {
+func TestRing_Tee_RespectsTheWrappedHandlersLevel(t *testing.T) {
 	ring := logring.New(10)
 	var buf bytes.Buffer
 	next := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
@@ -133,7 +133,7 @@ func TestTee_RespectsTheWrappedHandlersLevel(t *testing.T) {
 	assert.Equal(t, "loud", got[0].Msg)
 }
 
-func TestTee_CapturesTextHandlerOutputStructurally(t *testing.T) {
+func TestRing_Tee_CapturesTextHandlerOutputStructurally(t *testing.T) {
 	ring := logring.New(10)
 	var buf bytes.Buffer
 	log := slog.New(ring.Tee(slog.NewTextHandler(&buf, nil)))
@@ -147,7 +147,7 @@ func TestTee_CapturesTextHandlerOutputStructurally(t *testing.T) {
 	assert.Equal(t, 0.5, got.Fields["ratio"])
 }
 
-func TestTee_ComponentLeavesTheFields(t *testing.T) {
+func TestRing_Tee_ComponentLeavesTheFields(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -159,7 +159,7 @@ func TestTee_ComponentLeavesTheFields(t *testing.T) {
 	assert.Equal(t, int64(1), got.Fields["retry"])
 }
 
-func TestTee_WithAttrsAndGroupsFlattenWithDottedKeys(t *testing.T) {
+func TestRing_Tee_WithAttrsAndGroupsFlattenWithDottedKeys(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -174,7 +174,7 @@ func TestTee_WithAttrsAndGroupsFlattenWithDottedKeys(t *testing.T) {
 	assert.Equal(t, true, got[1].Fields["net.tls.on"])
 }
 
-func TestTee_ErrorAndStringerValuesBecomeStrings(t *testing.T) {
+func TestRing_Tee_ErrorAndStringerValuesBecomeStrings(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -185,7 +185,7 @@ func TestTee_ErrorAndStringerValuesBecomeStrings(t *testing.T) {
 	assert.Equal(t, "2026-10-04T14:02:00Z", got.Fields["when"])
 }
 
-func TestTee_CapsTheNumberOfFields(t *testing.T) {
+func TestRing_Tee_CapsTheNumberOfFields(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	args := make([]any, 0, 80)
@@ -200,7 +200,7 @@ func TestTee_CapsTheNumberOfFields(t *testing.T) {
 	assert.True(t, got.FieldsTruncated)
 }
 
-func TestTee_TruncatesLongValuesOnARuneBoundary(t *testing.T) {
+func TestRing_Tee_TruncatesLongValuesOnARuneBoundary(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	long := strings.Repeat("é", 3000)
@@ -214,7 +214,7 @@ func TestTee_TruncatesLongValuesOnARuneBoundary(t *testing.T) {
 	assert.True(t, strings.HasPrefix(value, "é"))
 }
 
-func TestTee_RedactsSensitiveKeysInTheStoredRecord(t *testing.T) {
+func TestRing_Tee_RedactsSensitiveKeysInTheStoredRecord(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -230,7 +230,7 @@ func TestTee_RedactsSensitiveKeysInTheStoredRecord(t *testing.T) {
 	assert.Equal(t, "fine", fields["note"])
 }
 
-func TestTee_RedactsCredentialsEmbeddedInValues(t *testing.T) {
+func TestRing_Tee_RedactsCredentialsEmbeddedInValues(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 
@@ -243,7 +243,7 @@ func TestTee_RedactsCredentialsEmbeddedInValues(t *testing.T) {
 	assert.Contains(t, fields["hdr"], "Bearer "+logring.Redacted)
 }
 
-func TestSubscribe_ReceivesLiveRecordsAtOrAboveItsLevel(t *testing.T) {
+func TestRing_Subscribe_ReceivesLiveRecordsAtOrAboveItsLevel(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelWarn)
@@ -260,7 +260,7 @@ func TestSubscribe_ReceivesLiveRecordsAtOrAboveItsLevel(t *testing.T) {
 	}
 }
 
-func TestSubscribe_FullQueueDropsAndCountsInsteadOfBlocking(t *testing.T) {
+func TestRing_Subscribe_FullQueueDropsAndCountsInsteadOfBlocking(t *testing.T) {
 	ring := logring.New(1000)
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelDebug)
@@ -284,7 +284,7 @@ func TestSubscribe_FullQueueDropsAndCountsInsteadOfBlocking(t *testing.T) {
 	assert.Greater(t, sub.StuckFor(), time.Duration(0))
 }
 
-func TestSubscribe_StuckForResetsOnceTheQueueAcceptsAgain(t *testing.T) {
+func TestRing_Subscribe_StuckForResetsOnceTheQueueAcceptsAgain(t *testing.T) {
 	ring := logring.New(1000)
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelDebug)
@@ -302,7 +302,7 @@ func TestSubscribe_StuckForResetsOnceTheQueueAcceptsAgain(t *testing.T) {
 	assert.Zero(t, sub.StuckFor())
 }
 
-func TestSubscribe_CloseStopsDeliveryAndIsIdempotent(t *testing.T) {
+func TestRing_Subscribe_CloseStopsDeliveryAndIsIdempotent(t *testing.T) {
 	ring := logring.New(10)
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelDebug)
@@ -315,7 +315,7 @@ func TestSubscribe_CloseStopsDeliveryAndIsIdempotent(t *testing.T) {
 	assert.False(t, open)
 }
 
-func TestRing_ConcurrentWritersAndReadersAreRaceFree(t *testing.T) {
+func TestRing_Snapshot_ConcurrentWritersAndReadersAreRaceFree(t *testing.T) {
 	ring := logring.New(64)
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelDebug)
@@ -344,7 +344,7 @@ func TestRing_ConcurrentWritersAndReadersAreRaceFree(t *testing.T) {
 	assert.Equal(t, uint64(800), ring.Latest())
 }
 
-func TestTee_HandleReturnsTheWrappedHandlersError(t *testing.T) {
+func TestRing_Tee_HandleReturnsTheWrappedHandlersError(t *testing.T) {
 	ring := logring.New(10)
 	handler := ring.Tee(failingHandler{})
 

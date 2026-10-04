@@ -131,7 +131,7 @@ func captureSlog(
 	return ring
 }
 
-func TestExec_StreamsOutAndExitFrames(t *testing.T) {
+func TestHandlers_Exec_StreamsOutAndExitFrames(t *testing.T) {
 	r := newRouter(echoing("hello\n", command.Result{Code: 0}), nil)
 
 	w := post(r, `{"line":"list"}`)
@@ -145,7 +145,7 @@ func TestExec_StreamsOutAndExitFrames(t *testing.T) {
 	assert.Equal(t, map[string]any{"type": "exit", "code": float64(0), "error": ""}, got[2])
 }
 
-func TestExec_ReportsAFailureOnTheExitFrame(t *testing.T) {
+func TestHandlers_Exec_ReportsAFailureOnTheExitFrame(t *testing.T) {
 	r := newRouter(echoing("", command.Result{Code: 2, Err: "usage: x"}), nil)
 
 	got := frames(t, post(r, `{"line":"list"}`).Body.String())
@@ -155,7 +155,7 @@ func TestExec_ReportsAFailureOnTheExitFrame(t *testing.T) {
 	assert.Equal(t, "usage: x", last["error"])
 }
 
-func TestExec_ExactlyOneExitFrameEndsTheResponse(t *testing.T) {
+func TestHandlers_Exec_ExactlyOneExitFrameEndsTheResponse(t *testing.T) {
 	r := newRouter(echoing("x", command.Result{}), nil)
 
 	got := frames(t, post(r, `{"line":"list"}`).Body.String())
@@ -170,7 +170,7 @@ func TestExec_ExactlyOneExitFrameEndsTheResponse(t *testing.T) {
 	assert.Equal(t, "exit", got[len(got)-1]["type"])
 }
 
-func TestExec_TokenizesTheLineAndNeverPassesItToAShell(t *testing.T) {
+func TestHandlers_Exec_TokenizesTheLineAndNeverPassesItToAShell(t *testing.T) {
 	exec := echoing("", command.Result{})
 	r := newRouter(exec, nil)
 
@@ -180,7 +180,7 @@ func TestExec_TokenizesTheLineAndNeverPassesItToAShell(t *testing.T) {
 	assert.Equal(t, []string{"run", "x", "--data", "k=a b", ";", "rm", "-rf", "/", "$(id)"}, exec.tokens[0])
 }
 
-func TestExec_RejectsBadRequests(t *testing.T) {
+func TestHandlers_Exec_RejectsBadRequests(t *testing.T) {
 	cases := map[string]string{
 		"not json":               `nope`,
 		"wrong type":             `{"line":5}`,
@@ -205,7 +205,7 @@ func TestExec_RejectsBadRequests(t *testing.T) {
 	assert.Empty(t, exec.tokens, "a rejected line must never reach the executor")
 }
 
-func TestExec_DeniedCommandsAre403WithTheReason(t *testing.T) {
+func TestHandlers_Exec_DeniedCommandsAre403WithTheReason(t *testing.T) {
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return nil, &command.DeniedError{Command: "quiver daemon", Reason: `the command "daemon" is not available in the console`}
 	}}
@@ -218,7 +218,7 @@ func TestExec_DeniedCommandsAre403WithTheReason(t *testing.T) {
 	assert.NotContains(t, w.Header().Get("Content-Type"), "ndjson")
 }
 
-func TestExec_UnavailableIs503AndUnexpectedErrorsAre500WithoutLeaking(t *testing.T) {
+func TestHandlers_Exec_UnavailableIs503AndUnexpectedErrorsAre500WithoutLeaking(t *testing.T) {
 	unavailable := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) { return nil, command.ErrUnavailable }}
 	broken := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) { return nil, errors.New("secret detail") }}
 
@@ -229,7 +229,7 @@ func TestExec_UnavailableIs503AndUnexpectedErrorsAre500WithoutLeaking(t *testing
 	assert.NotContains(t, w.Body.String(), "secret detail")
 }
 
-func TestExec_ForwardsTheCallersBearerToken(t *testing.T) {
+func TestHandlers_Exec_ForwardsTheCallersBearerToken(t *testing.T) {
 	exec := echoing("", command.Result{})
 	r := newRouter(exec, nil)
 
@@ -256,7 +256,7 @@ func blocking(
 	}}
 }
 
-func TestExec_LimitsConcurrentCommandsPerDeviceAndReleasesSlots(t *testing.T) {
+func TestHandlers_Exec_LimitsConcurrentCommandsPerDeviceAndReleasesSlots(t *testing.T) {
 	started := make(chan struct{}, 10)
 	release := make(chan struct{})
 	exec := blocking(started, release)
@@ -295,7 +295,7 @@ func TestExec_LimitsConcurrentCommandsPerDeviceAndReleasesSlots(t *testing.T) {
 	assert.Equal(t, http.StatusOK, again.Code, "slots must be released when commands finish")
 }
 
-func TestExec_ADeniedCommandDoesNotHoldASlot(t *testing.T) {
+func TestHandlers_Exec_ADeniedCommandDoesNotHoldASlot(t *testing.T) {
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return nil, &command.DeniedError{Reason: "no"}
 	}}
@@ -306,7 +306,7 @@ func TestExec_ADeniedCommandDoesNotHoldASlot(t *testing.T) {
 	}
 }
 
-func TestExec_CapsOutputAndStillDeliversTheExitFrame(t *testing.T) {
+func TestHandlers_Exec_CapsOutputAndStillDeliversTheExitFrame(t *testing.T) {
 	big := strings.Repeat("x", 1000)
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return fakeInvocation{run: func(_ context.Context, stdout, _ io.Writer) command.Result {
@@ -339,7 +339,7 @@ func TestExec_CapsOutputAndStillDeliversTheExitFrame(t *testing.T) {
 	assert.Equal(t, float64(0), got[len(got)-1]["code"], "truncation must not kill or fail the command")
 }
 
-func TestExec_TimesOutACommandAndSaysSo(t *testing.T) {
+func TestHandlers_Exec_TimesOutACommandAndSaysSo(t *testing.T) {
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return fakeInvocation{run: func(ctx context.Context, _, _ io.Writer) command.Result {
 			<-ctx.Done()
@@ -356,7 +356,7 @@ func TestExec_TimesOutACommandAndSaysSo(t *testing.T) {
 	assert.Contains(t, last["error"], "timed out after 30ms")
 }
 
-func TestExec_CancelsTheCommandWhenTheClientGoesAway(t *testing.T) {
+func TestHandlers_Exec_CancelsTheCommandWhenTheClientGoesAway(t *testing.T) {
 	cancelled := make(chan struct{})
 	started := make(chan struct{})
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
@@ -382,7 +382,7 @@ func TestExec_CancelsTheCommandWhenTheClientGoesAway(t *testing.T) {
 	}
 }
 
-func TestExec_OutputWrittenAfterTheCommandReturnedIsDiscarded(t *testing.T) {
+func TestHandlers_Exec_OutputWrittenAfterTheCommandReturnedIsDiscarded(t *testing.T) {
 	late := make(chan io.Writer, 1)
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return fakeInvocation{run: func(_ context.Context, stdout, _ io.Writer) command.Result {
@@ -400,7 +400,7 @@ func TestExec_OutputWrittenAfterTheCommandReturnedIsDiscarded(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "too late")
 }
 
-func TestExec_AuditsEveryRunWithTheDeviceAndARedactedLine(t *testing.T) {
+func TestHandlers_Exec_AuditsEveryRunWithTheDeviceAndARedactedLine(t *testing.T) {
 	ring := captureSlog(t)
 	setDevice := func(r *gin.Engine) {
 		r.Use(func(c *gin.Context) { c.Set(middleware.DeviceContextKey, auth.Device{ID: "dev-7"}) })
@@ -424,7 +424,7 @@ func TestExec_AuditsEveryRunWithTheDeviceAndARedactedLine(t *testing.T) {
 	assert.NotContains(t, audit.Fields["line"], "hunter2")
 }
 
-func TestExec_AuditsLocalCallersAsLocal(t *testing.T) {
+func TestHandlers_Exec_AuditsLocalCallersAsLocal(t *testing.T) {
 	ring := captureSlog(t)
 	r := newRouter(echoing("", command.Result{}), nil)
 
@@ -439,7 +439,7 @@ func TestExec_AuditsLocalCallersAsLocal(t *testing.T) {
 	t.Fatal("no audit record")
 }
 
-func TestExec_LogsDeniedAttemptsWithoutSecrets(t *testing.T) {
+func TestHandlers_Exec_LogsDeniedAttemptsWithoutSecrets(t *testing.T) {
 	ring := captureSlog(t)
 	exec := &fakeExecutor{prepare: func([]string, string) (command.Invocation, error) {
 		return nil, &command.DeniedError{Reason: "not available"}
@@ -458,7 +458,7 @@ func TestExec_LogsDeniedAttemptsWithoutSecrets(t *testing.T) {
 	t.Fatal("no denial record")
 }
 
-func TestCommands_ReturnsTheExecutorsList(t *testing.T) {
+func TestHandlers_Commands_ReturnsTheExecutorsList(t *testing.T) {
 	exec := &fakeExecutor{describes: []command.CommandInfo{{Path: []string{"arrow", "add"}, Short: "s", Usage: "arrow add <ns>"}}}
 	r := newRouter(exec, nil)
 

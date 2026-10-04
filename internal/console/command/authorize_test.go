@@ -32,7 +32,7 @@ func prepare(
 	return err
 }
 
-func TestPrepare_AllowsTheAnnotatedCommands(t *testing.T) {
+func TestExecutor_Prepare_AllowsTheAnnotatedCommands(t *testing.T) {
 	for _, line := range []string{
 		"install github.com/a/b",
 		"run github.com/a/b",
@@ -63,7 +63,7 @@ func TestPrepare_AllowsTheAnnotatedCommands(t *testing.T) {
 	}
 }
 
-func TestPrepare_DeniesEverythingElse(t *testing.T) {
+func TestExecutor_Prepare_DeniesEverythingElse(t *testing.T) {
 	for _, line := range []string{
 		"daemon",
 		"daemon --host tcp://0.0.0.0:1",
@@ -117,7 +117,7 @@ func TestPrepare_DeniesEverythingElse(t *testing.T) {
 	}
 }
 
-func TestPrepare_DeniesTheRedirectingFlagsInAnySpelling(t *testing.T) {
+func TestExecutor_Prepare_DeniesTheRedirectingFlagsInAnySpelling(t *testing.T) {
 	for _, line := range []string{
 		"list --server unix:///tmp/x.sock",
 		"list --server=unix:///tmp/x.sock",
@@ -137,7 +137,7 @@ func TestPrepare_DeniesTheRedirectingFlagsInAnySpelling(t *testing.T) {
 	}
 }
 
-func TestPrepare_DeniesTheWatchFlagOnStatus(t *testing.T) {
+func TestExecutor_Prepare_DeniesTheWatchFlagOnStatus(t *testing.T) {
 	for _, line := range []string{
 		"status github.com/a/b --watch",
 		"status github.com/a/b -w",
@@ -152,17 +152,17 @@ func TestPrepare_DeniesTheWatchFlagOnStatus(t *testing.T) {
 	}
 }
 
-func TestPrepare_UnknownFlagsAreLeftToCobra(t *testing.T) {
+func TestExecutor_Prepare_UnknownFlagsAreLeftToCobra(t *testing.T) {
 	assert.NoError(t, prepare(t, "list --no-such-flag"))
 }
 
-func TestPrepare_WithoutAServerAddressIsUnavailable(t *testing.T) {
+func TestExecutor_Prepare_WithoutAServerAddressIsUnavailable(t *testing.T) {
 	_, err := command.New(command.Options{}).Prepare([]string{"list"}, "")
 
 	assert.ErrorIs(t, err, command.ErrUnavailable)
 }
 
-func TestDefaultDeny_NoCommandWithoutTheAnnotationIsReachable(t *testing.T) {
+func TestAuthorize_DefaultDeny_NoCommandWithoutTheAnnotationIsReachable(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	walk(root, func(cmd *cobra.Command) {
 		if cmd == root || clierr.IsConsole(cmd) {
@@ -173,7 +173,7 @@ func TestDefaultDeny_NoCommandWithoutTheAnnotationIsReachable(t *testing.T) {
 	})
 }
 
-func TestDefaultDeny_EveryAnnotatedCommandHasAnnotatedAncestors(t *testing.T) {
+func TestAuthorize_DefaultDeny_EveryAnnotatedCommandHasAnnotatedAncestors(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	walk(root, func(cmd *cobra.Command) {
 		if cmd == root || !clierr.IsConsole(cmd) {
@@ -185,7 +185,7 @@ func TestDefaultDeny_EveryAnnotatedCommandHasAnnotatedAncestors(t *testing.T) {
 	})
 }
 
-func TestDefaultDeny_TheAnnotatedLeafCommandsAreExactlyTheApprovedSet(t *testing.T) {
+func TestAuthorize_DefaultDeny_TheAnnotatedLeafCommandsAreExactlyTheApprovedSet(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	var got []string
 	walk(root, func(cmd *cobra.Command) {
@@ -202,7 +202,7 @@ func TestDefaultDeny_TheAnnotatedLeafCommandsAreExactlyTheApprovedSet(t *testing
 	}, got)
 }
 
-func TestDefaultDeny_NamedDangerousCommandsAreNeverAnnotated(t *testing.T) {
+func TestAuthorize_DefaultDeny_NamedDangerousCommandsAreNeverAnnotated(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	forbidden := []string{"daemon", "self-update", "context", "auth", "completion", "help", "path", "watch", "seed", "follow", "unfollow"}
 	walk(root, func(cmd *cobra.Command) {
@@ -212,18 +212,18 @@ func TestDefaultDeny_NamedDangerousCommandsAreNeverAnnotated(t *testing.T) {
 	})
 }
 
-func TestDefaultDeny_NoHiddenCommandIsAnnotated(t *testing.T) {
+func TestAuthorize_DefaultDeny_NoHiddenCommandIsAnnotated(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	walk(root, func(cmd *cobra.Command) {
 		assert.False(t, cmd.Hidden && clierr.IsConsole(cmd), cmd.CommandPath())
 	})
 }
 
-func TestDefaultDeny_TheRootItselfIsNeverAnnotated(t *testing.T) {
+func TestAuthorize_DefaultDeny_TheRootItselfIsNeverAnnotated(t *testing.T) {
 	assert.False(t, clierr.IsConsole(command.NewRootForTest(executor())))
 }
 
-func TestCommands_ListsOnlyReachableCommandsWithoutDeniedFlags(t *testing.T) {
+func TestExecutor_Commands_ListsOnlyReachableCommandsWithoutDeniedFlags(t *testing.T) {
 	infos := executor().Commands()
 
 	paths := make([]string, 0, len(infos))
@@ -258,7 +258,7 @@ func walk(
 	}
 }
 
-func TestDefaultDeny_NoCommandShadowsTheRootGuardWithItsOwnHooks(t *testing.T) {
+func TestAuthorize_DefaultDeny_NoCommandShadowsTheRootGuardWithItsOwnHooks(t *testing.T) {
 	root := command.NewRootForTest(executor())
 	walk(root, func(cmd *cobra.Command) {
 		if cmd == root {
@@ -269,7 +269,7 @@ func TestDefaultDeny_NoCommandShadowsTheRootGuardWithItsOwnHooks(t *testing.T) {
 	})
 }
 
-func TestDefaultDeny_CobraPrefixAndCaseMatchingStayOff(t *testing.T) {
+func TestAuthorize_DefaultDeny_CobraPrefixAndCaseMatchingStayOff(t *testing.T) {
 	assert.False(t, cobra.EnablePrefixMatching)
 	assert.False(t, cobra.EnableCaseInsensitive)
 	assert.False(t, cobra.EnableTraverseRunHooks)

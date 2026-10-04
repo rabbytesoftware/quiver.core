@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/libs"
+	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/console/command"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
@@ -29,7 +30,7 @@ const maxExecBody = 4096
 // @Tags         console
 // @Accept       json
 // @Produce      application/x-ndjson
-// @Param        body  body  execRequest  true  "The command line, without the leading quiver"
+// @Param        body  body  apidto.ConsoleExecRequestDTO  true  "The command line, without the leading quiver"
 // @Success      200   "Stream of out and exit frames"
 // @Failure      400   {object}  libs.ErrResponse  "The line is empty, too long, or cannot be tokenized"
 // @Failure      403   {object}  libs.ErrResponse  "The command is not available in the console"
@@ -71,7 +72,7 @@ func (h *Handlers) readLine(
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
 
-	var req execRequest
+	var req apidto.ConsoleExecRequestDTO
 	if err := decoder.Decode(&req); err != nil {
 		libs.WriteErr(c, http.StatusBadRequest, `request body must be {"line": "<command>"}`, "")
 		return "", false

@@ -2,36 +2,6 @@ basePath: /v0
 consumes:
 - application/json
 definitions:
-  command.CommandInfo:
-    properties:
-      aliases:
-        items:
-          type: string
-        type: array
-      flags:
-        items:
-          $ref: '#/definitions/command.FlagInfo'
-        type: array
-      path:
-        items:
-          type: string
-        type: array
-      short:
-        type: string
-      usage:
-        type: string
-    type: object
-  command.FlagInfo:
-    properties:
-      name:
-        type: string
-      shorthand:
-        type: string
-      takes_value:
-        type: boolean
-      usage:
-        type: string
-    type: object
   config.API:
     properties:
       host:
@@ -173,18 +143,6 @@ definitions:
       sweep_interval:
         type: string
       ttl:
-        type: string
-    type: object
-  console.commandsResponse:
-    properties:
-      commands:
-        items:
-          $ref: '#/definitions/command.CommandInfo'
-        type: array
-    type: object
-  console.execRequest:
-    properties:
-      line:
         type: string
     type: object
   domain.ArrowGenerator:
@@ -683,6 +641,48 @@ definitions:
       key:
         type: string
       message:
+        type: string
+    type: object
+  dto.ConsoleCommandDTO:
+    properties:
+      aliases:
+        items:
+          type: string
+        type: array
+      flags:
+        items:
+          $ref: '#/definitions/dto.ConsoleFlagDTO'
+        type: array
+      path:
+        items:
+          type: string
+        type: array
+      short:
+        type: string
+      usage:
+        type: string
+    type: object
+  dto.ConsoleCommandsDTO:
+    properties:
+      commands:
+        items:
+          $ref: '#/definitions/dto.ConsoleCommandDTO'
+        type: array
+    type: object
+  dto.ConsoleExecRequestDTO:
+    properties:
+      line:
+        type: string
+    type: object
+  dto.ConsoleFlagDTO:
+    properties:
+      name:
+        type: string
+      shorthand:
+        type: string
+      takes_value:
+        type: boolean
+      usage:
         type: string
     type: object
   dto.ConstrainedDepDTO:
@@ -2082,7 +2082,7 @@ paths:
             - $ref: '#/definitions/libs.QueryResponse'
             - properties:
                 data:
-                  $ref: '#/definitions/console.commandsResponse'
+                  $ref: '#/definitions/dto.ConsoleCommandsDTO'
               type: object
       summary: List the commands the console may run
       tags:
@@ -2103,7 +2103,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/console.execRequest'
+          $ref: '#/definitions/dto.ConsoleExecRequestDTO'
       produces:
       - application/x-ndjson
       responses:

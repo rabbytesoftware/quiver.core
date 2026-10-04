@@ -8,11 +8,11 @@ import "time"
 // for nested groups. Values keep their JSON type: strings, numbers and
 // booleans. Durations and errors are rendered to strings.
 type Record struct {
-	Seq             uint64         `json:"seq"`
-	Time            time.Time      `json:"time"`
-	Level           string         `json:"level"`
-	Component       string         `json:"component"`
-	Msg             string         `json:"msg"`
-	Fields          map[string]any `json:"fields"`
-	FieldsTruncated bool           `json:"fields_truncated"`
+	Seq             uint64         `json:"seq" yaml:"seq"`
+	Time            time.Time      `json:"time" yaml:"time"`
+	Level           string         `json:"level" yaml:"level"`
+	Component       string         `json:"component" yaml:"component"`
+	Msg             string         `json:"msg" yaml:"msg"`
+	Fields          map[string]any `json:"fields" yaml:"fields"`
+	FieldsTruncated bool           `json:"fields_truncated" yaml:"fields_truncated"`
 }

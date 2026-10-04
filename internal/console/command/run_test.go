@@ -90,7 +90,7 @@ func run(
 	return inv.Run(ctx, &stdout, &stderr), stdout.String(), stderr.String()
 }
 
-func TestRun_ExecutesTheRealCommandAgainstTheDaemon(t *testing.T) {
+func TestExecutor_Run_ExecutesTheRealCommandAgainstTheDaemon(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	result, stdout, _ := run(t, d.executor(), "", "health")
@@ -100,7 +100,7 @@ func TestRun_ExecutesTheRealCommandAgainstTheDaemon(t *testing.T) {
 	assert.Equal(t, []string{"GET /v0/health"}, d.requests)
 }
 
-func TestRun_VersionReportsTheDaemonsOwnVersionString(t *testing.T) {
+func TestExecutor_Run_VersionReportsTheDaemonsOwnVersionString(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	_, stdout, _ := run(t, d.executor(), "", "version")
@@ -109,7 +109,7 @@ func TestRun_VersionReportsTheDaemonsOwnVersionString(t *testing.T) {
 	assert.Contains(t, stdout, "daemon 9.9")
 }
 
-func TestRun_ForwardsTheCallersBearerTokenAndNothingElse(t *testing.T) {
+func TestExecutor_Run_ForwardsTheCallersBearerTokenAndNothingElse(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	run(t, d.executor(), "caller-token", "arrow list")
@@ -118,7 +118,7 @@ func TestRun_ForwardsTheCallersBearerTokenAndNothingElse(t *testing.T) {
 	assert.Equal(t, []string{"Bearer caller-token", ""}, d.auth)
 }
 
-func TestRun_DefaultsToTableOutputAndHonoursAnExplicitFormat(t *testing.T) {
+func TestExecutor_Run_DefaultsToTableOutputAndHonoursAnExplicitFormat(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	_, table, _ := run(t, d.executor(), "", "arrow list")
@@ -129,7 +129,7 @@ func TestRun_DefaultsToTableOutputAndHonoursAnExplicitFormat(t *testing.T) {
 	assert.NotContains(t, asJSON, "\x1b[")
 }
 
-func TestRun_ADestructiveCommandRefusesWithoutYesAndNeverCallsTheDaemon(t *testing.T) {
+func TestExecutor_Run_ADestructiveCommandRefusesWithoutYesAndNeverCallsTheDaemon(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	result, _, _ := run(t, d.executor(), "", "arrow remove github.com/a/b")
@@ -139,7 +139,7 @@ func TestRun_ADestructiveCommandRefusesWithoutYesAndNeverCallsTheDaemon(t *testi
 	assert.Zero(t, d.count())
 }
 
-func TestRun_YesDoesNotLeakIntoTheNextCall(t *testing.T) {
+func TestExecutor_Run_YesDoesNotLeakIntoTheNextCall(t *testing.T) {
 	d := newFakeDaemon(t)
 	exec := d.executor()
 
@@ -151,7 +151,7 @@ func TestRun_YesDoesNotLeakIntoTheNextCall(t *testing.T) {
 	assert.Equal(t, 1, d.count())
 }
 
-func TestRun_AnUninstallAlsoNeedsYes(t *testing.T) {
+func TestExecutor_Run_AnUninstallAlsoNeedsYes(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	result, _, _ := run(t, d.executor(), "", "uninstall github.com/a/b")
@@ -160,7 +160,7 @@ func TestRun_AnUninstallAlsoNeedsYes(t *testing.T) {
 	assert.Zero(t, d.count())
 }
 
-func TestRun_ReportsUsageErrorsWithTheCLIExitCode(t *testing.T) {
+func TestExecutor_Run_ReportsUsageErrorsWithTheCLIExitCode(t *testing.T) {
 	d := newFakeDaemon(t)
 
 	result, _, _ := run(t, d.executor(), "", "arrow add not-a-namespace")
@@ -170,7 +170,7 @@ func TestRun_ReportsUsageErrorsWithTheCLIExitCode(t *testing.T) {
 	assert.Zero(t, d.count())
 }
 
-func TestRun_AnUnreachableDaemonExitsWithTheUnreachableCode(t *testing.T) {
+func TestExecutor_Run_AnUnreachableDaemonExitsWithTheUnreachableCode(t *testing.T) {
 	exec := command.New(command.Options{ServerURI: "http://127.0.0.1:1"})
 
 	result, _, _ := run(t, exec, "", "health")
@@ -178,7 +178,7 @@ func TestRun_AnUnreachableDaemonExitsWithTheUnreachableCode(t *testing.T) {
 	assert.Equal(t, 3, result.Code)
 }
 
-func TestRun_NeverReadsOrWritesTheUsersCLIConfig(t *testing.T) {
+func TestExecutor_Run_NeverReadsOrWritesTheUsersCLIConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
@@ -194,7 +194,7 @@ func TestRun_NeverReadsOrWritesTheUsersCLIConfig(t *testing.T) {
 	assert.Empty(t, entries, "the console must not create files under HOME")
 }
 
-func TestRun_NeverTouchesTheDaemonsStdin(t *testing.T) {
+func TestExecutor_Run_NeverTouchesTheDaemonsStdin(t *testing.T) {
 	d := newFakeDaemon(t)
 	original := os.Stdin
 	reader, writer, err := os.Pipe()
@@ -213,7 +213,7 @@ func TestRun_NeverTouchesTheDaemonsStdin(t *testing.T) {
 	assert.Zero(t, d.count())
 }
 
-func TestRun_EachCallGetsItsOwnCommandTree(t *testing.T) {
+func TestExecutor_Run_EachCallGetsItsOwnCommandTree(t *testing.T) {
 	d := newFakeDaemon(t)
 	exec := d.executor()
 	tokens := []string{"health"}
@@ -226,7 +226,7 @@ func TestRun_EachCallGetsItsOwnCommandTree(t *testing.T) {
 	assert.NotSame(t, first, second)
 }
 
-func TestRun_ConcurrentCallsAreIndependent(t *testing.T) {
+func TestExecutor_Run_ConcurrentCallsAreIndependent(t *testing.T) {
 	d := newFakeDaemon(t)
 	exec := d.executor()
 	var wg sync.WaitGroup

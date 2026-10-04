@@ -1447,7 +1447,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/console.commandsResponse"
+                                            "$ref": "#/definitions/dto.ConsoleCommandsDTO"
                                         }
                                     }
                                 }
@@ -1477,7 +1477,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/console.execRequest"
+                            "$ref": "#/definitions/dto.ConsoleExecRequestDTO"
                         }
                     }
                 ],
@@ -2121,52 +2121,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "command.CommandInfo": {
-            "type": "object",
-            "properties": {
-                "aliases": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "flags": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/command.FlagInfo"
-                    }
-                },
-                "path": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "short": {
-                    "type": "string"
-                },
-                "usage": {
-                    "type": "string"
-                }
-            }
-        },
-        "command.FlagInfo": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "shorthand": {
-                    "type": "string"
-                },
-                "takes_value": {
-                    "type": "boolean"
-                },
-                "usage": {
-                    "type": "string"
-                }
-            }
-        },
         "config.API": {
             "type": "object",
             "properties": {
@@ -2378,25 +2332,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "ttl": {
-                    "type": "string"
-                }
-            }
-        },
-        "console.commandsResponse": {
-            "type": "object",
-            "properties": {
-                "commands": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/command.CommandInfo"
-                    }
-                }
-            }
-        },
-        "console.execRequest": {
-            "type": "object",
-            "properties": {
-                "line": {
                     "type": "string"
                 }
             }
@@ -3129,6 +3064,71 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ConsoleCommandDTO": {
+            "type": "object",
+            "properties": {
+                "aliases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "flags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ConsoleFlagDTO"
+                    }
+                },
+                "path": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "short": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ConsoleCommandsDTO": {
+            "type": "object",
+            "properties": {
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ConsoleCommandDTO"
+                    }
+                }
+            }
+        },
+        "dto.ConsoleExecRequestDTO": {
+            "type": "object",
+            "properties": {
+                "line": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ConsoleFlagDTO": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "shorthand": {
+                    "type": "string"
+                },
+                "takes_value": {
+                    "type": "boolean"
+                },
+                "usage": {
                     "type": "string"
                 }
             }

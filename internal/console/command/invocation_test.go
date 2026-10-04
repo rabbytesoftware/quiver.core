@@ -24,7 +24,7 @@ func rootWith(
 	return root
 }
 
-func TestInvocation_RecoversAPanicIntoAFailedResult(t *testing.T) {
+func TestInvocation_Run_RecoversAPanicIntoAFailedResult(t *testing.T) {
 	root := rootWith(func(*cobra.Command) error { panic("boom") })
 
 	result := command.NewInvocationForTest(root).Run(context.Background(), io.Discard, io.Discard)
@@ -32,7 +32,7 @@ func TestInvocation_RecoversAPanicIntoAFailedResult(t *testing.T) {
 	assert.Equal(t, command.Result{Code: 1, Err: "internal error"}, result)
 }
 
-func TestInvocation_ReturnsWhenTheContextIsDoneEvenIfTheCommandIgnoresIt(t *testing.T) {
+func TestInvocation_Run_ReturnsWhenTheContextIsDoneEvenIfTheCommandIgnoresIt(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
 	root := rootWith(func(*cobra.Command) error {
@@ -50,7 +50,7 @@ func TestInvocation_ReturnsWhenTheContextIsDoneEvenIfTheCommandIgnoresIt(t *test
 	assert.Contains(t, result.Err, "deadline")
 }
 
-func TestInvocation_PassesTheContextToTheCommand(t *testing.T) {
+func TestInvocation_Run_PassesTheContextToTheCommand(t *testing.T) {
 	seen := make(chan context.Context, 1)
 	root := rootWith(func(cmd *cobra.Command) error {
 		seen <- cmd.Context()
@@ -64,7 +64,7 @@ func TestInvocation_PassesTheContextToTheCommand(t *testing.T) {
 	assert.Equal(t, "v", (<-seen).Value(key{}))
 }
 
-func TestInvocation_RoutesOutputToTheGivenWriters(t *testing.T) {
+func TestInvocation_Run_RoutesOutputToTheGivenWriters(t *testing.T) {
 	root := rootWith(func(cmd *cobra.Command) error {
 		_, _ = cmd.OutOrStdout().Write([]byte("out"))
 		_, _ = cmd.ErrOrStderr().Write([]byte("err"))
@@ -78,7 +78,7 @@ func TestInvocation_RoutesOutputToTheGivenWriters(t *testing.T) {
 	assert.Equal(t, "err", stderr.String())
 }
 
-func TestInvocation_MapsACommandErrorToAResult(t *testing.T) {
+func TestInvocation_Run_MapsACommandErrorToAResult(t *testing.T) {
 	root := rootWith(func(*cobra.Command) error { return errors.New("it failed") })
 
 	result := command.NewInvocationForTest(root).Run(context.Background(), io.Discard, io.Discard)
@@ -87,7 +87,7 @@ func TestInvocation_MapsACommandErrorToAResult(t *testing.T) {
 	assert.Equal(t, "it failed", result.Err)
 }
 
-func TestNewRoot_GivesCommandsAnEmptyStdin(t *testing.T) {
+func TestExecutor_Prepare_GivesCommandsAnEmptyStdin(t *testing.T) {
 	root := command.NewRootForTest(executor())
 
 	data, err := io.ReadAll(root.InOrStdin())

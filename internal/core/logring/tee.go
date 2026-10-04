@@ -6,11 +6,6 @@ import (
 	"time"
 )
 
-type preAttr struct {
-	prefix string
-	attr   slog.Attr
-}
-
 type teeHandler struct {
 	next   slog.Handler
 	ring   *ringBuffer

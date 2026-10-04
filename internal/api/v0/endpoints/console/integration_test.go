@@ -107,7 +107,7 @@ func (s *stack) exec(
 	return resp.StatusCode, body.String()
 }
 
-func TestIntegration_TCPModeRequiresAValidBearerToken(t *testing.T) {
+func TestRegister_TCPModeRequiresAValidBearerToken(t *testing.T) {
 	s := newStack(t, true)
 
 	missing, _ := s.exec(t, "arrow list", "")
@@ -119,7 +119,7 @@ func TestIntegration_TCPModeRequiresAValidBearerToken(t *testing.T) {
 	assert.Empty(t, requests, "an unauthenticated caller must never reach a command")
 }
 
-func TestIntegration_ACommandRunsWithTheCallersOwnCredentials(t *testing.T) {
+func TestRegister_ACommandRunsWithTheCallersOwnCredentials(t *testing.T) {
 	s := newStack(t, true)
 
 	status, body := s.exec(t, "arrow list", "good")
@@ -131,7 +131,7 @@ func TestIntegration_ACommandRunsWithTheCallersOwnCredentials(t *testing.T) {
 	assert.Equal(t, []string{"Bearer good"}, auths)
 }
 
-func TestIntegration_UnixModeNeedsNoTokenAndForwardsNone(t *testing.T) {
+func TestRegister_UnixModeNeedsNoTokenAndForwardsNone(t *testing.T) {
 	s := newStack(t, false)
 
 	status, body := s.exec(t, "arrow list", "")
@@ -142,7 +142,7 @@ func TestIntegration_UnixModeNeedsNoTokenAndForwardsNone(t *testing.T) {
 	assert.Equal(t, []string{""}, auths)
 }
 
-func TestIntegration_AuthenticatedCallersStillCannotReachUnlistedCommands(t *testing.T) {
+func TestRegister_AuthenticatedCallersStillCannotReachUnlistedCommands(t *testing.T) {
 	s := newStack(t, true)
 
 	for _, line := range []string{"daemon", "context list", "auth devices list", "arrow seed x", "self-update x"} {
@@ -153,7 +153,7 @@ func TestIntegration_AuthenticatedCallersStillCannotReachUnlistedCommands(t *tes
 	assert.Empty(t, requests)
 }
 
-func TestIntegration_TheLogStreamAndCommandListSitBehindTheSameGate(t *testing.T) {
+func TestRegister_TheLogStreamAndCommandListSitBehindTheSameGate(t *testing.T) {
 	s := newStack(t, true)
 
 	for _, path := range []string{"/console/logs", "/console/commands"} {

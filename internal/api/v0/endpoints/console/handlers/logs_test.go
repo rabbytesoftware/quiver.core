@@ -84,7 +84,7 @@ func next(
 	return frame
 }
 
-func TestLogs_InvalidParametersAre400(t *testing.T) {
+func TestHandlers_Logs_InvalidParametersAre400(t *testing.T) {
 	f := newLogsFixture(t)
 
 	for _, query := range []string{"?level=trace", "?level=INFO", "?since=-1", "?since=abc", "?replay=-1", "?replay=x"} {
@@ -95,7 +95,7 @@ func TestLogs_InvalidParametersAre400(t *testing.T) {
 	}
 }
 
-func TestLogs_ReplaysThenSendsReadyThenGoesLive(t *testing.T) {
+func TestHandlers_Logs_ReplaysThenSendsReadyThenGoesLive(t *testing.T) {
 	f := newLogsFixture(t)
 	f.log.Info("one", "component", "daemon", "k", "v")
 	f.log.Warn("two")
@@ -122,7 +122,7 @@ func TestLogs_ReplaysThenSendsReadyThenGoesLive(t *testing.T) {
 	assert.Equal(t, float64(3), live["seq"])
 }
 
-func TestLogs_ReadyComesFirstWhenThereIsNothingToReplay(t *testing.T) {
+func TestHandlers_Logs_ReadyComesFirstWhenThereIsNothingToReplay(t *testing.T) {
 	f := newLogsFixture(t)
 
 	conn := f.dial(t, "")
@@ -130,7 +130,7 @@ func TestLogs_ReadyComesFirstWhenThereIsNothingToReplay(t *testing.T) {
 	assert.Equal(t, map[string]any{"type": "ready", "seq": float64(0)}, next(t, conn))
 }
 
-func TestLogs_LevelFiltersReplayAndLiveRecords(t *testing.T) {
+func TestHandlers_Logs_LevelFiltersReplayAndLiveRecords(t *testing.T) {
 	f := newLogsFixture(t)
 	f.log.Debug("d")
 	f.log.Info("i")
@@ -145,7 +145,7 @@ func TestLogs_LevelFiltersReplayAndLiveRecords(t *testing.T) {
 	assert.Equal(t, "e", next(t, conn)["msg"])
 }
 
-func TestLogs_SinceReplaysOnlyNewerRecords(t *testing.T) {
+func TestHandlers_Logs_SinceReplaysOnlyNewerRecords(t *testing.T) {
 	f := newLogsFixture(t)
 	for _, msg := range []string{"a", "b", "c"} {
 		f.log.Info(msg)
@@ -157,7 +157,7 @@ func TestLogs_SinceReplaysOnlyNewerRecords(t *testing.T) {
 	assert.Equal(t, float64(3), next(t, conn)["seq"])
 }
 
-func TestLogs_ReplayLimitsHowManyRecordsComeBack(t *testing.T) {
+func TestHandlers_Logs_ReplayLimitsHowManyRecordsComeBack(t *testing.T) {
 	f := newLogsFixture(t)
 	for _, msg := range []string{"a", "b", "c", "d"} {
 		f.log.Info(msg)
@@ -170,7 +170,7 @@ func TestLogs_ReplayLimitsHowManyRecordsComeBack(t *testing.T) {
 	assert.Equal(t, "ready", next(t, conn)["type"])
 }
 
-func TestLogs_ReplayZeroSkipsStraightToReady(t *testing.T) {
+func TestHandlers_Logs_ReplayZeroSkipsStraightToReady(t *testing.T) {
 	f := newLogsFixture(t)
 	f.log.Info("old")
 
@@ -179,7 +179,7 @@ func TestLogs_ReplayZeroSkipsStraightToReady(t *testing.T) {
 	assert.Equal(t, "ready", next(t, conn)["type"])
 }
 
-func TestLogs_ASinceFromBeforeADaemonRestartIsDiscardedAndFlagged(t *testing.T) {
+func TestHandlers_Logs_ASinceFromBeforeADaemonRestartIsDiscardedAndFlagged(t *testing.T) {
 	f := newLogsFixture(t)
 	f.log.Info("fresh")
 
@@ -189,7 +189,7 @@ func TestLogs_ASinceFromBeforeADaemonRestartIsDiscardedAndFlagged(t *testing.T) 
 	assert.Equal(t, map[string]any{"type": "ready", "seq": float64(1), "reset": true}, next(t, conn))
 }
 
-func TestLogs_RecordsLoggedDuringReplayAreNeitherLostNorRepeated(t *testing.T) {
+func TestHandlers_Logs_RecordsLoggedDuringReplayAreNeitherLostNorRepeated(t *testing.T) {
 	f := newLogsFixture(t)
 	for i := 0; i < 50; i++ {
 		f.log.Info("m", "i", i)
@@ -214,7 +214,7 @@ func TestLogs_RecordsLoggedDuringReplayAreNeitherLostNorRepeated(t *testing.T) {
 	}
 }
 
-func TestLogs_RedactedValuesNeverReachTheWire(t *testing.T) {
+func TestHandlers_Logs_RedactedValuesNeverReachTheWire(t *testing.T) {
 	f := newLogsFixture(t)
 	f.log.Info("auth", "token", "abc", "url", "https://u:pw@h/x")
 
@@ -228,7 +228,7 @@ func TestLogs_RedactedValuesNeverReachTheWire(t *testing.T) {
 	assert.Contains(t, string(raw), logring.Redacted)
 }
 
-func TestLogs_AClosedClientReleasesItsSubscription(t *testing.T) {
+func TestHandlers_Logs_AClosedClientReleasesItsSubscription(t *testing.T) {
 	f := newLogsFixture(t)
 	conn := f.dial(t, "")
 	next(t, conn)
@@ -253,7 +253,7 @@ func flood(
 	}
 }
 
-func TestLogs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testing.T) {
+func TestHandlers_Logs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testing.T) {
 	f := newLogsFixture(t, handlers.WithStuckLimit(time.Hour))
 	conn := f.dial(t, "")
 	next(t, conn)
@@ -280,7 +280,7 @@ func TestLogs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testing.T) {
 	}
 }
 
-func TestLogs_AClientStalledForTooLongIsDisconnectedWithoutBlockingTheDaemon(t *testing.T) {
+func TestHandlers_Logs_AClientStalledForTooLongIsDisconnectedWithoutBlockingTheDaemon(t *testing.T) {
 	f := newLogsFixture(t, handlers.WithStuckLimit(100*time.Millisecond))
 	conn := f.dial(t, "")
 	next(t, conn)

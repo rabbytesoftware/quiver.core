@@ -2,14 +2,6 @@ package command
 
 import "strings"
 
-type escapeMode int
-
-const (
-	escapeNone escapeMode = iota
-	escapeBare
-	escapeDouble
-)
-
 type lexer struct {
 	err     error
 	tokens  []string
