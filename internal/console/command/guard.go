@@ -24,6 +24,13 @@ func (g *guard) check(
 	if flag == "" {
 		return nil
 	}
+	return flagDenied(cmd, flag)
+}
+
+func flagDenied(
+	cmd *cobra.Command,
+	flag string,
+) *DeniedError {
 	return &DeniedError{
 		Command: cmd.CommandPath(),
 		Reason:  "the --" + flag + " flag is not available in the console",

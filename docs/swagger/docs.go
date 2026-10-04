@@ -1425,6 +1425,134 @@ const docTemplate = `{
                 }
             }
         },
+        "/console/commands": {
+            "get": {
+                "description": "Returns every command, with its usage and flags, that carries the console annotation and whose parent chain does too. Clients render help and completion from this list instead of keeping their own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "List the commands the console may run",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/console.commandsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/console/exec": {
+            "post": {
+                "description": "Runs a command line against the daemon's own CLI command tree and streams newline-delimited JSON frames: ` + "`" + `out` + "`" + ` frames carrying stdout or stderr text, then exactly one ` + "`" + `exit` + "`" + ` frame with the exit code.\n\nThe line is split into arguments by a quote-aware tokenizer and never given to a shell. Only commands that opt in to the console are reachable (403 otherwise), the redirecting --server, --context and --config flags are refused, and confirmations never answer yes: destructive commands need --yes. Commands run with the caller's own credentials.\n\nLimits: lines up to 1024 bytes and 64 arguments, 256 KiB of output per call, a 10 minute timeout, 2 concurrent commands per device and 8 overall.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/x-ndjson"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Run a console command",
+                "parameters": [
+                    {
+                        "description": "The command line, without the leading quiver",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/console.execRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stream of out and exit frames"
+                    },
+                    "400": {
+                        "description": "The line is empty, too long, or cannot be tokenized",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "The command is not available in the console",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many commands are already running",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "The daemon's own address is not known yet",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/logs": {
+            "get": {
+                "description": "Upgrades to a WebSocket. The server first replays retained records (the most recent ` + "`" + `replay` + "`" + `, or those after ` + "`" + `since` + "`" + `), then sends one ` + "`" + `ready` + "`" + ` frame, then every new record as it is logged. Frames are JSON text frames of type ` + "`" + `log` + "`" + `, ` + "`" + `ready` + "`" + ` or ` + "`" + `gap` + "`" + `; see docs/spec/console.md.\n\nA client that stops reading is not waited on: records it misses are counted and reported in a ` + "`" + `gap` + "`" + ` frame, and a consumer that stays stalled for 5 seconds is closed with code 1013. Sensitive attribute values are redacted before a record is stored.",
+                "tags": [
+                    "console"
+                ],
+                "summary": "Stream the daemon's logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "info",
+                        "description": "Minimum level: debug, info, warn or error",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Replay only records with a sequence number above this",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Most records to replay (default 500, at most 2000)",
+                        "name": "replay",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols"
+                    },
+                    "400": {
+                        "description": "level, since or replay is invalid",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns {\"status\":\"ok\"} when the daemon is running.",
@@ -1993,6 +2121,52 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "command.CommandInfo": {
+            "type": "object",
+            "properties": {
+                "aliases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "flags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/command.FlagInfo"
+                    }
+                },
+                "path": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "short": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
+        "command.FlagInfo": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "shorthand": {
+                    "type": "string"
+                },
+                "takes_value": {
+                    "type": "boolean"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
         "config.API": {
             "type": "object",
             "properties": {
@@ -2204,6 +2378,25 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "ttl": {
+                    "type": "string"
+                }
+            }
+        },
+        "console.commandsResponse": {
+            "type": "object",
+            "properties": {
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/command.CommandInfo"
+                    }
+                }
+            }
+        },
+        "console.execRequest": {
+            "type": "object",
+            "properties": {
+                "line": {
                     "type": "string"
                 }
             }

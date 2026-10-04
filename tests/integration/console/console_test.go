@@ -69,6 +69,7 @@ func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
 
 	_, listing := s.exec(c, "arrow list")
 	s.Contains(listing, "tool-a")
+	s.NotContains(listing, "\x1b[", "the console renders plain text, never terminal escapes")
 
 	installed, _ := s.exec(c, "install "+ns)
 	s.Equal(0, installed.Code, installed.Error)

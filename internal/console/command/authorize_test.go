@@ -258,3 +258,20 @@ func walk(
 		walk(child, visit)
 	}
 }
+
+func TestDefaultDeny_NoCommandShadowsTheRootGuardWithItsOwnHooks(t *testing.T) {
+	root := command.NewRootForTest(executor())
+	walk(root, func(cmd *cobra.Command) {
+		if cmd == root {
+			return
+		}
+		assert.Nil(t, cmd.PersistentPreRun, cmd.CommandPath())
+		assert.Nil(t, cmd.PersistentPreRunE, cmd.CommandPath())
+	})
+}
+
+func TestDefaultDeny_CobraPrefixAndCaseMatchingStayOff(t *testing.T) {
+	assert.False(t, cobra.EnablePrefixMatching)
+	assert.False(t, cobra.EnableCaseInsensitive)
+	assert.False(t, cobra.EnableTraverseRunHooks)
+}

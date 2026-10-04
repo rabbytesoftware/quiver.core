@@ -48,10 +48,7 @@ func AuthorizeFlags(
 		return found, nil
 	}
 	if flag := deniedFlag(found); flag != "" {
-		return nil, &DeniedError{
-			Command: found.CommandPath(),
-			Reason:  "the --" + flag + " flag is not available in the console",
-		}
+		return nil, flagDenied(found, flag)
 	}
 	return found, nil
 }

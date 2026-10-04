@@ -3,8 +3,10 @@ package console_test
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,16 @@ type logsFixture struct {
 	server *httptest.Server
 }
 
+type smallBufferListener struct{ net.Listener }
+
+func (l smallBufferListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetWriteBuffer(2048)
+	}
+	return conn, err
+}
+
 func newLogsFixture(
 	t *testing.T,
 	opts ...handlers.Option,
@@ -34,7 +46,9 @@ func newLogsFixture(
 	ring := logring.New(100)
 	r := gin.New()
 	r.GET("/console/logs", handlers.New(ring, command.New(command.Options{}), opts...).Logs)
-	server := httptest.NewServer(r)
+	server := httptest.NewUnstartedServer(r)
+	server.Listener = smallBufferListener{server.Listener}
+	server.Start()
 	t.Cleanup(server.Close)
 
 	log := slog.New(ring.Tee(slog.NewTextHandler(discard{}, nil)))
@@ -52,7 +66,7 @@ func (f *logsFixture) dial(
 	t.Helper()
 
 	url := "ws" + strings.TrimPrefix(f.server.URL, "http") + "/console/logs" + query
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil) //nolint:bodyclose
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -229,37 +243,67 @@ func TestLogs_AClosedClientReleasesItsSubscription(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-func TestLogs_AStalledClientIsDroppedWithoutBlockingTheDaemon(t *testing.T) {
-	f := newLogsFixture(t, handlers.WithStuckLimit(150*time.Millisecond))
+func flood(
+	log *slog.Logger,
+	records int,
+) {
+	pad := strings.Repeat("x", 2000)
+	for i := 0; i < records; i++ {
+		log.Info("flood", "pad", pad)
+	}
+}
+
+func TestLogs_AClientThatStopsReadingMissesRecordsAndIsToldSo(t *testing.T) {
+	f := newLogsFixture(t, handlers.WithStuckLimit(time.Hour))
 	conn := f.dial(t, "")
 	next(t, conn)
-	big := strings.Repeat("x", 2000)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 20000; i++ {
-			f.log.Info("flood", "pad", big)
-		}
+		flood(f.log, 3000)
 	}()
-
 	select {
 	case <-done:
 	case <-time.After(20 * time.Second):
 		t.Fatal("logging blocked on a client that stopped reading")
 	}
-	assert.Equal(t, uint64(20000), f.ring.Latest())
+	assert.Equal(t, uint64(3000), f.ring.Latest())
 
 	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
-	var gaps int
 	for {
 		_, data, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
+		require.NoError(t, err, "the stream must stay open and report a gap")
 		if strings.Contains(string(data), `"type":"gap"`) {
-			gaps++
+			return
 		}
 	}
-	assert.Positive(t, gaps, "the client must be told it missed records")
+}
+
+func TestLogs_AClientStalledForTooLongIsDisconnectedWithoutBlockingTheDaemon(t *testing.T) {
+	f := newLogsFixture(t, handlers.WithStuckLimit(100*time.Millisecond))
+	conn := f.dial(t, "")
+	next(t, conn)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 40; i++ {
+			flood(f.log, 100)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("logging blocked on a client that stopped reading")
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			assert.False(t, os.IsTimeout(err), "the server must close the stalled connection, not leave it hanging")
+			return
+		}
+	}
 }
