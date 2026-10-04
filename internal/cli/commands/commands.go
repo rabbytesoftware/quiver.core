@@ -33,6 +33,11 @@ type Deps struct {
 	// EnsureDaemon boots the local daemon when the resolved server is a
 	// Unix socket. nil disables daemon management (remote contexts, tests).
 	EnsureDaemon func(ctx context.Context) error
+	// Session, when non-nil, replaces the session built from the process
+	// environment. The daemon's console injects one that dials the daemon's
+	// own address and never reads the CLI config file or the --server,
+	// --context and --config flags.
+	Session session.Session
 }
 
 // Commands attaches the full CLI command surface to a root command.
@@ -58,10 +63,13 @@ type commandTree struct {
 // root by Attach.
 func New(deps Deps) Commands {
 	flags := &globalFlags{}
-	sess := session.New(session.Deps{
-		IsTTYFunc:    deps.IsTTY,
-		EnsureDaemon: deps.EnsureDaemon,
-	}, &flags.session)
+	sess := deps.Session
+	if sess == nil {
+		sess = session.New(session.Deps{
+			IsTTYFunc:    deps.IsTTY,
+			EnsureDaemon: deps.EnsureDaemon,
+		}, &flags.session)
+	}
 	rb := runner.New(&flags.runner)
 
 	return &commandTree{

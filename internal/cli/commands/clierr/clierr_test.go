@@ -102,3 +102,40 @@ func TestConfirm_InteractiveEmpty_ReturnsUsageError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, tui.ExitUsage, tui.CodeFor(err))
 }
+
+func TestAllowInConsole_MarksOnlyThatCommand(t *testing.T) {
+	parent := &cobra.Command{Use: "parent"}
+	child := &cobra.Command{Use: "child"}
+	parent.AddCommand(child)
+
+	got := clierr.AllowInConsole(child)
+
+	assert.Same(t, child, got)
+	assert.True(t, clierr.IsConsole(child))
+	assert.False(t, clierr.IsConsole(parent))
+}
+
+func TestAllowInConsole_KeepsExistingAnnotations(t *testing.T) {
+	cmd := &cobra.Command{Use: "x", Annotations: map[string]string{clierr.AnnotationLifecycle: "true"}}
+
+	clierr.AllowInConsole(cmd)
+
+	assert.True(t, clierr.IsLifecycle(cmd))
+	assert.True(t, clierr.IsConsole(cmd))
+}
+
+func TestIsConsole_NilAndUnmarkedAreFalse(t *testing.T) {
+	assert.False(t, clierr.IsConsole(nil))
+	assert.False(t, clierr.IsConsole(&cobra.Command{Use: "x"}))
+	assert.False(t, clierr.IsConsole(&cobra.Command{Use: "x", Annotations: map[string]string{clierr.AnnotationConsole: "yes"}}))
+}
+
+func TestDenyInConsoleFlags_RoundTrips(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+
+	clierr.DenyInConsoleFlags(cmd, "watch", "file")
+
+	assert.Equal(t, []string{"watch", "file"}, clierr.ConsoleDeniedFlags(cmd))
+	assert.Nil(t, clierr.ConsoleDeniedFlags(&cobra.Command{Use: "y"}))
+	assert.Nil(t, clierr.ConsoleDeniedFlags(nil))
+}

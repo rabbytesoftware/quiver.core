@@ -5,6 +5,7 @@ package runtime
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
@@ -40,8 +41,14 @@ func New(
 // as system.Commands.
 func (c *commands) Cmd() []*cobra.Command {
 	return []*cobra.Command{
-		c.installCmd(), c.runCmd(), c.stopCmd(), c.uninstallCmd(), c.updateCmd(),
-		c.psCmd(), c.statusCmd(), c.watchCmd(),
+		clierr.AllowInConsole(c.installCmd()),
+		clierr.AllowInConsole(c.runCmd()),
+		clierr.AllowInConsole(c.stopCmd()),
+		clierr.AllowInConsole(c.uninstallCmd()),
+		clierr.AllowInConsole(c.updateCmd()),
+		clierr.AllowInConsole(c.psCmd()),
+		clierr.DenyInConsoleFlags(clierr.AllowInConsole(c.statusCmd()), "watch"),
+		c.watchCmd(),
 	}
 }
 

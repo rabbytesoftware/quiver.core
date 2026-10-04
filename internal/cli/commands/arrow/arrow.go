@@ -5,6 +5,7 @@ package arrow
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
@@ -33,8 +34,12 @@ func (c *commands) Cmd() *cobra.Command {
 		Short: "Manage the arrow catalog",
 	}
 	cmd.AddCommand(
-		c.addCmd(), c.removeCmd(), c.refreshCmd(),
-		c.listCmd(), c.showCmd(), c.seedCmd(),
+		clierr.AllowInConsole(c.addCmd()),
+		clierr.AllowInConsole(c.removeCmd()),
+		clierr.AllowInConsole(c.refreshCmd()),
+		clierr.AllowInConsole(c.listCmd()),
+		clierr.AllowInConsole(c.showCmd()),
+		c.seedCmd(),
 	)
-	return cmd
+	return clierr.AllowInConsole(cmd)
 }
