@@ -3,6 +3,7 @@ package logring
 import (
 	"log/slog"
 	"sync"
+	"time"
 )
 
 type ringBuffer struct {
@@ -12,6 +13,7 @@ type ringBuffer struct {
 	count   int
 	seq     uint64
 	subs    map[*queueSubscription]struct{}
+	now     func() time.Time
 }
 
 func (r *ringBuffer) add(

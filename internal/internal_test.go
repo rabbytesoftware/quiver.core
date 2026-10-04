@@ -3,11 +3,14 @@ package internal
 import (
 	"context"
 	"log/slog"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -348,6 +351,20 @@ func TestContainer_Start_WithRecommendations_LaunchesTheLoopAndShutsDownCleanly(
 	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
 }
 
+// listenHost returns a host URI no other process is bound to, in the form the
+// platform serves: a named pipe on Windows, where a unix:// URI carrying a
+// drive path cannot be dialled, and a short unix socket path elsewhere.
+func listenHost(
+	t *testing.T,
+) string {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		return "npipe://qv-int-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(rand.Int63(), 36)
+	}
+	return "unix://" + shortSocketPath(t)
+}
+
 func shortSocketPath(
 	t *testing.T,
 ) string {
@@ -375,7 +392,7 @@ func postExec(
 func TestNew_WithGateway_ConsoleCommandsDialTheDaemonsOwnListener(t *testing.T) {
 	prev := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	ln, scheme, err := PrepareGateway("unix://" + shortSocketPath(t))
+	ln, scheme, err := PrepareGateway(listenHost(t))
 	require.NoError(t, err)
 	c, err := New(context.Background(), "v0.0.0-test", "test-build", WithHomeDir(t.TempDir()), WithGateway(ln, scheme))
 	require.NoError(t, err)

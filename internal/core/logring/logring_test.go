@@ -283,18 +283,26 @@ func TestRing_Subscribe_FullQueueDropsAndCountsInsteadOfBlocking(t *testing.T) {
 	}
 	assert.Equal(t, uint64(600-256), sub.TakeDropped())
 	assert.Zero(t, sub.TakeDropped())
-	assert.Greater(t, sub.StuckFor(), time.Duration(0))
 }
 
-func TestRing_Subscribe_StuckForResetsOnceTheQueueAcceptsAgain(t *testing.T) {
-	ring := logring.New(1000)
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }
+
+func TestRing_Subscribe_StuckForCountsFromTheFirstDropAndResetsWhenTheQueueAcceptsAgain(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	ring := logring.New(1000, logring.WithClock(clock.Now))
 	log, _ := logger(t, ring)
 	sub := ring.Subscribe(slog.LevelDebug)
 	defer sub.Close()
+	assert.Zero(t, sub.StuckFor())
+
 	for i := 0; i < 300; i++ {
 		log.Info("x")
 	}
-	require.Greater(t, sub.StuckFor(), time.Duration(0))
+	clock.now = clock.now.Add(7 * time.Second)
+
+	assert.Equal(t, 7*time.Second, sub.StuckFor())
 
 	for len(sub.C()) > 0 {
 		<-sub.C()

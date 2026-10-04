@@ -11,6 +11,8 @@
 // and live delivery alike.
 package logring
 
+import "time"
+
 // DefaultCapacity is the number of records the daemon's ring retains.
 const DefaultCapacity = 5000
 
@@ -18,12 +20,19 @@ const DefaultCapacity = 5000
 // capacity below one is raised to one.
 func New(
 	capacity int,
+	opts ...Option,
 ) Ring {
+	o := options{now: time.Now}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	if capacity < 1 {
 		capacity = 1
 	}
 	return &ringBuffer{
 		entries: make([]Record, capacity),
 		subs:    make(map[*queueSubscription]struct{}),
+		now:     o.now,
 	}
 }

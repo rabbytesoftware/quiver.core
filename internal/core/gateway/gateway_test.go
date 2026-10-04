@@ -170,3 +170,9 @@ type namedAddr string
 
 func (a namedAddr) Network() string { return "pipe" }
 func (a namedAddr) String() string  { return string(a) }
+
+func TestDialURI_AddressesNoClientCanDialAreEmpty(t *testing.T) {
+	for _, name := range []string{`C:\Users\RUNNER~1\AppData\Local\Temp\q.sock`, "relative.sock", ""} {
+		assert.Empty(t, gateway.DialURI(&net.UnixAddr{Name: name, Net: "unix"}), name)
+	}
+}

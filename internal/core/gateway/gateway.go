@@ -112,6 +112,11 @@ func LocalURI(
 // DialURI turns the address a bound listener reports into the host URI a client
 // on the same machine dials to reach it. A TCP listener bound to every
 // interface is reached through loopback.
+//
+// It returns "" for an address no client can dial: a unix socket whose path is
+// not absolute in the unix sense (a Windows drive path such as C:\q.sock, which
+// client.New cannot parse as a unix:// URI; on Windows the daemon's default
+// endpoint is the named pipe, which does round-trip).
 func DialURI(
 	addr net.Addr,
 ) string {
@@ -123,6 +128,9 @@ func DialURI(
 	}
 	if tcp, ok := addr.(*net.TCPAddr); ok {
 		return "tcp://" + net.JoinHostPort(dialHost(tcp.IP), strconv.Itoa(tcp.Port))
+	}
+	if !strings.HasPrefix(addr.String(), "/") {
+		return ""
 	}
 	return "unix://" + addr.String()
 }

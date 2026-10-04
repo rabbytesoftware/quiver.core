@@ -42,7 +42,7 @@ func (s *queueSubscription) offer(
 		s.fullSince.Store(0)
 	default:
 		s.dropped.Add(1)
-		s.fullSince.CompareAndSwap(0, time.Now().UnixNano())
+		s.fullSince.CompareAndSwap(0, s.ring.now().UnixNano())
 	}
 }
 
@@ -59,7 +59,7 @@ func (s *queueSubscription) StuckFor() time.Duration {
 	if since == 0 {
 		return 0
 	}
-	return time.Since(time.Unix(0, since))
+	return s.ring.now().Sub(time.Unix(0, since))
 }
 
 func (s *queueSubscription) Close() {
