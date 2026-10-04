@@ -3,6 +3,7 @@
 package kit
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -26,9 +27,20 @@ func (s *IntegrationSuite) SetupSuite() {
 }
 
 // Main is called by each suite package's TestMain.
-// It silences slog and sets gin to test mode before running tests.
+// It silences slog, sets gin to test mode and gives the process its own empty
+// Quiver home (so the developer's real config never leaks in) before running
+// tests.
 func Main(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	gin.SetMode(gin.TestMode)
-	os.Exit(m.Run())
+
+	cleanup, err := isolateHome()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kit: isolate quiver home:", err)
+		os.Exit(1)
+	}
+
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
