@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/rabbytesoftware/quiver.core/internal/cli/selfupdate"
+	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
 )
 
 const helperEnv = "QUIVER_SELFUPDATE_TEST_HELPER"
@@ -93,8 +94,30 @@ func TestNew_UnhealthyDaemonIsNotHealthy(t *testing.T) {
 	assert.False(t, u.Healthy(context.Background()))
 }
 
+// New must accept the endpoint the platform's default local daemon uses (a
+// named pipe on Windows, a socket path elsewhere), whatever it looks like.
+func TestNew_BuildsAClientForTheDefaultLocalEndpoint(t *testing.T) {
+	endpoints := []string{
+		gateway.LocalSocket(t.TempDir()),
+		gateway.PipePath(""),
+		gateway.PipePath("quiver-selfupdate-test"),
+	}
+
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			u, err := selfupdate.New(endpoint, "/q/quiver")
+
+			require.NoError(t, err)
+			assert.Equal(t, endpoint, u.Socket)
+		})
+	}
+}
+
 func TestNew_NothingOnTheSocket(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "gone.sock")
+	socket := gateway.PipePath("quiver-selfupdate-test-absent")
+	if runtime.GOOS != "windows" {
+		socket = filepath.Join(t.TempDir(), "gone.sock")
+	}
 	u := newUpdater(t, socket)
 	ctx := context.Background()
 
