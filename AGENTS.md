@@ -18,16 +18,18 @@ Module path: `github.com/rabbytesoftware/quiver.core`
 
 ## 2. Layer Architecture
 
-Six layers under `internal/`, one binary at `cmd/quiver/`. **Dependencies flow strictly downward** — upper layers never import lower layers upward.
+Six core layers plus two feature packages (`cli/`, `console/`) under `internal/`, one binary at `cmd/quiver/`. **Dependencies flow strictly downward** — upper layers never import lower layers upward.
 
 ```
 cmd/quiver/          ← Cobra CLI entry point
 internal/internal.go ← DI wiring (New + Start)
 internal/api/        ← HTTP + WebSocket delivery (Gin)
+internal/console/    ← Daemon console: default-deny execution of the CLI tree (imported by api + internal.go)
+internal/cli/        ← The `quiver` command tree + its API client (imported by cmd/quiver + console)
 internal/app/        ← Orchestration: usecases, repositories, hub
 internal/engine/     ← Stateless business engines
 internal/adapter/    ← Storage backends (SQLite via Asynx + GORM)
-internal/core/       ← Process singletons: config, paths, logger, fns
+internal/core/       ← Process-level infrastructure: config, paths, logger, logring, fns
 internal/domain/     ← Pure types and state machines (no I/O, no internal imports)
 ```
 
@@ -36,11 +38,13 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | Layer | Key rule |
 |-------|----------|
 | `domain/` | No I/O. No imports from other internal packages. Pure types + state machines. |
-| `core/` | Config, embedded metadata, path resolution, logger, FetchNShare I/O. |
+| `core/` | Config, embedded metadata, path resolution, logger, `logring` (bounded log ring the logger tees into), FetchNShare I/O. Imports no feature package. |
 | `adapter/` | Asynx event store (SQLite) + generic `Store[T,K]` (sqlite/memory). |
 | `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
-| `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
+| `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. The console endpoints (`api/v0/endpoints/console`) are the one place it imports `console/`. |
+| `console/` | `console/command`: tokenizer, default-deny policy and executor that run the daemon's own CLI tree for the console. Imports `cli/` and `core/`; nothing below it imports it. |
+| `cli/` | The `quiver` command tree and its HTTP/WebSocket client of the daemon. Imports `core/` and only the `api/v0/dto` wire types — never `api/` endpoints, `app/` or `engine/`. |
 
 ### quiver.core's own self-manifest
 
@@ -66,14 +70,25 @@ for it. See `docs/spec/manifests/v0/versioning.md` §10.3.
 ### DI construction order (in `internal.New`)
 
 ```
+logring.New(capacity)                       one ring per daemon
+core.New / core.NewAt(core.WithLogRing)     logger tees every record into it
 engine.New(ctx)
 adapter.New()
 app.New(engines, adapters)
-apiv0.New(appContainer)
+apiv0.New(appContainer, apiv0.WithConsole(logs, command.New(consoleOptions)))
 api.New(appContainer.Hub, buildInfo, v0Container)
 ```
 
-Read `internal/internal.go` for the current wiring.
+`consoleOptions` points the console's commands at the pre-bound listener (`WithGateway`), which is how the daemon always starts; a container built without one answers `POST /v0/console/exec` with 503. Read `internal/internal.go` for the current wiring.
+
+### The console (`internal/console`, `quiver_console`)
+
+`GET /v0/console/logs`, `GET /v0/console/commands` and `POST /v0/console/exec` let a client read the daemon's logs and run the daemon's own CLI. Advertised as the `console.v1` feature on `GET /versions`. Full contract and policy: `docs/spec/console.md`.
+
+- **Default-deny.** A CLI command is reachable from the console only if it and every ancestor carry the `quiver_console` annotation (`clierr.AllowInConsole`). **A new CLI command is unreachable until you opt it in**, and `TestAuthorize_DefaultDeny_TheAnnotatedLeafCommandsAreExactlyTheApprovedSet` pins the approved set. Never annotate a command that reads local files, edits the host, redirects to another server or runs unbounded; denied flags are declared with `clierr.DenyInConsoleFlags`.
+- Lines are tokenised, never given to a shell. Commands run with the caller's own bearer token against the daemon's own address and never read the CLI config. Confirmations never answer yes (non-TTY), so destructive commands need `--yes`.
+- Logs are captured structurally (`logring`, a slog tee) with key- and value-based redaction before storage. The ring is injected, never global.
+- The per-call `exec` audit record is a deliberate log line in a handler (an audit trail, not an error the handler could return); it uses the `*Context` variant like every other log call.
 
 ---
 
@@ -445,7 +460,7 @@ Read `go.mod` for current versions.
 
 ### 15.1 Logging — `log/slog`
 
-`logger.Init` is called once at process start. After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
+`logger.Init` is called once at process start (with `logger.WithRing` the daemon also captures every record into the console's log ring). After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
 
 **Do NOT:** create a custom logger struct, use `fmt.Println` / `log.Printf`, use third-party logging libraries.
 
