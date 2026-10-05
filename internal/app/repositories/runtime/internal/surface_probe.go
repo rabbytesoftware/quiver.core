@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	runtimecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
@@ -15,12 +16,13 @@ import (
 )
 
 const (
-	surfaceProbeInterval = 250 * time.Millisecond
-	surfaceProbeTimeout  = 60 * time.Second
+	surfaceProbeInterval    = 250 * time.Millisecond
+	surfaceProbeMaxInterval = 2 * time.Second
 )
 
-// probeSurface polls until the surface answers, then records Ready. It gives
-// up quietly after timeout: the shell keeps showing "starting".
+// probeSurface polls until the surface answers, then records Ready. It has no
+// deadline of its own: a slow first start still becomes ready. It stops as
+// soon as executionID is no longer the aggregate's current execution.
 func probeSurface(
 	ctx context.Context,
 	hooks CatalogHooks,
@@ -29,29 +31,59 @@ func probeSurface(
 	executionID string,
 	s domainRuntime.Surface,
 	interval time.Duration,
-	timeout time.Duration,
+	maxInterval time.Duration,
 ) {
 	if s.Ready || hooks.SurfaceReady == nil {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	tick := time.NewTicker(interval)
-	defer tick.Stop()
-
-	for {
+	wait := interval
+	for executionCurrent(ctx, axRuntime, ns, executionID) {
 		if hooks.SurfaceReady(ctx, domain.Namespace(ns), s) {
 			s.Ready = true
-			sendSurface(ctx, axRuntime, ns, executionID, s)
+			recordReady(ctx, axRuntime, ns, executionID, s)
 			return
 		}
-		select {
-		case <-deadline.C:
-			slog.WarnContext(ctx, "runtime: surface never became ready", "ns", ns)
-			return
-		case <-tick.C:
-		}
+		time.Sleep(wait)
+		wait = nextProbeInterval(wait, maxInterval)
+	}
+	slog.DebugContext(ctx, "runtime: surface probe stopped, execution gone", "ns", ns)
+}
+
+func nextProbeInterval(current, ceiling time.Duration) time.Duration {
+	return min(current*2, ceiling)
+}
+
+func executionCurrent(
+	ctx context.Context,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns string,
+	executionID string,
+) bool {
+	rt, err := axRuntime.Get(ctx, ns)
+	return err == nil && rt.Execution != nil && rt.Execution.ID == executionID
+}
+
+// recordReady treats every rejection that means the execution is gone (ended,
+// replaced or the store shutting down) as routine.
+func recordReady(
+	ctx context.Context,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns string,
+	executionID string,
+	s domainRuntime.Surface,
+) {
+	_, err := axRuntime.Send(ctx, runtimecmds.SetSurface{
+		Namespace:   domain.Namespace(ns),
+		ExecutionID: executionID,
+		Surface:     s,
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, asynxModels.ErrValidation), errors.Is(err, asynxModels.ErrShuttingDown):
+		slog.DebugContext(ctx, "runtime: surface ready dropped, execution gone", "ns", ns, "err", err)
+	default:
+		slog.ErrorContext(ctx, "runtime: recording surface ready failed", "ns", ns, "err", err)
 	}
 }
 

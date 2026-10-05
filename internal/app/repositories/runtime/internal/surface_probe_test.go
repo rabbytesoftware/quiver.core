@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
@@ -47,18 +49,104 @@ func TestProbeSurface_FlipsReadyOnceServing(t *testing.T) {
 	require.Equal(t, 3, calls)
 }
 
-func TestProbeSurface_GivesUpAfterTimeout(t *testing.T) {
+// runProbe runs the probe in the background and fails the test if it has not
+// returned within a few seconds.
+func runProbe(t *testing.T, run func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); run() }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the probe never returned")
+	}
+}
+
+func TestProbeSurface_StopsWhenTheExecutionEnds(t *testing.T) {
 	ax := newTestRuntime(t)
+	var calls atomic.Int32
 	hooks := runtimeinternal.CatalogHooks{
-		SurfaceReady: func(context.Context, domain.Namespace, domainRuntime.Surface) bool { return false },
+		SurfaceReady: func(ctx context.Context, _ domain.Namespace, _ domainRuntime.Surface) bool {
+			if calls.Add(1) == 3 {
+				_, err := ax.Send(ctx, commands.EndExecution{
+					Namespace: probeNs, ExecutionID: testExecutionID, Outcome: domainRuntime.ExecutionOutcomeSuccess,
+				})
+				assert.NoError(t, err)
+			}
+			return false
+		},
 	}
 
-	runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
-		domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, 20*time.Millisecond)
+	runProbe(t, func() {
+		runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
+			domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, 200*time.Millisecond)
+	})
 
+	assert.Equal(t, int32(3), calls.Load(), "no dial after the execution ended")
+}
+
+func TestProbeSurface_StopsWhenTheExecutionIsReplaced(t *testing.T) {
+	ax := newTestRuntime(t)
+	var calls atomic.Int32
+	hooks := runtimeinternal.CatalogHooks{
+		SurfaceReady: func(ctx context.Context, _ domain.Namespace, _ domainRuntime.Surface) bool {
+			if calls.Add(1) == 3 {
+				_, err := ax.Send(ctx, commands.BeginStop{
+					Namespace:   probeNs,
+					ExecutionID: "stop",
+					Steps:       domainStep.StepList{domainStep.NewSignalStep("stop", domainStep.SignalKindGraceful, "10s", false)},
+				})
+				assert.NoError(t, err)
+			}
+			return false
+		},
+	}
+
+	runProbe(t, func() {
+		runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
+			domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, 200*time.Millisecond)
+	})
+
+	assert.Equal(t, int32(3), calls.Load(), "no dial after another execution took over")
 	rt, err := ax.Get(t.Context(), probeNs.String())
 	require.NoError(t, err)
-	require.False(t, rt.Execution.Surface != nil && rt.Execution.Surface.Ready)
+	assert.Equal(t, "stop", rt.Execution.ID)
+	assert.Nil(t, rt.Execution.Surface)
+}
+
+func TestProbeSurface_KeepsPollingWhileTheExecutionIsCurrent(t *testing.T) {
+	ax := newTestRuntime(t)
+	var calls atomic.Int32
+	hooks := runtimeinternal.CatalogHooks{
+		SurfaceReady: func(context.Context, domain.Namespace, domainRuntime.Surface) bool {
+			return calls.Add(1) >= 40
+		},
+	}
+
+	start := time.Now()
+	runProbe(t, func() {
+		runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
+			domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, 2*time.Millisecond)
+	})
+
+	require.Greater(t, time.Since(start), 2*time.Millisecond)
+	rt, err := ax.Get(t.Context(), probeNs.String())
+	require.NoError(t, err)
+	require.NotNil(t, rt.Execution.Surface)
+	assert.True(t, rt.Execution.Surface.Ready, "a slow arrow still becomes ready")
+}
+
+func TestNextProbeInterval_BacksOffToTheCeiling(t *testing.T) {
+	got := []time.Duration{}
+	d := 250 * time.Millisecond
+	for range 6 {
+		d = runtimeinternal.NextProbeInterval(d, 2*time.Second)
+		got = append(got, d)
+	}
+	assert.Equal(t, []time.Duration{
+		500 * time.Millisecond, time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second, 2 * time.Second,
+	}, got)
+	assert.Equal(t, 2*time.Second, runtimeinternal.NextProbeInterval(1500*time.Millisecond, 2*time.Second))
 }
 
 func TestProbeSurface_AlreadyReadyIsNoOp(t *testing.T) {

@@ -106,7 +106,12 @@ func ProbeSurface(
 	executionID string,
 	s domainRuntime.Surface,
 	interval time.Duration,
-	timeout time.Duration,
+	maxInterval time.Duration,
 ) {
-	probeSurface(ctx, hooks, axRuntime, ns, executionID, s, interval, timeout)
+	probeSurface(ctx, hooks, axRuntime, ns, executionID, s, interval, maxInterval)
+}
+
+// NextProbeInterval exposes nextProbeInterval for tests.
+func NextProbeInterval(current, ceiling time.Duration) time.Duration {
+	return nextProbeInterval(current, ceiling)
 }

@@ -39,9 +39,10 @@ The returned address becomes `${ARROW_UI_LISTEN}`.
 
 The wizard reports a `listen` surface as not ready: the arrow still has to start and bind. The runtime repository starts a probe for it when the `surface` event arrives:
 
-- every 250 ms it asks the engine whether the surface answers a `GET` for the surface path (anything speaking HTTP counts, whatever the status; redirects are not followed; each attempt times out after 2 s);
-- when one answers, `Ready` is recorded on the execution and broadcast like any other runtime change;
-- after 60 s without an answer the probe gives up quietly, logs a warning and leaves `ready` false.
+- it asks the engine whether the surface answers a `GET` for the surface path (anything speaking HTTP counts, whatever the status; redirects are not followed; each attempt times out after 2 s), first after 250 ms and then backing off by doubling up to one attempt every 2 s;
+- before each attempt it reads the runtime aggregate and stops, logging at debug level only, once the execution that opened the surface has ended or another execution (a stop, a new run) has replaced it;
+- there is no other deadline: while that execution is current the probe keeps polling, so an arrow that starts slowly (a first run, a model load) still becomes ready;
+- when one answers, `Ready` is recorded on the execution and broadcast like any other runtime change. If the execution is gone by then (the command is rejected as superseded or without an execution, or the store is shutting down), the result is dropped at debug level.
 
 A `static` surface is reported ready by the wizard and `Ready` answers true without probing.
 

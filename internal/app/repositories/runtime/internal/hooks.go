@@ -100,7 +100,7 @@ func drainEvents(
 			report.superseded = sendSurface(ctx, axRuntime, ns, executionID, *evt.Surface)
 			if !report.superseded {
 				go probeSurface(ctx, hooks, axRuntime, ns, executionID, *evt.Surface,
-					surfaceProbeInterval, surfaceProbeTimeout)
+					surfaceProbeInterval, surfaceProbeMaxInterval)
 			}
 		case wizardPkg.EventKindEnded:
 		}
