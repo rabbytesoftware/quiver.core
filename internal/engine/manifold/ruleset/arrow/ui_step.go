@@ -13,10 +13,14 @@ import (
 
 var uiListenKinds = []string{"unix", "pipe"}
 
-const uiListenVarRef = "${" + domain.VarArrowUIListen + "}"
+const (
+	uiListenVarRef    = "${" + domain.VarArrowUIListen + "}"
+	preinstalledGroup = "lifecycle.preinstalled"
+)
 
 // UIStepRule validates ui steps: one source, a known transport, a local
-// static dir, and ${ARROW_UI_LISTEN} only after a listening ui step.
+// static dir, no ui in preinstalled, and ${ARROW_UI_LISTEN} only after a
+// listening ui step.
 type UIStepRule struct{}
 
 func (UIStepRule) Name() string { return "ui_step" }
@@ -46,7 +50,7 @@ func uiStepGroups(t domain.Target) []uiStepGroup {
 		{"lifecycle.execute", t.Lifecycle.Execute},
 		{"lifecycle.stop", t.Lifecycle.Stop},
 		{"lifecycle.uninstall", t.Lifecycle.Uninstall},
-		{"lifecycle.preinstalled", t.Lifecycle.Preinstalled},
+		{preinstalledGroup, t.Lifecycle.Preinstalled},
 	}
 	for name, method := range t.Methods {
 		groups = append(groups, uiStepGroup{"methods." + name + ".steps", method.Steps})
@@ -61,6 +65,10 @@ func checkUIGroup(key, name string, steps domainStep.StepList) aerrors.RuleError
 		field := fmt.Sprintf("targets[%s].%s[%d]", key, name, i)
 		switch st := s.(type) {
 		case domainStep.UIStep:
+			if name == preinstalledGroup {
+				errs = append(errs, uiError(field, "ui steps are not allowed in preinstalled: a probe opens no surface"))
+				continue
+			}
 			if uiSeen {
 				errs = append(errs, uiError(field, "at most one ui step is allowed per method"))
 			}

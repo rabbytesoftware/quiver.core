@@ -1095,7 +1095,7 @@ and the step completes at once. Exactly one source is required:
   exist, be a directory, and stay inside the install directory after symlinks are resolved.
 
 `path` is the initial path the shell opens and must start with `/`. At most one `ui` step is
-allowed per method. `upstream` (proxying to a TCP port) is not supported in v0 and the schema
+allowed per method, and none in `preinstalled` (§8.6). `upstream` (proxying to a TCP port) is not supported in v0 and the schema
 rejects it.
 
 The surface lives as long as the execution of the method that opened it. A `static` surface
@@ -1169,7 +1169,8 @@ particular, a check for software Quiver did not install has no use for the direc
 is overridden through `base:` by the same rules as the other five (§5.2), its steps are
 checked by `overrideable_keys`, `overrideable_coverage`, `timeout_format` and
 `no_dependencies_step`, and it has no pairing requirement of its own — it is standalone, like
-`update:`. It plays no part in service-vs-package kind inference (§8.4).
+`update:`. It plays no part in service-vs-package kind inference (§8.4). A `ui` step is
+rejected in `preinstalled` by `ui_step`: a probe opens no surface and is given no socket.
 
 ---
 
@@ -1353,7 +1354,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
 | `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
-| `ui_step` | `ui_step.go` | Per method: at most one `ui` step; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe` and the list includes `unix` (v0 provisions no pipe); `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
+| `ui_step` | `ui_step.go` | Per method: at most one `ui` step, and none in `preinstalled`; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe` and the list includes `unix` (v0 provisions no pipe); `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
 | `portable_name` | `portable_name.go` | A `portable` step's optional `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, does not end in a dot, and is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, any case, with or without an extension) (`invalid_name`) |
 
 ### Aggregate post-checks

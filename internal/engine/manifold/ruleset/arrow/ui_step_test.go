@@ -147,3 +147,16 @@ func TestVariableRefs_PreinstalledRejectsArrowUIListen(t *testing.T) {
 	require.NotEmpty(t, errs)
 	require.Equal(t, "unresolved_variable", errs[0].Rule)
 }
+
+func TestUIStepRule_RejectsUIInPreinstalled(t *testing.T) {
+	a := &domain.Arrow{Targets: map[domain.OS]domain.Target{
+		"linux/amd64": {Lifecycle: domain.TargetLifecycle{
+			Preinstalled: step.StepList{step.NewUIStep("x", nil, "./dist", "", true)},
+		}},
+	}}
+	errs := UIStepRule{}.Validate(a)
+	require.Len(t, errs, 1)
+	require.Equal(t, "ui_step", errs[0].Rule)
+	require.Equal(t, "targets[linux/amd64].lifecycle.preinstalled[0]", errs[0].Field)
+	require.Contains(t, errs[0].Message, "ui steps are not allowed in preinstalled")
+}
