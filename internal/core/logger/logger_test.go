@@ -107,7 +107,7 @@ func TestBuildHandler_At_UsesProvidedHome(t *testing.T) {
 	_ = roller.Close()
 }
 
-func TestInit_WithRing_StoresTheDefaultLoggersRecords(
+func TestInit_Wrap_DecoratesTheDefaultHandler(
 	t *testing.T,
 ) {
 	prev := slog.Default()
@@ -116,24 +116,11 @@ func TestInit_WithRing_StoresTheDefaultLoggersRecords(
 	})
 	ring := logring.New()
 
-	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, logger.WithRing(ring))
+	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, ring.Wrap)
 	slog.Info("captured")
 
 	stream := ring.Stream(0, slog.LevelInfo)
 	defer stream.Close()
 	require.NoError(t, shutdown())
 	assert.Equal(t, "captured", stream.Replay()[0].Msg)
-}
-
-func TestInit_NilRing_LeavesTheHandlerAlone(
-	t *testing.T,
-) {
-	prev := slog.Default()
-	t.Cleanup(func() {
-		slog.SetDefault(prev)
-	})
-
-	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, logger.WithRing(nil))
-
-	assert.NoError(t, shutdown())
 }

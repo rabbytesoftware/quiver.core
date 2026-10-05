@@ -16,7 +16,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/core"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/gateway"
-	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/shutdown"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 )
@@ -306,12 +305,12 @@ func New(
 
 	// core.New configures the process-lifetime logger and metadata/config
 	// singletons before anything downstream can log or read a config value.
-	logs := logring.New()
+	var processCore *core.Core
 	var loggerShutdown func() error
 	if cfg.homeDir != "" {
-		_, loggerShutdown = core.NewAt(cfg.homeDir, core.WithLogRing(logs))
+		processCore, loggerShutdown = core.NewAt(cfg.homeDir)
 	} else {
-		_, loggerShutdown = core.New(core.WithLogRing(logs))
+		processCore, loggerShutdown = core.New()
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
@@ -340,11 +339,13 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v0Container, err := apiv0.New(appContainer, apiv0.WithConsole(logs, version))
+	v0Container, err := apiv0.New(appContainer)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
+	v0Container.ConsoleLogs = processCore.Logs()
+	v0Container.ConsoleVersion = version
 
 	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{
 		Version:  version,

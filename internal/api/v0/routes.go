@@ -30,8 +30,8 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 	search.Register(protected, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
 	home.Register(protected, c.homeSvc)
 	system.Register(protected, c.configSvc, c.pathSvc, c.systemSvc)
-	if c.consoleLogs != nil {
-		consoleendpoint.Register(protected, c.consoleLogs, c.consoleVersion)
+	if c.ConsoleLogs != nil {
+		consoleendpoint.Register(protected, c.ConsoleLogs, c.ConsoleVersion)
 	}
 	health.Register(rg)
 	authendpoint.Register(rg, c.authSvc, c.AuthGate, c.rateLimiter)

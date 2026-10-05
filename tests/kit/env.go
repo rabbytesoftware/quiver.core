@@ -323,8 +323,10 @@ func BuildEnv(
 	if logs == nil {
 		logs = logring.New()
 	}
-	v0Container, err := apiv0.New(appContainer, apiv0.WithConsole(logs, cfg.build.version))
+	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
+	v0Container.ConsoleLogs = logs
+	v0Container.ConsoleVersion = cfg.build.version
 
 	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)
 	require.True(t, ok, "v0 must expose the concrete websocket handler")

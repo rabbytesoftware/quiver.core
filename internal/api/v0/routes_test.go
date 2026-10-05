@@ -133,8 +133,9 @@ func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
 func TestContainer_Register_WithConsole_MountsTheConsoleRoutes(
 	t *testing.T,
 ) {
-	c, err := New(&app.Container{}, WithConsole(logring.New(), "v"))
+	c, err := New(&app.Container{})
 	require.NoError(t, err)
+	c.ConsoleLogs = logring.New()
 	r := gin.New()
 	c.Register(r.Group(""))
 	w := httptest.NewRecorder()

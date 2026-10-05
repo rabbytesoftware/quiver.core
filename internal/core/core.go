@@ -5,35 +5,32 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logger"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 type Core struct {
 	metadata *metadata.Metadata
 	config   *config.Config
+	logs     logring.Ring
 }
 
-// New returns Core, with the logger also feeding any WithLogRing ring, plus a shutdown func that closes the log file handle.
+// New returns Core plus a shutdown func that closes the log file handle.
 // The caller owns calling it: a real daemon process only ever calls New
 // once and can let the OS reclaim the handle on exit, but anything that
 // constructs a Core repeatedly in one process — tests above all — leaks a
 // held-open file every time otherwise, which Windows refuses to let a
 // later os.RemoveAll (e.g. t.TempDir's cleanup) delete.
-func New(
-	opts ...Option,
-) (*Core, func() error) {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
-
+func New() (*Core, func() error) {
 	cfg := config.Get()
-	shutdown := logger.Init(config.GetLogger(), logger.WithRing(o.ring))
+	logs := logring.New()
+	shutdown := logger.Init(config.GetLogger(), logs.Wrap)
 	logCorrections(config.Corrections())
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
+		logs:     logs,
 	}, shutdown
 }
 
@@ -41,22 +38,16 @@ func New(
 // when the caller was built with an explicit home override (tests, or a dev
 // build's checkout-local .quiver), so config and logging never touch the
 // real ~/.quiver.
-func NewAt(
-	homeDir string,
-	opts ...Option,
-) (*Core, func() error) {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
-
+func NewAt(homeDir string) (*Core, func() error) {
 	cfg, corrections := config.GetAt(homeDir)
-	shutdown := logger.InitAt(homeDir, cfg.Config.Logger, logger.WithRing(o.ring))
+	logs := logring.New()
+	shutdown := logger.InitAt(homeDir, cfg.Config.Logger, logs.Wrap)
 	logCorrections(corrections)
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
+		logs:     logs,
 	}, shutdown
 }
 
@@ -76,4 +67,10 @@ func (c *Core) GetMetadata() *metadata.Metadata {
 
 func (c *Core) GetConfig() *config.Config {
 	return c.config
+}
+
+// Logs returns the ring that holds every record the process logger has
+// written since this Core was built, so the console can replay and follow them.
+func (c *Core) Logs() logring.Ring {
+	return c.logs
 }

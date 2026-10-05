@@ -33,21 +33,20 @@ type Container struct {
 	// built into the router.
 	AuthGate *middleware.AuthGate
 
-	consoleLogs    logring.Ring
-	consoleVersion string
+	// ConsoleLogs is the ring the console's log stream reads. The console
+	// routes are mounted only when it is set, which internal.New does before
+	// the router is built.
+	ConsoleLogs logring.Ring
+
+	// ConsoleVersion is what the console's CLI reports as its own version.
+	ConsoleVersion string
 }
 
 func New(
 	appContainer *app.Container,
-	opts ...Option,
 ) (*Container, error) {
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
-	}
-
-	var cfg options
-	for _, opt := range opts {
-		opt(&cfg)
 	}
 
 	var wsOpts []wshandler.Option
@@ -84,9 +83,6 @@ func New(
 		wsHandler:     wsHandler,
 		rateLimiter:   rateLimiter,
 		AuthGate:      authGate,
-
-		consoleLogs:    cfg.consoleLogs,
-		consoleVersion: cfg.consoleVersion,
 	}, nil
 }
 

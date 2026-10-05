@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestNew(t *testing.T) {
@@ -88,22 +86,21 @@ func TestCoreInitialization(t *testing.T) {
 	assert.Same(t, core1.GetConfig(), core2.GetConfig(), "Config should be singleton across Core instances")
 }
 
-func TestNewAt_WithLogRing_StoresTheProcessLoggersRecords(
+func TestNewAt_Logs_HoldsTheProcessLoggersRecords(
 	t *testing.T,
 ) {
 	prev := slog.Default()
 	t.Cleanup(func() {
 		slog.SetDefault(prev)
 	})
-	ring := logring.New()
 
-	_, shutdown := NewAt(t.TempDir(), WithLogRing(ring))
+	core, shutdown := NewAt(t.TempDir())
 	t.Cleanup(func() {
 		_ = shutdown()
 	})
 	slog.Info("captured")
 
-	stream := ring.Stream(0, slog.LevelInfo)
+	stream := core.Logs().Stream(0, slog.LevelInfo)
 	defer stream.Close()
 	records := stream.Replay()
 	assert.Equal(t, "captured", records[len(records)-1].Msg)

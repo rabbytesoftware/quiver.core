@@ -22,13 +22,13 @@ const (
 // When cfg.Enabled is false, logs go to stderr only.
 // When cfg.Enabled is true, logs go to both stdout and a rotating file
 // under the Quiver logs directory (~/.quiver/logs/Quiver.log).
-// With WithRing the records are also stored in that ring.
+// Each wrap, if any, decorates the handler before it becomes slog.Default.
 // Returns a shutdown function that closes the log file; call it before process exit.
 func Init(
 	cfg config.Logger,
-	opts ...Option,
+	wrap ...func(slog.Handler) slog.Handler,
 ) func() error {
-	return initAt("", cfg, opts)
+	return initAt("", cfg, wrap)
 }
 
 // InitAt is Init rooted at homeDir instead of the process-level HOME — used
@@ -38,24 +38,19 @@ func Init(
 func InitAt(
 	homeDir string,
 	cfg config.Logger,
-	opts ...Option,
+	wrap ...func(slog.Handler) slog.Handler,
 ) func() error {
-	return initAt(homeDir, cfg, opts)
+	return initAt(homeDir, cfg, wrap)
 }
 
 func initAt(
 	homeDir string,
 	cfg config.Logger,
-	opts []Option,
+	wrap []func(slog.Handler) slog.Handler,
 ) func() error {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
-
 	roller, handler := buildHandler(homeDir, cfg)
-	if o.ring != nil {
-		handler = o.ring.Wrap(handler)
+	for _, decorate := range wrap {
+		handler = decorate(handler)
 	}
 	slog.SetDefault(slog.New(handler))
 	return func() error {
