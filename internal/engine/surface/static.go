@@ -54,21 +54,29 @@ func serveStatic(w http.ResponseWriter, r *http.Request, root *os.Root) {
 // extensionless path falls back to the root index.html (SPA routing).
 func openServable(root *os.Root, name string) (*os.File, string, error) {
 	f, err := root.Open(name)
-	if err == nil {
-		info, statErr := f.Stat()
-		if statErr != nil || !info.IsDir() {
-			return f, name, statErr
-		}
-		_ = f.Close()
-		name = path.Join(name, "index.html")
-		f, err = root.Open(name)
+	if err != nil {
+		return spaFallback(root, name, err)
 	}
-	if err == nil {
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, name, err
+	}
+	if !info.IsDir() {
 		return f, name, nil
 	}
+	_ = f.Close()
+	name = path.Join(name, "index.html")
+	if f, err = root.Open(name); err != nil {
+		return spaFallback(root, name, err)
+	}
+	return f, name, nil
+}
+
+func spaFallback(root *os.Root, name string, err error) (*os.File, string, error) {
 	if path.Ext(name) != "" {
 		return nil, name, err
 	}
-	f, err = root.Open("index.html")
+	f, err := root.Open("index.html")
 	return f, "index.html", err
 }
