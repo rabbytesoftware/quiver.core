@@ -27,8 +27,10 @@ type testRecord struct {
 	Failed    []int
 	PIDs      []int
 	Surfaces  []*domainRuntime.Surface
-	Notes     map[int]string
-	Outcome   domainRuntime.ExecutionOutcome
+	// SurfacesClosed counts EventKindSurfaceClosed events.
+	SurfacesClosed int
+	Notes          map[int]string
+	Outcome        domainRuntime.ExecutionOutcome
 }
 
 func collectEvents(
@@ -53,6 +55,8 @@ func collectEvents(
 			rec.PIDs = append(rec.PIDs, e.PID)
 		case EventKindSurface:
 			rec.Surfaces = append(rec.Surfaces, e.Surface)
+		case EventKindSurfaceClosed:
+			rec.SurfacesClosed++
 		case EventKindEnded:
 		}
 	}
@@ -652,10 +656,11 @@ func TestProbe_NoWorkDir_RunsInAScratchDirectory(t *testing.T) {
 	assert.NoDirExists(t, strings.TrimSpace(string(where)), "the scratch directory is removed")
 }
 
-func TestStart_UIStaticEmitsSurface(t *testing.T) {
+func TestStart_RunUIStaticEmitsSurfaceThenClosesWhenTheRunEnds(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dist"), 0o755))
-	req := newTestReq(domainstep.NewUIStep("Docs", nil, "./dist", "", true))
+	req := newTestReq(domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).
+		WithUI(domainstep.UIOptions{Static: "./dist"}))
 	req.WorkDir = dir
 
 	rec := runSync(context.Background(), newTestWizard(t), req)
@@ -664,4 +669,19 @@ func TestStart_UIStaticEmitsSurface(t *testing.T) {
 	require.Len(t, rec.Surfaces, 1)
 	assert.Equal(t, domainRuntime.SurfaceModeStatic, rec.Surfaces[0].Mode)
 	assert.True(t, rec.Surfaces[0].Ready)
+	assert.Equal(t, 1, rec.SurfacesClosed)
+}
+
+func TestStart_RunUIClosesBeforeTheNextStepRuns(t *testing.T) {
+	req := newTestReq(
+		domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{}),
+		domainstep.NewRunStep("after", "echo after", false, "5s", true),
+	)
+	req.Variables = map[string]string{domain.VarArrowUIListen: "/run/x.sock"}
+
+	rec := runSync(context.Background(), newTestWizard(t), req)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	assert.Equal(t, []int{0, 1}, rec.Completed)
+	assert.Equal(t, 1, rec.SurfacesClosed)
 }

@@ -1,9 +1,6 @@
-// Package ui implements the ui step: it validates the surface the step
-// declares and reports it to the app layer. It serves nothing itself.
-package ui
+package run
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -17,48 +14,64 @@ import (
 )
 
 var (
-	// ErrNoSocket means the method ran a listening ui step without the
+	// ErrNoSocket means a run with a listening ui started without the
 	// resolver having provisioned ${ARROW_UI_LISTEN}.
-	ErrNoSocket = errors.New("ui: ARROW_UI_LISTEN was not provisioned")
+	ErrNoSocket = errors.New("run: ARROW_UI_LISTEN was not provisioned")
 	// ErrBadStaticDir means the static directory is missing, not a
 	// directory, or outside the workdir.
-	ErrBadStaticDir = errors.New("ui: static directory is not usable")
+	ErrBadStaticDir = errors.New("run: ui static directory is not usable")
 )
 
-type handler struct{}
-
-func NewHandler() wizstep.Handler[domainstep.UIStep] { return handler{} }
-
-func (handler) Execute(
-	_ context.Context,
+// openSurface validates the run's ui and reports it open. It returns the func
+// that reports it closed, to be deferred so every way the run can end closes
+// the surface. A run without ui opens nothing and returns a no-op.
+func openSurface(
 	req wizstep.Request,
-	s domainstep.UIStep,
-) error {
-	surface := domainRuntime.Surface{Path: s.Path}
+	ui *domainstep.UIOptions,
+) (func(), error) {
+	if ui == nil {
+		return func() {}, nil
+	}
+	surface, err := surfaceFor(req, *ui)
+	if err != nil {
+		return nil, err
+	}
+	emit(req, models.Event{Kind: models.EventKindSurface, Surface: &surface})
+	return func() { emit(req, models.Event{Kind: models.EventKindSurfaceClosed}) }, nil
+}
+
+func surfaceFor(
+	req wizstep.Request,
+	ui domainstep.UIOptions,
+) (domainRuntime.Surface, error) {
+	surface := domainRuntime.Surface{Title: ui.Title, Path: ui.Path}
 	if surface.Path == "" {
 		surface.Path = "/"
 	}
-
-	switch {
-	case len(s.Listen) > 0:
+	if ui.Listens() {
 		if req.Vars[domain.VarArrowUIListen] == "" {
-			return ErrNoSocket
+			return surface, ErrNoSocket
 		}
 		surface.Mode = domainRuntime.SurfaceModeListen
-	default:
-		dir, err := resolveStatic(req.WorkDir, req.Expand(s.Static))
-		if err != nil {
-			return err
-		}
-		surface.Mode = domainRuntime.SurfaceModeStatic
-		surface.Dir = dir
-		surface.Ready = true
+		return surface, nil
 	}
+	dir, err := resolveStatic(req.WorkDir, req.Expand(ui.Static))
+	if err != nil {
+		return surface, err
+	}
+	surface.Mode = domainRuntime.SurfaceModeStatic
+	surface.Dir = dir
+	surface.Ready = true
+	return surface, nil
+}
 
+func emit(
+	req wizstep.Request,
+	ev models.Event,
+) {
 	if req.Emit != nil {
-		req.Emit(models.Event{Kind: models.EventKindSurface, Surface: &surface})
+		req.Emit(ev)
 	}
-	return nil
 }
 
 func resolveStatic(

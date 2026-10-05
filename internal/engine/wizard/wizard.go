@@ -23,7 +23,6 @@ import (
 	stepportable "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/portable"
 	steprun "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/run"
 	stepsignal "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/signal"
-	stepui "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step/ui"
 )
 
 // maxProbeDuration bounds every Probe call regardless of what its steps'
@@ -53,6 +52,7 @@ const (
 	EventKindPID           = models.EventKindPID
 	EventKindEnded         = models.EventKindEnded
 	EventKindSurface       = models.EventKindSurface
+	EventKindSurfaceClosed = models.EventKindSurfaceClosed
 )
 
 var (
@@ -180,7 +180,6 @@ func New(
 	adapt(w.dispatch, domainstep.StepTypeDependencies, stepdeps.NewHandler(depExec))
 	adapt(w.dispatch, domainstep.StepTypeExtract, stepextract.NewHandler(extractMaxBytes))
 	adapt(w.dispatch, domainstep.StepTypePortable, stepportable.NewHandler(extractMaxBytes))
-	adapt(w.dispatch, domainstep.StepTypeUI, stepui.NewHandler())
 	adapt(w.dispatch, domainstep.StepTypeUnexpose, wizstep.Handler[domainstep.UnexposeStep](w.exposer))
 
 	return w, nil
