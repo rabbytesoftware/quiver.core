@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
@@ -208,8 +210,22 @@ func (p *windowsProcess) Interrupt(
 	return p.Kill(ctx)
 }
 
-func isAlive(_ int) bool {
-	return false
+// isAlive reports whether pid is a running process. Crash recovery asks it for
+// the process a previous daemon started: answering false for a process that is
+// still running makes recovery treat its arrow as dead and leaves the process
+// running with nothing tracking it.
+func isAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid)) // #nosec G115 -- a pid from the OS fits in 32 bits
+	if err != nil {
+		return errors.Is(err, windows.ERROR_ACCESS_DENIED)
+	}
+	defer windows.CloseHandle(handle) //nolint:errcheck // nothing to do about a failed close
+
+	state, err := windows.WaitForSingleObject(handle, 0)
+	return err == nil && state == uint32(windows.WAIT_TIMEOUT)
 }
 
 func signalPID(

@@ -282,3 +282,22 @@ func TestWindowsProcess_Stop_KillsTheWholeTree(t *testing.T) {
 		t.Errorf("child %d outlived Stop: only the shell was killed", child)
 	}
 }
+
+func TestIsAlive_FollowsTheProcess(t *testing.T) {
+	cmd := exec.Command("ping", "-n", "120", "127.0.0.1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	pid := cmd.Process.Pid
+	if !isAlive(pid) {
+		t.Errorf("isAlive(%d) = false for a running process", pid)
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if isAlive(pid) {
+		t.Errorf("isAlive(%d) = true after the process ended", pid)
+	}
+	if isAlive(0) || isAlive(-1) {
+		t.Error("isAlive must refuse a non positive pid")
+	}
+}
