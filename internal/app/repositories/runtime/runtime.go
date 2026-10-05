@@ -170,6 +170,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
+	closeSurface          func(ns domain.Namespace)
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -199,6 +200,9 @@ func New(
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
 		reconcileBadge:        ReconcileVersionBadge(getArrow, axRuntime),
+	}
+	if surfaces != nil {
+		repo.closeSurface = surfaces.Cleanup
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
@@ -531,7 +535,11 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
+	var opts []runtimeinternal.RecoveryOption
+	if s.closeSurface != nil {
+		opts = append(opts, runtimeinternal.WithCloseSurface(s.closeSurface))
+	}
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard, opts...)
 }
 
 // tryAddDrain registers one drain goroutine, if Shutdown should wait for it.

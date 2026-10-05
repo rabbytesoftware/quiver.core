@@ -56,7 +56,7 @@ func RecoverRunning(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
 ) {
-	recoverRunning(ctx, ns, rt, axRuntime, w)
+	recoverRunning(ctx, ns, rt, axRuntime, w, nil)
 }
 
 // SuperviseExecution exposes superviseExecution for tests.
