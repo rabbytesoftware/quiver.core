@@ -52,6 +52,19 @@ func TestUIStepRule(t *testing.T) {
 			wantMsg: `unknown listen kind "tcp"`,
 		},
 		{
+			name:    "pipe only is not provisioned",
+			arrow:   arrowWithExecute(step.NewUIStep("x", []string{"pipe"}, "", "", true)),
+			wantMsg: "pipe is not provisioned in v0; include unix",
+		},
+		{
+			name:  "unix is valid",
+			arrow: arrowWithExecute(step.NewUIStep("x", []string{"unix"}, "", "", true)),
+		},
+		{
+			name:  "unix and pipe is valid",
+			arrow: arrowWithExecute(step.NewUIStep("x", []string{"unix", "pipe"}, "", "", true)),
+		},
+		{
 			name:    "static escapes",
 			arrow:   arrowWithExecute(step.NewUIStep("x", nil, "../etc", "", true)),
 			wantMsg: "static must be a relative path",

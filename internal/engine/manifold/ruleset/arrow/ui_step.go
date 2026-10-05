@@ -88,6 +88,9 @@ func checkUISource(field string, st domainStep.UIStep) aerrors.RuleErrors {
 				errs = append(errs, uiError(field, fmt.Sprintf("unknown listen kind %q (allowed: unix, pipe)", kind)))
 			}
 		}
+		if slices.Contains(st.Listen, "pipe") && !slices.Contains(st.Listen, "unix") {
+			errs = append(errs, uiError(field, "pipe is not provisioned in v0; include unix"))
+		}
 	case !filepath.IsLocal(st.Static):
 		errs = append(errs, uiError(field, "static must be a relative path inside the arrow's install directory"))
 	}

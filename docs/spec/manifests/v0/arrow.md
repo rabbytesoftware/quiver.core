@@ -1087,8 +1087,9 @@ serves nothing itself and never blocks: it validates the declaration and reports
 and the step completes at once. Exactly one source is required:
 
 - `listen: [unix, pipe]`: the arrow serves HTTP itself. The daemon provisions a unix socket
-  address and hands it over as `${ARROW_UI_LISTEN}` (§10.1). v0 provisions a unix socket only;
-  `pipe` is accepted by the rule but the engine does not provision it yet. The `ui` step must
+  address and hands it over as `${ARROW_UI_LISTEN}` (§10.1). v0 provisions a unix socket only,
+  so the list must include `unix`: `[unix]` and `[unix, pipe]` are valid, while `[pipe]` alone
+  is rejected by the rule ("pipe is not provisioned in v0; include unix"). The `ui` step must
   precede any `run` step that references `${ARROW_UI_LISTEN}`.
 - `static: <dir>`: a directory relative to `INSTALL_PATH` the daemon serves read-only. It must
   exist, be a directory, and stay inside the install directory after symlinks are resolved.
@@ -1352,7 +1353,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
 | `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
-| `ui_step` | `ui_step.go` | Per method: at most one `ui` step; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe`; `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
+| `ui_step` | `ui_step.go` | Per method: at most one `ui` step; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe` and the list includes `unix` (v0 provisions no pipe); `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
 | `portable_name` | `portable_name.go` | A `portable` step's optional `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, does not end in a dot, and is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, any case, with or without an extension) (`invalid_name`) |
 
 ### Aggregate post-checks

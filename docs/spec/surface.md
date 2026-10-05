@@ -20,6 +20,8 @@ The engine is stateless apart from a per-socket proxy cache, and imports no othe
 
 ## Socket address
 
+v0 provisions a unix socket only. The `ui_step` rule therefore rejects a `listen` list without `unix` (`[pipe]` alone), so an arrow is never handed a filesystem socket path it asked to receive as a pipe name.
+
 The address is `<run dir>/<12 hex>.sock`, where the 12 hex characters are the first six bytes of `sha256(namespace)`. It is deterministic, so the same namespace always maps to the same socket. A unix socket path is limited by `sockaddr_un` (about 104 bytes on darwin, 108 on linux), so `Prepare` refuses an address longer than 100 bytes with `ErrPathTooLong`. Hashing keeps the file name short whatever the namespace length; only a deeply nested run directory can trip the limit.
 
 ## Prepare and Cleanup
