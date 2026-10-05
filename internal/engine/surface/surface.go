@@ -84,8 +84,7 @@ func (e *engine) Prepare(ns domain.Namespace) (string, error) {
 	if err := os.MkdirAll(e.runDir, 0o700); err != nil {
 		return "", fmt.Errorf("surface: create run dir: %w", err)
 	}
-	//nolint:gosec // a directory needs its execute bit; 0700 is owner-only
-	if err := os.Chmod(e.runDir, 0o700); err != nil {
+	if err := os.Chmod(e.runDir, 0o700); err != nil { // #nosec G302 -- tightens a directory to owner-only; it needs its execute bit
 		return "", fmt.Errorf("surface: secure run dir: %w", err)
 	}
 
