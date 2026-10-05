@@ -26,17 +26,21 @@ func (c SetSurface) ShouldSnapshot() bool {
 	return true
 }
 
-func (c SetSurface) Validate(current *domainRuntime.ArrowRuntime) error {
+func (c SetSurface) Validate(
+	current *domainRuntime.ArrowRuntime,
+) error {
 	return requireCurrentExecution("set surface", current, c.ExecutionID)
 }
 
-func (c SetSurface) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntime.ArrowRuntime {
+func (c SetSurface) EmitEvent(
+	current *domainRuntime.ArrowRuntime,
+) domainRuntime.ArrowRuntime {
 	var exec *domainRuntime.Execution
 	if current.Execution != nil {
-		copy := *current.Execution
+		next := *current.Execution
 		surface := c.Surface
-		copy.Surface = &surface
-		exec = &copy
+		next.Surface = &surface
+		exec = &next
 	}
 	return domainRuntime.ArrowRuntime{
 		Ref:            current.Ref,

@@ -29,7 +29,11 @@ type handler struct{}
 
 func NewHandler() wizstep.Handler[domainstep.UIStep] { return handler{} }
 
-func (handler) Execute(_ context.Context, req wizstep.Request, s domainstep.UIStep) error {
+func (handler) Execute(
+	_ context.Context,
+	req wizstep.Request,
+	s domainstep.UIStep,
+) error {
 	surface := domainRuntime.Surface{Path: s.Path}
 	if surface.Path == "" {
 		surface.Path = "/"
@@ -57,7 +61,10 @@ func (handler) Execute(_ context.Context, req wizstep.Request, s domainstep.UISt
 	return nil
 }
 
-func resolveStatic(workdir, rel string) (string, error) {
+func resolveStatic(
+	workdir string,
+	rel string,
+) (string, error) {
 	if !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("%w: %q must stay inside the install directory", ErrBadStaticDir, rel)
 	}

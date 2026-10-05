@@ -25,7 +25,9 @@ type UIStepRule struct{}
 
 func (UIStepRule) Name() string { return "ui_step" }
 
-func (UIStepRule) Validate(m *domain.Arrow) aerrors.RuleErrors {
+func (UIStepRule) Validate(
+	m *domain.Arrow,
+) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	for os, target := range m.Targets {
 		for _, g := range uiStepGroups(target) {
@@ -43,7 +45,9 @@ type uiStepGroup struct {
 	steps domainStep.StepList
 }
 
-func uiStepGroups(t domain.Target) []uiStepGroup {
+func uiStepGroups(
+	t domain.Target,
+) []uiStepGroup {
 	groups := []uiStepGroup{
 		{"lifecycle.install", t.Lifecycle.Install},
 		{"lifecycle.update", t.Lifecycle.Update},
@@ -58,7 +62,11 @@ func uiStepGroups(t domain.Target) []uiStepGroup {
 	return groups
 }
 
-func checkUIGroup(key, name string, steps domainStep.StepList) aerrors.RuleErrors {
+func checkUIGroup(
+	key string,
+	name string,
+	steps domainStep.StepList,
+) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	uiSeen, listenSeen := false, false
 	for i, s := range steps {
@@ -84,7 +92,10 @@ func checkUIGroup(key, name string, steps domainStep.StepList) aerrors.RuleError
 	return errs
 }
 
-func checkUISource(field string, st domainStep.UIStep) aerrors.RuleErrors {
+func checkUISource(
+	field string,
+	st domainStep.UIStep,
+) aerrors.RuleErrors {
 	var errs aerrors.RuleErrors
 	hasListen, hasStatic := len(st.Listen) > 0, st.Static != ""
 	switch {
@@ -108,11 +119,17 @@ func checkUISource(field string, st domainStep.UIStep) aerrors.RuleErrors {
 	return errs
 }
 
-func uiError(field, msg string) aerrors.RuleError {
+func uiError(
+	field string,
+	msg string,
+) aerrors.RuleError {
 	return aerrors.RuleError{Field: field, Rule: "ui_step", Message: msg}
 }
 
-func overrideableMentions(o domainStep.Overrideable[string], needle string) bool {
+func overrideableMentions(
+	o domainStep.Overrideable[string],
+	needle string,
+) bool {
 	return slices.ContainsFunc(overrideableValues(o), func(v string) bool {
 		return strings.Contains(v, needle)
 	})

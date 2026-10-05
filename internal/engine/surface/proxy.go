@@ -9,7 +9,9 @@ import (
 	"time"
 )
 
-func unixTransport(socket string) *http.Transport {
+func unixTransport(
+	socket string,
+) *http.Transport {
 	return &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
@@ -24,7 +26,9 @@ func unixTransport(socket string) *http.Transport {
 // newProxy reverse-proxies to the unix socket. Streaming bodies are flushed
 // immediately and WebSocket upgrades are handled by httputil.ReverseProxy.
 // Credentials the daemon's own clients carry never reach the arrow.
-func newProxy(socket string) (http.Handler, *http.Transport) {
+func newProxy(
+	socket string,
+) (http.Handler, *http.Transport) {
 	transport := unixTransport(socket)
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
@@ -42,7 +46,11 @@ func newProxy(socket string) (http.Handler, *http.Transport) {
 }
 
 // probe reports whether anything speaking HTTP answers on socket for path.
-func probe(ctx context.Context, socket, path string) bool {
+func probe(
+	ctx context.Context,
+	socket string,
+	path string,
+) bool {
 	transport := unixTransport(socket)
 	transport.DisableKeepAlives = true
 	client := &http.Client{

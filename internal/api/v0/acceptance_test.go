@@ -271,7 +271,10 @@ func stop(shutdown func(ctx context.Context) error) {
 
 // newAcceptanceEnv builds the daemon. Each before hook runs on the app
 // container ahead of the v0 layer, so a test can swap a piece for a stub.
-func newAcceptanceEnv(t *testing.T, before ...func(*app.Container)) *acceptanceEnv {
+func newAcceptanceEnv(
+	t *testing.T,
+	before ...func(*app.Container),
+) *acceptanceEnv {
 	t.Helper()
 
 	home := t.TempDir()

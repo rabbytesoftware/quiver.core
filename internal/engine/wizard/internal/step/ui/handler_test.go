@@ -14,7 +14,11 @@ import (
 	wizstep "github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/step"
 )
 
-func run(t *testing.T, s domainstep.UIStep, req wizstep.Request) (*domainRuntime.Surface, error) {
+func run(
+	t *testing.T,
+	s domainstep.UIStep,
+	req wizstep.Request,
+) (*domainRuntime.Surface, error) {
 	t.Helper()
 	var got *domainRuntime.Surface
 	req.Emit = func(e models.Event) {

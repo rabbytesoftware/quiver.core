@@ -50,7 +50,10 @@ func probeSurface(
 	slog.DebugContext(ctx, "runtime: surface probe stopped, execution gone", "ns", ns)
 }
 
-func nextProbeInterval(current, ceiling time.Duration) time.Duration {
+func nextProbeInterval(
+	current time.Duration,
+	ceiling time.Duration,
+) time.Duration {
 	return min(current*2, ceiling)
 }
 

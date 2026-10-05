@@ -18,7 +18,10 @@ import (
 )
 
 // serveOnSocket starts handler on ns's socket and returns the engine.
-func serveOnSocket(t *testing.T, handler http.Handler) (surface.Surface, surface.Spec) {
+func serveOnSocket(
+	t *testing.T,
+	handler http.Handler,
+) (surface.Surface, surface.Spec) {
 	t.Helper()
 	e := surface.New(shortDir(t))
 	path, err := e.Prepare("github.com/user/chat")

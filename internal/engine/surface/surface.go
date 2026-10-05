@@ -42,17 +42,29 @@ type Spec struct {
 // Surface provisions and serves arrow interfaces.
 type Surface interface {
 	// SocketPath is the deterministic address for ns. It touches nothing.
-	SocketPath(ns domain.Namespace) string
+	SocketPath(
+		ns domain.Namespace,
+	) string
 	// Prepare makes the run directory private and clears a stale socket for
 	// ns, returning the address. A socket something still answers on is left
 	// alone, so a rejected duplicate execute cannot break a live arrow.
-	Prepare(ns domain.Namespace) (string, error)
+	Prepare(
+		ns domain.Namespace,
+	) (string, error)
 	// Cleanup removes ns's socket file.
-	Cleanup(ns domain.Namespace)
+	Cleanup(
+		ns domain.Namespace,
+	)
 	// Handler serves the surface described by spec.
-	Handler(spec Spec) (http.Handler, error)
+	Handler(
+		spec Spec,
+	) (http.Handler, error)
 	// Ready reports whether the surface answers a request for path.
-	Ready(ctx context.Context, spec Spec, path string) bool
+	Ready(
+		ctx context.Context,
+		spec Spec,
+		path string,
+	) bool
 }
 
 type cachedProxy struct {
@@ -67,16 +79,22 @@ type engine struct {
 }
 
 // New builds a Surface that keeps its sockets under runDir.
-func New(runDir string) Surface {
+func New(
+	runDir string,
+) Surface {
 	return &engine{runDir: runDir, proxies: make(map[string]cachedProxy)}
 }
 
-func (e *engine) SocketPath(ns domain.Namespace) string {
+func (e *engine) SocketPath(
+	ns domain.Namespace,
+) string {
 	sum := sha256.Sum256([]byte(ns.String()))
 	return filepath.Join(e.runDir, hex.EncodeToString(sum[:6])+".sock")
 }
 
-func (e *engine) Prepare(ns domain.Namespace) (string, error) {
+func (e *engine) Prepare(
+	ns domain.Namespace,
+) (string, error) {
 	path := e.SocketPath(ns)
 	if len(path) > maxSocketPath {
 		return "", fmt.Errorf("%w: %d bytes (max %d): %s", ErrPathTooLong, len(path), maxSocketPath, path)
@@ -98,7 +116,9 @@ func (e *engine) Prepare(ns domain.Namespace) (string, error) {
 	return path, nil
 }
 
-func (e *engine) Cleanup(ns domain.Namespace) {
+func (e *engine) Cleanup(
+	ns domain.Namespace,
+) {
 	path := e.SocketPath(ns)
 	e.mu.Lock()
 	cached, ok := e.proxies[path]
@@ -112,7 +132,9 @@ func (e *engine) Cleanup(ns domain.Namespace) {
 
 // proxy returns the one proxy for socket, so every request shares a single
 // bounded connection pool.
-func (e *engine) proxy(socket string) http.Handler {
+func (e *engine) proxy(
+	socket string,
+) http.Handler {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if cached, ok := e.proxies[socket]; ok {
@@ -123,7 +145,9 @@ func (e *engine) proxy(socket string) http.Handler {
 	return handler
 }
 
-func (e *engine) Handler(spec Spec) (http.Handler, error) {
+func (e *engine) Handler(
+	spec Spec,
+) (http.Handler, error) {
 	switch spec.Mode {
 	case domainRuntime.SurfaceModeListen:
 		return e.proxy(e.SocketPath(spec.Namespace)), nil
@@ -134,7 +158,11 @@ func (e *engine) Handler(spec Spec) (http.Handler, error) {
 	}
 }
 
-func (e *engine) Ready(ctx context.Context, spec Spec, path string) bool {
+func (e *engine) Ready(
+	ctx context.Context,
+	spec Spec,
+	path string,
+) bool {
 	switch spec.Mode {
 	case domainRuntime.SurfaceModeStatic:
 		return true

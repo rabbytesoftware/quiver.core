@@ -48,7 +48,11 @@ func resolveUI(
 	)
 }
 
-func resolveWithSockets(t *testing.T, socks assemblerinternal.SocketProvider, steps []domainStep.Step) map[string]string {
+func resolveWithSockets(
+	t *testing.T,
+	socks assemblerinternal.SocketProvider,
+	steps []domainStep.Step,
+) map[string]string {
 	t.Helper()
 	return resolveWithUserVars(t, socks, steps, nil)
 }
@@ -65,7 +69,11 @@ func resolveWithUserVars(
 	return vars
 }
 
-func resolveErr(t *testing.T, socks assemblerinternal.SocketProvider, steps []domainStep.Step) error {
+func resolveErr(
+	t *testing.T,
+	socks assemblerinternal.SocketProvider,
+	steps []domainStep.Step,
+) error {
 	t.Helper()
 	_, err := resolveUI(t, socks, steps, nil)
 	return err

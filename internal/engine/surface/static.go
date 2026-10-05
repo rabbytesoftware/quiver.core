@@ -10,7 +10,9 @@ import (
 
 // newStatic serves dir read-only. The directory is opened as an os.Root per
 // request, so a symlink pointing outside dir cannot be followed.
-func newStatic(dir string) (http.Handler, error) {
+func newStatic(
+	dir string,
+) (http.Handler, error) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("surface: static dir %q is not a directory", dir)
 	}
@@ -29,7 +31,11 @@ func newStatic(dir string) (http.Handler, error) {
 	}), nil
 }
 
-func serveStatic(w http.ResponseWriter, r *http.Request, root *os.Root) {
+func serveStatic(
+	w http.ResponseWriter,
+	r *http.Request,
+	root *os.Root,
+) {
 	name := path.Clean("/" + r.URL.Path)[1:]
 	if name == "" {
 		name = "index.html"
@@ -52,7 +58,10 @@ func serveStatic(w http.ResponseWriter, r *http.Request, root *os.Root) {
 
 // openServable opens name, descending into a directory's index.html. A missing
 // extensionless path falls back to the root index.html (SPA routing).
-func openServable(root *os.Root, name string) (*os.File, string, error) {
+func openServable(
+	root *os.Root,
+	name string,
+) (*os.File, string, error) {
 	f, err := root.Open(name)
 	if err != nil {
 		return spaFallback(root, name, err)
@@ -73,7 +82,11 @@ func openServable(root *os.Root, name string) (*os.File, string, error) {
 	return f, name, nil
 }
 
-func spaFallback(root *os.Root, name string, err error) (*os.File, string, error) {
+func spaFallback(
+	root *os.Root,
+	name string,
+	err error,
+) (*os.File, string, error) {
 	if path.Ext(name) != "" {
 		return nil, name, err
 	}

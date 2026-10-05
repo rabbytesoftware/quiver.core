@@ -48,7 +48,9 @@ func sendRetryingConflicts(
 
 // lostWriteRace still rules out ErrDispatcherClosed, which asynx reports only
 // after the event was appended.
-func lostWriteRace(err error) bool {
+func lostWriteRace(
+	err error,
+) bool {
 	return errors.Is(err, eventstoreSqlite.ErrVersionConflict) &&
 		!errors.Is(err, asynxModels.ErrDispatcherClosed)
 }

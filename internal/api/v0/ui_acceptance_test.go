@@ -34,7 +34,10 @@ type listenRuntime struct {
 	usecases.RuntimeUsecase
 }
 
-func (listenRuntime) GetRuntime(context.Context, domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+func (listenRuntime) GetRuntime(
+	context.Context,
+	domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
 	return &domainRuntime.ArrowRuntime{
 		Ref: uiResolved,
 		Execution: &domainRuntime.Execution{ID: "e1", Surface: &domainRuntime.Surface{
@@ -48,7 +51,10 @@ type idleRuntime struct {
 	usecases.RuntimeUsecase
 }
 
-func (idleRuntime) GetRuntime(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+func (idleRuntime) GetRuntime(
+	_ context.Context,
+	ns domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
 	return &domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil
 }
 
@@ -68,7 +74,10 @@ func (a *arrowSocket) seen() (auth, cookie, path, query string) {
 	return a.gotAuth, a.gotCookie, a.gotPath, a.gotRawQuery
 }
 
-func startArrowSocket(t *testing.T, socket string) *arrowSocket {
+func startArrowSocket(
+	t *testing.T,
+	socket string,
+) *arrowSocket {
 	t.Helper()
 
 	arrow := &arrowSocket{}
@@ -137,7 +146,12 @@ func newUIEnv(t *testing.T) (*acceptanceEnv, *arrowSocket, string) {
 	return env, arrow, token
 }
 
-func uiGet(t *testing.T, env *acceptanceEnv, token, path string) (int, string) {
+func uiGet(
+	t *testing.T,
+	env *acceptanceEnv,
+	token string,
+	path string,
+) (int, string) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, env.srv.URL+path, nil)

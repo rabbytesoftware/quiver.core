@@ -218,7 +218,9 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 	}, nil
 }
 
-func resolveRunDir(cfg engineOpts) (string, error) {
+func resolveRunDir(
+	cfg engineOpts,
+) (string, error) {
 	if cfg.homeDir != "" {
 		return paths.RunAt(cfg.homeDir)
 	}

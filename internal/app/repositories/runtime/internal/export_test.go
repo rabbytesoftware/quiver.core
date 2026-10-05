@@ -113,7 +113,10 @@ func ProbeSurface(
 }
 
 // NextProbeInterval exposes nextProbeInterval for tests.
-func NextProbeInterval(current, ceiling time.Duration) time.Duration {
+func NextProbeInterval(
+	current time.Duration,
+	ceiling time.Duration,
+) time.Duration {
 	return nextProbeInterval(current, ceiling)
 }
 

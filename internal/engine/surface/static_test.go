@@ -24,7 +24,11 @@ func staticSite(t *testing.T) (http.Handler, string) {
 	return h, dir
 }
 
-func get(h http.Handler, method, path string) *httptest.ResponseRecorder {
+func get(
+	h http.Handler,
+	method string,
+	path string,
+) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec

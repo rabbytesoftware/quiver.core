@@ -97,7 +97,11 @@ func (b *lockedBuffer) count(substr string) int {
 	return strings.Count(b.buf.String(), substr)
 }
 
-func drainOnly(t *testing.T, ax asynx.Asynx[domainRuntime.ArrowRuntime], events ...wizard.Event) bool {
+func drainOnly(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	events ...wizard.Event,
+) bool {
 	t.Helper()
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
 	for _, evt := range events {
@@ -309,7 +313,12 @@ type failingSnapshots struct {
 	armed atomic.Bool
 }
 
-func (f *failingSnapshots) Put(ctx context.Context, aggregateID string, version int64, data []byte) error {
+func (f *failingSnapshots) Put(
+	ctx context.Context,
+	aggregateID string,
+	version int64,
+	data []byte,
+) error {
 	if f.armed.Load() {
 		return errors.New("snapshot: disk I/O error")
 	}

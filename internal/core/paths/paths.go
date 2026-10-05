@@ -131,7 +131,9 @@ func Run() (string, error) {
 
 // RunAt returns the absolute path to the arrow surface socket directory rooted
 // at homeDir instead of the process-level HOME, creating it if it does not exist.
-func RunAt(homeDir string) (string, error) {
+func RunAt(
+	homeDir string,
+) (string, error) {
 	return ensure(
 		metadata.GetRunPathAt(homeDir),
 	)

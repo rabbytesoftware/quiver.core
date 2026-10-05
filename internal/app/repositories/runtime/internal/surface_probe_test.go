@@ -51,7 +51,10 @@ func TestProbeSurface_FlipsReadyOnceServing(t *testing.T) {
 
 // runProbe runs the probe in the background and fails the test if it has not
 // returned within a few seconds.
-func runProbe(t *testing.T, run func()) {
+func runProbe(
+	t *testing.T,
+	run func(),
+) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() { defer close(done); run() }()

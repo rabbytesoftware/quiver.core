@@ -28,7 +28,11 @@ func (f *fakeSurface) Handler(surface.Spec) (http.Handler, error) { return nil, 
 
 func (f *fakeSurface) Cleanup(ns domain.Namespace) { f.cleaned = append(f.cleaned, ns) }
 
-func (f *fakeSurface) Ready(_ context.Context, spec surface.Spec, path string) bool {
+func (f *fakeSurface) Ready(
+	_ context.Context,
+	spec surface.Spec,
+	path string,
+) bool {
 	f.readySpec = spec
 	f.readyPath = path
 	return true

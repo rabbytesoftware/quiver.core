@@ -26,7 +26,9 @@ type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, e
 // SocketProvider hands out the unix socket address an arrow serves its
 // interface on.
 type SocketProvider interface {
-	Prepare(ns domain.Namespace) (string, error)
+	Prepare(
+		ns domain.Namespace,
+	) (string, error)
 }
 
 // ResolveVariables builds the variable map for an execution using 6 priority
@@ -169,7 +171,9 @@ func builtIns(
 	return vars, nil
 }
 
-func hasListenUI(steps []domainStep.Step) bool {
+func hasListenUI(
+	steps []domainStep.Step,
+) bool {
 	for _, s := range steps {
 		if ui, ok := s.(domainStep.UIStep); ok && len(ui.Listen) > 0 {
 			return true

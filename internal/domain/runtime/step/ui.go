@@ -15,7 +15,11 @@ type UIStep struct {
 }
 
 // Resolve is the identity: a ui step has no Overrideable fields in v0.
-func (s UIStep) Resolve(string) Step { return s }
+func (s UIStep) Resolve(
+	string,
+) Step {
+	return s
+}
 
 func NewUIStep(
 	title string,
@@ -32,17 +36,16 @@ func NewUIStep(
 	}
 }
 
-type uiWire struct {
-	Kind          StepType `json:"type"`
-	Title         string   `json:"title"`
-	ExitOnFailure bool     `json:"exit_on_failure"`
-	Listen        []string `json:"listen,omitempty"`
-	Static        string   `json:"static,omitempty"`
-	Path          string   `json:"path,omitempty"`
-}
-
 func (s UIStep) MarshalJSON() ([]byte, error) {
-	return json.Marshal(uiWire{
+	type wire struct {
+		Kind          StepType `json:"type"`
+		Title         string   `json:"title"`
+		ExitOnFailure bool     `json:"exit_on_failure"`
+		Listen        []string `json:"listen,omitempty"`
+		Static        string   `json:"static,omitempty"`
+		Path          string   `json:"path,omitempty"`
+	}
+	return json.Marshal(wire{
 		Kind:          s.Type(),
 		Title:         s.Title(),
 		ExitOnFailure: s.ExitOnFailure(),
@@ -52,8 +55,17 @@ func (s UIStep) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (s *UIStep) UnmarshalJSON(data []byte) error {
-	var wire uiWire
+func (s *UIStep) UnmarshalJSON(
+	data []byte,
+) error {
+	var wire struct {
+		Kind          StepType `json:"type"`
+		Title         string   `json:"title"`
+		ExitOnFailure bool     `json:"exit_on_failure"`
+		Listen        []string `json:"listen,omitempty"`
+		Static        string   `json:"static,omitempty"`
+		Path          string   `json:"path,omitempty"`
+	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
 	}

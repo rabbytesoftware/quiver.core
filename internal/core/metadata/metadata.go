@@ -253,7 +253,9 @@ func GetRunPath() string {
 	return resolvePath(Get().Paths.Run, resolveHome())
 }
 
-func GetRunPathAt(homeDir string) string {
+func GetRunPathAt(
+	homeDir string,
+) string {
 	return resolvePath(Get().Paths.Run, homeDir)
 }
 
