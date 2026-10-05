@@ -19,10 +19,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestGet(t *testing.T) {
-	h := versions.New(versions.Build{
+	build := versions.Build{
 		Version: "1.2.3", BuildID: "42", Commit: "abc", BuiltAt: "2026-10-04T13:47:00Z", Channel: "nightly-latest",
 		Features: []string{"console.v1"},
-	}, []string{"v0"}, "v0")
+	}
+	h := versions.New(build, []string{"v0"}, "v0")
 
 	r := gin.New()
 	r.GET("/versions", h.Get)

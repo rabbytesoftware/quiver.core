@@ -298,7 +298,7 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	// files, so only draining first is load-bearing.
 	t.Cleanup(func() { stop(appContainer.Shutdown) })
 
-	v0, err := apiv0.New(appContainer, nil, "")
+	v0, err := apiv0.New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()

@@ -150,26 +150,21 @@ func TestNew_NPipeScheme_UnsupportedOffWindows(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDialURI(t *testing.T) {
+func TestDialURI_AcceptedAddress_ReturnsTheHostURIAClientDials(
+	t *testing.T,
+) {
 	testCases := []struct {
-		name string
 		addr net.Addr
 		want string
 	}{
-		{"unix socket", &net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"}, "unix:///tmp/quiver.sock"},
-		{"tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40257}, "tcp://127.0.0.1:40257"},
-		{"tcp v6", &net.TCPAddr{IP: net.IPv6loopback, Port: 9}, "tcp://[::1]:9"},
-		{"nil", nil, ""},
-		{"named pipe", pipeAddr(`\\.\pipe\quiver`), "npipe://quiver"},
+		{&net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"}, "unix:///tmp/quiver.sock"},
+		{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40257}, "tcp://127.0.0.1:40257"},
+		{&net.TCPAddr{IP: net.IPv6loopback, Port: 9}, "tcp://[::1]:9"},
+		{pipeAddr(`\\.\pipe\quiver`), "npipe://quiver"},
+		{nil, ""},
 	}
+
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, gateway.DialURI(tc.addr))
-		})
+		assert.Equal(t, tc.want, gateway.DialURI(tc.addr), tc.want)
 	}
 }
-
-type pipeAddr string
-
-func (a pipeAddr) Network() string { return "pipe" }
-func (a pipeAddr) String() string  { return string(a) }

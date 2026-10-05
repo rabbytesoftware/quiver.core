@@ -19,11 +19,19 @@ import (
 	"github.com/rabbytesoftware/quiver.core/tests/kit"
 )
 
-func TestMain(m *testing.M) { kit.Main(m) }
+func TestMain(
+	m *testing.M,
+) {
+	kit.Main(m)
+}
 
-type ConsoleSuite struct{ kit.IntegrationSuite }
+type ConsoleSuite struct {
+	kit.IntegrationSuite
+}
 
-func TestConsoleIntegration(t *testing.T) {
+func TestConsoleIntegration(
+	t *testing.T,
+) {
 	suite.Run(t, new(ConsoleSuite))
 }
 
@@ -34,13 +42,18 @@ type frame struct {
 	Error string `json:"error"`
 }
 
-func (s *ConsoleSuite) exec(c *kit.Client, line string) (exit frame, out string) {
+func (s *ConsoleSuite) exec(
+	c *kit.Client,
+	line string,
+) (frame, string) {
 	resp := c.ConsoleExec(line)
 	defer resp.Body.Close()
 	s.Require().Equal(http.StatusOK, resp.StatusCode, line)
 
+	var exit frame
 	var text strings.Builder
-	for scanner := bufio.NewScanner(resp.Body); scanner.Scan(); {
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
 		var f frame
 		s.Require().NoError(json.Unmarshal(scanner.Bytes(), &f))
 		text.WriteString(f.Data)
@@ -49,7 +62,7 @@ func (s *ConsoleSuite) exec(c *kit.Client, line string) (exit frame, out string)
 	return exit, text.String()
 }
 
-func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
+func (s *ConsoleSuite) TestConsole_Exec_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
 	env := s.NewEnv()
 	c := env.Client(s.T())
 	ns := kit.NSFor("quiver-test/tool-a", "v1")
@@ -70,12 +83,16 @@ func (s *ConsoleSuite) TestConsole_RunsTheDaemonsOwnCLIAgainstTheRealDaemon() {
 	s.Contains(refused.Error, "--yes", "confirmations answer no")
 }
 
-func (s *ConsoleSuite) TestConsole_RefusesWhatTheConsoleMustNotRun() {
+func (s *ConsoleSuite) TestConsole_Exec_RefusesWhatTheConsoleMustNotRun() {
 	c := s.NewEnv().Client(s.T())
 
 	for line, want := range map[string]int{
-		"daemon": http.StatusForbidden, "self-update /tmp/x": http.StatusForbidden, "context list": http.StatusForbidden,
-		"arrow seed x --file /etc/passwd": http.StatusForbidden, "help": http.StatusForbidden, "ps; daemon": http.StatusBadRequest,
+		"daemon":                          http.StatusForbidden,
+		"self-update /tmp/x":              http.StatusForbidden,
+		"context list":                    http.StatusForbidden,
+		"arrow seed x --file /etc/passwd": http.StatusForbidden,
+		"help":                            http.StatusForbidden,
+		"ps; daemon":                      http.StatusBadRequest,
 	} {
 		resp := c.ConsoleExec(line)
 		resp.Body.Close()
@@ -83,7 +100,7 @@ func (s *ConsoleSuite) TestConsole_RefusesWhatTheConsoleMustNotRun() {
 	}
 }
 
-func (s *ConsoleSuite) TestConsole_StreamsTheDaemonsLogsIncludingItsOwnAuditRecord() {
+func (s *ConsoleSuite) TestConsole_Logs_StreamTheDaemonsOwnAuditRecord() {
 	ring := logring.New()
 	previous := slog.Default()
 	slog.SetDefault(slog.New(ring.Wrap(slog.NewTextHandler(io.Discard, nil))))
@@ -92,7 +109,7 @@ func (s *ConsoleSuite) TestConsole_StreamsTheDaemonsLogsIncludingItsOwnAuditReco
 	conn, err := c.DialConsoleLogs("")
 	s.Require().NoError(err)
 	defer conn.Close()
-	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	s.Require().NoError(conn.SetReadDeadline(time.Now().Add(30 * time.Second)))
 	var f map[string]any
 	for f == nil || f["type"] != "ready" {
 		s.Require().NoError(conn.ReadJSON(&f))

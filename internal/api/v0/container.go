@@ -33,19 +33,21 @@ type Container struct {
 	// built into the router.
 	AuthGate *middleware.AuthGate
 
-	logs    *logring.Ring
-	version string
+	consoleLogs    logring.Ring
+	consoleVersion string
 }
 
-// New builds the v0 container. logs feeds the console's log stream (nil serves
-// an empty ring) and version is what the console's CLI reports as its own.
 func New(
 	appContainer *app.Container,
-	logs *logring.Ring,
-	version string,
+	opts ...Option,
 ) (*Container, error) {
 	if appContainer == nil {
 		return nil, fmt.Errorf("v0: app container is required")
+	}
+
+	var cfg options
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	var wsOpts []wshandler.Option
@@ -53,10 +55,6 @@ func New(
 		wsOpts = append(wsOpts, wshandler.WithDiscoveryJobs(appContainer.Discovery))
 	}
 	wsHandler := wshandler.NewHandler(wsOpts...)
-
-	if logs == nil {
-		logs = logring.New()
-	}
 
 	// Discovery results are not domain aggregates and have no projection behind
 	// them, so they reach clients straight from the usecase rather than through
@@ -86,8 +84,9 @@ func New(
 		wsHandler:     wsHandler,
 		rateLimiter:   rateLimiter,
 		AuthGate:      authGate,
-		logs:          logs,
-		version:       version,
+
+		consoleLogs:    cfg.consoleLogs,
+		consoleVersion: cfg.consoleVersion,
 	}, nil
 }
 

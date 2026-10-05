@@ -1,12 +1,15 @@
 package core
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestNew(t *testing.T) {
@@ -83,4 +86,25 @@ func TestCoreInitialization(t *testing.T) {
 	assert.NotSame(t, core1, core2, "New() should create new instances each time")
 	assert.Same(t, core1.GetMetadata(), core2.GetMetadata(), "Metadata should be singleton across Core instances")
 	assert.Same(t, core1.GetConfig(), core2.GetConfig(), "Config should be singleton across Core instances")
+}
+
+func TestNewAt_WithLogRing_StoresTheProcessLoggersRecords(
+	t *testing.T,
+) {
+	prev := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+	ring := logring.New()
+
+	_, shutdown := NewAt(t.TempDir(), WithLogRing(ring))
+	t.Cleanup(func() {
+		_ = shutdown()
+	})
+	slog.Info("captured")
+
+	stream := ring.Stream(0, slog.LevelInfo)
+	defer stream.Close()
+	records := stream.Replay()
+	assert.Equal(t, "captured", records[len(records)-1].Msg)
 }

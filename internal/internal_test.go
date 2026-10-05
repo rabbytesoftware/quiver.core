@@ -348,15 +348,21 @@ func TestContainer_Start_WithRecommendations_LaunchesTheLoopAndShutsDownCleanly(
 	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
 }
 
-func TestNew_Versions_ReportsTheBuildStampsAndTheConsoleFeature(t *testing.T) {
+func TestNew_Versions_ReportsTheBuildStampsAndTheConsoleFeature(
+	t *testing.T,
+) {
 	prev := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
 	c, err := New(
 		context.Background(), "v0.0.0-test", "7", WithHomeDir(t.TempDir()),
 		WithCommit("abc123"), WithBuiltAt("2026-10-04T13:47:00Z"), WithChannel("nightly-latest"),
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.Shutdown() })
+	t.Cleanup(func() {
+		_ = c.Shutdown()
+	})
 
 	rec := httptest.NewRecorder()
 	c.API.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/versions", nil))
@@ -364,15 +370,21 @@ func TestNew_Versions_ReportsTheBuildStampsAndTheConsoleFeature(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"commit":"abc123","built_at":"2026-10-04T13:47:00Z","channel":"nightly-latest","features":["console.v1"]`)
 }
 
-func TestNew_ConsoleLogsSeeTheDaemonsOwnRecords(t *testing.T) {
+func TestNew_ConsoleLogs_ServeTheDaemonsOwnRecords(
+	t *testing.T,
+) {
 	c := newTestContainer(t)
-	t.Cleanup(func() { _ = c.Shutdown() })
+	t.Cleanup(func() {
+		_ = c.Shutdown()
+	})
 	slog.Info("console ring probe", "component", "internal-test")
 	srv := httptest.NewServer(c.API)
 	defer srv.Close()
-	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/v0/console/logs", nil) //nolint:bodyclose
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v0/console/logs"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	require.NoError(t, resp.Body.Close())
+	defer conn.Close()
 
 	var frame map[string]any
 	for frame == nil || frame["msg"] != "console ring probe" {

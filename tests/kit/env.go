@@ -58,13 +58,19 @@ type envConfig struct {
 	build     buildStamp
 	cloneOnly bool
 	fletcher  hosts.Lookup
-	logs      *logring.Ring
+	logs      logring.Ring
 }
 
 // WithLogRing sets the ring the console's log stream reads from, so a test can
 // tee the process logger into it.
-func WithLogRing(ring *logring.Ring) EnvOption {
-	return func(c *envConfig) { c.logs = ring }
+func WithLogRing(
+	ring logring.Ring,
+) EnvOption {
+	return func(
+		c *envConfig,
+	) {
+		c.logs = ring
+	}
 }
 
 // buildStamp is what the release pipeline injects into a daemon binary.
@@ -313,7 +319,11 @@ func BuildEnv(
 	)
 	require.NoError(t, err)
 
-	v0Container, err := apiv0.New(appContainer, cfg.logs, cfg.build.version)
+	logs := cfg.logs
+	if logs == nil {
+		logs = logring.New()
+	}
+	v0Container, err := apiv0.New(appContainer, apiv0.WithConsole(logs, cfg.build.version))
 	require.NoError(t, err)
 
 	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)

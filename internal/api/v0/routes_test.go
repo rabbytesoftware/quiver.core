@@ -11,6 +11,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
@@ -19,7 +20,7 @@ func TestContainer_Register_MountsHealthRoute(t *testing.T) {
 		Runtime:    &mocks.RuntimeService{},
 		Collection: &mocks.CollectionService{},
 	}
-	c, err := New(appContainer, nil, "")
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -38,7 +39,7 @@ func TestContainer_Register_MountsArrowRoutes(t *testing.T) {
 		Runtime:    &mocks.RuntimeService{},
 		Collection: &mocks.CollectionService{},
 	}
-	c, err := New(appContainer, nil, "")
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -58,7 +59,7 @@ func TestContainer_Register_MountsSearchRoute(t *testing.T) {
 		Collection: &mocks.CollectionService{},
 		Search:     &mocks.SearchService{},
 	}
-	c, err := New(appContainer, nil, "")
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -77,7 +78,7 @@ func TestContainer_Register_MountsQuiverRoutes(t *testing.T) {
 		Runtime:    &mocks.RuntimeService{},
 		Collection: &mocks.CollectionService{},
 	}
-	c, err := New(appContainer, nil, "")
+	c, err := New(appContainer)
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -97,7 +98,7 @@ func TestContainer_Register_MountsHomeRoutes(t *testing.T) {
 		Runtime:    &mocks.RuntimeService{},
 		Collection: &mocks.CollectionService{},
 		Home:       home,
-	}, nil, "")
+	})
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -117,7 +118,7 @@ func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
 		Arrow:      &mocks.ArrowService{},
 		Runtime:    &mocks.RuntimeService{},
 		Collection: &mocks.CollectionService{},
-	}, nil, "")
+	})
 	require.NoError(t, err)
 
 	r := gin.New()
@@ -127,4 +128,32 @@ func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/home", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestContainer_Register_WithConsole_MountsTheConsoleRoutes(
+	t *testing.T,
+) {
+	c, err := New(&app.Container{}, WithConsole(logring.New(), "v"))
+	require.NoError(t, err)
+	r := gin.New()
+	c.Register(r.Group(""))
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/console/commands", nil))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestContainer_Register_WithoutConsole_ServesNoConsoleRoutes(
+	t *testing.T,
+) {
+	c, err := New(&app.Container{})
+	require.NoError(t, err)
+	r := gin.New()
+	c.Register(r.Group(""))
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/console/commands", nil))
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

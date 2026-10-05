@@ -23,24 +23,24 @@ func TestMain(m *testing.M) {
 }
 
 func TestNew_NilAppContainer_ReturnsError(t *testing.T) {
-	_, err := apiv0.New(nil, nil, "")
+	_, err := apiv0.New(nil)
 	require.Error(t, err)
 }
 
 func TestNew_ValidAppContainer_ReturnsContainer(t *testing.T) {
-	c, err := apiv0.New(&app.Container{}, nil, "")
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
 	assert.NotNil(t, c)
 }
 
 func TestNew_WSHandler_NotNil(t *testing.T) {
-	c, err := apiv0.New(&app.Container{}, nil, "")
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
 	assert.NotNil(t, c.WSHandler())
 }
 
 func TestNew_Prefix_IsV0(t *testing.T) {
-	c, err := apiv0.New(&app.Container{}, nil, "")
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
 	assert.Equal(t, "/v0", c.Prefix())
 }
@@ -51,7 +51,7 @@ func TestNew_Prefix_IsV0(t *testing.T) {
 func TestNew_WithDiscovery_WiresTheResultStream(t *testing.T) {
 	disc := &mocks.DiscoveryService{}
 
-	_, err := apiv0.New(&app.Container{Discovery: disc}, nil, "")
+	_, err := apiv0.New(&app.Container{Discovery: disc})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, disc.Listeners())
@@ -59,7 +59,7 @@ func TestNew_WithDiscovery_WiresTheResultStream(t *testing.T) {
 }
 
 func TestNew_WithoutDiscovery_RegistersNoListener(t *testing.T) {
-	c, err := apiv0.New(&app.Container{}, nil, "")
+	c, err := apiv0.New(&app.Container{})
 	require.NoError(t, err)
 
 	r := gin.New()

@@ -249,8 +249,14 @@ func WithCommit(commit string) Option {
 
 // WithBuiltAt sets the RFC 3339 UTC time the running build was compiled, which
 // GET /versions reports.
-func WithBuiltAt(builtAt string) Option {
-	return func(o *internalOpts) { o.builtAt = builtAt }
+func WithBuiltAt(
+	builtAt string,
+) Option {
+	return func(
+		o *internalOpts,
+	) {
+		o.builtAt = builtAt
+	}
 }
 
 // WithChannel sets the release channel the running build was published under,
@@ -303,9 +309,9 @@ func New(
 	logs := logring.New()
 	var loggerShutdown func() error
 	if cfg.homeDir != "" {
-		_, loggerShutdown = core.NewAt(cfg.homeDir, logs.Wrap)
+		_, loggerShutdown = core.NewAt(cfg.homeDir, core.WithLogRing(logs))
 	} else {
-		_, loggerShutdown = core.New(logs.Wrap)
+		_, loggerShutdown = core.New(core.WithLogRing(logs))
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
@@ -334,7 +340,7 @@ func New(
 		return nil, fmt.Errorf("internal: app: %w", err)
 	}
 
-	v0Container, err := apiv0.New(appContainer, logs, version)
+	v0Container, err := apiv0.New(appContainer, apiv0.WithConsole(logs, version))
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
