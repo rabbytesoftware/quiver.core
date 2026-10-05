@@ -81,3 +81,32 @@ func TestHandler_StaticExpandsVariables(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got.Dir)
 }
+
+func TestHandler_NilEmitIsNobodyListening(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "dist"), 0o755))
+
+	testCases := []struct {
+		name string
+		step domainstep.UIStep
+		req  wizstep.Request
+	}{
+		{
+			name: "listen",
+			step: domainstep.NewUIStep("Chat", []string{"unix"}, "", "", true),
+			req:  wizstep.Request{Vars: map[string]string{domain.VarArrowUIListen: "/run/x.sock"}},
+		},
+		{
+			name: "static",
+			step: domainstep.NewUIStep("Docs", nil, "./dist", "", true),
+			req:  wizstep.Request{WorkDir: work},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				require.NoError(t, NewHandler().Execute(t.Context(), tc.req, tc.step))
+			})
+		})
+	}
+}

@@ -51,7 +51,9 @@ func (handler) Execute(_ context.Context, req wizstep.Request, s domainstep.UISt
 		surface.Ready = true
 	}
 
-	req.Emit(models.Event{Kind: models.EventKindSurface, Surface: &surface})
+	if req.Emit != nil {
+		req.Emit(models.Event{Kind: models.EventKindSurface, Surface: &surface})
+	}
 	return nil
 }
 
