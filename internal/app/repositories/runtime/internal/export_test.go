@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/char2cs/asynx"
+	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -114,4 +115,16 @@ func ProbeSurface(
 // NextProbeInterval exposes nextProbeInterval for tests.
 func NextProbeInterval(current, ceiling time.Duration) time.Duration {
 	return nextProbeInterval(current, ceiling)
+}
+
+// ConflictRetryAttempts exposes conflictRetryAttempts for tests.
+const ConflictRetryAttempts = conflictRetryAttempts
+
+// SendRetryingConflicts exposes sendRetryingConflicts for tests.
+func SendRetryingConflicts(
+	ctx context.Context,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	cmd asynxModels.Command[domainRuntime.ArrowRuntime],
+) error {
+	return sendRetryingConflicts(ctx, axRuntime, cmd)
 }

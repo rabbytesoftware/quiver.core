@@ -73,7 +73,7 @@ func recordReady(
 	executionID string,
 	s domainRuntime.Surface,
 ) {
-	_, err := axRuntime.Send(ctx, runtimecmds.SetSurface{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.SetSurface{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Surface:     s,
@@ -95,7 +95,7 @@ func sendSurface(
 	executionID string,
 	s domainRuntime.Surface,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.SetSurface{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.SetSurface{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Surface:     s,

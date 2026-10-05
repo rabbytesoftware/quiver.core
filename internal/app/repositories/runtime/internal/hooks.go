@@ -185,7 +185,7 @@ func sendStep(
 	if note != "" {
 		noteStr = &note
 	}
-	_, err := axRuntime.Send(ctx, runtimecmds.AdvanceStep{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.AdvanceStep{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		StepIndex:   stepIndex,
@@ -212,7 +212,7 @@ func sendPID(
 	executionID string,
 	pid int,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.RecordPID{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.RecordPID{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		PID:         pid,
@@ -239,7 +239,7 @@ func sendEndExecution(
 	executionID string,
 	outcome domainRuntime.ExecutionOutcome,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.EndExecution{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.EndExecution{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Outcome:     outcome,

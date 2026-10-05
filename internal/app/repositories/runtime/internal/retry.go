@@ -100,7 +100,7 @@ func restart(
 	executionID string,
 	steps []domainStep.Step,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.RestartExecution{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.RestartExecution{
 		Namespace:   ns,
 		ExecutionID: executionID,
 		Steps:       steps,
