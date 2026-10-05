@@ -36,7 +36,7 @@ func (u *surfaceUsecase) Handler(ctx context.Context, ns domain.Namespace) (http
 		return nil, fmt.Errorf("surface handler %s: %w", ns, ErrNoSurface)
 	}
 	s := rt.Execution.Surface
-	h, err := u.engine.Handler(surface.Spec{Mode: s.Mode, Namespace: ns, Dir: s.Dir})
+	h, err := u.engine.Handler(surface.Spec{Mode: s.Mode, Namespace: rt.Ref, Dir: s.Dir})
 	if err != nil {
 		return nil, fmt.Errorf("surface handler %s: %w", ns, err)
 	}

@@ -21,17 +21,22 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 )
 
-const uiNamespace = "github.com/quiver/chat"
+const (
+	uiNamespace = "github.com/quiver/chat"
+	// uiResolved is the catalogued ref the runtime reports for the bare
+	// namespace, and the one the arrow's socket is prepared under.
+	uiResolved = uiNamespace + "@stable"
+)
 
-// listenRuntime answers GetRuntime with an execution that has a listen
-// surface open, for every namespace.
+// listenRuntime resolves any namespace to uiResolved, with a listen
+// surface open.
 type listenRuntime struct {
 	usecases.RuntimeUsecase
 }
 
-func (listenRuntime) GetRuntime(_ context.Context, ns domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+func (listenRuntime) GetRuntime(context.Context, domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
 	return &domainRuntime.ArrowRuntime{
-		Ref: ns,
+		Ref: uiResolved,
 		Execution: &domainRuntime.Execution{ID: "e1", Surface: &domainRuntime.Surface{
 			Mode: domainRuntime.SurfaceModeListen, Path: "/",
 		}},
@@ -115,7 +120,7 @@ func newUIEnv(t *testing.T) (*acceptanceEnv, *arrowSocket, string) {
 	t.Cleanup(func() { _ = os.RemoveAll(runDir) })
 
 	eng := surface.New(runDir)
-	socket, err := eng.Prepare(domain.Namespace(uiNamespace))
+	socket, err := eng.Prepare(domain.Namespace(uiResolved))
 	require.NoError(t, err)
 	arrow := startArrowSocket(t, socket)
 
