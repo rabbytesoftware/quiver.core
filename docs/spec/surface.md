@@ -24,6 +24,8 @@ v0 provisions a unix socket only. The `run_ui` rule therefore rejects a `listen`
 
 The address is `<run dir>/<12 hex>.sock`, where the 12 hex characters are the first six bytes of `sha256(namespace)`. It is deterministic, so the same namespace always maps to the same socket. A unix socket path is limited by `sockaddr_un` (about 104 bytes on darwin, 108 on linux), so `Prepare` refuses an address longer than 100 bytes with `ErrPathTooLong`. Hashing keeps the file name short whatever the namespace length; only a deeply nested run directory can trip the limit.
 
+On Windows the same address form is an AF_UNIX socket at a backslash path (`C:\Users\<user>\.quiver\run\<12 hex>.sock`, a reparse point on disk), and both Go's `net.Listen("unix", ...)` and the engine's dial work with it; Windows allows 107 bytes there, so the 100 byte limit still applies. Windows has no file mode, so the `0700` on the run directory is not applied and the directory keeps the ACL it inherits from its parent. A run is a `cmd.exe /C` shell wrapper, and stopping or cancelling it ends the whole process tree (`taskkill /T`), not only `cmd.exe`, so the program holding the socket does not outlive its run.
+
 ## Prepare and Cleanup
 
 `Prepare` is called by the runtime assembler while it resolves variables, only for a method with a `run` step whose `ui` listens (the default when `ui` sets neither `listen` nor `static`). One address per namespace serves every such run of the method, since runs are sequential. It creates the run directory with mode `0700` (and re-applies the mode on an existing one), then decides about an existing socket file:
