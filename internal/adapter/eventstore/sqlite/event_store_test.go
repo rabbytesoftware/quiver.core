@@ -226,6 +226,27 @@ func TestEventStore_Append_DuplicateVersionReturnsPipelineFailed(t *testing.T) {
 	assert.Contains(t, err.Error(), "version conflict")
 }
 
+func TestEventStore_Append_DuplicateVersionIsAVersionConflict(t *testing.T) {
+	s := newTestEventStore(t)
+	ctx := context.Background()
+	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte(`{"a":1}`)))
+
+	err := s.Append(ctx, "agg-1", 1, []byte(`{"a":2}`))
+
+	assert.ErrorIs(t, err, ErrVersionConflict)
+	assert.ErrorIs(t, err, models.ErrPipelineFailed)
+}
+
+func TestEventStore_Append_StorageFailureIsNotAVersionConflict(t *testing.T) {
+	s := newTestEventStore(t)
+	require.NoError(t, s.Close())
+
+	err := s.Append(context.Background(), "agg-1", 1, []byte(`{"a":1}`))
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrVersionConflict)
+}
+
 func TestEventStore_Append_StorageFailureIsNotReportedAsConflict(t *testing.T) {
 	s := newTestEventStore(t)
 	require.NoError(t, s.Close())

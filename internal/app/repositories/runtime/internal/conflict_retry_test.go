@@ -3,10 +3,12 @@ package runtimeinternal_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	sqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -55,7 +58,7 @@ func (c *conflictingRuntime) Send(
 	}
 	c.mu.Unlock()
 	if remaining != 0 {
-		storeErr := fmt.Errorf("%w: version conflict (events:%s, v14)", asynxModels.ErrPipelineFailed, cmd.AggregateID())
+		storeErr := fmt.Errorf("%w: %w (events:%s, v14)", asynxModels.ErrPipelineFailed, sqlite.ErrVersionConflict, cmd.AggregateID())
 		return asynxModels.Event[domainRuntime.ArrowRuntime]{}, fmt.Errorf("%w: %w", asynxModels.ErrPipelineFailed, storeErr)
 	}
 	return c.Asynx.Send(ctx, cmd)
@@ -157,6 +160,7 @@ func TestSendSurface_SurvivesATransientVersionConflict(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rt.Execution.Surface)
 	assert.Equal(t, "/", rt.Execution.Surface.Path)
+	assert.Equal(t, 2, ax.sendsOf("commands.SetSurface"))
 }
 
 func TestSendEndExecution_SurvivesATransientVersionConflict(t *testing.T) {
@@ -171,6 +175,7 @@ func TestSendEndExecution_SurvivesATransientVersionConflict(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, rt.Execution)
 	assert.Equal(t, domain.ArrowStateReady, rt.State)
+	assert.Equal(t, 3, ax.sendsOf("commands.EndExecution"))
 }
 
 func TestSendPID_PersistentVersionConflict_GivesUpBoundedAndLogsOnce(t *testing.T) {
@@ -295,4 +300,72 @@ func TestConcurrentWriters_DrainAndProbe_NeitherIsLost(t *testing.T) {
 		require.True(t, rt.Execution.Surface.Ready)
 		require.Equal(t, domainRuntime.StepStatusRunning, rt.Execution.Steps[0].Status)
 	}
+}
+
+// failingSnapshots fails every snapshot write once armed, after the event
+// append it follows has already committed.
+type failingSnapshots struct {
+	sqlite.SnapshotStore
+	armed atomic.Bool
+}
+
+func (f *failingSnapshots) Put(ctx context.Context, aggregateID string, version int64, data []byte) error {
+	if f.armed.Load() {
+		return errors.New("snapshot: disk I/O error")
+	}
+	return f.SnapshotStore.Put(ctx, aggregateID, version, data)
+}
+
+func TestSendRetryingConflicts_DoesNotResendAfterACommittedAppend(t *testing.T) {
+	es, err := sqlite.NewEventStore(":memory:")
+	require.NoError(t, err)
+	inner, err := sqlite.NewSnapshotStore(":memory:")
+	require.NoError(t, err)
+	snapshots := &failingSnapshots{SnapshotStore: inner}
+	real, err := asynx.New[domainRuntime.ArrowRuntime]().
+		WithEventStore(es).
+		WithSnapshotStore(snapshots).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 4, QueueDepth: 100}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = real.Shutdown(context.Background()) })
+	seedRunningRuntimeForHooks(t, real, probeNs)
+	ax := withConflicts(real, map[string]int{})
+	snapshots.armed.Store(true)
+
+	err = runtimeinternal.SendRetryingConflicts(t.Context(), ax, commands.EndExecution{
+		Namespace: probeNs, ExecutionID: testExecutionID, Outcome: domainRuntime.ExecutionOutcomeSuccess,
+	})
+
+	require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
+	assert.NotErrorIs(t, err, sqlite.ErrVersionConflict)
+	assert.Equal(t, 1, ax.sendsOf("commands.EndExecution"))
+	rt, err := ax.Get(t.Context(), probeNs.String())
+	require.NoError(t, err)
+	assert.Nil(t, rt.Execution, "the end committed although Send reported a failure")
+}
+
+func TestSendRetryingConflicts_PlainPipelineFailureIsNotRetried(t *testing.T) {
+	sends := 0
+	ax := &pipelineFailingRuntime{Asynx: newTestRuntime(t), onSend: func() { sends++ }}
+
+	err := runtimeinternal.SendRetryingConflicts(t.Context(), ax, commands.RecordPID{
+		Namespace: probeNs, ExecutionID: testExecutionID, PID: 42,
+	})
+
+	require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
+	assert.Equal(t, 1, sends)
+}
+
+type pipelineFailingRuntime struct {
+	asynx.Asynx[domainRuntime.ArrowRuntime]
+	onSend func()
+}
+
+func (p *pipelineFailingRuntime) Send(
+	context.Context,
+	asynxModels.Command[domainRuntime.ArrowRuntime],
+) (asynxModels.Event[domainRuntime.ArrowRuntime], error) {
+	p.onSend()
+	return asynxModels.Event[domainRuntime.ArrowRuntime]{}, fmt.Errorf("%w: eventstore: append: disk I/O error", asynxModels.ErrPipelineFailed)
 }
