@@ -28,7 +28,7 @@ func newProxy(socket string) (http.Handler, *http.Transport) {
 	transport := unixTransport(socket)
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
-			r.Out.URL = &url.URL{Scheme: "http", Host: "localhost", Path: r.In.URL.Path, RawQuery: r.In.URL.RawQuery}
+			r.Out.URL = &url.URL{Scheme: "http", Host: "localhost", Path: r.In.URL.Path, RawQuery: r.Out.URL.RawQuery}
 			r.Out.Host = "localhost"
 			r.Out.Header.Del("Authorization")
 			r.Out.Header.Del("Cookie")

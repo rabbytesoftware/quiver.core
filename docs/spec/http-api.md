@@ -313,7 +313,7 @@ Registered from `internal/api/v0/endpoints/ui/routes.go`. Serves the interface a
 |---|---|---|
 | ANY | `/ui/{ns}/*path` | Proxy the arrow's open surface |
 
-Behind the same bearer gate as the rest of `/v0`: enforced when the daemon is bound to `tcp://`, a no-op on `unix://`. No extra TCP listener exists for the interface; it rides the daemon's own. Any method is accepted. The `/v0/ui/{ns}` prefix is stripped before the request reaches the surface and the query string is forwarded untouched. WebSocket upgrades ride the same route. `Authorization` and `Cookie` headers are removed before the request reaches the arrow. `{ns}` is resolved through the runtime (`GetRuntime`), so a refless namespace reaches the preferred row like the other routes. A `static` surface answers only `GET` and `HEAD` (405 otherwise).
+Behind the same bearer gate as the rest of `/v0`: enforced when the daemon is bound to `tcp://`, a no-op on `unix://`. No extra TCP listener exists for the interface; it rides the daemon's own. Any method is accepted. The `/v0/ui/{ns}` prefix is stripped before the request reaches the surface and the query string is forwarded as net/http sanitises it (parameters it cannot parse, such as ones containing a semicolon, are dropped). WebSocket upgrades ride the same route. `Authorization` and `Cookie` headers are removed before the request reaches the arrow. `{ns}` is resolved through the runtime (`GetRuntime`), so a refless namespace reaches the preferred row like the other routes. A `static` surface answers only `GET` and `HEAD` (405 otherwise).
 
 | Status | When |
 |---|---|

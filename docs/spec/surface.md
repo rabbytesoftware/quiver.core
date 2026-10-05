@@ -47,7 +47,7 @@ A `static` surface is reported ready by the wizard and `Ready` answers true with
 
 ## Serving
 
-**Listen mode** reverse-proxies to the arrow's unix socket. The outgoing request targets `http://localhost` with the incoming path and query, the `Authorization` and `Cookie` headers are deleted, compression is not negotiated, and the response is flushed as it arrives, so streaming bodies work. WebSocket upgrades are handled by the same proxy. A dial or transport failure answers `502 arrow surface unavailable`. One proxy, with one bounded connection pool (4 idle connections, 90 s idle timeout), exists per socket path: the engine caches it and `Cleanup` evicts it.
+**Listen mode** reverse-proxies to the arrow's unix socket. The outgoing request targets `http://localhost` with the incoming path and the query as net/http sanitised it (unparsable parameters, such as ones containing a semicolon, are dropped), the `Authorization` and `Cookie` headers are deleted, compression is not negotiated, and the response is flushed as it arrives, so streaming bodies work. WebSocket upgrades are handled by the same proxy. A dial or transport failure answers `502 arrow surface unavailable`. One proxy, with one bounded connection pool (4 idle connections, 90 s idle timeout), exists per socket path: the engine caches it and `Cleanup` evicts it.
 
 **Static mode** serves a directory read-only (`GET` and `HEAD`, 405 otherwise). The directory is opened as an `os.Root` for each request, so a symlink pointing outside it cannot be followed. A request for `/` serves `index.html`, a directory serves its `index.html`, and a missing path without a file extension falls back to the root `index.html` so single-page apps can route on the client. A missing file with an extension is a 404.
 

@@ -20,7 +20,7 @@ func New(svc usecases.SurfaceUsecase) *Handlers { return &Handlers{svc: svc} }
 // Serve proxies the request to the arrow's open surface.
 //
 // @Summary      Serve arrow interface
-// @Description  Reverse-proxies any method and path under the namespace to the arrow's open interface, with the /v0/ui/{ns} prefix stripped and the query string forwarded untouched. WebSocket upgrades ride the same route. Authorization and Cookie headers are never forwarded to the arrow.
+// @Description  Reverse-proxies any method and path under the namespace to the arrow's open interface, with the /v0/ui/{ns} prefix stripped and the query string forwarded as net/http sanitises it (unparsable parameters are dropped). WebSocket upgrades ride the same route. Authorization and Cookie headers are never forwarded to the arrow.
 // @Tags         ui
 // @Param        ns    path  string  true  "Arrow namespace"
 // @Param        path  path  string  true  "Path inside the arrow interface"

@@ -48,6 +48,20 @@ func TestProxy_ForwardsAndStripsCredentials(t *testing.T) {
 	require.Equal(t, "/assets/app.js||", rec.Body.String())
 }
 
+func TestProxy_ForwardsOnlyTheSanitisedQuery(t *testing.T) {
+	e, spec := serveOnSocket(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.URL.RawQuery))
+	}))
+	h, err := e.Handler(spec)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/q?a=1;b=2&c=3", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "c=3", rec.Body.String())
+}
+
 func TestProxy_ArrowDownIs502(t *testing.T) {
 	e := surface.New(shortDir(t))
 	h, err := e.Handler(surface.Spec{Mode: domainRuntime.SurfaceModeListen, Namespace: "a/b"})
