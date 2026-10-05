@@ -18,7 +18,6 @@ var stepFactories = map[string]func() Step{
 	string(StepTypeDependencies): func() Step { return &DependenciesStep{} },
 	string(StepTypeExpose):       func() Step { return &ExposeStep{} },
 	string(StepTypeUnexpose):     func() Step { return &UnexposeStep{} },
-	string(StepTypeUI):           func() Step { return &UIStep{} },
 }
 
 // decodeStep resolves the factory for a given type string and returns a zero-value Step.
@@ -80,8 +79,6 @@ func derefStep(s Step) Step {
 	case *ExposeStep:
 		return *v
 	case *UnexposeStep:
-		return *v
-	case *UIStep:
 		return *v
 	default:
 		return s

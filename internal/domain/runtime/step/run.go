@@ -7,6 +7,9 @@ type RunStep struct {
 	Command  Overrideable[string] `json:"command"`
 	Elevated Overrideable[bool]   `json:"elevated"`
 	Timeout  Overrideable[string] `json:"timeout"`
+	// UI, when set, is the interface that exists exactly while this run's
+	// process runs.
+	UI *UIOptions `json:"ui,omitempty"`
 }
 
 func (s RunStep) Resolve(os string) Step {
@@ -31,6 +34,14 @@ func NewRunStep(
 	}
 }
 
+// WithUI returns the step with ui as the interface it opens while it runs.
+func (s RunStep) WithUI(
+	ui UIOptions,
+) RunStep {
+	s.UI = &ui
+	return s
+}
+
 func (s RunStep) MarshalJSON() ([]byte, error) {
 	type wire struct {
 		Kind          StepType             `json:"type"`
@@ -39,6 +50,7 @@ func (s RunStep) MarshalJSON() ([]byte, error) {
 		Command       Overrideable[string] `json:"command"`
 		Elevated      Overrideable[bool]   `json:"elevated"`
 		Timeout       Overrideable[string] `json:"timeout"`
+		UI            *UIOptions           `json:"ui,omitempty"`
 	}
 	return json.Marshal(wire{
 		Kind:          s.Type(),
@@ -47,6 +59,7 @@ func (s RunStep) MarshalJSON() ([]byte, error) {
 		Command:       s.Command,
 		Elevated:      s.Elevated,
 		Timeout:       s.Timeout,
+		UI:            s.UI,
 	})
 }
 
@@ -58,6 +71,7 @@ func (s *RunStep) UnmarshalJSON(data []byte) error {
 		Command       Overrideable[string] `json:"command"`
 		Elevated      Overrideable[bool]   `json:"elevated"`
 		Timeout       Overrideable[string] `json:"timeout"`
+		UI            *UIOptions           `json:"ui,omitempty"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return err
@@ -66,5 +80,6 @@ func (s *RunStep) UnmarshalJSON(data []byte) error {
 	s.Command = wire.Command
 	s.Elevated = wire.Elevated
 	s.Timeout = wire.Timeout
+	s.UI = wire.UI
 	return nil
 }

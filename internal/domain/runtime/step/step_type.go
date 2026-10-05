@@ -11,5 +11,4 @@ const (
 	StepTypeDependencies StepType = "dependencies"
 	StepTypeExpose       StepType = "expose"
 	StepTypeUnexpose     StepType = "unexpose"
-	StepTypeUI           StepType = "ui"
 )

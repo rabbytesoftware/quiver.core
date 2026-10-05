@@ -1075,49 +1075,96 @@ targets:
   "*":
     lifecycle:
       execute:
-        - type: ui
+        - type: run
+          command: ./chat
 `
 
-func TestMap_UIStep_ListenCompilesToUIStep(t *testing.T) {
-	data := []byte(uiManifestHead + `          title: Chat
+func TestMap_RunUI_ListenCompilesToRunUI(t *testing.T) {
+	data := []byte(uiManifestHead + `          ui:
+            title: Chat
+            listen: [unix]
+            path: /
+`)
+	require.NoError(t, validateAgainstSchema(t, v0.New().Schema(), data))
+
+	_, precompiled, err := v0.New().Parse(data)
+	require.NoError(t, err)
+
+	execute := precompiled["*"].Lifecycle.Execute
+	require.Len(t, execute, 1)
+	got, ok := execute[0].(step.RunStep)
+	require.True(t, ok, "execute[0] is %T, want RunStep", execute[0])
+	require.NotNil(t, got.UI)
+	require.Equal(t, step.UIOptions{Title: "Chat", Path: "/", Listen: []string{"unix"}}, *got.UI)
+}
+
+func TestMap_RunUI_AbsentLeavesNoUI(t *testing.T) {
+	_, precompiled, err := v0.New().Parse([]byte(uiManifestHead))
+	require.NoError(t, err)
+
+	got := precompiled["*"].Lifecycle.Execute[0].(step.RunStep)
+	require.Nil(t, got.UI)
+}
+
+func TestMap_RunUI_UnknownFieldRejectedBySchema(t *testing.T) {
+	data := []byte(uiManifestHead + `          ui:
+            listen: [unix]
+            upstream: x
+`)
+	require.Error(t, validateAgainstSchema(t, v0.New().Schema(), data))
+}
+
+func TestMap_RunUI_UnknownListenKindRejectedBySchema(t *testing.T) {
+	data := []byte(uiManifestHead + `          ui:
+            listen: [tcp]
+`)
+	require.Error(t, validateAgainstSchema(t, v0.New().Schema(), data))
+}
+
+func TestMap_RunUI_StaticCompilesToRunUI(t *testing.T) {
+	data := []byte(uiManifestHead + `          ui:
+            title: Docs
+            static: ./dist
+`)
+	require.NoError(t, validateAgainstSchema(t, v0.New().Schema(), data))
+
+	_, precompiled, err := v0.New().Parse(data)
+	require.NoError(t, err)
+
+	got := precompiled["*"].Lifecycle.Execute[0].(step.RunStep)
+	require.NotNil(t, got.UI)
+	require.Equal(t, step.UIOptions{Title: "Docs", Static: "./dist"}, *got.UI)
+}
+
+func TestMap_RunUI_StandaloneUIStepRejectedBySchema(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: ui-test
+targets:
+  "*":
+    lifecycle:
+      execute:
+        - type: ui
           listen: [unix]
-          path: /
-`)
-	require.NoError(t, validateAgainstSchema(t, v0.New().Schema(), data))
-
-	_, precompiled, err := v0.New().Parse(data)
-	require.NoError(t, err)
-
-	execute := precompiled["*"].Lifecycle.Execute
-	require.Len(t, execute, 1)
-	got, ok := execute[0].(step.UIStep)
-	require.True(t, ok, "execute[0] is %T, want UIStep", execute[0])
-	require.Equal(t, step.NewUIStep("Chat", []string{"unix"}, "", "/", true), got)
-}
-
-func TestMap_UIStep_UpstreamRejectedBySchema(t *testing.T) {
-	data := []byte(uiManifestHead + `          listen: [unix]
-          upstream: x
 `)
 	require.Error(t, validateAgainstSchema(t, v0.New().Schema(), data))
 }
 
-func TestMap_UIStep_UnknownListenKindRejectedBySchema(t *testing.T) {
-	data := []byte(uiManifestHead + `          listen: [tcp]
+func TestMap_RunUI_OnNonRunStepRejectedBySchema(t *testing.T) {
+	data := []byte(`
+schema: "arrow@v0"
+metadata:
+  name: ui-test
+targets:
+  "*":
+    lifecycle:
+      execute:
+        - type: fetch
+          url: https://example.com/a
+          to: ./a
+          ui:
+            listen: [unix]
 `)
 	require.Error(t, validateAgainstSchema(t, v0.New().Schema(), data))
-}
-
-func TestMap_UIStep_StaticCompilesToUIStep(t *testing.T) {
-	data := []byte(uiManifestHead + `          title: Docs
-          static: ./dist
-`)
-	require.NoError(t, validateAgainstSchema(t, v0.New().Schema(), data))
-
-	_, precompiled, err := v0.New().Parse(data)
-	require.NoError(t, err)
-
-	execute := precompiled["*"].Lifecycle.Execute
-	require.Len(t, execute, 1)
-	require.Equal(t, step.NewUIStep("Docs", nil, "./dist", "", true), execute[0])
 }

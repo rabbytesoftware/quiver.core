@@ -174,7 +174,7 @@
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
-        "type":            { "type": "string", "enum": ["run", "fetch", "extract", "portable", "signal", "ui"] },
+        "type":            { "type": "string", "enum": ["run", "fetch", "extract", "portable", "signal"] },
         "title":           { "type": "string" },
         "exit_on_failure": { "type": "boolean" },
         "command":         {},
@@ -186,9 +186,19 @@
         "elevated":        {},
         "timeout":         {},
         "name":            { "type": "string" },
-        "listen":          { "type": "array", "items": { "type": "string", "enum": ["unix", "pipe"] }, "minItems": 1 },
-        "static":          { "type": "string" },
-        "path":            { "type": "string" }
+        "ui":              { "$ref": "#/$defs/RunUI" }
+      },
+      "if": { "properties": { "type": { "const": "run" } } },
+      "else": { "not": { "required": ["ui"] } }
+    },
+    "RunUI": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title":  { "type": "string" },
+        "path":   { "type": "string" },
+        "listen": { "type": "array", "items": { "type": "string", "enum": ["unix", "pipe"] }, "minItems": 1 },
+        "static": { "type": "string" }
       }
     },
     "Variable": {

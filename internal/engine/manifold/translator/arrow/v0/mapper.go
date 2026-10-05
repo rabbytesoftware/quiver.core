@@ -292,6 +292,9 @@ func toStep(s stepV0) (step.Step, error) {
 		st.Command = toStepOverrideable(s.Command)
 		st.Elevated = toStepOverrideableBool(s.Elevated)
 		st.Timeout = toStepOverrideable(s.Timeout)
+		if s.UI != nil {
+			st = st.WithUI(toUIOptions(*s.UI))
+		}
 		return st, nil
 
 	case "fetch":
@@ -331,14 +334,22 @@ func toStep(s stepV0) (step.Step, error) {
 		st.Timeout = toStepOverrideable(s.Timeout)
 		return st, nil
 
-	case "ui":
-		return step.NewUIStep(s.Title, s.Listen, s.Static, s.Path, exitOnFailure), nil
-
 	case "dependencies":
 		return nil, fmt.Errorf("step type \"dependencies\" is synthetic and must not appear in manifests")
 
 	default:
 		return nil, fmt.Errorf("unknown step type: %q", s.Type)
+	}
+}
+
+func toUIOptions(
+	u uiV0,
+) step.UIOptions {
+	return step.UIOptions{
+		Title:  u.Title,
+		Path:   u.Path,
+		Listen: u.Listen,
+		Static: u.Static,
 	}
 }
 

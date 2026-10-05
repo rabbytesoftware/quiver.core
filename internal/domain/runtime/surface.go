@@ -10,11 +10,13 @@ const (
 	SurfaceModeStatic SurfaceMode = "static"
 )
 
-// Surface is the interface an execution has opened. It lives on Execution so
-// it shares the execution's lifetime: ending or replacing the execution
-// closes the surface with no extra bookkeeping.
+// Surface is the interface a run step of the current execution has opened. It
+// lives on Execution and is cleared when that run exits; ending or replacing
+// the execution drops it too.
 type Surface struct {
-	Mode SurfaceMode `json:"mode"`
+	// Title is the name the shell shows for the interface, may be empty.
+	Title string      `json:"title,omitempty"`
+	Mode  SurfaceMode `json:"mode"`
 	// Path is the initial path the shell opens, always starting with "/".
 	Path string `json:"path"`
 	// Dir is the absolute directory served in static mode.
