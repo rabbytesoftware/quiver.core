@@ -3,6 +3,7 @@ package assemblerinternal_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -1348,4 +1350,15 @@ func TestResolveVariables_PrepareErrorPropagates(t *testing.T) {
 	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
 
 	require.ErrorIs(t, resolveErr(t, socks, steps), prepareErr)
+}
+
+func TestResolveVariables_SocketPathTooLongIsAConfigError(t *testing.T) {
+	socks := &fakeSockets{err: fmt.Errorf("%w: 108 bytes (max 107): /x", surface.ErrPathTooLong)}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
+
+	err := resolveErr(t, socks, steps)
+
+	require.ErrorIs(t, err, apperrors.ErrInvalidConfig)
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+	require.Contains(t, err.Error(), "108 bytes")
 }

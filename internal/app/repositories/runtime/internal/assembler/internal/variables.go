@@ -17,6 +17,7 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -29,6 +30,20 @@ type SocketProvider interface {
 	Prepare(
 		ns domain.Namespace,
 	) (string, error)
+}
+
+// provisionSocket asks surfaces for the interface socket address. A path that
+// is too long is the user's own home being too deep, so it is reported as a
+// configuration problem naming the path, not as an internal error.
+func provisionSocket(ns domain.Namespace, surfaces SocketProvider) (string, error) {
+	socket, err := surfaces.Prepare(ns)
+	if errors.Is(err, surface.ErrPathTooLong) {
+		return "", fmt.Errorf("%w: provision interface socket: %w", apperrors.ErrInvalidConfig, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("provision interface socket: %w", err)
+	}
+	return socket, nil
 }
 
 // ResolveVariables builds the variable map for an execution using 6 priority
@@ -55,9 +70,9 @@ func ResolveVariables( //nolint:gocyclo
 		return nil, err
 	}
 	if surfaces != nil && hasListenUI(steps) {
-		socket, err := surfaces.Prepare(ns)
+		socket, err := provisionSocket(ns, surfaces)
 		if err != nil {
-			return nil, fmt.Errorf("provision interface socket: %w", err)
+			return nil, err
 		}
 		vars[domain.VarArrowUIListen] = socket
 	}
