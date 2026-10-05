@@ -207,7 +207,14 @@ func (w *wizard) Start(
 	// survives by default. A surviving execution is counted in neither w.wg
 	// nor w.shutdownCtx's cancellation, so Shutdown neither waits for it nor
 	// asks it to exit.
-	oneShot := IsOneShotMethod(req.Method)
+	//
+	// An execution that holds a ui surface is the exception: its interface is
+	// reached only through this daemon's proxy and crash recovery cannot hand
+	// the surface to the next daemon (RecordDetached drops the execution, and
+	// with it the surface and the pid a stop would signal). Surviving would
+	// leave an arrow app running that nothing can reach or stop, so it ends
+	// with the daemon, like a one-shot method.
+	oneShot := IsOneShotMethod(req.Method) || opensSurface(req.Steps)
 	if oneShot {
 		w.wg.Add(1)
 	}
@@ -320,6 +327,16 @@ func (w *wizard) enterProbe() error {
 	w.wg.Add(1)
 
 	return nil
+}
+
+// opensSurface reports whether any of steps gives its run an interface.
+func opensSurface(steps []domainstep.Step) bool {
+	for _, s := range steps {
+		if run, ok := s.(domainstep.RunStep); ok && run.UI != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // IsOneShotMethod reports whether method is one of the four one-shot

@@ -61,7 +61,8 @@ The surface exists exactly while the process of the `run` step that declared it 
 - While open it is `active_run.surface` on the runtime and `GET/ANY /v0/ui/{ns}/*path` serves it. Once the run exits the field is gone and the route answers `503`.
 - On a failed run the surface is closed before the step is reported failed, and a failed run still ends the method per its `exit_on_failure`.
 - `stop` replaces the running execution: the surface leaves `active_run` the moment the stop begins, because the stop is a new execution with no surface of its own, and the socket is removed when the stop execution ends. The old run's drain is superseded and never touches the new execution or its surface.
-- A daemon shutdown or crash leaves the socket file on disk. The next `Prepare` for the namespace clears a socket nothing answers on.
+- A graceful daemon shutdown ends a run that holds a surface, whatever its method, with the rest of the daemon's one-shot runs (`wizard.Shutdown` cancels it and waits): unlike a plain supervised `_execute`, which survives and is recovered as detached, a surface cannot be handed to the next daemon (recovery drops the execution, and with it the surface and the pid), so surviving would leave an interface nothing can reach or stop. The socket file is removed with it.
+- A daemon crash leaves the socket file on disk and the run's process alive. The next `Prepare` for the namespace clears a socket nothing answers on; the surviving process is recovered as `detached` like any other supervised run, without its surface.
 
 A `static` surface needs a run to live: the run is only the lifetime anchor and has to keep running (for example `sleep infinity`). A run that exits at once closes the surface at once.
 

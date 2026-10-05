@@ -352,6 +352,30 @@ func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
 	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
 }
 
+func TestWizard_Shutdown_CancelsAnExecutionThatHoldsASurface(t *testing.T) {
+	w, err := New(nil, testExtractMaxBytes)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 30", false, "60s", true).
+		WithUI(domainstep.UIOptions{Static: "."})
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+		}
+	}
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, exec.Outcome())
+}
+
 func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
 	w, err := New(nil, testExtractMaxBytes)
 	require.NoError(t, err)
