@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,10 +15,10 @@ import (
 )
 
 // shortDir returns a directory with a path short enough for a unix socket
-// (t.TempDir on macOS is too long).
+// (t.TempDir's per-test name can exceed the limit).
 func shortDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "qs")
+	dir, err := os.MkdirTemp("", "qs")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
@@ -30,7 +31,7 @@ func TestSocketPath_IsDeterministicAndShort(t *testing.T) {
 	a, b := e.SocketPath(ns), e.SocketPath(ns)
 	require.Equal(t, a, b)
 	require.NotEqual(t, a, e.SocketPath("github.com/user/other"))
-	require.Equal(t, "/home/u/.quiver/run", filepath.Dir(a))
+	require.Equal(t, filepath.FromSlash("/home/u/.quiver/run"), filepath.Dir(a))
 	require.Regexp(t, `^[0-9a-f]{12}\.sock$`, filepath.Base(a))
 }
 
@@ -44,7 +45,9 @@ func TestPrepare_CreatesPrivateDirAndReturnsPath(t *testing.T) {
 
 	info, err := os.Stat(run)
 	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
 }
 
 func TestPrepare_RemovesStaleSocket(t *testing.T) {
