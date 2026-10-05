@@ -14,7 +14,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/ui/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
-	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 )
 
 func TestMain(m *testing.M) {
@@ -65,7 +64,7 @@ func TestServe_BareNamespaceRedirectsToTrailingSlash(t *testing.T) {
 }
 
 func TestServe_NoSurfaceIs503(t *testing.T) {
-	svc := &mocks.SurfaceService{HandlerErr: usecases.ErrNoSurface}
+	svc := &mocks.SurfaceService{HandlerErr: apperrors.ErrNoSurface}
 	rec := httptest.NewRecorder()
 	setup(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/ui/a%2Fb/", nil))
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -87,7 +86,10 @@ func TestServe_OtherErrorIs500(t *testing.T) {
 
 // serveWithRecovery runs the route behind the real RequestRecovery middleware
 // on a real server, so what net/http does with a panic reaches the client.
-func serveWithRecovery(t *testing.T, svc *mocks.SurfaceService) *httptest.Server {
+func serveWithRecovery(
+	t *testing.T,
+	svc *mocks.SurfaceService,
+) *httptest.Server {
 	t.Helper()
 	r := gin.New()
 	r.Use(middleware.RequestRecovery())

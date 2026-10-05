@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
@@ -26,11 +27,17 @@ type stubRuntimeUsecase struct {
 	err error
 }
 
-func (s stubRuntimeUsecase) GetRuntime(context.Context, domain.Namespace) (*domainRuntime.ArrowRuntime, error) {
+func (s stubRuntimeUsecase) GetRuntime(
+	context.Context,
+	domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
 	return s.rt, s.err
 }
 
-func runtimeReturning(rt *domainRuntime.ArrowRuntime, err error) usecases.RuntimeUsecase {
+func runtimeReturning(
+	rt *domainRuntime.ArrowRuntime,
+	err error,
+) usecases.RuntimeUsecase {
 	return stubRuntimeUsecase{rt: rt, err: err}
 }
 
@@ -40,13 +47,13 @@ func TestSurfaceUsecase_Handler(t *testing.T) {
 
 	t.Run("no runtime record", func(t *testing.T) {
 		_, err := usecases.NewSurfaceUsecase(runtimeReturning(nil, nil), eng).Handler(t.Context(), ns)
-		require.ErrorIs(t, err, usecases.ErrNoSurface)
+		require.ErrorIs(t, err, apperrors.ErrNoSurface)
 	})
 
 	t.Run("no execution", func(t *testing.T) {
 		rt := runtimeReturning(&domainRuntime.ArrowRuntime{Ref: ns, State: domain.ArrowStateReady}, nil)
 		_, err := usecases.NewSurfaceUsecase(rt, eng).Handler(t.Context(), ns)
-		require.ErrorIs(t, err, usecases.ErrNoSurface)
+		require.ErrorIs(t, err, apperrors.ErrNoSurface)
 	})
 
 	t.Run("execution without surface", func(t *testing.T) {
@@ -54,7 +61,7 @@ func TestSurfaceUsecase_Handler(t *testing.T) {
 			Ref: ns, Execution: &domainRuntime.Execution{ID: "e1"},
 		}, nil)
 		_, err := usecases.NewSurfaceUsecase(rt, eng).Handler(t.Context(), ns)
-		require.ErrorIs(t, err, usecases.ErrNoSurface)
+		require.ErrorIs(t, err, apperrors.ErrNoSurface)
 	})
 
 	t.Run("runtime lookup error is passed through", func(t *testing.T) {

@@ -4,11 +4,14 @@ package ui
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/ui/handlers"
+	uihandlers "github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/ui/handlers"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 )
 
-func Register(rg *gin.RouterGroup, svc usecases.SurfaceUsecase) {
-	h := handlers.New(svc)
+func Register(
+	rg *gin.RouterGroup,
+	svc usecases.SurfaceUsecase,
+) {
+	h := uihandlers.New(svc)
 	rg.Any("/ui/:ns/*path", h.Serve)
 }

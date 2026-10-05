@@ -13,6 +13,9 @@ type SurfaceService struct {
 	HandlerErr    error
 }
 
-func (m *SurfaceService) Handler(context.Context, domain.Namespace) (http.Handler, error) {
+func (m *SurfaceService) Handler(
+	context.Context,
+	domain.Namespace,
+) (http.Handler, error) {
 	return m.HandlerResult, m.HandlerErr
 }

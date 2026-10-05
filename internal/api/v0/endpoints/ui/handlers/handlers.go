@@ -13,9 +13,15 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 )
 
-type Handlers struct{ svc usecases.SurfaceUsecase }
+type Handlers struct {
+	svc usecases.SurfaceUsecase
+}
 
-func New(svc usecases.SurfaceUsecase) *Handlers { return &Handlers{svc: svc} }
+func New(
+	svc usecases.SurfaceUsecase,
+) *Handlers {
+	return &Handlers{svc: svc}
+}
 
 // Serve proxies the request to the arrow's open surface.
 //
@@ -30,12 +36,14 @@ func New(svc usecases.SurfaceUsecase) *Handlers { return &Handlers{svc: svc} }
 // @Failure      502   {string}  string            "The arrow interface did not answer"
 // @Failure      503   {object}  libs.ErrResponse  "Arrow has no open interface"
 // @Router       /ui/{ns}/{path} [get]
-func (h *Handlers) Serve(c *gin.Context) {
+func (h *Handlers) Serve(
+	c *gin.Context,
+) {
 	ns := domain.Namespace(c.Param("ns"))
 
 	handler, err := h.svc.Handler(c.Request.Context(), ns)
 	switch {
-	case errors.Is(err, usecases.ErrNoSurface):
+	case errors.Is(err, apperrors.ErrNoSurface):
 		libs.WriteErr(c, http.StatusServiceUnavailable, "arrow has no open surface", string(ns))
 		return
 	case errors.Is(err, apperrors.ErrNotFound):
