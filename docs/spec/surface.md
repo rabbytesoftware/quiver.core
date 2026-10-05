@@ -22,9 +22,9 @@ The engine is stateless apart from a per-socket proxy cache, and imports no othe
 
 v0 provisions a unix socket only. The `run_ui` rule therefore rejects a `listen` list without `unix` (`[pipe]` alone), so an arrow is never handed a filesystem socket path it asked to receive as a pipe name.
 
-The address is `<run dir>/<12 hex>.sock`, where the 12 hex characters are the first six bytes of `sha256(namespace)`. It is deterministic, so the same namespace always maps to the same socket. A unix socket path is limited by `sockaddr_un` (about 104 bytes on darwin, 108 on linux), so `Prepare` refuses an address longer than 100 bytes with `ErrPathTooLong`. Hashing keeps the file name short whatever the namespace length; only a deeply nested run directory can trip the limit.
+The address is `<run dir>/<12 hex>.sock`, where the 12 hex characters are the first six bytes of `sha256(namespace)`. It is deterministic, so the same namespace always maps to the same socket. A unix socket path is limited by `sockaddr_un`, whose last byte is the NUL: 104 bytes on darwin and the BSDs, 108 on linux and windows. So `Prepare` refuses an address longer than 103 bytes on darwin and the BSDs and 107 elsewhere (`MaxSocketPath`) with `ErrPathTooLong`, before it touches the disk. Both edges were measured with a real bind: macOS binds at 103 and fails at 104, Windows binds and dials at 107 and fails at 108. Hashing keeps the file name short whatever the namespace length; only a deeply nested run directory can trip the limit.
 
-On Windows the same address form is an AF_UNIX socket at a backslash path (`C:\Users\<user>\.quiver\run\<12 hex>.sock`, a reparse point on disk), and both Go's `net.Listen("unix", ...)` and the engine's dial work with it; Windows allows 107 bytes there, so the 100 byte limit still applies. Windows has no file mode, so the `0700` on the run directory is not applied and the directory keeps the ACL it inherits from its parent. A run is a `cmd.exe /C` shell wrapper, and stopping or cancelling it ends the whole process tree (`taskkill /T`), not only `cmd.exe`, so the program holding the socket does not outlive its run.
+On Windows the same address form is an AF_UNIX socket at a backslash path (`C:\Users\<user>\.quiver\run\<12 hex>.sock`, a reparse point on disk), and both Go's `net.Listen("unix", ...)` and the engine's dial work with it; Windows has no file mode, so the `0700` on the run directory is not applied and the directory keeps the ACL it inherits from its parent. A run is a `cmd.exe /C` shell wrapper, and stopping or cancelling it ends the whole process tree (`taskkill /T`), not only `cmd.exe`, so the program holding the socket does not outlive its run.
 
 ## Prepare and Cleanup
 
@@ -69,6 +69,6 @@ A `static` surface needs a run to live: the run is only the lifetime anchor and 
 
 | Error | Meaning |
 |-------|---------|
-| `ErrPathTooLong` | The socket address exceeds 100 bytes |
+| `ErrPathTooLong` | The socket address exceeds `MaxSocketPath` (103 bytes on darwin and the BSDs, 107 elsewhere) |
 | `ErrNoSurface` | The spec names no servable mode |
 | `usecases.ErrNoSurface` | The arrow has no open surface (mapped to 503 by the route) |

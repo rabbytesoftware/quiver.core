@@ -20,10 +20,6 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 )
 
-// maxSocketPath is below the darwin limit (104 with the NUL) and the linux
-// one (108).
-const maxSocketPath = 100
-
 var (
 	// ErrPathTooLong means the socket address would not fit a sockaddr_un.
 	ErrPathTooLong = errors.New("surface: socket path too long")
@@ -96,8 +92,8 @@ func (e *engine) Prepare(
 	ns domain.Namespace,
 ) (string, error) {
 	path := e.SocketPath(ns)
-	if len(path) > maxSocketPath {
-		return "", fmt.Errorf("%w: %d bytes (max %d): %s", ErrPathTooLong, len(path), maxSocketPath, path)
+	if len(path) > MaxSocketPath {
+		return "", fmt.Errorf("%w: %d bytes (max %d): %s", ErrPathTooLong, len(path), MaxSocketPath, path)
 	}
 	if err := os.MkdirAll(e.runDir, 0o700); err != nil {
 		return "", fmt.Errorf("surface: create run dir: %w", err)

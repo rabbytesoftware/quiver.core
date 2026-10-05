@@ -82,6 +82,56 @@ func TestPrepare_PathTooLong(t *testing.T) {
 	require.ErrorIs(t, err, surface.ErrPathTooLong)
 }
 
+// socketDirFor returns a run dir under a fresh temp dir whose socket address for
+// ns is exactly n bytes.
+func socketDirFor(t *testing.T, ns string, n int) string {
+	t.Helper()
+	base := shortDir(t)
+	sock := len(surface.New(base).SocketPath(domain.Namespace(ns)))
+	pad := n - sock - 1
+	require.Positive(t, pad, "temp dir %q is already too long for %d bytes", base, n)
+	dir := filepath.Join(base, strings.Repeat("d", pad))
+	require.Len(t, surface.New(dir).SocketPath(domain.Namespace(ns)), n)
+	return dir
+}
+
+// The limit is the measured one: the longest address Prepare accepts is one a
+// bind and a dial really work at, and one byte more is refused here and by the
+// kernel.
+func TestPrepare_PathLimitIsTheRealOne(t *testing.T) {
+	ok := socketDirFor(t, "a/b", surface.MaxSocketPath)
+	e := surface.New(ok)
+	path, err := e.Prepare("a/b")
+	require.NoError(t, err)
+	require.Len(t, path, surface.MaxSocketPath)
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err, "a bind at the limit must work")
+	defer l.Close()
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			_ = c.Close()
+		}
+	}()
+	c, err := net.Dial("unix", path)
+	require.NoError(t, err, "a dial at the limit must work")
+	_ = c.Close()
+
+	over := socketDirFor(t, "a/b", surface.MaxSocketPath+1)
+	_, err = surface.New(over).Prepare("a/b")
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+	require.NoError(t, os.MkdirAll(over, 0o700))
+	_, err = net.Listen("unix", surface.New(over).SocketPath("a/b"))
+	require.Error(t, err, "one byte over the limit the kernel refuses too")
+}
+
+func TestPrepare_TooLongCreatesNothing(t *testing.T) {
+	dir := socketDirFor(t, "a/b", surface.MaxSocketPath+1)
+	_, err := surface.New(dir).Prepare("a/b")
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+	_, statErr := os.Stat(dir)
+	require.True(t, os.IsNotExist(statErr), "a refused Prepare must not create the run dir")
+}
+
 func TestCleanup_RemovesSocket(t *testing.T) {
 	e := surface.New(shortDir(t))
 	path, err := e.Prepare("a/b")
