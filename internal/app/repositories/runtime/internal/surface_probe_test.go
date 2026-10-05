@@ -285,3 +285,36 @@ func TestFinishExecution_SupersededRunLeavesSurfaceOpen(t *testing.T) {
 
 	assert.Zero(t, closed)
 }
+
+func TestFinishExecution_InstallSurfaceIsClosedAndDroppedAtEnd(t *testing.T) {
+	testCases := []struct {
+		name    string
+		outcome domainRuntime.ExecutionOutcome
+	}{
+		{name: "success", outcome: domainRuntime.ExecutionOutcomeSuccess},
+		{name: "failure", outcome: domainRuntime.ExecutionOutcomeFailed},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ax := newTestRuntime(t)
+			var closed []domain.Namespace
+			hooks := runtimeinternal.CatalogHooks{
+				MarkInstalled: noopMarkInstalled,
+				CloseSurface:  func(ns domain.Namespace) { closed = append(closed, ns) },
+			}
+			exec := newFakeExecution(tc.outcome)
+			exec.emit(wizard.Event{
+				Kind:    wizard.EventKindSurface,
+				Surface: &domainRuntime.Surface{Mode: domainRuntime.SurfaceModeStatic, Path: "/", Ready: true},
+			})
+			exec.close()
+
+			runtimeinternal.DrainExecutionWithHooks(t.Context(), exec, probeNs.String(), testExecutionID, domain.MethodInstall, hooks, ax)
+
+			assert.Equal(t, []domain.Namespace{probeNs}, closed)
+			rt, err := ax.Get(t.Context(), probeNs.String())
+			require.NoError(t, err)
+			assert.Nil(t, rt.Execution, "an ended install keeps no surface for the proxy to serve")
+		})
+	}
+}
