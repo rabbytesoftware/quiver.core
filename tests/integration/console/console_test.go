@@ -121,5 +121,5 @@ func (s *ConsoleSuite) TestConsole_Logs_StreamTheDaemonsOwnAuditRecord() {
 		s.Require().NoError(conn.ReadJSON(&f))
 	}
 	s.Equal("console", f["component"])
-	s.Equal("local", f["fields"].(map[string]any)["device"])
+	s.Equal("unix", f["fields"].(map[string]any)["device"])
 }
