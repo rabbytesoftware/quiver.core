@@ -253,6 +253,8 @@ func (p *blockingProvider) searches() int {
 // and stubs only where the network would otherwise be.
 type acceptanceEnv struct {
 	srv      *httptest.Server
+	app      *app.Container
+	v0       *apiv0.Container
 	ws       *wshandler.Handler
 	provider *blockingProvider
 	manifold *countingManifold
@@ -267,7 +269,9 @@ func stop(shutdown func(ctx context.Context) error) {
 	_ = shutdown(ctx)
 }
 
-func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
+// newAcceptanceEnv builds the daemon. Each before hook runs on the app
+// container ahead of the v0 layer, so a test can swap a piece for a stub.
+func newAcceptanceEnv(t *testing.T, before ...func(*app.Container)) *acceptanceEnv {
 	t.Helper()
 
 	home := t.TempDir()
@@ -298,6 +302,10 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	// files, so only draining first is load-bearing.
 	t.Cleanup(func() { stop(appContainer.Shutdown) })
 
+	for _, hook := range before {
+		hook(appContainer)
+	}
+
 	v0, err := apiv0.New(appContainer)
 	require.NoError(t, err)
 
@@ -312,7 +320,7 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	handler, ok := v0.WSHandler().(*wshandler.Handler)
 	require.True(t, ok)
 
-	return &acceptanceEnv{srv: srv, ws: handler, provider: prov, manifold: man}
+	return &acceptanceEnv{srv: srv, app: appContainer, v0: v0, ws: handler, provider: prov, manifold: man}
 }
 
 func (e *acceptanceEnv) get(

@@ -15,6 +15,7 @@ import (
 type Container struct {
 	arrowSvc      usecases.ArrowUsecase
 	runtimeSvc    usecases.RuntimeUsecase
+	surfaceSvc    usecases.SurfaceUsecase
 	collectionSvc usecases.CollectionUsecase
 	searchSvc     usecases.SearchUsecase
 	discoverySvc  usecases.DiscoveryUsecase
@@ -63,6 +64,7 @@ func New(
 	return &Container{
 		arrowSvc:      appContainer.Arrow,
 		runtimeSvc:    appContainer.Runtime,
+		surfaceSvc:    appContainer.Surface,
 		collectionSvc: appContainer.Collection,
 		searchSvc:     appContainer.Search,
 		discoverySvc:  appContainer.Discovery,

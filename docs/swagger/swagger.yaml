@@ -858,6 +858,8 @@ definitions:
         items:
           $ref: '#/definitions/dto.StepProgressDTO'
         type: array
+      surface:
+        $ref: '#/definitions/dto.SurfaceDTO'
       variables:
         additionalProperties:
           type: string
@@ -952,6 +954,15 @@ definitions:
         type: string
       type:
         type: string
+    type: object
+  dto.SurfaceDTO:
+    properties:
+      mode:
+        type: string
+      path:
+        type: string
+      ready:
+        type: boolean
     type: object
   dto.UpdateResultDTO:
     properties:
@@ -2422,6 +2433,45 @@ paths:
       summary: Shut the daemon down
       tags:
       - system
+  /ui/{ns}/{path}:
+    get:
+      description: Reverse-proxies any method and path under the namespace to the
+        arrow's open interface, with the /v0/ui/{ns} prefix stripped and the query
+        string forwarded untouched. WebSocket upgrades ride the same route. Authorization
+        and Cookie headers are never forwarded to the arrow.
+      parameters:
+      - description: Arrow namespace
+        in: path
+        name: ns
+        required: true
+        type: string
+      - description: Path inside the arrow interface
+        in: path
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Whatever the arrow answers
+        "404":
+          description: Arrow not found
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+        "502":
+          description: The arrow interface did not answer
+          schema:
+            type: string
+        "503":
+          description: Arrow has no open interface
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+      summary: Serve arrow interface
+      tags:
+      - ui
 produces:
 - application/json
 swagger: "2.0"
