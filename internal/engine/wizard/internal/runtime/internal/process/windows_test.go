@@ -5,7 +5,9 @@ package process
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -216,5 +218,67 @@ func TestWindowsShellCommandLine_GoEscapingWouldMangleTheProbe(t *testing.T) {
 	}
 	if got := windowsShellCommandLine([]string{desktopProbe}); strings.Contains(got, `\"`) {
 		t.Errorf("windowsShellCommandLine() = %s, want the command's own quotes left alone", got)
+	}
+}
+
+// childOf returns the PID of a direct child of parent, or 0 when it has none.
+func childOf(t *testing.T, parent int) int {
+	t.Helper()
+
+	script := "(Get-CimInstance Win32_Process -Filter 'ParentProcessId=" + strconv.Itoa(parent) + "' | Select-Object -First 1).ProcessId"
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", script).Output()
+	if err != nil {
+		t.Fatalf("listing children of %d: %v", parent, err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	return pid
+}
+
+func pidRunning(t *testing.T, pid int) bool {
+	t.Helper()
+
+	out, err := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/NH").Output()
+	if err != nil {
+		t.Fatalf("tasklist: %v", err)
+	}
+	return strings.Contains(string(out), " "+strconv.Itoa(pid)+" ")
+}
+
+// A shell-wrapped step is cmd.exe /C <command>, so the program the step runs
+// is a child of cmd. Stopping the step has to take that child with it, or it
+// outlives its run: an arrow's ui server would keep running, unreachable.
+func TestWindowsProcess_Stop_KillsTheWholeTree(t *testing.T) {
+	config := models.NewConfig([]string{"ping -n 120 127.0.0.1 >nul"})
+	config.ShellWrap = true
+
+	proc, err := newProcess(context.Background(), config)
+	if err != nil {
+		t.Fatalf("newProcess() error = %v", err)
+	}
+	t.Cleanup(func() { _ = proc.Close() })
+
+	var child int
+	deadline := time.Now().Add(15 * time.Second)
+	for child == 0 && time.Now().Before(deadline) {
+		child = childOf(t, proc.PID())
+		time.Sleep(200 * time.Millisecond)
+	}
+	if child == 0 {
+		t.Fatal("the shell never started its child")
+	}
+	t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(child)).Run() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := proc.Stop(ctx); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	deadline = time.Now().Add(10 * time.Second)
+	for pidRunning(t, child) && time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if pidRunning(t, child) {
+		t.Errorf("child %d outlived Stop: only the shell was killed", child)
 	}
 }
