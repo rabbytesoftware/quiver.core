@@ -878,8 +878,8 @@ There is no explicit `kind:` field — the structure is the declaration.
 
 ### 8.5 Step types
 
-The JSON Schema enum (`schema.json`) accepts exactly five step types — `run`, `fetch`,
-`extract`, `portable`, `signal`. Plus the synthetic `dependencies` type, which is rejected from
+The JSON Schema enum (`schema.json`) accepts exactly six authored step types: `run`, `fetch`,
+`extract`, `portable`, `signal`, `ui`. Plus the synthetic `dependencies` type, which is rejected from
 manifest input.
 
 | `type` | Purpose | Required fields | Optional fields | Overrideable fields |
@@ -889,6 +889,7 @@ manifest input.
 | `extract` | Extract an archive to a directory | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `portable` | Materialize an app package as a runnable, Quiver-owned app | `from`, `to` | `name`, `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `signal` | Send a cross-platform shutdown signal | `signal` | `title`, `timeout`, `exit_on_failure` | `signal`, `timeout` |
+| `ui` | Open an interface for the method | exactly one of `listen` or `static` | `path`, `title`, `exit_on_failure` | none |
 
 All steps also accept these common fields:
 
@@ -1070,6 +1071,36 @@ The `signal` value is an enum (`step.SignalKind`):
 | `kill` | `SIGKILL` | `taskkill /F` |
 | `interrupt` | `SIGINT` | `GenerateConsoleCtrlEvent` |
 
+#### `ui`: open an interface for the method
+
+```yaml
+execute:
+  - type: ui
+    listen: [unix]              # or: static: dist
+    path: /                     # default "/"
+  - type: run
+    command: ./app --listen unix:${ARROW_UI_LISTEN}
+```
+
+A `ui` step declares the interface the daemon exposes for the arrow while the method runs. It
+serves nothing itself and never blocks: it validates the declaration and reports the surface,
+and the step completes at once. Exactly one source is required:
+
+- `listen: [unix, pipe]`: the arrow serves HTTP itself. The daemon provisions a unix socket
+  address and hands it over as `${ARROW_UI_LISTEN}` (§10.1). v0 provisions a unix socket only;
+  `pipe` is accepted by the rule but the engine does not provision it yet. The `ui` step must
+  precede any `run` step that references `${ARROW_UI_LISTEN}`.
+- `static: <dir>`: a directory relative to `INSTALL_PATH` the daemon serves read-only. It must
+  exist, be a directory, and stay inside the install directory after symlinks are resolved.
+
+`path` is the initial path the shell opens and must start with `/`. At most one `ui` step is
+allowed per method. `upstream` (proxying to a TCP port) is not supported in v0 and the schema
+rejects it.
+
+The surface lives as long as the execution of the method that opened it. A `static` surface
+closes when that execution ends, so a `static` surface in `execute` needs a long-running `run`
+step after it to stay open. See [../../surface.md](../../surface.md).
+
 #### `dependencies` — synthetic, never written by hand
 
 The `dependencies` step type is reserved for the runtime. It is injected as Step 0 of every
@@ -1199,9 +1230,10 @@ ones.
 | `${WORKDIR}` | Alias for `INSTALL_PATH` (recognised by the variable-refs rule) |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform as `GOOS/GOARCH` (e.g. `linux/amd64`) |
+| `${ARROW_UI_LISTEN}` | Unix socket address the arrow serves its interface on. Set only for a method with a `ui` step that declares `listen`; see §8.5 |
 | `${REF}` | The git ref the arrow resolved to (e.g. `v1.2.0`, `main`) — during `_update`, the ref being updated to — verbatim, with no version derived from it. Never the selector: `pkg@stable` runs with `${REF} = v1.2.0` |
 
-These five names are also registered in `VariableRefsRule.buildKnownVars` so step-field
+These five names, plus `${ARROW_UI_LISTEN}`, are also registered in `VariableRefsRule.buildKnownVars` so step-field
 references to them do not trigger `unresolved_variable` errors.
 
 `preinstalled:` steps get a strict subset of this table — only `${ARROW_NAMESPACE}`,
@@ -1320,6 +1352,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
 | `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
+| `ui_step` | `ui_step.go` | Per method: at most one `ui` step; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe`; `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
 | `portable_name` | `portable_name.go` | A `portable` step's optional `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, does not end in a dot, and is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, any case, with or without an extension) (`invalid_name`) |
 
 ### Aggregate post-checks

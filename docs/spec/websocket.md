@@ -191,6 +191,7 @@ Clients should branch on `event` first. For `"upserted"`, upsert the payload int
 | PID | `pid` | `int` | `omitempty` — set after `runtime.pid_recorded`. |
 | Variables | `variables` | `map[string]string` | `omitempty` — resolved variables for this run. |
 | Steps | `steps` | `StepProgressDTO[]` | `omitempty` — current step progress. |
+| Surface | `surface` | `SurfaceDTO \| null` | `omitempty`, `{mode, path, ready}` of the interface the run opened; the served directory is never exposed. See [surface.md](surface.md). |
 
 **`ReturnDTO`** (last completed execution):
 

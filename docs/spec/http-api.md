@@ -305,6 +305,24 @@ Returns **202 Accepted** with the mutation envelope as soon as the use case laye
 
 Pure WebSocket endpoints — `dispatch` is not used because there is no REST equivalent. The handler upgrades unconditionally and pushes `ArrowRuntimeDTO` for matching events. The namespace path acts as a **glob filter** — `*` and `?` patterns are honoured by the broadcaster's filter system (see `internal/api/ws/filter.go`). The DTO carries `namespace`, `state`, `active_run`, and `last_return`. A plain (non-upgraded) `GET` answers the same DTO as a snapshot, and adds `settling: true` for a row whose update has not committed yet ([manifests/v0/versioning.md §8](manifests/v0/versioning.md)). `settling` is a REST-only field: WebSocket events never carry it, so an idle decision (such as the CLI stopping a daemon it booted) must use the REST runtime read. See [websocket.md](websocket.md) for connection semantics, ping/pong, and DTO field details.
 
+### 6.3.1 UI
+
+Registered from `internal/api/v0/endpoints/ui/routes.go`. Serves the interface an arrow opened with a `ui` step ([surface.md](surface.md)).
+
+| Method | Path | Summary |
+|---|---|---|
+| ANY | `/ui/{ns}/*path` | Proxy the arrow's open surface |
+
+Behind the same bearer gate as the rest of `/v0`: enforced when the daemon is bound to `tcp://`, a no-op on `unix://`. No extra TCP listener exists for the interface; it rides the daemon's own. Any method is accepted. The `/v0/ui/{ns}` prefix is stripped before the request reaches the surface and the query string is forwarded untouched. WebSocket upgrades ride the same route. `Authorization` and `Cookie` headers are removed before the request reaches the arrow. `{ns}` is resolved through the runtime (`GetRuntime`), so a refless namespace reaches the preferred row like the other routes. A `static` surface answers only `GET` and `HEAD` (405 otherwise).
+
+| Status | When |
+|---|---|
+| (the arrow's own) | Surface open and answering |
+| 404 | Unknown arrow |
+| 502 | The arrow's socket does not answer (`arrow surface unavailable`) |
+| 503 | The arrow has no open surface (no running method opened one, or it ended) |
+| 500 | Any other failure opening the surface |
+
 ### 6.4 Search
 
 Registered from `internal/api/v0/endpoints/search/routes.go`.
@@ -427,6 +445,7 @@ Errors: 422 (the daemon was built without a way to stop itself), 500.
 | `POST /v0/runtime/{ns}/{method}` | **Async** | **202** (200 when there is nothing to do: `install` of an installed arrow, `update` with nothing newer) |
 | `GET /v0/runtime` | WS only | 101 (Switching Protocols) |
 | `GET /v0/runtime/{ns}` | WS only | 101 |
+| `ANY /v0/ui/{ns}/*path` | Proxy | the arrow's own status; 404 / 502 / 503 as in §6.3.1 |
 | `GET /v0/health` | Sync | 200 |
 | `GET /v0/system/path` | Sync | 200 |
 | `POST /v0/system/path` | Sync | 200 |

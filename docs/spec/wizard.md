@@ -111,7 +111,7 @@ Because `Emit` is non-blocking, `EventKindEnded` may be dropped if the consumer 
 
 ## Events
 
-Five event kinds, all carried in a single `Event` struct.
+Six event kinds, all carried in a single `Event` struct.
 
 | Kind | Fields populated | When emitted |
 |------|------------------|--------------|
@@ -119,6 +119,7 @@ Five event kinds, all carried in a single `Event` struct.
 | `step.completed` | `StepIndex` | After a step's handler returns `nil` |
 | `step.failed` | `StepIndex`, `Err` | After a step's handler returns a non-nil error and the context is not yet cancelled |
 | `pid` | `PID` | Emitted by the run handler immediately after `runtime.Start` returns a process; carries the OS PID |
+| `surface` | `Surface` | Emitted by the `ui` handler with the interface the execution opened (`mode`, `path`, and `dir` for static) |
 | `ended` | `Outcome` | Best-effort terminal event emitted by `Finish` before channels close |
 
 The app layer subscribes to these via `drainExecution` in `internal/app/repositories/runtime/internal/hooks.go`, translating each into an asynx command:
@@ -129,6 +130,7 @@ The app layer subscribes to these via `drainExecution` in `internal/app/reposito
 | `step.completed` | `AdvanceStep{ToStatus: completed}` |
 | `step.failed` | `AdvanceStep{ToStatus: failed, Error: …}` |
 | `pid` | `RecordPID{PID: …}` |
+| `surface` | `SetSurface{Namespace, ExecutionID, Surface}`, then a readiness probe records `ready` (see [surface.md](surface.md)) |
 | `ended` | (loop exits; `EndExecution{Outcome: exec.Outcome()}` follows) |
 
 The Wizard does not call asynx, never knows about step indexing offsets, and never edits aggregate state — the hook layer owns that translation.
@@ -139,7 +141,7 @@ A `fetch` step whose download does not match its declared `sha256` fails with `d
 
 ## Step Types
 
-The dispatch table is fixed at construction time. Seven step types map to seven handlers, and `expose` steps are run by the wizard loop itself (see [Exposure](#exposure)); an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
+The dispatch table is fixed at construction time. Eight step types map to eight handlers, and `expose` steps are run by the wizard loop itself (see [Exposure](#exposure)); an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
 
 | Step type | Handler | Description |
 |-----------|---------|-------------|
@@ -149,6 +151,7 @@ The dispatch table is fixed at construction time. Seven step types map to seven 
 | `dependencies` | `internal/step/dependencies` | Calls the `Executor` injected at `New`; if `nil`, a no-op |
 | `extract` | `internal/step/extract` | Unpacks a tar (plain or `.gz`/`.xz`/`.bz2`/`.zst`), zip or single compressed file into a `WorkDir`-anchored directory through `internal/unpack`; refuses an AppImage or `.dmg` with `ErrPortableFormat`, pointing at `portable` |
 | `portable` | `internal/step/portable` | Installs an AppImage, `.dmg`, archive or bare executable as a Quiver-owned app (staging directory, ownership marker, swap with rollback), records the apps it produced in `${WORKDIR}/.quiver-apps.json`, then removes the source when it lies inside the workdir |
+| `ui` | `internal/step/ui` | Validates the declared surface and emits `EventKindSurface`; serves nothing. A `listen` surface requires `ARROW_UI_LISTEN` in `req.Vars` (else `ErrNoSocket`); a `static` surface resolves its directory inside the workdir with symlinks followed, refusing an escape or a non-directory (`ErrBadStaticDir`), and is reported ready |
 | `expose` | `internal/step/expose` (batch) | One step per `expose` entry of the target; see [Exposure](#exposure) |
 | `unexpose` | `internal/step/expose` | Removes the entries owned by `req.WorkDir`; see [Exposure](#exposure) |
 

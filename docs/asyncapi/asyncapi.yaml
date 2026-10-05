@@ -257,6 +257,25 @@ components:
           type: object
           additionalProperties:
             type: string
+        surface:
+          type: object
+          description: The interface the run opened with a ui step. Absent until one is reported.
+          required:
+            - mode
+            - path
+            - ready
+          properties:
+            mode:
+              type: string
+              enum:
+                - listen
+                - static
+            path:
+              type: string
+              description: Initial path, served under /v0/ui/{ns}.
+            ready:
+              type: boolean
+              description: True once the surface answers requests.
 
     LastReturn:
       type: object
