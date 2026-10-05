@@ -22,7 +22,8 @@ const (
 
 // probeSurface polls until the surface answers, then records Ready. It has no
 // deadline of its own: a slow first start still becomes ready. It stops as
-// soon as executionID is no longer the aggregate's current execution.
+// soon as s is no longer the open surface of executionID: the run that opened
+// it exited, or the aggregate moved on to another execution.
 func probeSurface(
 	ctx context.Context,
 	hooks CatalogHooks,
@@ -38,7 +39,7 @@ func probeSurface(
 	}
 	ctx = context.WithoutCancel(ctx)
 	wait := interval
-	for executionCurrent(ctx, axRuntime, ns, executionID) {
+	for surfaceOpen(ctx, axRuntime, ns, executionID, s) {
 		if hooks.SurfaceReady(ctx, domain.Namespace(ns), s) {
 			s.Ready = true
 			recordReady(ctx, axRuntime, ns, executionID, s)
@@ -47,7 +48,7 @@ func probeSurface(
 		time.Sleep(wait)
 		wait = nextProbeInterval(wait, maxInterval)
 	}
-	slog.DebugContext(ctx, "runtime: surface probe stopped, execution gone", "ns", ns)
+	slog.DebugContext(ctx, "runtime: surface probe stopped, surface gone", "ns", ns)
 }
 
 func nextProbeInterval(
@@ -57,14 +58,23 @@ func nextProbeInterval(
 	return min(current*2, ceiling)
 }
 
-func executionCurrent(
+// surfaceOpen reports whether s is still the surface executionID has open,
+// ignoring Ready: a later run of the same execution may have opened another
+// one, which this probe must leave alone.
+func surfaceOpen(
 	ctx context.Context,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	ns string,
 	executionID string,
+	s domainRuntime.Surface,
 ) bool {
 	rt, err := axRuntime.Get(ctx, ns)
-	return err == nil && rt.Execution != nil && rt.Execution.ID == executionID
+	if err != nil || rt.Execution == nil || rt.Execution.ID != executionID || rt.Execution.Surface == nil {
+		return false
+	}
+	open := *rt.Execution.Surface
+	open.Ready, s.Ready = false, false
+	return open == s
 }
 
 // recordReady treats every rejection that means the execution is gone (ended,
@@ -111,5 +121,32 @@ func sendSurface(
 		return true
 	}
 	slog.ErrorContext(ctx, "runtime: sendSurface failed", "ns", ns, "err", err)
+	return false
+}
+
+// closeSurface clears the surface of executionID and reports whether the
+// aggregate has moved on to another execution, in which case the surface
+// was never this drain's to clear nor its socket to release.
+func closeSurface(
+	ctx context.Context,
+	hooks CatalogHooks,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns string,
+	executionID string,
+) bool {
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.ClearSurface{
+		Namespace:   domain.Namespace(ns),
+		ExecutionID: executionID,
+	})
+	if errors.Is(err, apperrors.ErrExecutionSuperseded) {
+		slog.DebugContext(ctx, "runtime: surface clear dropped, execution superseded", "ns", ns)
+		return true
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "runtime: clearing surface failed", "ns", ns, "err", err)
+	}
+	if hooks.CloseSurface != nil {
+		hooks.CloseSurface(domain.Namespace(ns))
+	}
 	return false
 }

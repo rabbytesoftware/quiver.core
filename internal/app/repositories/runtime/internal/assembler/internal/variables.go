@@ -175,7 +175,7 @@ func hasListenUI(
 	steps []domainStep.Step,
 ) bool {
 	for _, s := range steps {
-		if ui, ok := s.(domainStep.UIStep); ok && len(ui.Listen) > 0 {
+		if run, ok := s.(domainStep.RunStep); ok && run.UI != nil && run.UI.Listens() {
 			return true
 		}
 	}

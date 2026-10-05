@@ -98,10 +98,14 @@ func drainEvents(
 				continue
 			}
 			report.superseded = sendSurface(ctx, axRuntime, ns, executionID, *evt.Surface)
+			report.surfaceReleased = false
 			if !report.superseded {
 				go probeSurface(ctx, hooks, axRuntime, ns, executionID, *evt.Surface,
 					surfaceProbeInterval, surfaceProbeMaxInterval)
 			}
+		case wizardPkg.EventKindSurfaceClosed:
+			report.superseded = closeSurface(ctx, hooks, axRuntime, ns, executionID)
+			report.surfaceReleased = !report.superseded
 		case wizardPkg.EventKindEnded:
 		}
 	}
@@ -126,7 +130,7 @@ func finishExecution(
 	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
 		return
 	}
-	if hooks.CloseSurface != nil {
+	if hooks.CloseSurface != nil && !report.surfaceReleased {
 		hooks.CloseSurface(domain.Namespace(ns))
 	}
 	if method == domain.MethodUpdate {

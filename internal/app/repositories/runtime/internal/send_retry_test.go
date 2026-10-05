@@ -112,14 +112,14 @@ func drainOnly(
 }
 
 func TestRecordReady_SurvivesATransientVersionConflict(t *testing.T) {
-	ax := withConflicts(newTestRuntime(t), map[string]int{"commands.SetSurface": 2})
+	ax := withConflicts(newTestRuntimeWithSurface(t), map[string]int{"commands.SetSurface": 2})
 	hooks := runtimeinternal.CatalogHooks{
 		SurfaceReady: func(context.Context, domain.Namespace, domainRuntime.Surface) bool { return true },
 	}
 
 	runProbe(t, func() {
 		runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
-			domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, time.Second)
+			testSurface, time.Millisecond, time.Second)
 	})
 
 	rt, err := ax.Get(t.Context(), probeNs.String())
@@ -167,6 +167,18 @@ func TestSendSurface_SurvivesATransientVersionConflict(t *testing.T) {
 	assert.Equal(t, 2, ax.sendsOf("commands.SetSurface"))
 }
 
+func TestCloseSurface_SurvivesATransientVersionConflict(t *testing.T) {
+	ax := withConflicts(newTestRuntimeWithSurface(t), map[string]int{"commands.ClearSurface": 2})
+
+	superseded := drainOnly(t, ax, wizard.Event{Kind: wizard.EventKindSurfaceClosed})
+
+	assert.False(t, superseded)
+	rt, err := ax.Get(t.Context(), probeNs.String())
+	require.NoError(t, err)
+	assert.Nil(t, rt.Execution.Surface)
+	assert.Equal(t, 3, ax.sendsOf("commands.ClearSurface"))
+}
+
 func TestSendEndExecution_SurvivesATransientVersionConflict(t *testing.T) {
 	ax := withConflicts(newTestRuntime(t), map[string]int{"commands.EndExecution": 2})
 	exec := newFakeExecution(domainRuntime.ExecutionOutcomeSuccess)
@@ -200,14 +212,14 @@ func TestSendPID_PersistentVersionConflict_GivesUpBoundedAndLogsOnce(t *testing.
 
 func TestRecordReady_PersistentVersionConflict_GivesUpBoundedAndLogsOnce(t *testing.T) {
 	logs := captureLogs(t)
-	ax := withConflicts(newTestRuntime(t), map[string]int{"commands.SetSurface": persistentConflict})
+	ax := withConflicts(newTestRuntimeWithSurface(t), map[string]int{"commands.SetSurface": persistentConflict})
 	hooks := runtimeinternal.CatalogHooks{
 		SurfaceReady: func(context.Context, domain.Namespace, domainRuntime.Surface) bool { return true },
 	}
 
 	runProbe(t, func() {
 		runtimeinternal.ProbeSurface(t.Context(), hooks, ax, probeNs.String(), testExecutionID,
-			domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen}, time.Millisecond, time.Second)
+			testSurface, time.Millisecond, time.Second)
 	})
 
 	assert.Equal(t, runtimeinternal.ConflictRetryAttempts, ax.sendsOf("commands.SetSurface"))

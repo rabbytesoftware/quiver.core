@@ -1288,7 +1288,7 @@ func resolveErr(
 
 func TestResolveVariables_ProvisionsArrowUIListen(t *testing.T) {
 	socks := &fakeSockets{path: "/run/abc.sock"}
-	steps := []domainStep.Step{domainStep.NewUIStep("Chat", []string{"unix"}, "", "", true)}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
 
 	vars := resolveWithSockets(t, socks, steps)
 
@@ -1296,9 +1296,28 @@ func TestResolveVariables_ProvisionsArrowUIListen(t *testing.T) {
 	require.Equal(t, []domain.Namespace{testNsForVars()}, socks.asked)
 }
 
-func TestResolveVariables_NoListenStepNoSocket(t *testing.T) {
+func TestResolveVariables_StaticUINoSocket(t *testing.T) {
 	socks := &fakeSockets{path: "/run/abc.sock"}
-	steps := []domainStep.Step{domainStep.NewUIStep("Docs", nil, "./dist", "", true)}
+	steps := []domainStep.Step{domainStep.NewRunStep("keepalive", "./keep", false, "", true).WithUI(domainStep.UIOptions{Static: "./dist"})}
+
+	vars := resolveWithSockets(t, socks, steps)
+
+	require.NotContains(t, vars, domain.VarArrowUIListen)
+	require.Empty(t, socks.asked)
+}
+
+func TestResolveVariables_DefaultListenUIProvisionsSocket(t *testing.T) {
+	socks := &fakeSockets{path: "/run/abc.sock"}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{})}
+
+	vars := resolveWithSockets(t, socks, steps)
+
+	require.Equal(t, "/run/abc.sock", vars[domain.VarArrowUIListen])
+}
+
+func TestResolveVariables_RunWithoutUINoSocket(t *testing.T) {
+	socks := &fakeSockets{path: "/run/abc.sock"}
+	steps := []domainStep.Step{domainStep.NewRunStep("plain", "./x", false, "", true)}
 
 	vars := resolveWithSockets(t, socks, steps)
 
@@ -1307,7 +1326,7 @@ func TestResolveVariables_NoListenStepNoSocket(t *testing.T) {
 }
 
 func TestResolveVariables_NoSocketProviderNoSocket(t *testing.T) {
-	steps := []domainStep.Step{domainStep.NewUIStep("Chat", []string{"unix"}, "", "", true)}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
 
 	vars := resolveWithSockets(t, nil, steps)
 
@@ -1316,7 +1335,7 @@ func TestResolveVariables_NoSocketProviderNoSocket(t *testing.T) {
 
 func TestResolveVariables_UserCannotOverrideArrowUIListen(t *testing.T) {
 	socks := &fakeSockets{path: "/run/abc.sock"}
-	steps := []domainStep.Step{domainStep.NewUIStep("Chat", []string{"unix"}, "", "", true)}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
 
 	vars := resolveWithUserVars(t, socks, steps, map[string]string{domain.VarArrowUIListen: "/evil"})
 
@@ -1326,7 +1345,7 @@ func TestResolveVariables_UserCannotOverrideArrowUIListen(t *testing.T) {
 func TestResolveVariables_PrepareErrorPropagates(t *testing.T) {
 	prepareErr := errors.New("path too long")
 	socks := &fakeSockets{err: prepareErr}
-	steps := []domainStep.Step{domainStep.NewUIStep("Chat", []string{"unix"}, "", "", true)}
+	steps := []domainStep.Step{domainStep.NewRunStep("chat", "./chat", false, "", true).WithUI(domainStep.UIOptions{Listen: []string{"unix"}})}
 
 	require.ErrorIs(t, resolveErr(t, socks, steps), prepareErr)
 }

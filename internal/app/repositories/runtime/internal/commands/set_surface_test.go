@@ -133,3 +133,40 @@ func TestSurface_DroppedByRecordDetached(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, got.Execution)
 }
+
+func TestClearSurface_RemovesSurfaceAndKeepsRest(t *testing.T) {
+	ax, ns := runningWithSurface(t)
+	_, err := ax.Send(context.Background(), commands.ClearSurface{Namespace: ns, ExecutionID: "e1"})
+	require.NoError(t, err)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateRunning, got.State)
+	assert.Equal(t, 42, got.Execution.PID)
+	assert.Nil(t, got.Execution.Surface)
+}
+
+func TestClearSurface_DoesNotMutatePrevious(t *testing.T) {
+	cur := &domainRuntime.ArrowRuntime{Execution: &domainRuntime.Execution{ID: "e1", Surface: &domainRuntime.Surface{Path: "/"}}}
+	next := commands.ClearSurface{ExecutionID: "e1"}.EmitEvent(cur)
+	assert.NotNil(t, cur.Execution.Surface)
+	assert.Nil(t, next.Execution.Surface)
+}
+
+func TestClearSurface_RejectsSupersededExecution(t *testing.T) {
+	ax, ns := runningWithSurface(t)
+	_, err := ax.Send(context.Background(), commands.ClearSurface{Namespace: ns, ExecutionID: "other"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrExecutionSuperseded)
+
+	got, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.NotNil(t, got.Execution.Surface)
+}
+
+func TestClearSurface_NamesItsEvent(t *testing.T) {
+	ns := testNs()
+	cmd := commands.ClearSurface{Namespace: ns}
+	assert.Equal(t, "runtime.surface_cleared."+ns.String(), cmd.EventName())
+	assert.Equal(t, ns.String(), cmd.AggregateID())
+}
