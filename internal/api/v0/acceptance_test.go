@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -767,6 +769,24 @@ func newUIEnvWith(
 	return env, arrow, token, socket
 }
 
+func waitForFileCommand(
+	path string,
+) string {
+	if runtime.GOOS == "windows" {
+		return `powershell -NoProfile -NonInteractive -Command "while (-not (Test-Path -LiteralPath '` + path + `')) { Start-Sleep -Milliseconds 20 }"`
+	}
+	return "while [ ! -f '" + path + "' ]; do sleep 0.02; done"
+}
+
+func createFileCommand(
+	path string,
+) string {
+	if runtime.GOOS == "windows" {
+		return `type nul > "` + path + `"`
+	}
+	return "touch '" + path + "'"
+}
+
 func uiGet(
 	t *testing.T,
 	env *acceptanceEnv,
@@ -865,8 +885,8 @@ func TestAcceptance_UIServedWhileTheRunLivesThenGoneAndTheMethodContinues(t *tes
 	env, _, token, socket := newUIEnvWith(t, rt)
 
 	workDir := t.TempDir()
-	release := workDir + "/release"
-	after := workDir + "/after"
+	release := filepath.Join(workDir, "release")
+	after := filepath.Join(workDir, "after")
 	w, err := wizard.New(nil, 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { stop(w.Shutdown) })
@@ -877,9 +897,9 @@ func TestAcceptance_UIServedWhileTheRunLivesThenGoneAndTheMethodContinues(t *tes
 		Variables: map[string]string{domain.VarArrowUIListen: socket},
 		WorkDir:   workDir,
 		Steps: []step.Step{
-			step.NewRunStep("serve", "while [ ! -f "+release+" ]; do sleep 0.02; done", false, "30s", true).
+			step.NewRunStep("serve", waitForFileCommand(release), false, "30s", true).
 				WithUI(step.UIOptions{Title: "Chat"}),
-			step.NewRunStep("after", "touch "+after, false, "30s", true),
+			step.NewRunStep("after", createFileCommand(after), false, "30s", true),
 		},
 	})
 	drained := make(chan struct{})
