@@ -301,6 +301,7 @@ func New(
 		engines.Vault,
 		engines.Manifold,
 		engines.Wizard,
+		engines.Surface,
 		os,
 		h,
 		engines.Providers,

@@ -70,7 +70,7 @@ func TestAssemble_Success(t *testing.T) {
 	vault := &mocks.Vault{WorkDirValue: "/tmp/workdir"}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, vault, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, vault, nil, nil, testOs())
 	result, err := asm.Assemble(context.Background(), ns, domain.MethodInstall, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Steps) // install step + dep step
@@ -83,7 +83,7 @@ func TestAssemble_ArrowNotFound(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	_, err := asm.Assemble(context.Background(), testNs(), domain.MethodInstall, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
@@ -95,7 +95,7 @@ func TestAssemble_GetArrowError(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	_, err := asm.Assemble(context.Background(), testNs(), domain.MethodInstall, nil)
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, apperrors.ErrNotFound)
@@ -120,7 +120,7 @@ func TestAssemble_PlatformNotSupported(t *testing.T) {
 	axRuntime := newTestAsynxRuntime(t)
 
 	// Build for darwin but arrow only has linux target
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, domain.OSDarwinARM64)
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, domain.OSDarwinARM64)
 	_, err := asm.Assemble(context.Background(), testNs(), domain.MethodInstall, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrPlatformNotSupported)
@@ -140,7 +140,7 @@ func TestAssemble_MethodNotFound(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	// Execute requires non-empty execute steps
 	_, err := asm.Assemble(context.Background(), testNs(), domain.MethodExecute, nil)
 	require.Error(t, err)
@@ -156,7 +156,7 @@ func TestAssemble_NilVault_NoWorkDir(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	result, err := asm.Assemble(context.Background(), ns, domain.MethodInstall, nil)
 	require.NoError(t, err)
 	assert.Empty(t, result.WorkDir)
@@ -185,7 +185,7 @@ func TestAssemble_VaultWorkDirError_IsFatal(t *testing.T) {
 				lifecycle.Execute = domainStep.StepList{domainStep.NewRunStep("execute", "echo run", false, "", true)}
 				arrow.Targets[testOs()] = domain.Target{Lifecycle: lifecycle}
 				getArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) { return arrow, nil }
-				asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), &mocks.Vault{WorkDirErr: tc.err}, nil, testOs())
+				asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), &mocks.Vault{WorkDirErr: tc.err}, nil, nil, testOs())
 
 				_, err := asm.Assemble(context.Background(), testNs(), method, nil)
 
@@ -207,7 +207,7 @@ func TestAssemble_WithUserVars(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	result, err := asm.Assemble(context.Background(), ns, domain.MethodInstall, map[string]string{"MY_VAR": "hello"})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", result.Variables["MY_VAR"])
@@ -232,7 +232,7 @@ func TestAssemble_Uninstall_AvailableInIsNil(t *testing.T) {
 	}
 	axRuntime := newTestAsynxRuntime(t)
 
-	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, testOs())
+	asm := assembler.New(getArrow, getArrow, axRuntime, nil, nil, nil, testOs())
 	result, err := asm.Assemble(context.Background(), ns, domain.MethodUninstall, nil)
 	require.NoError(t, err)
 	assert.Nil(t, result.AvailableIn)
@@ -289,7 +289,7 @@ func TestAssemble_RefVariable(t *testing.T) {
 				return arrow, nil
 			}
 
-			asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), nil, nil, testOs())
+			asm := assembler.New(getArrow, getArrow, newTestAsynxRuntime(t), nil, nil, nil, testOs())
 			result, err := asm.Assemble(context.Background(), tc.ns, domain.MethodInstall, tc.userVars, tc.opts...)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantRef, result.Variables[domain.VarRef])

@@ -69,6 +69,7 @@ func TestResolveVariables_BuiltIns(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -123,6 +124,7 @@ func TestResolveVariables_Ref(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				nil,
 				stepsUnderTest(arrow),
 			)
 			require.NoError(t, err)
@@ -146,6 +148,7 @@ func TestResolveVariables_NilVault_NoInstallPath(t *testing.T) {
 		os,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -181,6 +184,7 @@ func TestResolveVariables_WithDefaults(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -208,6 +212,7 @@ func TestResolveVariables_UserVarsOverrideDefaults(t *testing.T) {
 		os,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		map[string]string{"DB_HOST": "production.db"},
@@ -239,6 +244,7 @@ func TestResolveVariables_MissingRequired_Error(t *testing.T) {
 		axRuntime,
 		nil,
 		nil,
+		nil,
 		nil, // no user vars
 		stepsUnderTest(arrow),
 	)
@@ -266,6 +272,7 @@ func TestResolveVariables_MissingRequired_ProvidedByUser(t *testing.T) {
 		os,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		map[string]string{"REQUIRED_VAR": "value"},
@@ -296,6 +303,7 @@ func TestResolveVariables_StoredVarsFromLastReturn(t *testing.T) {
 		os,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -343,6 +351,7 @@ func TestResolveVariables_DepBuiltIns_WithVault(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -380,6 +389,7 @@ func TestResolveVariables_DepNotFound_Skipped(t *testing.T) {
 		os,
 		getArrow,
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -422,6 +432,7 @@ func TestResolveVariables_GetArrowUnexpectedError_Logged(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -451,6 +462,7 @@ func TestResolveVariables_Netbridge_SuccessfulAllocation(t *testing.T) {
 		axRuntime,
 		nil,
 		nb,
+		nil,
 		nil,
 		stepsUnderTest(arrow),
 	)
@@ -482,6 +494,7 @@ func TestResolveVariables_Netbridge_RequiredAllocationError(t *testing.T) {
 		nil,
 		nb,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.Error(t, err)
@@ -511,6 +524,7 @@ func TestResolveVariables_Netbridge_OptionalAllocationError_Skipped(t *testing.T
 		axRuntime,
 		nil,
 		nb,
+		nil,
 		nil,
 		stepsUnderTest(arrow),
 	)
@@ -558,6 +572,7 @@ func TestResolveVariables_DepExport_RelativePath_WithInstallPath(t *testing.T) {
 		vault,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -602,6 +617,7 @@ func TestResolveVariables_DepExport_BareEdgeNamespace_WorkDirUsesResolvedDepName
 		getArrow,
 		axRuntime,
 		vault,
+		nil,
 		nil,
 		nil,
 		stepsUnderTest(arrow),
@@ -651,6 +667,7 @@ func TestResolveVariables_DepNoTarget_Skipped(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 	require.NoError(t, err)
@@ -697,6 +714,7 @@ func TestResolveVariables_VaultWorkDirError_Skipped(t *testing.T) {
 		getArrow,
 		axRuntime,
 		vault,
+		nil,
 		nil,
 		nil,
 		stepsUnderTest(arrow),
@@ -760,6 +778,7 @@ func TestResolveVariables_ReservedUserVars_KeepTheComputedValue(t *testing.T) {
 		axRuntime,
 		vault,
 		nil,
+		nil,
 		userVars,
 		stepsUnderTest(arrow),
 	)
@@ -788,6 +807,7 @@ func TestResolveVariables_ReservedUserVar_WithoutVault_IsStillDropped(t *testing
 		domain.OSDarwinARM64,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		map[string]string{domain.VarWorkdir: "/etc"},
@@ -847,6 +867,7 @@ func TestResolveVariables_UnreferencedRequiredVar_NotDemanded(t *testing.T) {
 		newTestAsynxRuntimeForVars(t),
 		nil,
 		nil,
+		nil,
 		nil, // exactly what the desktop UI sends on uninstall
 		uninstallSteps,
 	)
@@ -880,6 +901,7 @@ func TestResolveVariables_ReferencedRequiredVar_StillDemanded(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		updateSteps,
 	)
 
@@ -908,6 +930,7 @@ func TestResolveVariables_ReferencedRequiredVar_SuppliedByCaller(t *testing.T) {
 		domain.OSLinuxAMD64,
 		testGetArrow(arrow),
 		newTestAsynxRuntimeForVars(t),
+		nil,
 		nil,
 		nil,
 		map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.invalid/asset"},
@@ -955,6 +978,7 @@ func TestResolveVariables_RequiredVar_NotCarriedForward(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		updateSteps,
 	)
 
@@ -992,6 +1016,7 @@ func TestResolveVariables_RequiredVar_CallerValueWinsOverStored(t *testing.T) {
 		domain.OSLinuxAMD64,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		map[string]string{"QUIVER_RELEASE_ASSET_URL": "https://example.test/NEW.AppImage"},
@@ -1033,6 +1058,7 @@ func TestResolveVariables_DefaultedVar_StillCarriedForward(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		stepsUnderTest(arrow),
 	)
 
@@ -1070,6 +1096,7 @@ func TestResolveVariables_UndeclaredStoredVar_StillCarriedForward(t *testing.T) 
 		domain.OSLinuxAMD64,
 		testGetArrow(arrow),
 		axRuntime,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -1122,6 +1149,7 @@ func TestResolveVariables_ComputedValuesNeverCarriedForward(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		[]domainStep.Step{domainStep.NewRunStep("noop", "true", false, "10s", true)},
 	)
 
@@ -1156,7 +1184,7 @@ func TestResolveVariables_OwnWorkDirError_IsFatal(t *testing.T) {
 
 	_, err := assemblerinternal.ResolveVariables(
 		context.Background(), ns, arrow, domain.Target{}, domain.OSLinuxAMD64,
-		testGetArrow(arrow), newTestAsynxRuntimeForVars(t), &mocks.Vault{WorkDirErr: boom}, nil, nil, nil,
+		testGetArrow(arrow), newTestAsynxRuntimeForVars(t), &mocks.Vault{WorkDirErr: boom}, nil, nil, nil, nil,
 	)
 
 	require.ErrorIs(t, err, boom)
@@ -1180,6 +1208,7 @@ func TestResolveVariables_ReferencedRequiredVarGivenEmpty_IsMissingAndNamed(t *t
 		domain.OSLinuxAMD64,
 		testGetArrow(arrow),
 		newTestAsynxRuntimeForVars(t),
+		nil,
 		nil,
 		nil,
 		map[string]string{"QUIVER_RELEASE_ASSET_URL": ""},

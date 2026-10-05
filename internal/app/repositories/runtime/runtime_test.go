@@ -539,7 +539,7 @@ func TestLifecycleNew_Success(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
+	lc, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, lc)
 }
@@ -592,7 +592,7 @@ func TestLifecycleNew_ShutdownAsynx_Error(t *testing.T) {
 	getArrow := func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error) {
 		return cat.Get(ctx, ns)
 	}
-	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
+	_, err := runtime.New(getArrow, getArrow, axRuntime, nil, nil, nil, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.Error(t, err)
 }
 
@@ -1013,7 +1013,7 @@ func newPlanningRuntime(
 	getDepArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
 		return nil, errors.New("no dependencies")
 	}
-	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
+	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, nil, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, nil)
 	require.NoError(t, err)
 	return lc
 }
@@ -1943,7 +1943,7 @@ func TestBeginInstall_ChecksumMismatch_RefreshesManifestAndRetriesWithItsSteps(t
 	getDepArrow := func(context.Context, domain.Namespace) (*domain.Arrow, error) {
 		return nil, errors.New("no dependencies")
 	}
-	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
+	lc, err := runtime.New(getArrow, getDepArrow, newTestAsynxRuntime(t), w, nil, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
 	require.NoError(t, err)
 	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
 	require.NoError(t, err)
@@ -1994,7 +1994,7 @@ func TestBeginInstall_ChecksumMismatch_ArrowUnreadableAfterRefresh_FailsWithoutR
 		refreshed.Store(true)
 		return nil
 	}
-	lc, err := runtime.New(getArrow, getArrow, newTestAsynxRuntime(t), w, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
+	lc, err := runtime.New(getArrow, getArrow, newTestAsynxRuntime(t), w, nil, &mocks.Vault{}, f.markInstalled, f.markUninstalled, f.markLastUsed, f.hasDependents, f.listArrows, domain.OSDarwinARM64, func(context.Context) ([]domain.Namespace, error) { return nil, nil }, refresh)
 	require.NoError(t, err)
 	ended, unsub, err := lc.ListenEnded(context.Background(), ns)
 	require.NoError(t, err)

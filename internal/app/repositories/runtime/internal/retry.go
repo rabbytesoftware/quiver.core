@@ -24,10 +24,10 @@ func superviseExecution(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
 	ns := req.Namespace.String()
-	report := drainEvents(ctx, exec, ns, executionID, axRuntime)
+	report := drainEvents(ctx, exec, ns, executionID, hooks, axRuntime)
 	if retried, ok := retryOnChecksumMismatch(ctx, exec, report, req, executionID, hooks, w, axRuntime); ok {
 		exec = retried
-		report = drainEvents(ctx, exec, ns, executionID, axRuntime)
+		report = drainEvents(ctx, exec, ns, executionID, hooks, axRuntime)
 	}
 	finishExecution(ctx, exec, report, ns, executionID, req.Method, hooks, axRuntime)
 }

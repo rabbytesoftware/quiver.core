@@ -70,3 +70,43 @@ func SuperviseExecution(
 ) {
 	superviseExecution(ctx, exec, req, executionID, hooks, w, axRuntime)
 }
+
+// DrainExecutionWithHooks exposes drainExecution with a full set of hooks.
+func DrainExecutionWithHooks(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	ns string,
+	executionID string,
+	method string,
+	hooks CatalogHooks,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) {
+	drainExecution(ctx, exec, ns, executionID, method, hooks, axRuntime)
+}
+
+// DrainEvents exposes drainEvents for tests, reporting whether the run was
+// superseded.
+func DrainEvents(
+	ctx context.Context,
+	exec wizardPkg.Execution,
+	ns string,
+	executionID string,
+	hooks CatalogHooks,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+) bool {
+	return drainEvents(ctx, exec, ns, executionID, hooks, axRuntime).superseded
+}
+
+// ProbeSurface exposes probeSurface for tests.
+func ProbeSurface(
+	ctx context.Context,
+	hooks CatalogHooks,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns string,
+	executionID string,
+	s domainRuntime.Surface,
+	interval time.Duration,
+	timeout time.Duration,
+) {
+	probeSurface(ctx, hooks, axRuntime, ns, executionID, s, interval, timeout)
+}

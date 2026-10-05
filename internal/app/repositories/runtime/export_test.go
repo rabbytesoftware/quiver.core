@@ -10,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
@@ -58,4 +59,15 @@ func NewTestable(
 	}
 
 	return repo, nil
+}
+
+// SurfaceHooks exposes the surface hooks withSurface adds to the drain's.
+func SurfaceHooks(
+	surfaces surface.Surface,
+) (
+	ready func(ctx context.Context, ns domain.Namespace, s domainRuntime.Surface) bool,
+	closeSurface func(ns domain.Namespace),
+) {
+	hooks := withSurface(runtimeinternal.CatalogHooks{}, surfaces)
+	return hooks.SurfaceReady, hooks.CloseSurface
 }

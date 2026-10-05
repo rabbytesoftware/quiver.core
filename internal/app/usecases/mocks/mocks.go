@@ -513,6 +513,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeSurfaceSetFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	OnRuntimeOutdatedFn func(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
@@ -671,6 +675,15 @@ func (m *MockRuntime) OnRuntimePIDRecorded(
 ) error {
 	if m.OnRuntimePIDRecordedFn != nil {
 		return m.OnRuntimePIDRecordedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimeSurfaceSet(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimeSurfaceSetFn != nil {
+		return m.OnRuntimeSurfaceSetFn(fn)
 	}
 	return nil
 }

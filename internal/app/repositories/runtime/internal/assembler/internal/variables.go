@@ -23,6 +23,12 @@ import (
 // GetArrowFn fetches the current state of an arrow aggregate by namespace.
 type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 
+// SocketProvider hands out the unix socket address an arrow serves its
+// interface on.
+type SocketProvider interface {
+	Prepare(ns domain.Namespace) (string, error)
+}
+
 // ResolveVariables builds the variable map for an execution using 6 priority
 // layers: built-ins -> dep built-ins + named exports -> version defaults ->
 // netbridge ports -> stored vars -> user vars. steps decides which declared
@@ -37,6 +43,7 @@ func ResolveVariables( //nolint:gocyclo
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
 	nb netbridge.Netbridge,
+	surfaces SocketProvider,
 	userVars map[string]string,
 	steps []domainStep.Step,
 ) (map[string]string, error) {
@@ -44,6 +51,13 @@ func ResolveVariables( //nolint:gocyclo
 	vars, err := builtIns(ctx, ns, arrow, os, v)
 	if err != nil {
 		return nil, err
+	}
+	if surfaces != nil && hasListenUI(steps) {
+		socket, err := surfaces.Prepare(ns)
+		if err != nil {
+			return nil, fmt.Errorf("provision interface socket: %w", err)
+		}
+		vars[domain.VarArrowUIListen] = socket
 	}
 
 	// Layer 2: dep built-ins and named exports
@@ -153,6 +167,15 @@ func builtIns(
 	vars[domain.VarPlatform] = os.String()
 	vars[domain.VarRef] = arrow.Resolved.RefOr(ns.Ref())
 	return vars, nil
+}
+
+func hasListenUI(steps []domainStep.Step) bool {
+	for _, s := range steps {
+		if ui, ok := s.(domainStep.UIStep); ok && len(ui.Listen) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // carryForward filters a previous execution's variables down to the ones
