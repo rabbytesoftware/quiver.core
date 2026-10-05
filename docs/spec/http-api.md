@@ -107,7 +107,7 @@ The `apierr` package additionally exposes constructors for the full 4xx/5xx rang
 |---|---|
 | `RequestLogger` | Wraps the handler chain, logs method/path/status/latency/client IP at info (2xx/3xx), warn (4xx), or error (5xx). Emits structured slog records with `type=http_request`. |
 | `RequestTimer` | Stashes `time.Now()` in the gin context under `request_start_time` for downstream consumers (currently informational). |
-| `RequestRecovery` | Catches panics, logs them with `type=panic_recovery`, and aborts with 500. |
+| `RequestRecovery` | Catches panics, logs them with `type=panic_recovery`, and aborts with 500. `http.ErrAbortHandler` is re-panicked so net/http drops the connection: a proxied body cut off mid-copy (an arrow dying mid-response under `/v0/ui`) reaches the client as a transport error, never as a complete-looking truncated body. |
 
 A shared `middleware.Upgrader` (gorilla/websocket) is exposed for WS handlers; in v0 it accepts all origins (no auth).
 

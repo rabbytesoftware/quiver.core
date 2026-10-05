@@ -46,14 +46,6 @@ func (h *Handlers) Serve(c *gin.Context) {
 		return
 	}
 
-	// httputil.ReverseProxy aborts a copy with http.ErrAbortHandler; that is
-	// routine (the client went away), not a server error.
-	defer func() {
-		if r := recover(); r != nil && r != http.ErrAbortHandler { //nolint:errorlint // sentinel panic value
-			panic(r)
-		}
-	}()
-
 	c.Request.URL.Path = c.Param("path")
 	c.Request.URL.RawPath = ""
 	handler.ServeHTTP(c.Writer, c.Request)

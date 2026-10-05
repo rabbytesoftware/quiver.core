@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/ui/handlers"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -83,14 +85,46 @@ func TestServe_OtherErrorIs500(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestServe_AbortedProxyDoesNotPanic(t *testing.T) {
-	svc := &mocks.SurfaceService{HandlerResult: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+// serveWithRecovery runs the route behind the real RequestRecovery middleware
+// on a real server, so what net/http does with a panic reaches the client.
+func serveWithRecovery(t *testing.T, svc *mocks.SurfaceService) *httptest.Server {
+	t.Helper()
+	r := gin.New()
+	r.Use(middleware.RequestRecovery())
+	r.Any("/v0/ui/:ns/*path", handlers.New(svc).Serve)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestServe_AbortedProxyAbortsTheConnection(t *testing.T) {
+	svc := &mocks.SurfaceService{HandlerResult: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
 		panic(http.ErrAbortHandler)
 	})}
-	rec := httptest.NewRecorder()
-	require.NotPanics(t, func() {
-		setup(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/ui/a%2Fb/", nil))
-	})
+	srv := serveWithRecovery(t, svc)
+
+	resp, err := srv.Client().Get(srv.URL + "/v0/ui/a%2Fb/")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF, "a truncated body must not read as complete")
+	require.Equal(t, "partial", string(body))
+}
+
+func TestServe_OtherPanicsBecome500ThroughRecovery(t *testing.T) {
+	svc := &mocks.SurfaceService{HandlerResult: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("real bug")
+	})}
+	srv := serveWithRecovery(t, svc)
+
+	resp, err := srv.Client().Get(srv.URL + "/v0/ui/a%2Fb/")
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
 
 func TestServe_OtherPanicsStillPropagate(t *testing.T) {
