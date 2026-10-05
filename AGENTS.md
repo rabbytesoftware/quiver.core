@@ -263,7 +263,7 @@ Every handler function has swagger doc comments. Format: `@Summary`, `@Descripti
 
 - **Default-deny.** A CLI command runs from the console only if it and every ancestor below the root carry `clierr.AllowInConsole`. A new command is unreachable until opted in, and `TestAllowed_RealTree_ExposesExactlyTheApprovedCommands` pins the set.
 - Lines are split on spaces and refused if they hold control or shell characters; nothing is quoted and no shell is involved. Commands run in a fresh tree with an injected `commands.Deps.Session` that dials the daemon's own address, so `--server`, `--context` and `--config` have no effect.
-- Logs reach the console through `logring`, a `slog.Handler` wrapper injected with `logger.WithRing(ring)` (`core.WithLogRing` from `internal.New`); sensitive attribute keys are redacted before storage. The per-call `exec` audit record is a deliberate handler log (nothing to return it to).
+- Logs reach the console through `logring`, a `slog.Handler` wrapper that `core.New` builds and hands to `logger.Init`, exposed as `Core.Logs()`; sensitive attribute keys are redacted before storage. The per-call `exec` audit record is a deliberate handler log (nothing to return it to).
 
 ### 6.6 API versioning
 
@@ -453,7 +453,7 @@ Read `go.mod` for current versions.
 
 ### 15.1 Logging — `log/slog`
 
-`logger.Init` is called once at process start (the daemon passes `logger.WithRing` so the console can replay records). After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
+`logger.Init` is called once at process start (`core.New` passes it a `logring` wrapper so the console can replay records). After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
 
 **Do NOT:** create a custom logger struct, use `fmt.Println` / `log.Printf`, use third-party logging libraries.
 
