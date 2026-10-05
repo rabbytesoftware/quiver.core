@@ -3444,6 +3444,9 @@ const docTemplate = `{
                 },
                 "ready": {
                     "type": "boolean"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

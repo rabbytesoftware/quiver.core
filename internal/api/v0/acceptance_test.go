@@ -30,10 +30,12 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
+	"github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
 const (
@@ -619,6 +621,43 @@ func (listenRuntime) GetRuntime(
 	}, nil
 }
 
+// runLifetimeRuntime reports the surface a real wizard execution opens and
+// closes, the way the runtime repository's drain records it on the aggregate.
+type runLifetimeRuntime struct {
+	usecases.RuntimeUsecase
+	mu      sync.Mutex
+	surface *domainRuntime.Surface
+}
+
+func (r *runLifetimeRuntime) GetRuntime(
+	context.Context,
+	domain.Namespace,
+) (*domainRuntime.ArrowRuntime, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rt := &domainRuntime.ArrowRuntime{Ref: uiResolved, Execution: &domainRuntime.Execution{ID: "e1"}}
+	if r.surface != nil {
+		surface := *r.surface
+		rt.Execution.Surface = &surface
+	}
+	return rt, nil
+}
+
+func (r *runLifetimeRuntime) drain(
+	exec wizard.Execution,
+) {
+	for evt := range exec.Events() {
+		r.mu.Lock()
+		if evt.Kind == wizard.EventKindSurface {
+			r.surface = evt.Surface
+		}
+		if evt.Kind == wizard.EventKindSurfaceClosed {
+			r.surface = nil
+		}
+		r.mu.Unlock()
+	}
+}
+
 // idleRuntime knows every arrow and has nothing running for any of them.
 type idleRuntime struct {
 	usecases.RuntimeUsecase
@@ -694,6 +733,15 @@ func startArrowSocket(
 // surface usecase backed by a real engine and a real socket server.
 func newUIEnv(t *testing.T) (*acceptanceEnv, *arrowSocket, string) {
 	t.Helper()
+	env, arrow, token, _ := newUIEnvWith(t, listenRuntime{})
+	return env, arrow, token
+}
+
+func newUIEnvWith(
+	t *testing.T,
+	rt usecases.RuntimeUsecase,
+) (*acceptanceEnv, *arrowSocket, string, string) {
+	t.Helper()
 
 	// A socket path must stay under the sockaddr_un limit, which t.TempDir's
 	// long per-test name can exceed.
@@ -707,7 +755,7 @@ func newUIEnv(t *testing.T) (*acceptanceEnv, *arrowSocket, string) {
 	arrow := startArrowSocket(t, socket)
 
 	env := newAcceptanceEnv(t, func(c *app.Container) {
-		c.Surface = usecases.NewSurfaceUsecase(listenRuntime{}, eng)
+		c.Surface = usecases.NewSurfaceUsecase(rt, eng)
 	})
 	env.v0.AuthGate.SetRequired(true)
 
@@ -716,7 +764,7 @@ func newUIEnv(t *testing.T) (*acceptanceEnv, *arrowSocket, string) {
 	token, err := env.app.Auth.Redeem(t.Context(), code, "dev-1", "laptop")
 	require.NoError(t, err)
 
-	return env, arrow, token
+	return env, arrow, token, socket
 }
 
 func uiGet(
@@ -810,4 +858,44 @@ func TestAcceptance_UIWebSocketEchoThroughTheRoute(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, websocket.TextMessage, typ)
 	assert.Equal(t, "ping", string(msg))
+}
+
+func TestAcceptance_UIServedWhileTheRunLivesThenGoneAndTheMethodContinues(t *testing.T) {
+	rt := &runLifetimeRuntime{}
+	env, _, token, socket := newUIEnvWith(t, rt)
+
+	workDir := t.TempDir()
+	release := workDir + "/release"
+	after := workDir + "/after"
+	w, err := wizard.New(nil, 1<<20)
+	require.NoError(t, err)
+	t.Cleanup(func() { stop(w.Shutdown) })
+
+	exec := w.Start(t.Context(), wizard.RunRequest{
+		Namespace: domain.Namespace(uiResolved),
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{domain.VarArrowUIListen: socket},
+		WorkDir:   workDir,
+		Steps: []step.Step{
+			step.NewRunStep("serve", "while [ ! -f "+release+" ]; do sleep 0.02; done", false, "30s", true).
+				WithUI(step.UIOptions{Title: "Chat"}),
+			step.NewRunStep("after", "touch "+after, false, "30s", true),
+		},
+	})
+	drained := make(chan struct{})
+	go func() { defer close(drained); rt.drain(exec) }()
+
+	require.Eventually(t, func() bool {
+		status, _ := uiGet(t, env, token, "/v0/ui/github.com%2Fquiver%2Fchat/")
+		return status == http.StatusOK
+	}, 5*time.Second, 20*time.Millisecond, "the surface is served while the run lives")
+
+	require.NoError(t, os.WriteFile(release, nil, 0o600))
+	<-drained
+
+	status, body := uiGet(t, env, token, "/v0/ui/github.com%2Fquiver%2Fchat/")
+	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.Contains(t, body, "arrow has no open surface")
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+	assert.FileExists(t, after, "the method continues once the run exits")
 }

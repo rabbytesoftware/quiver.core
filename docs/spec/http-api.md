@@ -307,7 +307,7 @@ Pure WebSocket endpoints — `dispatch` is not used because there is no REST equ
 
 ### 6.3.1 UI
 
-Registered from `internal/api/v0/endpoints/ui/routes.go`. Serves the interface an arrow opened with a `ui` step ([surface.md](surface.md)).
+Registered from `internal/api/v0/endpoints/ui/routes.go`. Serves the interface an arrow opened with the `ui` node of a `run` step ([surface.md](surface.md)).
 
 | Method | Path | Summary |
 |---|---|---|
@@ -320,7 +320,7 @@ Behind the same bearer gate as the rest of `/v0`: enforced when the daemon is bo
 | (the arrow's own) | Surface open and answering |
 | 404 | Unknown arrow |
 | 502 | The arrow's socket does not answer (`arrow surface unavailable`) |
-| 503 | The arrow has no open surface (no running method opened one, or it ended) |
+| 503 | The arrow has no open surface (no run opened one, or the run that did has exited) |
 | 500 | Any other failure opening the surface |
 
 ### 6.4 Search

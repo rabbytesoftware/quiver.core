@@ -397,7 +397,7 @@ the dep-sync reaction knows what changed.
 | `Variables` | `map[string]string`  | Values resolved at execution start.                             |
 | `PID`       | `int`                | Process id of the spawned child (for `_execute`).               |
 | `WorkDir`   | `string`             | Working directory of the child.                                 |
-| `Surface`   | `*Surface`           | The interface the method opened with a `ui` step; nil until one is reported, dropped with the execution. |
+| `Surface`   | `*Surface`           | The interface opened by the `ui` node of the `run` step currently running; nil until that run opens it, cleared when the run exits, dropped with the execution. |
 
 `Surface` is `{Mode, Path, Dir, Ready}`: `Mode` is `listen` or `static`, `Path` the initial path, `Dir` the absolute directory served in static mode (never exposed over the API), `Ready` whether it answers requests. See [surface.md](surface.md).
 

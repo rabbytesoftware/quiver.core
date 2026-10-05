@@ -20,6 +20,16 @@ func TestSurfaceDTOFrom_OmitsTheServedDirectory(t *testing.T) {
 	require.Equal(t, &dto.SurfaceDTO{Mode: "static", Path: "/", Ready: true}, got)
 }
 
+func TestSurfaceDTOFrom_CarriesTheTitle(t *testing.T) {
+	got := dto.SurfaceDTOFrom(&domainRuntime.Surface{
+		Title: "Quiver Chat",
+		Mode:  domainRuntime.SurfaceModeListen,
+		Path:  "/",
+	})
+
+	require.Equal(t, &dto.SurfaceDTO{Title: "Quiver Chat", Mode: "listen", Path: "/"}, got)
+}
+
 func TestSurfaceDTOFrom_NilIsNil(t *testing.T) {
 	require.Nil(t, dto.SurfaceDTOFrom(nil))
 }

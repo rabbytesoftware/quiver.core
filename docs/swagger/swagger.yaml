@@ -963,6 +963,8 @@ definitions:
         type: string
       ready:
         type: boolean
+      title:
+        type: string
     type: object
   dto.UpdateResultDTO:
     properties:

@@ -259,12 +259,15 @@ components:
             type: string
         surface:
           type: object
-          description: The interface the run opened with a ui step. Absent until one is reported.
+          description: The interface opened by the ui node of the run step currently running. Absent until that run opens one and again once it exits.
           required:
             - mode
             - path
             - ready
           properties:
+            title:
+              type: string
+              description: Name the shell shows for the interface. Omitted when the manifest sets none.
             mode:
               type: string
               enum:

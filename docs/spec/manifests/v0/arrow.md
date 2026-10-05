@@ -878,18 +878,17 @@ There is no explicit `kind:` field — the structure is the declaration.
 
 ### 8.5 Step types
 
-The JSON Schema enum (`schema.json`) accepts exactly six authored step types: `run`, `fetch`,
-`extract`, `portable`, `signal`, `ui`. Plus the synthetic `dependencies` type, which is rejected from
+The JSON Schema enum (`schema.json`) accepts exactly five authored step types: `run`, `fetch`,
+`extract`, `portable`, `signal`. Plus the synthetic `dependencies` type, which is rejected from
 manifest input.
 
 | `type` | Purpose | Required fields | Optional fields | Overrideable fields |
 |--------|---------|-----------------|-----------------|---------------------|
-| `run` | Execute a shell command | `command` | `elevated`, `title`, `timeout`, `exit_on_failure` | `command`, `elevated`, `timeout` |
+| `run` | Execute a shell command | `command` | `elevated`, `ui`, `title`, `timeout`, `exit_on_failure` | `command`, `elevated`, `timeout` |
 | `fetch` | Download a remote file | `url`, `to` | `checksum`, `title`, `timeout`, `exit_on_failure` | `url`, `to`, `checksum`, `timeout` |
 | `extract` | Extract an archive to a directory | `from`, `to` | `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `portable` | Materialize an app package as a runnable, Quiver-owned app | `from`, `to` | `name`, `title`, `timeout`, `exit_on_failure` | `from`, `to`, `timeout` |
 | `signal` | Send a cross-platform shutdown signal | `signal` | `title`, `timeout`, `exit_on_failure` | `signal`, `timeout` |
-| `ui` | Open an interface for the method | exactly one of `listen` or `static` | `path`, `title`, `exit_on_failure` | none |
 
 All steps also accept these common fields:
 
@@ -913,6 +912,51 @@ All steps also accept these common fields:
 When `elevated: true`, the command runs with platform-specific privilege escalation (sudo on
 Linux/macOS, UAC on Windows). `elevated` is Overrideable — different platforms can opt in or
 out independently.
+
+##### `ui`: an interface for as long as the run lives
+
+```yaml
+execute:
+  - type: run
+    command: ./quiver-chat -listen "${ARROW_UI_LISTEN}"
+    title: Starting Quiver Chat
+    ui:
+      title: Quiver Chat        # optional, shown in the shell
+      path: /                   # optional, default "/"
+      listen: [unix]            # optional, default [unix]
+```
+
+`run` is the only step that may carry a `ui` node, and the schema rejects it on any other
+step type. The interface exists exactly while that run's process runs: it opens when the run
+starts and closes when the run exits, whatever the cause (any exit code, a signal, a failure to
+start, a timeout, a cancel or a stop). The method then continues without it. There is no
+lifetime, sync or until field. Each `run` of a method may declare its own `ui`; steps are
+sequential, so two never overlap.
+
+`ui` works in every method that runs steps: `install`, `update`, `execute`, `stop`,
+`uninstall` and custom methods. It is rejected in `preinstalled` (§8.6). While it is open it
+appears as `active_run.surface` on the runtime and is served under `/v0/ui/{ns}/`.
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `title` | none | Name the shell shows for the interface |
+| `path` | `/` | Initial path the shell opens. Must start with `/` |
+| `listen` | `[unix]` unless `static` is set | Transports the arrow serves on. Kinds are `unix` and `pipe`; v0 provisions a unix socket only, so the list must include `unix` (`[pipe]` alone is rejected: "pipe is not provisioned in v0; include unix") |
+| `static` | none | Alternative to `listen`: a directory relative to `INSTALL_PATH` the daemon serves read-only. It must exist, be a directory, and stay inside the install directory after symlinks are resolved |
+
+`listen` and `static` are mutually exclusive. `upstream` (proxying to a TCP port) is not
+supported in v0 and the schema rejects it.
+
+With `listen`, the daemon provisions a unix socket address for the run and hands it over as
+`${ARROW_UI_LISTEN}` (§10.1). The variable is valid only in the `command` of a run whose own
+`ui` listens (explicitly or by default). It is rejected in any other run and in the run of a
+`static` ui, by `run_ui`.
+
+With `static`, the daemon serves the folder and the run is only the lifetime anchor: the
+interface closes when the run exits, so the run has to be a long-running process even though it
+serves nothing. A `static` ui that does not reference `${ARROW_UI_LISTEN}` is fine. The usual
+keep-alive pattern is a command that blocks, for example `sleep infinity` on unix targets.
+See [../../surface.md](../../surface.md).
 
 #### `fetch` — remote download
 
@@ -1071,37 +1115,6 @@ The `signal` value is an enum (`step.SignalKind`):
 | `kill` | `SIGKILL` | `taskkill /F` |
 | `interrupt` | `SIGINT` | `GenerateConsoleCtrlEvent` |
 
-#### `ui`: open an interface for the method
-
-```yaml
-execute:
-  - type: ui
-    listen: [unix]              # or: static: dist
-    path: /                     # default "/"
-  - type: run
-    command: ./app --listen unix:${ARROW_UI_LISTEN}
-```
-
-A `ui` step declares the interface the daemon exposes for the arrow while the method runs. It
-serves nothing itself and never blocks: it validates the declaration and reports the surface,
-and the step completes at once. Exactly one source is required:
-
-- `listen: [unix, pipe]`: the arrow serves HTTP itself. The daemon provisions a unix socket
-  address and hands it over as `${ARROW_UI_LISTEN}` (§10.1). v0 provisions a unix socket only,
-  so the list must include `unix`: `[unix]` and `[unix, pipe]` are valid, while `[pipe]` alone
-  is rejected by the rule ("pipe is not provisioned in v0; include unix"). The `ui` step must
-  precede any `run` step that references `${ARROW_UI_LISTEN}`.
-- `static: <dir>`: a directory relative to `INSTALL_PATH` the daemon serves read-only. It must
-  exist, be a directory, and stay inside the install directory after symlinks are resolved.
-
-`path` is the initial path the shell opens and must start with `/`. At most one `ui` step is
-allowed per method, and none in `preinstalled` (§8.6). `upstream` (proxying to a TCP port) is not supported in v0 and the schema
-rejects it.
-
-The surface lives as long as the execution of the method that opened it. A `static` surface
-closes when that execution ends, so a `static` surface in `execute` needs a long-running `run`
-step after it to stay open. See [../../surface.md](../../surface.md).
-
 #### `dependencies` — synthetic, never written by hand
 
 The `dependencies` step type is reserved for the runtime. It is injected as Step 0 of every
@@ -1169,8 +1182,8 @@ particular, a check for software Quiver did not install has no use for the direc
 is overridden through `base:` by the same rules as the other five (§5.2), its steps are
 checked by `overrideable_keys`, `overrideable_coverage`, `timeout_format` and
 `no_dependencies_step`, and it has no pairing requirement of its own — it is standalone, like
-`update:`. It plays no part in service-vs-package kind inference (§8.4). A `ui` step is
-rejected in `preinstalled` by `ui_step`: a probe opens no surface and is given no socket.
+`update:`. It plays no part in service-vs-package kind inference (§8.4). A `ui` node on a
+`run` is rejected in `preinstalled` by `run_ui`: a probe opens no surface and is given no socket.
 
 ---
 
@@ -1232,7 +1245,7 @@ ones.
 | `${WORKDIR}` | Alias for `INSTALL_PATH` (recognised by the variable-refs rule) |
 | `${ARROW_NAMESPACE}` | This Arrow's full namespace |
 | `${PLATFORM}` | Current platform as `GOOS/GOARCH` (e.g. `linux/amd64`) |
-| `${ARROW_UI_LISTEN}` | Unix socket address the arrow serves its interface on. Set only for a method with a `ui` step that declares `listen`; see §8.5 |
+| `${ARROW_UI_LISTEN}` | Unix socket address the arrow serves its interface on. Set only for a method with a `run` step whose `ui` listens; valid only in that run's `command`; see §8.5 |
 | `${REF}` | The git ref the arrow resolved to (e.g. `v1.2.0`, `main`) — during `_update`, the ref being updated to — verbatim, with no version derived from it. Never the selector: `pkg@stable` runs with `${REF} = v1.2.0` |
 
 These five names, plus `${ARROW_UI_LISTEN}`, are also registered in `VariableRefsRule.buildKnownVars` so step-field
@@ -1354,7 +1367,7 @@ is a separate `*.go` file under `internal/engine/manifold/ruleset/arrow/`.
 | `method_states` | `method_states.go` | Every `available_in` value is `ready` or `running` |
 | `no_dependencies_step` | `no_dependencies_step.go` | `type: dependencies` may not appear in any manifest step list |
 | `expose_entries` | `expose_entries.go` | Every `expose` entry's `path` is `auto` or workdir-anchored with no `..`; `icon` is empty, an http(s) URL, or workdir-anchored with no `..` (`invalid_expose_icon`); `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`; darwin `desktop` paths end in `.app` unless `auto`; no duplicate `name` within a kind |
-| `ui_step` | `ui_step.go` | Per method: at most one `ui` step, and none in `preinstalled`; exactly one of `listen` or `static`; every `listen` kind is `unix` or `pipe` and the list includes `unix` (v0 provisions no pipe); `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only after a `ui` step with `listen` in the same method |
+| `run_ui` | `run_ui.go` | For the `ui` node of a `run` step: none in `preinstalled`; `listen` and `static` are mutually exclusive; every `listen` kind is `unix` or `pipe` and the list includes `unix` (v0 provisions no pipe); `static` is a local relative path; `path` starts with `/`; `${ARROW_UI_LISTEN}` in a `run` command only when that run's own `ui` listens |
 | `portable_name` | `portable_name.go` | A `portable` step's optional `name` matches `^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`, does not end in a dot, and is not a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, any case, with or without an extension) (`invalid_name`) |
 
 ### Aggregate post-checks

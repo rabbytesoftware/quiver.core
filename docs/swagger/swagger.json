@@ -3438,6 +3438,9 @@
                 },
                 "ready": {
                     "type": "boolean"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
