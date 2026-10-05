@@ -7,6 +7,7 @@ package discovery
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
@@ -33,5 +34,5 @@ func New(
 // none of them nest under a shared parent, the same reasoning as
 // system.Commands and runtime.Commands.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{c.listCmd(), c.searchCmd(), c.infoCmd(), c.methodsCmd()}
+	return clierr.AllowInConsole(c.listCmd(), c.searchCmd(), c.infoCmd(), c.methodsCmd())
 }

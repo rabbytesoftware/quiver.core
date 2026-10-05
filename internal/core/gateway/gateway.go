@@ -108,6 +108,20 @@ func LocalURI(
 	return "unix://" + socket
 }
 
+// DialURI turns the local address of a connection a listener accepted into the
+// host URI a client dials to reach that same listener; empty for a nil address.
+func DialURI(
+	addr net.Addr,
+) string {
+	if addr == nil {
+		return ""
+	}
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		return "tcp://" + tcp.String()
+	}
+	return LocalURI(addr.String())
+}
+
 // Dial connects to a local daemon endpoint as LocalSocket returns it.
 func Dial(
 	ctx context.Context,

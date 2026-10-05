@@ -8,32 +8,28 @@ import (
 
 // Handler serves the GET /versions endpoint.
 type Handler struct {
-	version   string
-	buildID   string
+	build     Build
 	supported []string
 	latest    string
 }
 
-// New returns a Handler loaded with build-time info and the registered API version list.
+// New returns a Handler loaded with build info and the registered API version list.
 func New(
-	version string,
-	buildID string,
+	build Build,
 	supported []string,
 	latest string,
 ) *Handler {
 	return &Handler{
-		version:   version,
-		buildID:   buildID,
+		build:     build,
 		supported: supported,
 		latest:    latest,
 	}
 }
 
-// Get returns supported API versions, core build info, and minimum required client version.
+// Get returns supported API versions, core build info and the features served.
 func (h *Handler) Get(c *gin.Context) {
 	libs.WriteQueryOK(c, versionsResponse{
-		Version: h.version,
-		BuildID: h.buildID,
+		Build: h.build,
 		API: apiInfo{
 			Supported: h.supported,
 			Latest:    h.latest,

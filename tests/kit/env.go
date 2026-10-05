@@ -21,6 +21,7 @@ import (
 	apiv0 "github.com/rabbytesoftware/quiver.core/internal/api/v0"
 	wshandler "github.com/rabbytesoftware/quiver.core/internal/api/v0/ws"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
@@ -57,6 +58,19 @@ type envConfig struct {
 	build     buildStamp
 	cloneOnly bool
 	fletcher  hosts.Lookup
+	logs      logring.Ring
+}
+
+// WithLogRing sets the ring the console's log stream reads from, so a test can
+// tee the process logger into it.
+func WithLogRing(
+	ring logring.Ring,
+) EnvOption {
+	return func(
+		c *envConfig,
+	) {
+		c.logs = ring
+	}
 }
 
 // buildStamp is what the release pipeline injects into a daemon binary.
@@ -305,8 +319,14 @@ func BuildEnv(
 	)
 	require.NoError(t, err)
 
+	logs := cfg.logs
+	if logs == nil {
+		logs = logring.New()
+	}
 	v0Container, err := apiv0.New(appContainer)
 	require.NoError(t, err)
+	v0Container.ConsoleLogs = logs
+	v0Container.ConsoleVersion = cfg.build.version
 
 	wsHandler, ok := v0Container.WSHandler().(*wshandler.Handler)
 	require.True(t, ok, "v0 must expose the concrete websocket handler")

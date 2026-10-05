@@ -117,7 +117,7 @@ func newLocalClient(socket string) *Client {
 	}
 	return &Client{
 		http: &http.Client{
-			Transport: &http.Transport{DialContext: dial},
+			Transport: &http.Transport{DialContext: dial, DisableKeepAlives: true},
 			Timeout:   30 * time.Second,
 		},
 		// The host segment is a placeholder — the dialer ignores it.

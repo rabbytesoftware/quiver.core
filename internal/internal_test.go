@@ -4,10 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -342,4 +346,50 @@ func TestContainer_Start_WithRecommendations_LaunchesTheLoopAndShutsDownCleanly(
 	cancel()
 
 	require.NoError(t, c.Start(ctx, "tcp://127.0.0.1:0"))
+}
+
+func TestNew_Versions_ReportsTheBuildStampsAndTheConsoleFeature(
+	t *testing.T,
+) {
+	prev := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+	c, err := New(
+		context.Background(), "v0.0.0-test", "7", WithHomeDir(t.TempDir()),
+		WithCommit("abc123"), WithBuiltAt("2026-10-04T13:47:00Z"), WithChannel("nightly-latest"),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = c.Shutdown()
+	})
+
+	rec := httptest.NewRecorder()
+	c.API.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/versions", nil))
+
+	assert.Contains(t, rec.Body.String(), `"commit":"abc123","built_at":"2026-10-04T13:47:00Z","channel":"nightly-latest","features":["console.v1"]`)
+}
+
+func TestNew_ConsoleLogs_ServeTheDaemonsOwnRecords(
+	t *testing.T,
+) {
+	c := newTestContainer(t)
+	t.Cleanup(func() {
+		_ = c.Shutdown()
+	})
+	slog.Info("console ring probe", "component", "internal-test")
+	srv := httptest.NewServer(c.API)
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v0/console/logs"
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	defer conn.Close()
+
+	var frame map[string]any
+	for frame == nil || frame["msg"] != "console ring probe" {
+		require.NoError(t, conn.ReadJSON(&frame))
+		require.NotEqual(t, "ready", frame["type"], "the probe must be replayed before ready")
+	}
+	assert.Equal(t, "internal-test", frame["component"])
 }

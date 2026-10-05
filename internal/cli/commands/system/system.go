@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
 
@@ -31,7 +32,7 @@ func New(
 // nests under a shared "system" subcommand today, so this returns a slice
 // rather than one parent Cmd() like every other resource package.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{c.healthCmd(), c.versionCmd(), c.pathCmd()}
+	return append(clierr.AllowInConsole(c.healthCmd(), c.versionCmd()), c.pathCmd())
 }
 
 func (c *commands) healthCmd() *cobra.Command {

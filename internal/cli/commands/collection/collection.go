@@ -5,6 +5,7 @@ package collection
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
@@ -33,8 +34,9 @@ func (c *commands) Cmd() *cobra.Command {
 		Short: "Manage followed collections",
 	}
 	cmd.AddCommand(
-		c.followCmd(), c.unfollowCmd(), c.updateCmd(),
-		c.listCmd(), c.showCmd(), c.seedCmd(),
+		c.followCmd(), c.unfollowCmd(), c.updateCmd(), c.seedCmd(),
 	)
+	cmd.AddCommand(clierr.AllowInConsole(c.listCmd(), c.showCmd())...)
+	clierr.AllowInConsole(cmd)
 	return cmd
 }

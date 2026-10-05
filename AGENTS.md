@@ -27,7 +27,7 @@ internal/api/        ← HTTP + WebSocket delivery (Gin)
 internal/app/        ← Orchestration: usecases, repositories, hub
 internal/engine/     ← Stateless business engines
 internal/adapter/    ← Storage backends (SQLite via Asynx + GORM)
-internal/core/       ← Process singletons: config, paths, logger, fns
+internal/core/       ← Process singletons: config, paths, logger, logring, fns
 internal/domain/     ← Pure types and state machines (no I/O, no internal imports)
 ```
 
@@ -36,7 +36,7 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | Layer | Key rule |
 |-------|----------|
 | `domain/` | No I/O. No imports from other internal packages. Pure types + state machines. |
-| `core/` | Config, embedded metadata, path resolution, logger, FetchNShare I/O. |
+| `core/` | Config, embedded metadata, path resolution, logger, `logring` (the log ring the logger tees into), FetchNShare I/O. |
 | `adapter/` | Asynx event store (SQLite) + generic `Store[T,K]` (sqlite/memory). |
 | `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
@@ -257,7 +257,15 @@ The `dispatch(rest, ws gin.HandlerFunc)` helper in routes files checks for the `
 
 Every handler function has swagger doc comments. Format: `@Summary`, `@Description`, `@Tags`, `@Param`, `@Success`, `@Failure`, `@Router`. Read any existing handler for the exact format. Running `make build-docs` regenerates `docs/swagger/` — CI fails if it's stale.
 
-### 6.5 API versioning
+### 6.5 The console
+
+`GET /v0/console/logs`, `GET /v0/console/commands` and `POST /v0/console/exec` (`api/v0/endpoints/console`) let a client read the daemon's logs and run its own CLI tree (advertised as `console.v1` on `GET /versions`; contract in `docs/spec/console.md`).
+
+- **Default-deny.** A CLI command runs from the console only if it and every ancestor below the root carry `clierr.AllowInConsole`. A new command is unreachable until opted in, and `TestAllowed_RealTree_ExposesExactlyTheApprovedCommands` pins the set.
+- Lines are split on spaces and refused if they hold control or shell characters; nothing is quoted and no shell is involved. Commands run in a fresh tree with an injected `commands.Deps.Session` that dials the daemon's own address, so `--server`, `--context` and `--config` have no effect.
+- Logs reach the console through `logring`, a `slog.Handler` wrapper that `core.New` builds and hands to `logger.Init`, exposed as `Core.Logs()`; sensitive attribute keys are redacted before storage. The per-call `exec` audit record is a deliberate handler log (nothing to return it to).
+
+### 6.6 API versioning
 
 Each version implements `Prefix() string`, `Register(*gin.RouterGroup)`, and `WSHandler() WSVersion`. New versions are passed to `api.New(...)` variadic — no changes to `api/container.go`.
 
@@ -445,7 +453,7 @@ Read `go.mod` for current versions.
 
 ### 15.1 Logging — `log/slog`
 
-`logger.Init` is called once at process start. After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
+`logger.Init` is called once at process start (`core.New` passes it a `logring` wrapper so the console can replay records). After that, call `slog` directly — no wrapper. Always use `*Context` variants (`slog.InfoContext`, `slog.WarnContext`, `slog.ErrorContext`) so logs carry the request trace. Key-value pairs as positional args after the message string (`"ns", ns, "err", err`). Only log in background goroutines and fire-and-forget callbacks where the error cannot be returned. Never log in domain types, commands, or `EmitEvent`.
 
 **Do NOT:** create a custom logger struct, use `fmt.Println` / `log.Printf`, use third-party logging libraries.
 

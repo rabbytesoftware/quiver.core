@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,4 +84,24 @@ func TestCoreInitialization(t *testing.T) {
 	assert.NotSame(t, core1, core2, "New() should create new instances each time")
 	assert.Same(t, core1.GetMetadata(), core2.GetMetadata(), "Metadata should be singleton across Core instances")
 	assert.Same(t, core1.GetConfig(), core2.GetConfig(), "Config should be singleton across Core instances")
+}
+
+func TestNewAt_Logs_HoldsTheProcessLoggersRecords(
+	t *testing.T,
+) {
+	prev := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+
+	core, shutdown := NewAt(t.TempDir())
+	t.Cleanup(func() {
+		_ = shutdown()
+	})
+	slog.Info("captured")
+
+	stream := core.Logs().Stream(0, slog.LevelInfo)
+	defer stream.Close()
+	records := stream.Replay()
+	assert.Equal(t, "captured", records[len(records)-1].Msg)
 }

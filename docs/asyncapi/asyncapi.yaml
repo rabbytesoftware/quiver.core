@@ -80,7 +80,24 @@ channels:
       runtime:
         $ref: '#/components/messages/ArrowRuntimeMessage'
 
+  consoleLogs:
+    address: /v0/console/logs
+    description: >
+      The daemon's own log records. The server replays the last 500 records
+      (or those after the since query), sends one ready frame, then streams new
+      records. A client that falls behind is disconnected and reconnects with
+      since. Sensitive values are redacted before a record is stored.
+    messages:
+      consoleLog:
+        $ref: '#/components/messages/ConsoleLogMessage'
+
 operations:
+  receiveConsoleLogs:
+    action: receive
+    channel:
+      $ref: '#/channels/consoleLogs'
+    summary: Daemon log records, replay then live
+
   receiveArrow:
     action: receive
     channel:
@@ -137,6 +154,12 @@ components:
       payload:
         $ref: '#/components/schemas/CollectionEvent'
 
+    ConsoleLogMessage:
+      name: ConsoleLog
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConsoleFrame'
+
     ArrowRuntimeMessage:
       name: ArrowRuntime
       contentType: application/json
@@ -144,6 +167,34 @@ components:
         $ref: '#/components/schemas/ArrowRuntime'
 
   schemas:
+    ConsoleFrame:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [log, ready]
+        seq:
+          type: integer
+          description: Per-process sequence number of a log record; on ready, the last one sent.
+        time:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        component:
+          type: string
+        msg:
+          type: string
+        fields:
+          type: object
+          additionalProperties: true
+        reset:
+          type: boolean
+          description: On ready, set when since is newer than the daemon's newest record, which means it restarted.
+
     ArrowEvent:
       type: object
       required:

@@ -398,6 +398,10 @@ Asks the daemon to leave through the same graceful sequence a SIGTERM takes it t
 
 Errors: 422 (the daemon was built without a way to stop itself), 500.
 
+### 6.7 Console
+
+`GET /console/logs` (WebSocket), `GET /console/commands` and `POST /console/exec` (NDJSON stream), behind the same bearer gate as every other route. See [console.md](console.md). `GET /versions` also reports `commit`, `built_at`, `channel` and `features` (`console.v1`).
+
 ---
 
 ## 7. Async vs Sync Summary

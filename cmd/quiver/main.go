@@ -22,11 +22,13 @@ const exitInternalError = 1
 // while its commit moves. channel is the selector the release pipeline
 // publishes the build under (stable, beta, hotfix, nightly-latest), empty for
 // a local build.
+// builtAt is the RFC 3339 UTC time the binary was compiled.
 // buildID is days elapsed since the Quiver epoch (2026-04-11 15:33:00 ART / 18:33:00 UTC).
 var (
 	version = "dev"
 	commit  = ""
 	channel = ""
+	builtAt = ""
 	buildID = "0"
 )
 

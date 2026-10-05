@@ -5,12 +5,14 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logger"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/metadata"
 )
 
 type Core struct {
 	metadata *metadata.Metadata
 	config   *config.Config
+	logs     logring.Ring
 }
 
 // New returns Core plus a shutdown func that closes the log file handle.
@@ -21,12 +23,14 @@ type Core struct {
 // later os.RemoveAll (e.g. t.TempDir's cleanup) delete.
 func New() (*Core, func() error) {
 	cfg := config.Get()
-	shutdown := logger.Init(config.GetLogger())
+	logs := logring.New()
+	shutdown := logger.Init(config.GetLogger(), logs.Wrap)
 	logCorrections(config.Corrections())
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
+		logs:     logs,
 	}, shutdown
 }
 
@@ -36,12 +40,14 @@ func New() (*Core, func() error) {
 // real ~/.quiver.
 func NewAt(homeDir string) (*Core, func() error) {
 	cfg, corrections := config.GetAt(homeDir)
-	shutdown := logger.InitAt(homeDir, cfg.Config.Logger)
+	logs := logring.New()
+	shutdown := logger.InitAt(homeDir, cfg.Config.Logger, logs.Wrap)
 	logCorrections(corrections)
 
 	return &Core{
 		metadata: metadata.Get(),
 		config:   cfg,
+		logs:     logs,
 	}, shutdown
 }
 
@@ -61,4 +67,10 @@ func (c *Core) GetMetadata() *metadata.Metadata {
 
 func (c *Core) GetConfig() *config.Config {
 	return c.config
+}
+
+// Logs returns the ring that holds every record the process logger has
+// written since this Core was built, so the console can replay and follow them.
+func (c *Core) Logs() logring.Ring {
+	return c.logs
 }

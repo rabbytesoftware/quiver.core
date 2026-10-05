@@ -1419,6 +1419,122 @@
                 }
             }
         },
+        "/console/commands": {
+            "get": {
+                "description": "Returns the runnable commands that carry the console annotation along with all their ancestors.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "List the commands the console may run",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/libs.QueryResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.ConsoleCommandsDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/console/exec": {
+            "post": {
+                "description": "Runs a line against the daemon's own CLI tree and streams newline-delimited JSON: `out` frames, then exactly one `exit` frame. Only commands marked for the console run (403 otherwise). The line is split on spaces and never reaches a shell; quoting is not supported. At most 4 commands run at once (429), each limited to 10 minutes and 256 KiB of output.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/x-ndjson"
+                ],
+                "tags": [
+                    "console"
+                ],
+                "summary": "Run a console command",
+                "parameters": [
+                    {
+                        "description": "The command line, without the leading quiver",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.ConsoleExecRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stream of out and exit frames"
+                    },
+                    "400": {
+                        "description": "The line is empty, too long or has forbidden characters",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "The command is not available in the console",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many commands are running",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/console/logs": {
+            "get": {
+                "description": "Upgrades to a WebSocket. Replays the last 500 records (or those after `since`), sends one `ready` frame, then every new record. A client that falls behind is disconnected; reconnect with since=\u003clast seq\u003e.",
+                "tags": [
+                    "console"
+                ],
+                "summary": "Stream the daemon's logs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "info",
+                        "description": "Minimum level: debug, info, warn or error",
+                        "name": "level",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Replay only records with a sequence number above this",
+                        "name": "since",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols"
+                    },
+                    "400": {
+                        "description": "level or since is invalid",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns {\"status\":\"ok\"} when the daemon is running.",
@@ -2930,6 +3046,42 @@
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ConsoleCommandDTO": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "short": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.ConsoleCommandsDTO": {
+            "type": "object",
+            "properties": {
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ConsoleCommandDTO"
+                    }
+                }
+            }
+        },
+        "dto.ConsoleExecRequestDTO": {
+            "type": "object",
+            "properties": {
+                "line": {
                     "type": "string"
                 }
             }

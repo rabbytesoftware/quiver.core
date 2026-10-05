@@ -149,3 +149,22 @@ func TestNew_NPipeScheme_UnsupportedOffWindows(t *testing.T) {
 
 	assert.Error(t, err)
 }
+
+func TestDialURI_AcceptedAddress_ReturnsTheHostURIAClientDials(
+	t *testing.T,
+) {
+	testCases := []struct {
+		addr net.Addr
+		want string
+	}{
+		{&net.UnixAddr{Name: "/tmp/quiver.sock", Net: "unix"}, "unix:///tmp/quiver.sock"},
+		{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40257}, "tcp://127.0.0.1:40257"},
+		{&net.TCPAddr{IP: net.IPv6loopback, Port: 9}, "tcp://[::1]:9"},
+		{pipeAddr(`\\.\pipe\quiver`), "npipe://quiver"},
+		{nil, ""},
+	}
+
+	for _, tc := range testCases {
+		assert.Equal(t, tc.want, gateway.DialURI(tc.addr), tc.want)
+	}
+}

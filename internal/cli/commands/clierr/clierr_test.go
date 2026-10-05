@@ -102,3 +102,19 @@ func TestConfirm_InteractiveEmpty_ReturnsUsageError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, tui.ExitUsage, tui.CodeFor(err))
 }
+
+func TestAllowInConsole_Commands_AreMarkedAndOthersAreNot(
+	t *testing.T,
+) {
+	marked := &cobra.Command{Use: "a"}
+	annotated := &cobra.Command{Use: "c", Annotations: map[string]string{"x": "y"}}
+	plain := &cobra.Command{Use: "b"}
+
+	got := clierr.AllowInConsole(marked, annotated)
+
+	assert.Equal(t, []*cobra.Command{marked, annotated}, got)
+	assert.True(t, clierr.IsConsole(marked))
+	assert.True(t, clierr.IsConsole(annotated))
+	assert.Equal(t, "y", annotated.Annotations["x"])
+	assert.False(t, clierr.IsConsole(plain))
+}

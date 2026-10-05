@@ -10,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 type Container struct {
@@ -31,6 +32,14 @@ type Container struct {
 	// for why a later SetRequired call still reaches every route already
 	// built into the router.
 	AuthGate *middleware.AuthGate
+
+	// ConsoleLogs is the ring the console's log stream reads. The console
+	// routes are mounted only when it is set, which internal.New does before
+	// the router is built.
+	ConsoleLogs logring.Ring
+
+	// ConsoleVersion is what the console's CLI reports as its own version.
+	ConsoleVersion string
 }
 
 func New(

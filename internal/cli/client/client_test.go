@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -778,4 +779,79 @@ func TestShutdown_ReturnsProcessToWaitFor(t *testing.T) {
 	assert.Equal(t, http.MethodPost, rec.method)
 	assert.Equal(t, "/v0/system/shutdown", rec.path)
 	assert.Equal(t, apidto.ShutdownDTO{PID: 42, Exe: "/q/quiver", Args: []string{"daemon", "--host", "unix://"}}, got)
+}
+
+func serveCounted(
+	t *testing.T,
+	inner net.Listener,
+) *countingListener {
+	t.Helper()
+
+	ln := newCountingListener(inner)
+	srv := &http.Server{Handler: http.HandlerFunc(writeStatusOK)}
+	go func() {
+		_ = srv.Serve(ln)
+	}()
+	t.Cleanup(func() {
+		_ = srv.Close()
+	})
+	return ln
+}
+
+func writeStatusOK(
+	w http.ResponseWriter,
+	_ *http.Request,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func awaitOneClosed(
+	t *testing.T,
+	ln *countingListener,
+) {
+	t.Helper()
+
+	select {
+	case <-ln.signal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client left a connection open")
+	}
+}
+
+func TestClient_UnixSocket_ManyShortLivedClients_LeaveNoConnectionOpen(
+	t *testing.T,
+) {
+	inner, err := net.Listen("unix", filepath.Join(testutil.SocketDir(t), "quiver.sock"))
+	require.NoError(t, err)
+	ln := serveCounted(t, inner)
+	const clients = 25
+
+	for i := 0; i < clients; i++ {
+		c, err := client.New("unix://" + inner.Addr().String())
+		require.NoError(t, err)
+		require.NoError(t, c.Health(context.Background()))
+	}
+	for i := 0; i < clients; i++ {
+		awaitOneClosed(t, ln)
+	}
+
+	assert.EqualValues(t, clients, ln.accepted.Load())
+	assert.Zero(t, ln.open())
+}
+
+func TestClient_TCP_ManyShortLivedClients_ReuseOneConnection(
+	t *testing.T,
+) {
+	inner, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ln := serveCounted(t, inner)
+
+	for i := 0; i < 25; i++ {
+		c, err := client.New("tcp://" + inner.Addr().String())
+		require.NoError(t, err)
+		require.NoError(t, c.Health(context.Background()))
+	}
+
+	assert.LessOrEqual(t, ln.accepted.Load(), int32(2), "the shared pool bounds idle connections")
 }

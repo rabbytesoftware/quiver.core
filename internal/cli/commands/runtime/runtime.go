@@ -5,6 +5,7 @@ package runtime
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/runner"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/session"
 )
@@ -39,10 +40,10 @@ func New(
 // commands — none of them nest under a shared parent, the same reasoning
 // as system.Commands.
 func (c *commands) Cmd() []*cobra.Command {
-	return []*cobra.Command{
-		c.installCmd(), c.runCmd(), c.stopCmd(), c.uninstallCmd(), c.updateCmd(),
-		c.psCmd(), c.statusCmd(), c.watchCmd(),
-	}
+	return append(
+		clierr.AllowInConsole(c.installCmd(), c.runCmd(), c.stopCmd(), c.uninstallCmd(), c.updateCmd(), c.psCmd(), c.statusCmd()),
+		c.watchCmd(),
+	)
 }
 
 // RunMethod implements Commands.

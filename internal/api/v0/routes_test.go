@@ -11,6 +11,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/api/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/app"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 )
 
 func TestContainer_Register_MountsHealthRoute(t *testing.T) {
@@ -127,4 +128,33 @@ func TestContainer_Register_WithoutHome_RoutesAnswer503(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/home", nil))
 
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestContainer_Register_WithConsole_MountsTheConsoleRoutes(
+	t *testing.T,
+) {
+	c, err := New(&app.Container{})
+	require.NoError(t, err)
+	c.ConsoleLogs = logring.New()
+	r := gin.New()
+	c.Register(r.Group(""))
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/console/commands", nil))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestContainer_Register_WithoutConsole_ServesNoConsoleRoutes(
+	t *testing.T,
+) {
+	c, err := New(&app.Container{})
+	require.NoError(t, err)
+	r := gin.New()
+	c.Register(r.Group(""))
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/console/commands", nil))
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

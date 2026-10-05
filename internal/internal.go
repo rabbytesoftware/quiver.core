@@ -219,6 +219,7 @@ func (c *Container) bindGateway(host string) (net.Listener, error) {
 type internalOpts struct {
 	homeDir         string
 	commit          string
+	builtAt         string
 	channel         string
 	stop            func()
 	listener        net.Listener
@@ -243,6 +244,18 @@ func WithHomeDir(dir string) Option {
 // tag can be told apart from the build already installed.
 func WithCommit(commit string) Option {
 	return func(o *internalOpts) { o.commit = commit }
+}
+
+// WithBuiltAt sets the RFC 3339 UTC time the running build was compiled, which
+// GET /versions reports.
+func WithBuiltAt(
+	builtAt string,
+) Option {
+	return func(
+		o *internalOpts,
+	) {
+		o.builtAt = builtAt
+	}
 }
 
 // WithChannel sets the release channel the running build was published under,
@@ -292,11 +305,12 @@ func New(
 
 	// core.New configures the process-lifetime logger and metadata/config
 	// singletons before anything downstream can log or read a config value.
+	var processCore *core.Core
 	var loggerShutdown func() error
 	if cfg.homeDir != "" {
-		_, loggerShutdown = core.NewAt(cfg.homeDir)
+		processCore, loggerShutdown = core.NewAt(cfg.homeDir)
 	} else {
-		_, loggerShutdown = core.New()
+		processCore, loggerShutdown = core.New()
 	}
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(cfg.homeDir))
@@ -330,8 +344,17 @@ func New(
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api/v0: %w", err)
 	}
+	v0Container.ConsoleLogs = processCore.Logs()
+	v0Container.ConsoleVersion = version
 
-	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{Version: version, BuildID: buildID}, v0Container)
+	apiContainer, err := api.New(appContainer.Hub, api.BuildInfo{
+		Version:  version,
+		BuildID:  buildID,
+		Commit:   cfg.commit,
+		BuiltAt:  cfg.builtAt,
+		Channel:  cfg.channel,
+		Features: []string{"console.v1"},
+	}, v0Container)
 	if err != nil {
 		_ = loggerShutdown()
 		return nil, fmt.Errorf("internal: api: %w", err)

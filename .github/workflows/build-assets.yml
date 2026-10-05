@@ -50,7 +50,8 @@ jobs:
         QUIVER_EPOCH=1775932380
         BUILD_ID=$(( ($(date +%s) - QUIVER_EPOCH) / 86400 ))
         COMMIT=$(git rev-parse HEAD)
-        LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.channel=${CHANNEL} -X main.buildID=${BUILD_ID}"
+        BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.channel=${CHANNEL} -X main.builtAt=${BUILT_AT} -X main.buildID=${BUILD_ID}"
 
         GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-amd64       ./cmd/quiver
         GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "$LDFLAGS" -o bin/quiver-linux-arm64       ./cmd/quiver

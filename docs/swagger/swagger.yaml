@@ -643,6 +643,29 @@ definitions:
       message:
         type: string
     type: object
+  dto.ConsoleCommandDTO:
+    properties:
+      path:
+        items:
+          type: string
+        type: array
+      short:
+        type: string
+      usage:
+        type: string
+    type: object
+  dto.ConsoleCommandsDTO:
+    properties:
+      commands:
+        items:
+          $ref: '#/definitions/dto.ConsoleCommandDTO'
+        type: array
+    type: object
+  dto.ConsoleExecRequestDTO:
+    properties:
+      line:
+        type: string
+    type: object
   dto.ConstrainedDepDTO:
     properties:
       namespace:
@@ -2025,6 +2048,86 @@ paths:
       summary: Change the daemon configuration
       tags:
       - system
+  /console/commands:
+    get:
+      description: Returns the runnable commands that carry the console annotation
+        along with all their ancestors.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/libs.QueryResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dto.ConsoleCommandsDTO'
+              type: object
+      summary: List the commands the console may run
+      tags:
+      - console
+  /console/exec:
+    post:
+      consumes:
+      - application/json
+      description: 'Runs a line against the daemon''s own CLI tree and streams newline-delimited
+        JSON: `out` frames, then exactly one `exit` frame. Only commands marked for
+        the console run (403 otherwise). The line is split on spaces and never reaches
+        a shell; quoting is not supported. At most 4 commands run at once (429), each
+        limited to 10 minutes and 256 KiB of output.'
+      parameters:
+      - description: The command line, without the leading quiver
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.ConsoleExecRequestDTO'
+      produces:
+      - application/x-ndjson
+      responses:
+        "200":
+          description: Stream of out and exit frames
+        "400":
+          description: The line is empty, too long or has forbidden characters
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+        "403":
+          description: The command is not available in the console
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+        "429":
+          description: Too many commands are running
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+      summary: Run a console command
+      tags:
+      - console
+  /console/logs:
+    get:
+      description: Upgrades to a WebSocket. Replays the last 500 records (or those
+        after `since`), sends one `ready` frame, then every new record. A client that
+        falls behind is disconnected; reconnect with since=<last seq>.
+      parameters:
+      - default: info
+        description: 'Minimum level: debug, info, warn or error'
+        in: query
+        name: level
+        type: string
+      - description: Replay only records with a sequence number above this
+        in: query
+        name: since
+        type: integer
+      responses:
+        "101":
+          description: Switching Protocols
+        "400":
+          description: level or since is invalid
+          schema:
+            $ref: '#/definitions/libs.ErrResponse'
+      summary: Stream the daemon's logs
+      tags:
+      - console
   /health:
     get:
       description: Returns {"status":"ok"} when the daemon is running.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/core/logger"
+	"github.com/rabbytesoftware/quiver.core/internal/core/logring"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
 )
 
@@ -104,4 +105,22 @@ func TestBuildHandler_At_UsesProvidedHome(t *testing.T) {
 	assert.NotNil(t, handler)
 	assert.Contains(t, roller.Filename, home)
 	_ = roller.Close()
+}
+
+func TestInit_Wrap_DecoratesTheDefaultHandler(
+	t *testing.T,
+) {
+	prev := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+	ring := logring.New()
+
+	shutdown := logger.Init(config.Logger{Enabled: false, Level: "info"}, ring.Wrap)
+	slog.Info("captured")
+
+	stream := ring.Stream(0, slog.LevelInfo)
+	defer stream.Close()
+	require.NoError(t, shutdown())
+	assert.Equal(t, "captured", stream.Replay()[0].Msg)
 }
