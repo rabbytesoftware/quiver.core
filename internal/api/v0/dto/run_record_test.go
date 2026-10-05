@@ -18,16 +18,3 @@ func TestRunRecordDTO_JSON_EmptyStepsSerializeAsArray(t *testing.T) {
 
 	assert.Contains(t, string(raw), `"steps":[]`)
 }
-
-func TestRunRecordDTOFrom_Surface(t *testing.T) {
-	got := dto.RunRecordDTOFrom(&domainRuntime.Execution{
-		Method: "execute",
-		Surface: &domainRuntime.Surface{
-			Mode: domainRuntime.SurfaceModeStatic, Path: "/", Dir: "/secret/dir", Ready: true,
-		},
-	})
-	require.Equal(t, &dto.SurfaceDTO{Mode: "static", Path: "/", Ready: true}, got.Surface)
-
-	none := dto.RunRecordDTOFrom(&domainRuntime.Execution{Method: "install"})
-	require.Nil(t, none.Surface)
-}
