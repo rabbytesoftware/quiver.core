@@ -14,6 +14,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/middleware"
 	apidto "github.com/rabbytesoftware/quiver.core/internal/api/v0/dto"
 	"github.com/rabbytesoftware/quiver.core/internal/cli/commands/clierr"
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
 
@@ -21,7 +22,7 @@ const (
 	execTimeout    = 10 * time.Minute
 	outputLimit    = 256 * 1024
 	maxBody        = 4096
-	localDevice    = "local"
+	unixCaller     = "unix"
 	truncationNote = "\n[output truncated at 256 KiB]\n"
 )
 
@@ -36,7 +37,10 @@ const (
 // exit code and error text. The command runs with empty input, so confirmations
 // answer no, for at most ten minutes or until the client disconnects, and its
 // output is cut at 256 KiB. Each call logs one audit line naming the device and
-// the resolved command path, never the raw line.
+// the resolved command path, never the raw line, plus the namespace the command
+// was given when its first argument is one. A paired device is logged as
+// device:<id> and the unix-socket caller as unix, so a client-chosen id can
+// never pass for the socket.
 //
 // @Summary      Run a console command
 // @Description  Runs a line against the daemon's own CLI tree and streams newline-delimited JSON: `out` frames, then exactly one `exit` frame. Only commands marked for the console run (403 otherwise). The line is split on spaces and never reaches a shell; quoting is not supported. At most 4 commands run at once (429), each limited to 10 minutes and 256 KiB of output.
@@ -59,7 +63,7 @@ func (h *Handlers) Exec(
 	root := h.tree(newOwnSession(c))
 	cmd, err := allowed(root, args)
 	if err != nil {
-		slog.WarnContext(c.Request.Context(), "exec denied", "component", "console", "device", device(c), "command", cmd.CommandPath())
+		slog.WarnContext(c.Request.Context(), "exec denied", "component", "console", "device", device(c), "command", auditName(root, cmd, args))
 		libs.WriteErr(c, http.StatusForbidden, err.Error(), "")
 		return
 	}
@@ -109,7 +113,7 @@ func stream(
 	start := time.Now()
 	code, message := execute(ctx, root)
 	out.exit(code, message)
-	slog.InfoContext(c.Request.Context(), "exec", "component", "console", "device", device(c), "command", cmd.CommandPath(), "code", code, "took", time.Since(start))
+	slog.InfoContext(c.Request.Context(), "exec", "component", "console", "device", device(c), "command", cmd.CommandPath(), "namespace", namespaceOf(cmd), "code", code, "took", time.Since(start))
 }
 
 func execute(
@@ -143,11 +147,35 @@ func device(
 ) string {
 	value, found := c.Get(middleware.DeviceContextKey)
 	if !found {
-		return localDevice
+		return unixCaller
 	}
 	dev, ok := value.(auth.Device)
 	if !ok || dev.ID == "" {
-		return localDevice
+		return unixCaller
 	}
-	return dev.ID
+	return "device:" + dev.ID
+}
+
+func auditName(
+	root *cobra.Command,
+	cmd *cobra.Command,
+	args []string,
+) string {
+	if cmd != root {
+		return cmd.CommandPath()
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return ""
+	}
+	return args[0]
+}
+
+func namespaceOf(
+	cmd *cobra.Command,
+) string {
+	args := cmd.Flags().Args()
+	if len(args) == 0 || domain.Namespace(args[0]).Validate() != nil {
+		return ""
+	}
+	return args[0]
 }

@@ -22,6 +22,11 @@ Body `{"line":"install github.com/x/y"}`. Errors before execution are ordinary r
 - **No shell, no quoting.** The line is rejected if it contains a control character or a quote (single or double), backtick, backslash or any of `$ ; & | < > ( ) { } * ? ~ #`; otherwise it is split on whitespace. Arguments containing spaces are not supported.
 - **Session.** Each call builds a fresh command tree whose session dials the daemon's own address with the caller's bearer token and reads no CLI config, so `--server`, `--context` and `--config` have no effect.
 - **Limits.** 10 minutes (the request context also cancels), 256 KiB of output then one truncation note, stdin is empty so confirmations answer no (destructive commands need `--yes`), a panic becomes `exit` code 1.
-- **Audit.** Each call logs one `exec` line (component `console`, `device`, resolved command path, `code`, `took`; denials at warn). It is an intentional handler log, since a stream that has begun has nowhere to return an error.
+- **Audit.** Each call logs one `exec` line (component `console`, `device`, resolved command path, `namespace` when the command's first argument is one, `code`, `took`); a denial logs at warn with the command the caller named (empty when it named only flags). `device` is `unix` for the unix-socket caller and `device:<id>` for a paired device, so a client-chosen id can never pass for the socket. It is an intentional handler log, since a stream that has begun has nowhere to return an error.
+- **Log text.** A record's message and each string value are cut at 2 KiB on a rune boundary, so a huge request line cannot fill the ring.
 
-Known limits: `status --watch` is not blocked and runs until the timeout or disconnect; the output cap counts bytes, not lines.
+Known limits:
+- `status --watch` is not blocked and runs until the timeout or disconnect; the output cap counts bytes, not lines.
+- Host and Origin headers are not validated (DNS rebinding); this is core-wide and tracked separately.
+- The number of concurrent log connections is not capped.
+- The request logger writes the full query string into its message, so a secret in a query string is stored (cut at 2 KiB) in the ring.

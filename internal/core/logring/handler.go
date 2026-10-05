@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 )
 
 type handler struct {
@@ -37,7 +38,7 @@ func (h *handler) Handle(
 		Time:      rec.Time,
 		Level:     strings.ToLower(rec.Level.String()),
 		Component: component,
-		Msg:       rec.Message,
+		Msg:       truncate(rec.Message),
 		Fields:    fields,
 		level:     rec.Level,
 	})
@@ -128,8 +129,20 @@ func (h *handler) render(
 	if isScalar(value.Kind()) {
 		return value.Any()
 	}
-	text := value.String()
-	return text[:min(len(text), maxValue)]
+	return truncate(value.String())
+}
+
+func truncate(
+	text string,
+) string {
+	if len(text) <= maxValue {
+		return text
+	}
+	cut := maxValue
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 func isScalar(

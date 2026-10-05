@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,4 +225,46 @@ func TestRing_Wrap_Handle_StoresTheRecordThenReturnsTheWrappedHandlersError(
 	assert.ErrorIs(t, err, errWrapped)
 	require.Len(t, stream.Replay(), 1)
 	assert.Equal(t, "lost", stream.Replay()[0].Msg)
+}
+
+func assertCut(
+	t *testing.T,
+	text string,
+	wantLen int,
+) {
+	t.Helper()
+
+	ring := logring.New()
+	log, _ := newLogger(ring, slog.LevelInfo)
+
+	log.Info(text, "value", text)
+
+	stream := ring.Stream(0, slog.LevelInfo)
+	defer stream.Close()
+	record := stream.Replay()[0]
+	assert.Len(t, record.Msg, wantLen)
+	assert.True(t, utf8.ValidString(record.Msg))
+	assert.Len(t, record.Fields["value"], wantLen)
+	assert.True(t, utf8.ValidString(record.Fields["value"].(string)))
+}
+
+func TestRing_Wrap_OversizedMessageAndValue_AreCutAtTwoKiB(
+	t *testing.T,
+) {
+	assertCut(t, strings.Repeat("x", 900*1024), 2048)
+}
+
+func TestRing_Wrap_OversizedMultibyteText_IsCutOnARuneBoundary(
+	t *testing.T,
+) {
+	assertCut(t, strings.Repeat("€", 3000), 2046)
+	assertCut(t, strings.Repeat("é", 3000), 2048)
+	assertCut(t, strings.Repeat("😀", 3000), 2048)
+	assertCut(t, strings.Repeat("a", 2047)+"é", 2047)
+}
+
+func TestRing_Wrap_TextAtTheLimit_IsKeptWhole(
+	t *testing.T,
+) {
+	assertCut(t, strings.Repeat("x", 2048), 2048)
 }

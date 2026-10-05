@@ -131,20 +131,68 @@ func TestHandlers_Exec_StreamsOutFramesThenExactlyOneExitFrame(
 		{"type": "out", "stream": "stderr", "data": "careful\n"},
 		exitFrame(0, ""),
 	}, readFrames(t, rec.Body))
-	for _, want := range []string{"component=console", "msg=exec ", "device=dev-7", `command="quiver echo"`, "code=0"} {
+	for _, want := range []string{"component=console", "msg=exec ", "device=device:dev-7", `command="quiver echo"`, "code=0"} {
 		assert.Contains(t, logs.String(), want)
 	}
 	assert.NotContains(t, logs.String(), "hunter2", "the audit record names the resolved command, never the raw line")
 }
 
-func TestHandlers_Exec_UnauthenticatedCaller_IsAuditedAsLocal(
+func TestHandlers_Exec_UnauthenticatedCaller_IsAuditedAsTheUnixCaller(
 	t *testing.T,
 ) {
 	logs := captureLogs(t)
 
 	post(newTestHandlers(nil), lineRequest("echo"))
 
-	assert.Contains(t, logs.String(), "device=local")
+	assert.Contains(t, logs.String(), "device=unix")
+}
+
+func TestHandlers_Exec_PairedDeviceNamedUnix_NeverPassesForTheSocketCaller(
+	t *testing.T,
+) {
+	logs := captureLogs(t)
+	req := lineRequest("echo")
+	req.Header.Set("X-Device", "unix")
+
+	post(newTestHandlers(nil), req)
+
+	assert.Contains(t, logs.String(), "device=device:unix")
+}
+
+func TestHandlers_Exec_CommandGivenANamespace_IsAuditedWithIt(
+	t *testing.T,
+) {
+	logs := captureLogs(t)
+
+	post(newTestHandlers(nil), lineRequest("echo github.com/quiver-test/tool@v1"))
+	post(newTestHandlers(nil), lineRequest("echo hunter2"))
+
+	assert.Equal(t, 1, strings.Count(logs.String(), "namespace=github.com/quiver-test/tool@v1"))
+	assert.Equal(t, 1, strings.Count(logs.String(), `namespace="" `))
+}
+
+func assertDenialLogs(
+	t *testing.T,
+	line string,
+	wantCommand string,
+) {
+	t.Helper()
+
+	logs := captureLogs(t)
+
+	post(newTestHandlers(nil), lineRequest(line))
+
+	assert.Contains(t, logs.String(), "msg=\"exec denied\"")
+	assert.Contains(t, logs.String(), "command="+wantCommand, line)
+	assert.NotContains(t, logs.String(), "hunter2")
+}
+
+func TestHandlers_Exec_Denied_IsAuditedWithTheCommandTheCallerNamed(
+	t *testing.T,
+) {
+	assertDenialLogs(t, "nope now", "nope")
+	assertDenialLogs(t, "hidden", `"quiver hidden"`)
+	assertDenialLogs(t, "--token hunter2", `""`)
 }
 
 func TestHandlers_Exec_FailingCommand_EndsWithItsErrorAndCode(
