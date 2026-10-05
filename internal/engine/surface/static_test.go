@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -91,4 +93,51 @@ func TestStatic_DirRemovedAfterStartIs503(t *testing.T) {
 	require.NoError(t, os.RemoveAll(dir))
 
 	require.Equal(t, http.StatusServiceUnavailable, get(h, http.MethodGet, "/").Code)
+}
+
+// linkOrSkip makes a symlink, skipping the test where the platform will not
+// let this user create one (windows without the privilege or developer mode).
+func linkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("cannot create symlinks here: %v", err)
+	}
+}
+
+// What nothing outside the served dir may ever reveal, whatever spelling the
+// request takes: links of every kind pointing out, parent segments written
+// every way, drive and UNC paths, alternate streams and device names.
+func TestStatic_NeverServesOutsideTheDir(t *testing.T) {
+	h, dir := staticSite(t)
+	outside := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "deep"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("SECRETDATA"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "deep", "inner.txt"), []byte("SECRETDATA"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), "sibling.txt"), []byte("SECRETDATA"), 0o644))
+
+	linkOrSkip(t, filepath.Join(outside, "secret.txt"), filepath.Join(dir, "file_link.txt"))
+	linkOrSkip(t, outside, filepath.Join(dir, "dir_link"))
+	linkOrSkip(t, filepath.Join("..", filepath.Base(outside)), filepath.Join(dir, "rel_link"))
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dir, "junction"), outside).CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+
+	paths := []string{
+		"/file_link.txt", "/dir_link/secret.txt", "/dir_link/deep/inner.txt", "/dir_link/", "/rel_link/secret.txt",
+		"/junction/secret.txt", "/junction/deep/inner.txt", "/FILE_LINK.TXT", "/Dir_Link/secret.txt",
+		"/../sibling.txt", "/%2e%2e/sibling.txt", "/%2E%2E/%2E%2E/sibling.txt", "/..%5Csibling.txt",
+		"/..\\sibling.txt", "/sub\\..\\..\\sibling.txt", "/%2e%2e%5csibling.txt",
+		"/" + filepath.ToSlash(filepath.Join(outside, "secret.txt")), "/C:/secret.txt", "/C%3A/secret.txt",
+		"//localhost/c$/secret.txt", "/%5C%5Clocalhost%5Cc$%5Csecret.txt", "/%5C%5C%3F%5C" + filepath.Base(outside),
+		"/index.html::$DATA", "/index.html:stream", "/assets::$INDEX_ALLOCATION/a.js",
+		"/CON", "/NUL", "/aux.html", "/COM1", "/con.html", "/CONIN$", "/CONOUT$",
+		"/index.html.", "/index.html%20", "/INDEX.HTML", "/index.html%00.txt",
+	}
+	for _, p := range paths {
+		req := httptest.NewRequest(http.MethodGet, "http://x"+p, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		require.NotContains(t, rec.Body.String(), "SECRETDATA", "request %q leaked a file outside the dir", p)
+	}
 }
