@@ -43,6 +43,12 @@ type CatalogHooks struct {
 		method string,
 		vars map[string]string,
 	) ([]domainStep.Step, error)
+	// SurfaceReady reports whether the surface answers requests. Called by
+	// the readiness probe until it does.
+	SurfaceReady func(ctx context.Context, ns domain.Namespace, s domainRuntime.Surface) bool
+	// CloseSurface releases what a finished execution's surface held (its
+	// socket file).
+	CloseSurface func(ns domain.Namespace)
 }
 
 // drainExecution translates one wizard execution's events into commands on the
@@ -60,7 +66,7 @@ func drainExecution(
 	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) {
-	report := drainEvents(ctx, exec, ns, executionID, axRuntime)
+	report := drainEvents(ctx, exec, ns, executionID, hooks, axRuntime)
 	finishExecution(ctx, exec, report, ns, executionID, method, hooks, axRuntime)
 }
 
@@ -69,6 +75,7 @@ func drainEvents(
 	exec wizardPkg.Execution,
 	ns string,
 	executionID string,
+	hooks CatalogHooks,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 ) drainReport {
 	var report drainReport
@@ -86,6 +93,19 @@ func drainEvents(
 			report.superseded = sendStep(ctx, axRuntime, ns, executionID, evt.StepIndex, domainRuntime.StepStatusFailed, evt.Err, "")
 		case wizardPkg.EventKindPID:
 			report.superseded = sendPID(ctx, axRuntime, ns, executionID, evt.PID)
+		case wizardPkg.EventKindSurface:
+			if evt.Surface == nil {
+				continue
+			}
+			report.superseded = sendSurface(ctx, axRuntime, ns, executionID, *evt.Surface)
+			report.surfaceReleased = false
+			if !report.superseded {
+				go probeSurface(ctx, hooks, axRuntime, ns, executionID, *evt.Surface,
+					surfaceProbeInterval, surfaceProbeMaxInterval)
+			}
+		case wizardPkg.EventKindSurfaceClosed:
+			report.superseded = closeSurface(ctx, hooks, axRuntime, ns, executionID)
+			report.surfaceReleased = !report.superseded
 		case wizardPkg.EventKindEnded:
 		}
 	}
@@ -109,6 +129,9 @@ func finishExecution(
 	outcome := exec.Outcome()
 	if !onEnd(ctx, hooks, axRuntime, ns, executionID, method, outcome) {
 		return
+	}
+	if hooks.CloseSurface != nil && !report.surfaceReleased {
+		hooks.CloseSurface(domain.Namespace(ns))
 	}
 	if method == domain.MethodUpdate {
 		return
@@ -166,7 +189,7 @@ func sendStep(
 	if note != "" {
 		noteStr = &note
 	}
-	_, err := axRuntime.Send(ctx, runtimecmds.AdvanceStep{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.AdvanceStep{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		StepIndex:   stepIndex,
@@ -193,7 +216,7 @@ func sendPID(
 	executionID string,
 	pid int,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.RecordPID{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.RecordPID{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		PID:         pid,
@@ -220,7 +243,7 @@ func sendEndExecution(
 	executionID string,
 	outcome domainRuntime.ExecutionOutcome,
 ) bool {
-	_, err := axRuntime.Send(ctx, runtimecmds.EndExecution{
+	err := sendRetryingConflicts(ctx, axRuntime, runtimecmds.EndExecution{
 		Namespace:   domain.Namespace(ns),
 		ExecutionID: executionID,
 		Outcome:     outcome,

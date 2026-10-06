@@ -38,6 +38,7 @@ paths:
   vault: "{{home}}/vault"
   self: "{{home}}/self"
   bin: "{{home}}/bin"
+  run: "{{home}}/run"
 
 # ? namespaces are quiver.core's own self-arrow identities: the module paths
 # ? it registers itself and its companion quiver.desktop GUI under in the

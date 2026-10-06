@@ -51,19 +51,13 @@ func (c AdvanceStep) EmitEvent(current *domainRuntime.ArrowRuntime) domainRuntim
 	steps[c.StepIndex].Error = c.Error
 	steps[c.StepIndex].Note = c.Note
 
-	updatedRun := &domainRuntime.Execution{
-		ID:        current.Execution.ID,
-		Method:    current.Execution.Method,
-		Steps:     steps,
-		Variables: current.Execution.Variables,
-		PID:       current.Execution.PID,
-		WorkDir:   current.Execution.WorkDir,
-	}
+	updatedRun := *current.Execution
+	updatedRun.Steps = steps
 
 	return domainRuntime.ArrowRuntime{
 		Ref:            current.Ref,
 		State:          current.State,
-		Execution:      updatedRun,
+		Execution:      &updatedRun,
 		LastReturn:     current.LastReturn,
 		PendingDepSync: current.PendingDepSync,
 	}

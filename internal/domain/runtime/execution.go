@@ -19,6 +19,7 @@ type Execution struct {
 	Variables map[string]string `json:"variables"`
 	PID       int               `json:"pid,omitempty"`
 	WorkDir   string            `json:"workDir,omitempty"`
+	Surface   *Surface          `json:"surface,omitempty"`
 }
 
 // Return is how a run ended. ExecutionID is the ID of the Execution it

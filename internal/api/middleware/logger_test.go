@@ -187,3 +187,18 @@ func TestRequestMiddleware_Standalone(t *testing.T) {
 		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
 	}
 }
+
+func TestRequestRecovery_RepanicsAbortHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestRecovery())
+	router.GET("/abort", func(*gin.Context) { panic(http.ErrAbortHandler) })
+
+	defer func() {
+		if r := recover(); r != http.ErrAbortHandler { //nolint:errorlint // sentinel panic value
+			t.Fatalf("expected http.ErrAbortHandler to propagate, got %v", r)
+		}
+	}()
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/abort", nil))
+	t.Fatal("expected the abort to propagate")
+}

@@ -74,7 +74,7 @@ func (s *eventStore) Append(
 		Data:        data,
 	})
 	if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-		return fmt.Errorf("%w: version conflict (%s, v%d)", models.ErrPipelineFailed, aggregateID, version)
+		return fmt.Errorf("%w: %w (%s, v%d)", models.ErrPipelineFailed, ErrVersionConflict, aggregateID, version)
 	}
 	if result.Error != nil {
 		return fmt.Errorf("eventstore: append (%s, v%d): %w", aggregateID, version, result.Error)

@@ -18,6 +18,10 @@ const (
 	VarArrowNamespace = "ARROW_NAMESPACE"
 	VarPlatform       = "PLATFORM"
 	VarRef            = "REF"
+
+	// VarArrowUIListen is the unix socket address an arrow serves its
+	// interface on, provisioned only for methods with a run step whose ui listens.
+	VarArrowUIListen = "ARROW_UI_LISTEN"
 )
 
 // ReservedVariableNames returns the built-in names. The order is fixed so a
@@ -29,6 +33,7 @@ func ReservedVariableNames() []string {
 		VarArrowNamespace,
 		VarPlatform,
 		VarRef,
+		VarArrowUIListen,
 	}
 }
 

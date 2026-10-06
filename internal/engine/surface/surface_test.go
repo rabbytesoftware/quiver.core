@@ -1,0 +1,169 @@
+package surface_test
+
+import (
+	"net"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
+)
+
+// shortDir returns a directory with a path short enough for a unix socket
+// (t.TempDir's per-test name can exceed the limit).
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "qs")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+func TestSocketPath_IsDeterministicAndShort(t *testing.T) {
+	e := surface.New("/home/u/.quiver/run")
+	ns := domain.Namespace("github.com/user/repo@v1")
+
+	a, b := e.SocketPath(ns), e.SocketPath(ns)
+	require.Equal(t, a, b)
+	require.NotEqual(t, a, e.SocketPath("github.com/user/other"))
+	require.Equal(t, filepath.FromSlash("/home/u/.quiver/run"), filepath.Dir(a))
+	require.Regexp(t, `^[0-9a-f]{12}\.sock$`, filepath.Base(a))
+}
+
+func TestPrepare_CreatesPrivateDirAndReturnsPath(t *testing.T) {
+	run := filepath.Join(shortDir(t), "run")
+	e := surface.New(run)
+
+	path, err := e.Prepare("github.com/user/repo")
+	require.NoError(t, err)
+	require.Equal(t, e.SocketPath("github.com/user/repo"), path)
+
+	info, err := os.Stat(run)
+	require.NoError(t, err)
+	if runtime.GOOS != "windows" {
+		require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+	}
+}
+
+func TestPrepare_RemovesStaleSocket(t *testing.T) {
+	e := surface.New(shortDir(t))
+	path := e.SocketPath("a/b")
+	require.NoError(t, os.WriteFile(path, nil, 0o600)) // a dead file, nothing listening
+
+	_, err := e.Prepare("a/b")
+	require.NoError(t, err)
+	_, statErr := os.Stat(path)
+	require.True(t, os.IsNotExist(statErr))
+}
+
+func TestPrepare_KeepsLiveSocket(t *testing.T) {
+	e := surface.New(shortDir(t))
+	path := e.SocketPath("a/b")
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err)
+	defer l.Close()
+
+	got, err := e.Prepare("a/b")
+	require.NoError(t, err)
+	require.Equal(t, path, got)
+	_, statErr := os.Stat(path)
+	require.NoError(t, statErr, "a live socket must survive Prepare")
+}
+
+func TestPrepare_PathTooLong(t *testing.T) {
+	e := surface.New("/" + strings.Repeat("a", 120))
+
+	_, err := e.Prepare("a/b")
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+}
+
+// socketDirFor returns a run dir under a fresh temp dir whose socket address for
+// ns is exactly n bytes.
+func socketDirFor(t *testing.T, ns string, n int) string {
+	t.Helper()
+	base := shortDir(t)
+	sock := len(surface.New(base).SocketPath(domain.Namespace(ns)))
+	pad := n - sock - 1
+	require.Positive(t, pad, "temp dir %q is already too long for %d bytes", base, n)
+	dir := filepath.Join(base, strings.Repeat("d", pad))
+	require.Len(t, surface.New(dir).SocketPath(domain.Namespace(ns)), n)
+	return dir
+}
+
+// The limit is the measured one: the longest address Prepare accepts is one a
+// bind and a dial really work at, and one byte more is refused here and by the
+// kernel.
+func TestPrepare_PathLimitIsTheRealOne(t *testing.T) {
+	ok := socketDirFor(t, "a/b", surface.MaxSocketPath)
+	e := surface.New(ok)
+	path, err := e.Prepare("a/b")
+	require.NoError(t, err)
+	require.Len(t, path, surface.MaxSocketPath)
+	l, err := net.Listen("unix", path)
+	require.NoError(t, err, "a bind at the limit must work")
+	defer l.Close()
+	go func() {
+		if c, err := l.Accept(); err == nil {
+			_ = c.Close()
+		}
+	}()
+	c, err := net.Dial("unix", path)
+	require.NoError(t, err, "a dial at the limit must work")
+	_ = c.Close()
+
+	over := socketDirFor(t, "a/b", surface.MaxSocketPath+1)
+	_, err = surface.New(over).Prepare("a/b")
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+	require.NoError(t, os.MkdirAll(over, 0o700))
+	_, err = net.Listen("unix", surface.New(over).SocketPath("a/b"))
+	require.Error(t, err, "one byte over the limit the kernel refuses too")
+}
+
+func TestPrepare_TooLongCreatesNothing(t *testing.T) {
+	dir := socketDirFor(t, "a/b", surface.MaxSocketPath+1)
+	_, err := surface.New(dir).Prepare("a/b")
+	require.ErrorIs(t, err, surface.ErrPathTooLong)
+	_, statErr := os.Stat(dir)
+	require.True(t, os.IsNotExist(statErr), "a refused Prepare must not create the run dir")
+}
+
+func TestCleanup_RemovesSocket(t *testing.T) {
+	e := surface.New(shortDir(t))
+	path, err := e.Prepare("a/b")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, nil, 0o600))
+
+	e.Cleanup("a/b")
+	_, statErr := os.Stat(path)
+	require.True(t, os.IsNotExist(statErr))
+}
+
+func TestHandlerAndReady_NoSurfaceMode(t *testing.T) {
+	e := surface.New(shortDir(t))
+
+	_, err := e.Handler(surface.Spec{})
+	require.ErrorIs(t, err, surface.ErrNoSurface)
+	require.False(t, e.Ready(t.Context(), surface.Spec{}, "/"))
+}
+
+func TestPrepare_RunDirUnderAFileFails(t *testing.T) {
+	file := filepath.Join(shortDir(t), "f")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+
+	_, err := surface.New(filepath.Join(file, "run")).Prepare("a/b")
+	require.Error(t, err)
+}
+
+func TestPrepare_UnremovableStalePathFails(t *testing.T) {
+	e := surface.New(shortDir(t))
+	path := e.SocketPath("a/b")
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "child"), 0o700))
+
+	_, err := e.Prepare("a/b")
+	require.Error(t, err)
+}

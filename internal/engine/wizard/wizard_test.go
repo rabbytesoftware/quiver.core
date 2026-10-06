@@ -26,8 +26,11 @@ type testRecord struct {
 	Completed []int
 	Failed    []int
 	PIDs      []int
-	Notes     map[int]string
-	Outcome   domainRuntime.ExecutionOutcome
+	Surfaces  []*domainRuntime.Surface
+	// SurfacesClosed counts EventKindSurfaceClosed events.
+	SurfacesClosed int
+	Notes          map[int]string
+	Outcome        domainRuntime.ExecutionOutcome
 }
 
 func collectEvents(
@@ -50,6 +53,10 @@ func collectEvents(
 			rec.Failed = append(rec.Failed, e.StepIndex)
 		case EventKindPID:
 			rec.PIDs = append(rec.PIDs, e.PID)
+		case EventKindSurface:
+			rec.Surfaces = append(rec.Surfaces, e.Surface)
+		case EventKindSurfaceClosed:
+			rec.SurfacesClosed++
 		case EventKindEnded:
 		}
 	}
@@ -343,6 +350,30 @@ func TestWizard_Shutdown_DoesNotCancelExecuteMethodExecution(t *testing.T) {
 	// by the Shutdown call above — proving it genuinely outlived the wizard's
 	// own shutdown signal rather than merely racing it.
 	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, exec.Outcome())
+}
+
+func TestWizard_Shutdown_CancelsAnExecutionThatHoldsASurface(t *testing.T) {
+	w, err := New(nil, testExtractMaxBytes)
+	require.NoError(t, err)
+
+	long := domainstep.NewRunStep("sleep", "sleep 30", false, "60s", true).
+		WithUI(domainstep.UIOptions{Static: "."})
+	req := RunRequest{
+		Namespace: "test/user/repo/arrow",
+		Method:    domain.MethodExecute,
+		Variables: map[string]string{},
+		Steps:     []domainstep.Step{long},
+		WorkDir:   os.TempDir(),
+	}
+	exec := w.Start(context.Background(), req)
+
+	for ev := range exec.Events() {
+		if ev.Kind == EventKindPID {
+			require.NoError(t, w.Shutdown(context.Background()))
+		}
+	}
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeCancelled, exec.Outcome())
 }
 
 func TestWizard_Shutdown_DoesNotCancelCustomMethodExecution(t *testing.T) {
@@ -647,4 +678,34 @@ func TestProbe_NoWorkDir_RunsInAScratchDirectory(t *testing.T) {
 	where, err := os.ReadFile(record) // #nosec G304 -- a temp file this test owns
 	require.NoError(t, err)
 	assert.NoDirExists(t, strings.TrimSpace(string(where)), "the scratch directory is removed")
+}
+
+func TestStart_RunUIStaticEmitsSurfaceThenClosesWhenTheRunEnds(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "dist"), 0o755))
+	req := newTestReq(domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).
+		WithUI(domainstep.UIOptions{Static: "./dist"}))
+	req.WorkDir = dir
+
+	rec := runSync(context.Background(), newTestWizard(t), req)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	require.Len(t, rec.Surfaces, 1)
+	assert.Equal(t, domainRuntime.SurfaceModeStatic, rec.Surfaces[0].Mode)
+	assert.True(t, rec.Surfaces[0].Ready)
+	assert.Equal(t, 1, rec.SurfacesClosed)
+}
+
+func TestStart_RunUIClosesBeforeTheNextStepRuns(t *testing.T) {
+	req := newTestReq(
+		domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{}),
+		domainstep.NewRunStep("after", "echo after", false, "5s", true),
+	)
+	req.Variables = map[string]string{domain.VarArrowUIListen: "/run/x.sock"}
+
+	rec := runSync(context.Background(), newTestWizard(t), req)
+
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, rec.Outcome)
+	assert.Equal(t, []int{0, 1}, rec.Completed)
+	assert.Equal(t, 1, rec.SurfacesClosed)
 }

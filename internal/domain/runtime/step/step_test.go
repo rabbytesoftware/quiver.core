@@ -480,6 +480,42 @@ func TestRunStep_JSONRoundTrip_WithElevated(t *testing.T) {
 	assert.Equal(t, "sudo apt-get install -y curl", got.Command.Default)
 }
 
+func TestRunStep_JSONRoundTrip_WithUI(t *testing.T) {
+	ui := UIOptions{Title: "Chat", Path: "/app", Listen: []string{"unix"}}
+	original := NewRunStep("start", "./chat", false, "", true).WithUI(ui)
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got RunStep
+	require.NoError(t, json.Unmarshal(data, &got))
+
+	require.NotNil(t, got.UI)
+	assert.Equal(t, ui, *got.UI)
+}
+
+func TestRunStep_JSONOmitsAbsentUI(t *testing.T) {
+	data, err := json.Marshal(NewRunStep("start", "./chat", false, "", true))
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(data), `"ui"`)
+}
+
+func TestRunStep_Resolve_KeepsUI(t *testing.T) {
+	s := NewRunStep("start", "./chat", false, "", true).WithUI(UIOptions{Static: "./dist"})
+
+	got := s.Resolve("linux/amd64").(RunStep)
+
+	require.NotNil(t, got.UI)
+	assert.Equal(t, "./dist", got.UI.Static)
+}
+
+func TestUIOptions_Listens(t *testing.T) {
+	assert.True(t, UIOptions{}.Listens())
+	assert.True(t, UIOptions{Listen: []string{"unix"}}.Listens())
+	assert.False(t, UIOptions{Static: "./dist"}.Listens())
+}
+
 func TestPortableStep_JSONRoundTrip(t *testing.T) {
 	original := NewPortableStep("install app", "./bruno.AppImage", "./out", "2m", true)
 	original.Name = "bruno"

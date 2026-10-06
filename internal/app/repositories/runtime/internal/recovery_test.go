@@ -408,3 +408,77 @@ func TestRecoverTransients_UnionDeduplicates(t *testing.T) {
 	assert.Equal(t, domain.ArrowStateAbsent, got.State,
 		"a namespace in both sources must be recovered exactly once to absent")
 }
+
+func seedSurface(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+) {
+	t.Helper()
+	rt, err := ax.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	_, err = ax.Send(context.Background(), commands.SetSurface{
+		Namespace:   ns,
+		ExecutionID: rt.Execution.ID,
+		Surface:     domainRuntime.Surface{Mode: domainRuntime.SurfaceModeListen, Path: "/"},
+	})
+	require.NoError(t, err)
+	ax.WaitPublish()
+}
+
+func recoverWithCloseSurface(
+	t *testing.T,
+	ax asynx.Asynx[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+	alive bool,
+) []domain.Namespace {
+	t.Helper()
+	var closed []domain.Namespace
+	cat := &mockCatalog{listResult: []models.ArrowView{makeArrowView(ns)}}
+	w := &mocks.Wizard{ProcessAliveFn: func(int) bool { return alive }}
+	runtimeinternal.RecoverTransients(
+		context.Background(),
+		cat.listFn(),
+		func(context.Context) ([]domain.Namespace, error) { return nil, nil },
+		ax,
+		w,
+		runtimeinternal.WithCloseSurface(func(ns domain.Namespace) { closed = append(closed, ns) }),
+	)
+	ax.WaitPublish()
+	return closed
+}
+
+func TestRecoverTransients_DeadRunWithSurface_ClosesTheSurface(t *testing.T) {
+	ns := testNs()
+	axRuntime := newTestAsynxRuntime(t)
+	seedRunningRuntime(t, axRuntime, ns, 99999)
+	seedSurface(t, axRuntime, ns)
+
+	closed := recoverWithCloseSurface(t, axRuntime, ns, false)
+
+	assert.Equal(t, []domain.Namespace{ns}, closed)
+	got, err := axRuntime.Get(context.Background(), ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, got.State)
+}
+
+func TestRecoverTransients_LiveRunWithSurface_LeavesTheSurface(t *testing.T) {
+	ns := testNs()
+	axRuntime := newTestAsynxRuntime(t)
+	seedRunningRuntime(t, axRuntime, ns, 99999)
+	seedSurface(t, axRuntime, ns)
+
+	closed := recoverWithCloseSurface(t, axRuntime, ns, true)
+
+	assert.Empty(t, closed)
+}
+
+func TestRecoverTransients_DeadRunWithoutSurface_ClosesNothing(t *testing.T) {
+	ns := testNs()
+	axRuntime := newTestAsynxRuntime(t)
+	seedRunningRuntime(t, axRuntime, ns, 99999)
+
+	closed := recoverWithCloseSurface(t, axRuntime, ns, false)
+
+	assert.Empty(t, closed)
+}

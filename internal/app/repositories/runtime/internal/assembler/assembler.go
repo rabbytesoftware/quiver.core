@@ -20,6 +20,9 @@ import (
 // GetArrowFn is re-exported so runtime.go can use the type without importing assemblerinternal.
 type GetArrowFn = assemblerinternal.GetArrowFn
 
+// SocketProvider is re-exported for the same reason as GetArrowFn.
+type SocketProvider = assemblerinternal.SocketProvider
+
 // ResolvedExecution carries everything needed to begin an execution.
 type ResolvedExecution struct {
 	Steps       []domainStep.Step
@@ -59,6 +62,7 @@ type assemblerService struct {
 	axRuntime   asynx.Asynx[domainRuntime.ArrowRuntime]
 	vault       vault.Vault
 	netbridge   netbridge.Netbridge
+	surfaces    assemblerinternal.SocketProvider
 	os          domain.OS
 }
 
@@ -68,6 +72,7 @@ func New(
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
 	nb netbridge.Netbridge,
+	surfaces assemblerinternal.SocketProvider,
 	os domain.OS,
 ) Assembler {
 	return &assemblerService{
@@ -76,6 +81,7 @@ func New(
 		axRuntime:   axRuntime,
 		vault:       v,
 		netbridge:   nb,
+		surfaces:    surfaces,
 		os:          os,
 	}
 }
@@ -126,6 +132,7 @@ func (a *assemblerService) Assemble(
 		a.axRuntime,
 		a.vault,
 		a.netbridge,
+		a.surfaces,
 		userVars,
 		// The steps this method is about to run: only the variables THEY
 		// expand are required of the caller.

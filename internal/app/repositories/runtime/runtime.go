@@ -19,6 +19,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -96,6 +97,10 @@ type Runtime interface {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeSurfaceSet(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	OnRuntimeOutdated(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
@@ -165,6 +170,7 @@ type runtimeRepository struct {
 	hasDependents         HasDependentsFn
 	listArrows            ListArrowsFn
 	listRuntimeAggregates ListRuntimeAggregatesFn
+	closeSurface          func(ns domain.Namespace)
 	drainWg               sync.WaitGroup // tracks only one-shot-method drains; see waitDrains
 	drainMu               sync.Mutex
 	drainClosed           bool
@@ -175,6 +181,7 @@ func New(
 	getDepArrow GetArrowFn,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
+	surfaces surface.Surface,
 	v vault.Vault,
 	markInstalled MarkInstalledFn,
 	markUninstalled MarkUninstalledFn,
@@ -188,11 +195,14 @@ func New(
 	repo := &runtimeRepository{
 		axRuntime:             axRuntime,
 		wizard:                w,
-		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, os), getArrow, os},
+		assembler:             plannedAssembler{assembler.New(assembler.GetArrowFn(getArrow), assembler.GetArrowFn(getDepArrow), axRuntime, v, nil, surfaces, os), getArrow, os},
 		hasDependents:         hasDependents,
 		listArrows:            listArrows,
 		listRuntimeAggregates: listRuntimeAggregates,
 		reconcileBadge:        ReconcileVersionBadge(getArrow, axRuntime),
+	}
+	if surfaces != nil {
+		repo.closeSurface = surfaces.Cleanup
 	}
 
 	hooks := runtimeinternal.CatalogHooks{
@@ -205,12 +215,27 @@ func New(
 	}
 
 	if err := runtimeinternal.RegisterReactions(
-		axRuntime, hooks, w, repo.tryAddDrain,
+		axRuntime, withSurface(hooks, surfaces), w, repo.tryAddDrain,
 	); err != nil {
 		return nil, fmt.Errorf("runtime: register reactions: %w", err)
 	}
 
 	return repo, nil
+}
+
+// withSurface lets the drain probe and release the surfaces executions open.
+func withSurface(
+	hooks runtimeinternal.CatalogHooks,
+	surfaces surface.Surface,
+) runtimeinternal.CatalogHooks {
+	if surfaces == nil {
+		return hooks
+	}
+	hooks.SurfaceReady = func(ctx context.Context, ns domain.Namespace, s domainRuntime.Surface) bool {
+		return surfaces.Ready(ctx, surface.Spec{Mode: s.Mode, Namespace: ns, Dir: s.Dir}, s.Path)
+	}
+	hooks.CloseSurface = surfaces.Cleanup
+	return hooks
 }
 
 func (s *runtimeRepository) reassemble(
@@ -510,7 +535,11 @@ func (s *runtimeRepository) RuntimeExists(
 }
 
 func (s *runtimeRepository) Start(ctx context.Context) {
-	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard)
+	var opts []runtimeinternal.RecoveryOption
+	if s.closeSurface != nil {
+		opts = append(opts, runtimeinternal.WithCloseSurface(s.closeSurface))
+	}
+	runtimeinternal.RecoverTransients(ctx, s.listArrows, s.listRuntimeAggregates, s.axRuntime, s.wizard, opts...)
 }
 
 // tryAddDrain registers one drain goroutine, if Shutdown should wait for it.
@@ -649,6 +678,20 @@ func (s *runtimeRepository) OnRuntimePIDRecorded(fn func(
 ),
 ) error {
 	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.pid_recorded.*"), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) {
+		fn(ctx, evt.Aggregate)
+	})
+	return err
+}
+
+func (s *runtimeRepository) OnRuntimeSurfaceSet(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.surface_set.*"), func(
 		ctx context.Context,
 		evt asynxModels.Event[domainRuntime.ArrowRuntime],
 	) {

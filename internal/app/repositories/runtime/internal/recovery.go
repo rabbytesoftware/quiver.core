@@ -13,13 +13,36 @@ import (
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
 
+// RecoveryOption adjusts what RecoverTransients does beyond the runtime store.
+type RecoveryOption func(*recoveryOptions)
+
+type recoveryOptions struct {
+	closeSurface func(ns domain.Namespace)
+}
+
+// WithCloseSurface releases what a surface held (its socket file) for a run
+// recovery finds dead. Nothing else would: the execution that opened it ended
+// with the daemon that ran it.
+func WithCloseSurface(
+	closeSurface func(ns domain.Namespace),
+) RecoveryOption {
+	return func(o *recoveryOptions) {
+		o.closeSurface = closeSurface
+	}
+}
+
 func RecoverTransients(
 	ctx context.Context,
 	listArrows func(ctx context.Context) ([]models.ArrowView, error),
 	listRuntimeAggregates func(ctx context.Context) ([]domain.Namespace, error),
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
+	opts ...RecoveryOption,
 ) {
+	var o recoveryOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	for _, ns := range collectRecoveryNamespaces(ctx, listArrows, listRuntimeAggregates) {
 		if preloadErr := axRuntime.Preload(ctx, ns.String()); preloadErr != nil {
 			continue
@@ -30,7 +53,7 @@ func RecoverTransients(
 		}
 		switch rt.State {
 		case domain.ArrowStateRunning:
-			recoverRunning(ctx, ns, rt, axRuntime, w)
+			recoverRunning(ctx, ns, rt, axRuntime, w, o.closeSurface)
 		case domain.ArrowStateInstalling,
 			domain.ArrowStateUninstalling,
 			domain.ArrowStateUpdating,
@@ -92,6 +115,7 @@ func recoverRunning(
 	rt domainRuntime.ArrowRuntime,
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
+	closeSurface func(ns domain.Namespace),
 ) {
 	pid := 0
 	if rt.Execution != nil {
@@ -129,6 +153,9 @@ func recoverRunning(
 		domain.ArrowStateRunning,
 		axRuntime,
 	)
+	if closeSurface != nil && rt.Execution != nil && rt.Execution.Surface != nil {
+		closeSurface(ns)
+	}
 }
 
 func sendRecoverInterrupted(

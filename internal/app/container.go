@@ -32,6 +32,7 @@ import (
 type Container struct {
 	Arrow      usecases.ArrowUsecase
 	Runtime    usecases.RuntimeUsecase
+	Surface    usecases.SurfaceUsecase
 	Collection usecases.CollectionUsecase
 	Search     usecases.SearchUsecase
 	// Discovery is nil when the container was built without a vault or a
@@ -301,6 +302,7 @@ func New(
 		engines.Vault,
 		engines.Manifold,
 		engines.Wizard,
+		engines.Surface,
 		os,
 		h,
 		engines.Providers,
@@ -327,7 +329,9 @@ func New(
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
 
-	return assemble(cfg, uc, h, repos, db, deviceDB), nil
+	container := assemble(cfg, uc, h, repos, db, deviceDB)
+	container.Surface = usecases.NewSurfaceUsecase(uc.Runtime, engines.Surface)
+	return container, nil
 }
 
 func assemble(

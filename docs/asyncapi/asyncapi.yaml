@@ -308,6 +308,28 @@ components:
           type: object
           additionalProperties:
             type: string
+        surface:
+          type: object
+          description: The interface opened by the ui node of the run step currently running. Absent until that run opens one and again once it exits.
+          required:
+            - mode
+            - path
+            - ready
+          properties:
+            title:
+              type: string
+              description: Name the shell shows for the interface. Omitted when the manifest sets none.
+            mode:
+              type: string
+              enum:
+                - listen
+                - static
+            path:
+              type: string
+              description: Initial path, served under /v0/ui/{ns}.
+            ready:
+              type: boolean
+              description: True once the surface answers requests.
 
     LastReturn:
       type: object

@@ -111,7 +111,7 @@ Because `Emit` is non-blocking, `EventKindEnded` may be dropped if the consumer 
 
 ## Events
 
-Five event kinds, all carried in a single `Event` struct.
+Seven event kinds, all carried in a single `Event` struct.
 
 | Kind | Fields populated | When emitted |
 |------|------------------|--------------|
@@ -119,6 +119,8 @@ Five event kinds, all carried in a single `Event` struct.
 | `step.completed` | `StepIndex` | After a step's handler returns `nil` |
 | `step.failed` | `StepIndex`, `Err` | After a step's handler returns a non-nil error and the context is not yet cancelled |
 | `pid` | `PID` | Emitted by the run handler immediately after `runtime.Start` returns a process; carries the OS PID |
+| `surface` | `Surface` | Emitted by the `run` handler before it starts a process whose step has a `ui` node, with the interface it opens (`title`, `mode`, `path`, and `dir` for static) |
+| `surface.closed` | none | Emitted by the same `run` handler when that process ends, whatever the outcome (exit code, signal, failure to start, timeout, cancel). Best-effort like every event: a full channel drops it, and the end of the execution then releases the socket |
 | `ended` | `Outcome` | Best-effort terminal event emitted by `Finish` before channels close |
 
 The app layer subscribes to these via `drainExecution` in `internal/app/repositories/runtime/internal/hooks.go`, translating each into an asynx command:
@@ -129,6 +131,8 @@ The app layer subscribes to these via `drainExecution` in `internal/app/reposito
 | `step.completed` | `AdvanceStep{ToStatus: completed}` |
 | `step.failed` | `AdvanceStep{ToStatus: failed, Error: …}` |
 | `pid` | `RecordPID{PID: …}` |
+| `surface` | `SetSurface{Namespace, ExecutionID, Surface}`, then a readiness probe records `ready` (see [surface.md](surface.md)) |
+| `surface.closed` | `ClearSurface{Namespace, ExecutionID}`, then `CloseSurface` releases the socket. Dropped, with nothing released, when the execution has been superseded; sent through the same version-conflict retry as the other commands |
 | `ended` | (loop exits; `EndExecution{Outcome: exec.Outcome()}` follows) |
 
 The Wizard does not call asynx, never knows about step indexing offsets, and never edits aggregate state — the hook layer owns that translation.
@@ -139,11 +143,11 @@ A `fetch` step whose download does not match its declared `sha256` fails with `d
 
 ## Step Types
 
-The dispatch table is fixed at construction time. Seven step types map to seven handlers, and `expose` steps are run by the wizard loop itself (see [Exposure](#exposure)); an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
+The dispatch table is fixed at construction time. Eight step types map to eight handlers, and `expose` steps are run by the wizard loop itself (see [Exposure](#exposure)); an unknown step type returns `ErrUnknownStepType` and is reported as `step.failed` (treated as a normal step failure, honoring the step's `ExitOnFailure`).
 
 | Step type | Handler | Description |
 |-----------|---------|-------------|
-| `run` | `internal/step/run` | Spawns a shell-wrapped command; emits `EventKindPID` after start; blocks on `Wait`; non-zero exit returns `ErrNonZeroExit` |
+| `run` | `internal/step/run` | Spawns a shell-wrapped command; emits `EventKindPID` after start; blocks on `Wait`; non-zero exit returns `ErrNonZeroExit`. When the step has a `ui` node, the handler validates it and emits `EventKindSurface` before starting the process, and defers `EventKindSurfaceClosed` so every way out closes it; it serves nothing. A listening ui requires `ARROW_UI_LISTEN` in `req.Vars` (else `run.ErrNoSocket`, and nothing starts); a `static` ui resolves its directory inside the workdir with symlinks followed, refusing an escape or a non-directory (`run.ErrBadStaticDir`), and is reported ready |
 | `fetch` | `internal/step/download` | Downloads URL → `WorkDir`-relative or absolute destination via `internal/core/fns`; expands `${VAR}` references using `req.Vars` |
 | `signal` | `internal/step/signal` | Sends a `SignalKind` (graceful/kill/interrupt) directly to `req.PID`; returns `ErrNoProcess` if `PID <= 0` |
 | `dependencies` | `internal/step/dependencies` | Calls the `Executor` injected at `New`; if `nil`, a no-op |

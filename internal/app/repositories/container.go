@@ -34,6 +34,7 @@ import (
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/provider"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	wizardPkg "github.com/rabbytesoftware/quiver.core/internal/engine/wizard"
 )
@@ -88,6 +89,7 @@ func New(
 	v vault.Vault,
 	m manifold.Manifold,
 	w wizardPkg.Wizard,
+	surfaces surface.Surface,
 	os domain.OS,
 	hub apphub.WebSocketHub,
 	providers []provider.Provider,
@@ -119,7 +121,7 @@ func New(
 	}
 
 	targets := &updateTargets{}
-	rt, err := newRuntime(cat, axArrow, axRuntime, w, v, g, os, listRuntimeAggregates, targets.lookup)
+	rt, err := newRuntime(cat, axArrow, axRuntime, w, surfaces, v, g, os, listRuntimeAggregates, targets.lookup)
 	if err != nil {
 		discardCollection(coll)
 		return nil, fmt.Errorf("repositories: runtime: %w", err)
@@ -190,6 +192,7 @@ func newRuntime(
 	axArrow asynx.Asynx[domain.Arrow],
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	w wizardPkg.Wizard,
+	surfaces surface.Surface,
 	v vault.Vault,
 	g graph.Graph,
 	os domain.OS,
@@ -201,6 +204,7 @@ func newRuntime(
 		cat.Get,
 		axRuntime,
 		w,
+		surfaces,
 		v,
 		cat.MarkInstalled,
 		cat.MarkUninstalled,
@@ -595,6 +599,12 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnRuntimeDetached: %w", err)
+	}
+
+	if err := c.Runtime.OnRuntimeSurfaceSet(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+		hub.BroadcastArrowRuntime(rt)
+	}); err != nil {
+		return fmt.Errorf("repositories: hub OnRuntimeSurfaceSet: %w", err)
 	}
 
 	if err := c.Runtime.OnRuntimePIDRecorded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {

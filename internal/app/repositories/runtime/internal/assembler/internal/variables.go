@@ -17,11 +17,34 @@ import (
 	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainStep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/surface"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
 // GetArrowFn fetches the current state of an arrow aggregate by namespace.
 type GetArrowFn func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
+
+// SocketProvider hands out the unix socket address an arrow serves its
+// interface on.
+type SocketProvider interface {
+	Prepare(
+		ns domain.Namespace,
+	) (string, error)
+}
+
+// provisionSocket asks surfaces for the interface socket address. A path that
+// is too long is the user's own home being too deep, so it is reported as a
+// configuration problem naming the path, not as an internal error.
+func provisionSocket(ns domain.Namespace, surfaces SocketProvider) (string, error) {
+	socket, err := surfaces.Prepare(ns)
+	if errors.Is(err, surface.ErrPathTooLong) {
+		return "", fmt.Errorf("%w: provision interface socket: %w", apperrors.ErrInvalidConfig, err)
+	}
+	if err != nil {
+		return "", fmt.Errorf("provision interface socket: %w", err)
+	}
+	return socket, nil
+}
 
 // ResolveVariables builds the variable map for an execution using 6 priority
 // layers: built-ins -> dep built-ins + named exports -> version defaults ->
@@ -37,6 +60,7 @@ func ResolveVariables( //nolint:gocyclo
 	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
 	v vault.Vault,
 	nb netbridge.Netbridge,
+	surfaces SocketProvider,
 	userVars map[string]string,
 	steps []domainStep.Step,
 ) (map[string]string, error) {
@@ -44,6 +68,13 @@ func ResolveVariables( //nolint:gocyclo
 	vars, err := builtIns(ctx, ns, arrow, os, v)
 	if err != nil {
 		return nil, err
+	}
+	if surfaces != nil && hasListenUI(steps) {
+		socket, err := provisionSocket(ns, surfaces)
+		if err != nil {
+			return nil, err
+		}
+		vars[domain.VarArrowUIListen] = socket
 	}
 
 	// Layer 2: dep built-ins and named exports
@@ -153,6 +184,17 @@ func builtIns(
 	vars[domain.VarPlatform] = os.String()
 	vars[domain.VarRef] = arrow.Resolved.RefOr(ns.Ref())
 	return vars, nil
+}
+
+func hasListenUI(
+	steps []domainStep.Step,
+) bool {
+	for _, s := range steps {
+		if run, ok := s.(domainStep.RunStep); ok && run.UI != nil && run.UI.Listens() {
+			return true
+		}
+	}
+	return false
 }
 
 // carryForward filters a previous execution's variables down to the ones

@@ -49,6 +49,12 @@ func (h *handler) Execute(
 
 	command := req.Expand(s.Command.Resolve(req.OSArch.String()))
 
+	closeSurface, err := openSurface(req, s.UI)
+	if err != nil {
+		return err
+	}
+	defer closeSurface()
+
 	config := runtime.NewConfig([]string{command})
 	config.ShellWrap = true
 	config.WorkDir = req.WorkDir
@@ -58,9 +64,7 @@ func (h *handler) Execute(
 		return err
 	}
 
-	if req.Emit != nil {
-		req.Emit(models.Event{Kind: models.EventKindPID, PID: proc.PID()})
-	}
+	emit(req, models.Event{Kind: models.EventKindPID, PID: proc.PID()})
 
 	if err := proc.Wait(stepCtx); err != nil {
 		return err

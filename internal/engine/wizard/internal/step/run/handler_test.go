@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	domainRuntime "github.com/rabbytesoftware/quiver.core/internal/domain/runtime"
 	domainstep "github.com/rabbytesoftware/quiver.core/internal/domain/runtime/step"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime"
@@ -131,6 +133,193 @@ func TestHandler_Execute_NilEmit_NoPanic(t *testing.T) {
 	err := h.Execute(context.Background(), testReq(), s)
 
 	require.NoError(t, err)
+}
+
+func uiRequest(
+	vars map[string]string,
+	workDir string,
+	events *[]models.Event,
+) wizstep.Request {
+	return wizstep.Request{
+		NSKey:   testNSKey,
+		WorkDir: workDir,
+		Vars:    vars,
+		Emit:    func(ev models.Event) { *events = append(*events, ev) },
+	}
+}
+
+func kinds(
+	events []models.Event,
+) []models.EventKind {
+	got := make([]models.EventKind, len(events))
+	for i, ev := range events {
+		got[i] = ev.Kind
+	}
+	return got
+}
+
+func listenVars() map[string]string {
+	return map[string]string{domain.VarArrowUIListen: "/run/x.sock"}
+}
+
+func TestHandler_Execute_UIListenOpensBeforeTheProcessAndClosesAfter(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{Title: "Chat"})
+
+	err := newTestHandler(t).Execute(t.Context(), uiRequest(listenVars(), os.TempDir(), &events), s)
+
+	require.NoError(t, err)
+	require.Equal(t, []models.EventKind{models.EventKindSurface, models.EventKindPID, models.EventKindSurfaceClosed}, kinds(events))
+	assert.Equal(t, &domainRuntime.Surface{Title: "Chat", Mode: domainRuntime.SurfaceModeListen, Path: "/"}, events[0].Surface)
+}
+
+func TestHandler_Execute_UIClosesWhenTheProcessFails(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("chat", "false", false, "5s", true).WithUI(domainstep.UIOptions{})
+
+	err := newTestHandler(t).Execute(t.Context(), uiRequest(listenVars(), os.TempDir(), &events), s)
+
+	require.ErrorIs(t, err, steprun.ErrNonZeroExit)
+	assert.Equal(t, models.EventKindSurfaceClosed, events[len(events)-1].Kind)
+}
+
+func TestHandler_Execute_UIClosesWhenTheProcessTimesOut(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("chat", "sleep 10", false, "50ms", true).WithUI(domainstep.UIOptions{})
+
+	err := newTestHandler(t).Execute(t.Context(), uiRequest(listenVars(), os.TempDir(), &events), s)
+
+	require.Error(t, err)
+	assert.Equal(t, models.EventKindSurfaceClosed, events[len(events)-1].Kind)
+}
+
+func TestHandler_Execute_UIClosesWhenTheRunIsCancelled(t *testing.T) {
+	closed := make(chan struct{})
+	started := make(chan struct{})
+	req := wizstep.Request{
+		NSKey:   testNSKey,
+		WorkDir: os.TempDir(),
+		Vars:    listenVars(),
+		Emit: func(ev models.Event) {
+			if ev.Kind == models.EventKindPID {
+				close(started)
+			}
+			if ev.Kind == models.EventKindSurfaceClosed {
+				close(closed)
+			}
+		},
+	}
+	s := domainstep.NewRunStep("chat", "sleep 10", false, "30s", true).WithUI(domainstep.UIOptions{})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- newTestHandler(t).Execute(ctx, req, s) }()
+	<-started
+	cancel()
+
+	require.Error(t, <-errCh)
+	select {
+	case <-closed:
+	default:
+		t.Fatal("surface was not reported closed after cancel")
+	}
+}
+
+func TestHandler_Execute_UIClosesWhenTheProcessCannotStart(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{})
+	h := steprun.NewHandler(&capturingRuntime{})
+
+	err := h.Execute(t.Context(), uiRequest(listenVars(), os.TempDir(), &events), s)
+
+	require.Error(t, err)
+	require.Equal(t, []models.EventKind{models.EventKindSurface, models.EventKindSurfaceClosed}, kinds(events))
+}
+
+func TestHandler_Execute_UIListenWithoutProvisionedSocket(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{})
+
+	err := newTestHandler(t).Execute(t.Context(), uiRequest(map[string]string{}, os.TempDir(), &events), s)
+
+	require.ErrorIs(t, err, steprun.ErrNoSocket)
+	assert.Empty(t, events, "nothing opens and nothing starts")
+}
+
+func TestHandler_Execute_WithoutUIEmitsNoSurfaceEvents(t *testing.T) {
+	var events []models.Event
+	s := domainstep.NewRunStep("echo", "echo hi", false, "5s", true)
+
+	require.NoError(t, newTestHandler(t).Execute(t.Context(), uiRequest(map[string]string{}, os.TempDir(), &events), s))
+
+	assert.Equal(t, []models.EventKind{models.EventKindPID}, kinds(events))
+}
+
+func TestHandler_Execute_UIStaticIsReadyAndAbsolute(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "dist"), 0o755))
+	wantDir, err := filepath.EvalSymlinks(filepath.Join(work, "dist")) // t.TempDir is symlinked on macOS
+	require.NoError(t, err)
+	var events []models.Event
+	s := domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).
+		WithUI(domainstep.UIOptions{Static: "./dist", Path: "/start"})
+
+	require.NoError(t, newTestHandler(t).Execute(t.Context(), uiRequest(nil, work, &events), s))
+
+	assert.Equal(t, &domainRuntime.Surface{
+		Mode:  domainRuntime.SurfaceModeStatic,
+		Path:  "/start",
+		Dir:   wantDir,
+		Ready: true,
+	}, events[0].Surface)
+	assert.Equal(t, models.EventKindSurfaceClosed, events[len(events)-1].Kind)
+}
+
+func TestHandler_Execute_UIStaticRejectsEscapeAndMissing(t *testing.T) {
+	work := t.TempDir()
+	for _, dir := range []string{"../outside", "/etc", "./nope"} {
+		var events []models.Event
+		s := domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{Static: dir})
+
+		err := newTestHandler(t).Execute(t.Context(), uiRequest(nil, work, &events), s)
+
+		require.ErrorIs(t, err, steprun.ErrBadStaticDir, dir)
+		assert.Empty(t, events, dir)
+	}
+}
+
+func TestHandler_Execute_UIStaticRejectsSymlinkEscape(t *testing.T) {
+	work, outside := t.TempDir(), t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(work, "link")))
+	var events []models.Event
+	s := domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{Static: "./link"})
+
+	err := newTestHandler(t).Execute(t.Context(), uiRequest(nil, work, &events), s)
+
+	require.ErrorIs(t, err, steprun.ErrBadStaticDir)
+}
+
+func TestHandler_Execute_UIStaticExpandsVariables(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "site"), 0o755))
+	want, err := filepath.EvalSymlinks(filepath.Join(work, "site"))
+	require.NoError(t, err)
+	var events []models.Event
+	s := domainstep.NewRunStep("keepalive", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{Static: "./${SITE}"})
+
+	require.NoError(t, newTestHandler(t).Execute(t.Context(), uiRequest(map[string]string{"SITE": "site"}, work, &events), s))
+
+	assert.Equal(t, want, events[0].Surface.Dir)
+}
+
+func TestHandler_Execute_UINilEmit_NoPanic(t *testing.T) {
+	s := domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{})
+	req := wizstep.Request{NSKey: testNSKey, WorkDir: os.TempDir(), Vars: listenVars()}
+
+	require.NotPanics(t, func() {
+		require.NoError(t, newTestHandler(t).Execute(t.Context(), req, s))
+	})
 }
 
 // capturingRuntime records the config a step is started with, so the two

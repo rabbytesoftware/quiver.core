@@ -134,6 +134,7 @@ func newTestContainer(t *testing.T) *repositories.Container {
 		nil,
 		nil,
 		nil,
+		nil,
 		domain.OSDarwinARM64,
 		nil,
 		nil,
@@ -181,6 +182,7 @@ func newTestContainerWithVaultAndManifold(
 		":memory:",
 		v,
 		m,
+		nil,
 		nil,
 		domain.OSDarwinARM64,
 		nil,
@@ -235,7 +237,7 @@ func TestNew_RuntimeWiringFails_ReleasesCollectionStore(t *testing.T) {
 
 	_, err = repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
@@ -279,6 +281,7 @@ func TestNew_OnArrowAdded_TriggersSyncDependencies(t *testing.T) {
 		axRuntime,
 		axCollection,
 		":memory:",
+		nil,
 		nil,
 		nil,
 		nil,
@@ -587,6 +590,7 @@ func newDiscoverableContainer(
 			ResolveArrowErr:  errors.New("not resolvable in this test"),
 			ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Pkg"}},
 		},
+		nil,
 		nil,
 		domain.OSDarwinARM64,
 		nil,
@@ -1034,6 +1038,8 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 			m.OnRuntimeRecoveredFn = fail
 		case "detached":
 			m.OnRuntimeDetachedFn = fail
+		case "surface":
+			m.OnRuntimeSurfaceSetFn = fail
 		case "pid":
 			m.OnRuntimePIDRecordedFn = fail
 		case "outdated":
@@ -1056,6 +1062,7 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 		{name: "ended"},
 		{name: "recovered"},
 		{name: "detached"},
+		{name: "surface"},
 		{name: "pid"},
 		{name: "outdated"},
 		{name: "outdated cleared"},
@@ -1117,6 +1124,7 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 		OnRuntimeEndedFn:           captureRuntime,
 		OnRuntimeRecoveredFn:       captureRuntime,
 		OnRuntimeDetachedFn:        captureRuntime,
+		OnRuntimeSurfaceSetFn:      captureRuntime,
 		OnRuntimePIDRecordedFn:     captureRuntime,
 		OnRuntimeOutdatedFn:        captureRuntime,
 		OnRuntimeOutdatedClearedFn: captureRuntime,
@@ -1138,11 +1146,11 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 	hub := &stubHub{}
 	require.NoError(t, c.RegisterHubProjections(hub))
 
-	require.Len(t, runtimeHooks, 9)
+	require.Len(t, runtimeHooks, 10)
 	for _, fn := range runtimeHooks {
 		fn(context.Background(), domainRuntime.ArrowRuntime{})
 	}
-	assert.Equal(t, int32(9), hub.runtimeBroadcasts.Load())
+	assert.Equal(t, int32(10), hub.runtimeBroadcasts.Load())
 
 	require.NotNil(t, followedHook)
 	require.NotNil(t, unfollowedHook)
@@ -1173,7 +1181,7 @@ func TestNew_GraphFails_ReturnsError(t *testing.T) {
 
 	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
@@ -1204,7 +1212,7 @@ func TestNew_ArrowFails_ReturnsError(t *testing.T) {
 
 	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
@@ -1228,7 +1236,7 @@ func TestNew_CollectionFails_ReturnsError(t *testing.T) {
 	// A directory is not a database file.
 	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, t.TempDir(),
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, nil, nil,
 	)
 	require.Error(t, err)
@@ -1250,7 +1258,7 @@ func TestNew_PairingCodeFails_ReturnsError(t *testing.T) {
 
 	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, nil, newTestAsynxDevice(t), db,
 	)
 	require.Error(t, err)
@@ -1272,7 +1280,7 @@ func TestNew_DeviceFails_ReturnsError(t *testing.T) {
 
 	c, err := repositories.New(
 		db, axArrow, axRuntime, axCollection, ":memory:",
-		nil, nil, nil, domain.OSDarwinARM64, nil, nil,
+		nil, nil, nil, nil, domain.OSDarwinARM64, nil, nil,
 		nil, newTestAsynxPairingCode(t), nil, db,
 	)
 	require.Error(t, err)

@@ -2106,6 +2106,60 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/ui/{ns}/{path}": {
+            "get": {
+                "description": "Reverse-proxies any method and path under the namespace to the arrow's open interface, with the /v0/ui/{ns} prefix stripped and the query string forwarded as net/http sanitises it (unparsable parameters are dropped). WebSocket upgrades ride the same route. Authorization and Cookie headers are never forwarded to the arrow.",
+                "tags": [
+                    "ui"
+                ],
+                "summary": "Serve arrow interface",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Arrow namespace",
+                        "name": "ns",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Path inside the arrow interface",
+                        "name": "path",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Whatever the arrow answers"
+                    },
+                    "404": {
+                        "description": "Arrow not found",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal error",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "The arrow interface did not answer",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "503": {
+                        "description": "Arrow has no open interface",
+                        "schema": {
+                            "$ref": "#/definitions/libs.ErrResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -3406,6 +3460,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/dto.StepProgressDTO"
                     }
                 },
+                "surface": {
+                    "$ref": "#/definitions/dto.SurfaceDTO"
+                },
                 "variables": {
                     "type": "object",
                     "additionalProperties": {
@@ -3524,6 +3581,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.SurfaceDTO": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "title": {
                     "type": "string"
                 }
             }

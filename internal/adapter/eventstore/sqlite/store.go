@@ -2,11 +2,17 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	asynxModels "github.com/char2cs/asynx/models"
 	"gorm.io/gorm"
 )
+
+// ErrVersionConflict marks an Append that lost an optimistic-concurrency race:
+// another writer already appended this (aggregate, version), so nothing was
+// written and the command can be sent again from scratch.
+var ErrVersionConflict = errors.New("version conflict")
 
 // Store is a SQLite-backed event store that extends the asynx store interface with lifecycle management.
 type Store interface {

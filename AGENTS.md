@@ -38,7 +38,7 @@ internal/domain/     ← Pure types and state machines (no I/O, no internal impo
 | `domain/` | No I/O. No imports from other internal packages. Pure types + state machines. |
 | `core/` | Config, embedded metadata, path resolution, logger, `logring` (the log ring the logger tees into), FetchNShare I/O. |
 | `adapter/` | Asynx event store (SQLite) + generic `Store[T,K]` (sqlite/memory). |
-| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
+| `engine/` | Manifold, Vault, Wizard, DepTree, Netbridge, Surface. Each is independent — no engine imports another; manifold (and its Fletcher subengine) reaches `engine/provider` only through the `hosts.Host` interface wired in `engine/container.go`. |
 | `app/` | Owns Asynx aggregates, composes engines + adapters into usecases, owns `WebSocketHub`. |
 | `api/` | Gin routes, Gorilla WebSocket. Maps HTTP ↔ usecase calls ↔ DTOs. Knows nothing about Asynx/commands/projections. |
 
@@ -381,6 +381,7 @@ Each engine is an interface received through DI. Read the interface definitions 
 | `Wizard` | `engine/wizard` | Spawn and supervise processes for lifecycle steps; expose an arrow's `expose` entries on the OS (CLI commands, desktop entries) as part of its `_install`/`_update`/`_uninstall` runs; report and set up `PATH` |
 | `DepTree` | `engine/deptree` | Topological sort of dependency graphs |
 | `Netbridge` | `engine/netbridge` | Allocate/deallocate ephemeral ports |
+| `Surface` | `engine/surface` | Provision the unix socket an arrow serves its interface on, probe readiness, and build the handlers behind `/v0/ui/:ns/*path` (see `docs/spec/surface.md`) |
 
 ---
 

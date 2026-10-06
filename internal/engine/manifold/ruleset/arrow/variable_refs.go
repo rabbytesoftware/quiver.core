@@ -35,11 +35,12 @@ func buildKnownVars(
 	m *domain.Arrow,
 ) map[string]bool {
 	known := map[string]bool{
-		"WORKDIR":         true,
-		"INSTALL_PATH":    true,
-		"ARROW_NAMESPACE": true,
-		"PLATFORM":        true,
-		"REF":             true,
+		"WORKDIR":               true,
+		"INSTALL_PATH":          true,
+		"ARROW_NAMESPACE":       true,
+		"PLATFORM":              true,
+		"REF":                   true,
+		domain.VarArrowUIListen: true,
 	}
 	for _, v := range m.Variables {
 		known[v.Name] = true

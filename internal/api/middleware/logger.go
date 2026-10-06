@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,11 @@ func RequestRecovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {
+				// net/http aborts the connection without logging, so a body
+				// cut off mid-copy never reaches the client as complete.
+				if err == http.ErrAbortHandler { //nolint:errorlint // sentinel panic value
+					panic(err)
+				}
 				msg := fmt.Sprintf("Panic recovered: %v", err)
 				slog.ErrorContext(
 					c.Request.Context(), msg,

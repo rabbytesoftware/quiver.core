@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/runtime"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/search"
 	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/system"
+	"github.com/rabbytesoftware/quiver.core/internal/api/v0/endpoints/ui"
 )
 
 // Register mounts every v0 route. Everything except health and the pairing
@@ -26,6 +27,7 @@ func (c *Container) Register(rg *gin.RouterGroup) {
 
 	arrows.Register(protected, c.arrowSvc, c.wsHandler.Arrow.Handle)
 	runtime.Register(protected, c.runtimeSvc, c.wsHandler.Runtime.Handle)
+	ui.Register(protected, c.surfaceSvc)
 	quivers.Register(protected, c.collectionSvc, c.wsHandler.Collection.Handle)
 	search.Register(protected, c.searchSvc, c.discoverySvc, c.wsHandler.Discovery.Handle)
 	home.Register(protected, c.homeSvc)

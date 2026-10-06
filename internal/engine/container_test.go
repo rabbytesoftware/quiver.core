@@ -42,6 +42,16 @@ func TestNew_Success_PopulatesContainer(t *testing.T) {
 	assert.NotNil(t, c.DepTree)
 }
 
+func TestNew_ProvidesSurfaceEngine(t *testing.T) {
+	home := t.TempDir()
+	c, err := New(context.Background(), WithHomeDir(home))
+	require.NoError(t, err)
+	release(t, c)
+
+	require.NotNil(t, c.Surface)
+	assert.Equal(t, metadata.GetRunPathAt(home), filepath.Dir(c.Surface.SocketPath("a/b")))
+}
+
 func TestNew_WizardUsesTheContainerHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", t.TempDir())

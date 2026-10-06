@@ -333,6 +333,7 @@ func TestReservedVariableNames_ListsEveryBuiltIn(t *testing.T) {
 		VarArrowNamespace,
 		VarPlatform,
 		VarRef,
+		VarArrowUIListen,
 	}, ReservedVariableNames())
 }
 
@@ -355,6 +356,7 @@ func TestIsReservedVariable(t *testing.T) {
 		{name: "arrow namespace", in: "ARROW_NAMESPACE", want: true},
 		{name: "platform", in: "PLATFORM", want: true},
 		{name: "ref", in: "REF", want: true},
+		{name: "arrow ui listen", in: "ARROW_UI_LISTEN", want: true},
 		{name: "user variable", in: "PORT", want: false},
 		{name: "lowercase is not the built-in", in: "workdir", want: false},
 		{name: "prefix is not the built-in", in: "REFERENCE", want: false},
@@ -366,4 +368,10 @@ func TestIsReservedVariable(t *testing.T) {
 			assert.Equal(t, tc.want, IsReservedVariable(tc.in))
 		})
 	}
+}
+
+func TestArrowUIListenIsReserved(t *testing.T) {
+	require.Equal(t, "ARROW_UI_LISTEN", VarArrowUIListen)
+	require.True(t, IsReservedVariable(VarArrowUIListen))
+	require.Contains(t, ReservedVariableNames(), VarArrowUIListen)
 }

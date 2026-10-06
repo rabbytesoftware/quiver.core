@@ -7,6 +7,7 @@ type RunRecordDTO struct {
 	PID       int               `json:"pid,omitempty" yaml:"pid,omitempty"`
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty"`
 	Steps     []StepProgressDTO `json:"steps" yaml:"steps"`
+	Surface   *SurfaceDTO       `json:"surface,omitempty" yaml:"surface,omitempty"`
 }
 
 func RunRecordDTOFrom(r *domainRuntime.Execution) *RunRecordDTO {
@@ -22,5 +23,6 @@ func RunRecordDTOFrom(r *domainRuntime.Execution) *RunRecordDTO {
 		PID:       r.PID,
 		Variables: r.Variables,
 		Steps:     steps,
+		Surface:   SurfaceDTOFrom(r.Surface),
 	}
 }
