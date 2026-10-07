@@ -32,6 +32,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset/aerrors"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
 
@@ -2674,4 +2675,33 @@ func TestAdopt_RowNotUserInstalled_IsRepaired(t *testing.T) {
 			assert.Equal(t, []domain.Namespace{ns}, listedNamespaces(views))
 		})
 	}
+}
+
+// A refreshed preview reaches the desktop as a dependency-side upsert, which
+// the library stream's default filter never delivers.
+func TestNew_RefreshedManifest_IsBroadcastAsNotUserInstalled(t *testing.T) {
+	ns := testNs()
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+	hub := &recordingHub{}
+	cat, err := arrowRepo.New(db, axArrow, &mocks.Vault{
+		GetArrowErr:  vault.ErrStale,
+		GetArrowFile: vault.ManifestFile{Content: []byte("stale")},
+	}, &mocks.Manifold{
+		ParseArrowResult:     &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Stale"}},
+		ResolveArrowResult:   &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "Fresh"}},
+		ResolveArrowRaw:      []byte("fresh"),
+		ResolveArrowFilename: "ARROW.md",
+	}, hub)
+	require.NoError(t, err)
+
+	_, err = cat.ResolveManifest(context.Background(), ns)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return hub.count() == 1 }, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+	assert.Equal(t, ns, hub.events[0].Namespace)
+	assert.False(t, hub.events[0].UserInstalled)
 }

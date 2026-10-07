@@ -36,10 +36,11 @@ func CacheWhenAbsent(
 	}
 }
 
-// Preview serves a read-only preview from a fresh vault entry at the ref the
-// selector points at, so a manifest discovery cached there is not fetched or
-// drafted again, and caches nothing itself. An install never takes it: it
-// reads the manifest at the exact commit it records.
+// Preview serves a preview from a vault entry at the ref the selector points
+// at, so a manifest discovery cached there is not fetched or drafted again, and
+// files what it had to fetch under the identity so the next preview does not
+// fetch it either. An install never takes it: it reads the manifest at the
+// exact commit it records.
 func Preview() InstallOption {
 	return func(o *installOpts) {
 		o.preview = true
@@ -205,10 +206,37 @@ func (r *storeService) readTarget(
 	o installOpts,
 ) (*domain.Arrow, error) {
 	if o.preview {
-		arrow, _, _, err := r.manifestAt(ctx, identity, target)
-		return arrow, err
+		arrow, raw, filename, err := r.manifestAt(ctx, identity, target)
+		if err != nil {
+			return nil, err
+		}
+		r.cachePreview(ctx, identity, target, previewedManifest{arrow: arrow, raw: raw, filename: filename})
+		return arrow, nil
 	}
 	return r.fetchAtCommit(ctx, identity, target, o.exists)
+}
+
+type previewedManifest struct {
+	arrow    *domain.Arrow
+	raw      []byte
+	filename string
+}
+
+func (r *storeService) cachePreview(
+	ctx context.Context,
+	identity domain.Namespace,
+	target domain.Available,
+	manifest previewedManifest,
+) {
+	if r.vault == nil {
+		return
+	}
+	file := Cacheable(manifest.arrow, manifest.raw, manifest.filename)
+	file.Ref = target.Ref
+	file.Commit = target.Commit
+	if err := r.vault.PutArrow(ctx, identity, file); err != nil {
+		slog.WarnContext(ctx, "store: cache previewed manifest", "ns", identity, "err", err)
+	}
 }
 
 // manifestAt is identity's manifest at target's commit. A copy the vault holds

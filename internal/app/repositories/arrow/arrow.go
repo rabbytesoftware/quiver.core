@@ -246,7 +246,11 @@ func New(
 	hub apphub.WebSocketHub,
 	opts ...Option,
 ) (Arrow, error) {
-	r, err := arrowstore.New(db, v, m)
+	r, err := arrowstore.New(db, v, m, arrowstore.WithRefreshed(func(arrow domain.Arrow) {
+		if hub != nil {
+			hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: arrow})
+		}
+	}))
 	if err != nil {
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}

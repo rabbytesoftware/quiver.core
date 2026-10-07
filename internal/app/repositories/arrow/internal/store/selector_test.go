@@ -754,3 +754,22 @@ func TestCheckDrift_ReadsTheRemoteLive(t *testing.T) {
 	assert.Equal(t, &domain.Available{Ref: "nightly", Commit: "cnew"}, available)
 	assert.Zero(t, m.SnapshotCalls)
 }
+
+// A refless preview files what it had to fetch, so the next one reuses it and
+// fetches nothing, however long ago the first was.
+func TestResolveManifest_Refless_SecondPreviewReusesTheFiledManifest(t *testing.T) {
+	v := realVault(t)
+	fetches := 0
+	r := newTestReaderWithVaultManifold(t, v, countingFetches(selectorSnapshot(), nil, &fetches))
+
+	first, err := r.ResolveManifest(context.Background(), selectorBare)
+	require.NoError(t, err)
+	require.Equal(t, 1, fetches)
+
+	second, err := r.ResolveManifest(context.Background(), selectorBare)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, fetches, "the filed manifest is served, not fetched again")
+	assert.Equal(t, first.Namespace, second.Namespace)
+	assert.Equal(t, first.Resolved, second.Resolved)
+}

@@ -67,7 +67,8 @@ func TestResolveManifest_CataloguedIdentity_ServesTheRow(t *testing.T) {
 
 // An identity nothing has catalogued is still previewed through the vault.
 func TestResolveManifest_UncataloguedIdentity_PreviewsThroughTheVault(t *testing.T) {
-	v := &mocks.Vault{GetArrowErr: vault.ErrStale, GetArrowFile: vault.ManifestFile{Content: []byte("old")}}
+	inner := &mocks.Vault{GetArrowErr: vault.ErrStale, GetArrowFile: vault.ManifestFile{Content: []byte("old")}}
+	v := newSignalVault(inner)
 	r := newTestReaderWithVaultManifold(t, v, headManifold())
 	seedArrow(t, r, domain.Arrow{Namespace: "github.com/user/tool@v1.*", ArrowMeta: domain.ArrowMeta{Name: "Other row"}})
 
@@ -75,7 +76,8 @@ func TestResolveManifest_UncataloguedIdentity_PreviewsThroughTheVault(t *testing
 
 	require.NoError(t, err)
 	assert.Equal(t, "Head", got.Name)
-	assert.Equal(t, 1, v.PutArrowCalls)
+	v.awaitPut(t)
+	assert.Equal(t, 1, inner.PutArrowCalls)
 }
 
 // A bare namespace nothing has catalogued fails when its repository cannot
