@@ -54,22 +54,6 @@ func (s *CollectionSuite) TestFollow_DoesNotFillTheCatalog() {
 	}
 }
 
-// Following a collection must not put its arrows in the catalog: the catalog is
-// the user's library, and an arrow enters it only when the user adds it.
-func (s *CollectionSuite) TestFollow_DoesNotFillTheCatalog() {
-	env := s.NewEnv()
-	tc := env.TypedClient(s.T())
-	ns := kit.CollectionNSFor("gaming-collection", "v1")
-
-	s.Equal(http.StatusCreated, tc.CollectionFollow(ns))
-
-	arrows, status := tc.List()
-	s.Equal(http.StatusOK, status)
-	for _, a := range arrows {
-		s.NotContains(a.Namespace, "gaming-collection", "following must not catalogue %s", a.Namespace)
-	}
-}
-
 func (s *CollectionSuite) TestGet_Uncached() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
