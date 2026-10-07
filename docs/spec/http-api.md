@@ -236,11 +236,11 @@ Status code: **200 OK** if `valid`, **422 Unprocessable Entity** if not. The 422
 
 ### 6.2 Collection
 
-The Collection resource (formerly named "Quiver" in earlier specs — renamed in PR #168) manages remote arrow catalogs that users can follow. Following a collection caches all of its arrows locally and arranges them under that collection's umbrella. Internally the route group is registered under a package aliased as `quivers`, but the URL prefix and the public spec name are both `collection`.
+The Collection resource (formerly named "Quiver" in earlier specs — renamed in PR #168) manages remote arrow catalogs that users can follow. Following a collection subscribes to it; it does not cache or catalogue the collection's arrows, which enter the catalog only when the user adds or installs one. Internally the route group is registered under a package aliased as `quivers`, but the URL prefix and the public spec name are both `collection`.
 
 | Method | Path | Summary | Async? |
 |---|---|---|---|
-| POST | `/collection/{ns}/follow` | Follow a collection and cache its arrows | Sync |
+| POST | `/collection/{ns}/follow` | Follow a collection | Sync |
 | DELETE | `/collection/{ns}/follow` | Unfollow a collection | Sync |
 | GET | `/collection` | List collections (or upgrade to WS) | Sync |
 | GET | `/collection/{ns}` | Get a collection's full detail (or upgrade to WS) | Sync |
@@ -250,11 +250,11 @@ The Collection resource (formerly named "Quiver" in earlier specs — renamed in
 
 #### POST /collection/{ns}/follow — Follow
 
-Follows the collection identified by `{ns}`. The use case layer fetches the collection manifest, then iterates its arrow list — local arrows are seeded into the registry, remote arrows are resolved against their upstream. Per-arrow failures are recorded in the collection's `failed_arrows` list (visible in the detail response) but do not abort the follow operation. `Content-Type` is unused — no request body. Returns **201 Created**. Errors: 404 (collection manifest not found), 409 (already followed), 500.
+Follows the collection identified by `{ns}`. The use case layer fetches the collection manifest and records the follow; it resolves no member arrow and writes nothing to the arrow catalog. `Content-Type` is unused — no request body. Returns **201 Created**. Errors: 404 (collection manifest not found), 409 (already followed), 500.
 
 #### DELETE /collection/{ns}/follow — Unfollow
 
-Stops following the collection. The cached arrows remain in the registry; only the follow relationship is removed. Returns **200 OK**. Errors: 404 (not followed), 500.
+Stops following the collection; only the follow relationship is removed. Returns **200 OK**. Errors: 404 (not followed), 500.
 
 #### GET /collection — List
 

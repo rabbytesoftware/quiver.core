@@ -38,6 +38,22 @@ func (s *CollectionSuite) TestFollow_And_Get() {
 	s.True(detail.Followed)
 }
 
+// Following a collection must not put its arrows in the catalog: the catalog is
+// the user's library, and an arrow enters it only when the user adds it.
+func (s *CollectionSuite) TestFollow_DoesNotFillTheCatalog() {
+	env := s.NewEnv()
+	tc := env.TypedClient(s.T())
+	ns := kit.CollectionNSFor("gaming-collection", "v1")
+
+	s.Equal(http.StatusCreated, tc.CollectionFollow(ns))
+
+	arrows, status := tc.List()
+	s.Equal(http.StatusOK, status)
+	for _, a := range arrows {
+		s.NotContains(a.Namespace, "gaming-collection", "following must not catalogue %s", a.Namespace)
+	}
+}
+
 func (s *CollectionSuite) TestGet_Uncached() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -49,7 +65,7 @@ func (s *CollectionSuite) TestGet_Uncached() {
 	s.False(detail.Followed)
 }
 
-// Follow caches all arrows; Get should show them resolved.
+// Get resolves every member of a followed collection on read.
 func (s *CollectionSuite) TestFollow_Resolves_Arrows() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -67,7 +83,7 @@ func (s *CollectionSuite) TestFollow_Resolves_Arrows() {
 }
 
 // A collection followed with no ref has local arrows with no ref either; they
-// must still be cached and show up resolved.
+// must still show up resolved.
 func (s *CollectionSuite) TestFollow_RefLessCollection_ResolvesLocalArrows() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
@@ -86,7 +102,7 @@ func (s *CollectionSuite) TestFollow_RefLessCollection_ResolvesLocalArrows() {
 // --- add arrow from quiver ---
 
 // Follow a quiver that has a local path arrow, then Add that arrow.
-// The arrow is already in the manifest cache from the Follow, so Add should succeed.
+// The Follow put nothing in the catalog; Add resolves the arrow through its collection.
 func (s *CollectionSuite) TestFollow_Then_Add_LocalPathArrow() {
 	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
