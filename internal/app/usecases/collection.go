@@ -202,6 +202,7 @@ func (u *quiverUsecase) Get(
 				dto.Resolved = true
 				dto.Name = arrowManifest.Name
 				dto.Description = arrowManifest.Description
+				dto.Media = arrowManifest.Media
 			}
 		}
 		arrows[i] = dto

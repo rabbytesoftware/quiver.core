@@ -28,6 +28,7 @@ func TestCollectionDetailDTOFrom(t *testing.T) {
 				Resolved:    true,
 				Name:        "My Arrow",
 				Description: "Arrow desc",
+				Media:       domain.ArrowMedia{Icon: "arrow-icon.png", Banner: "arrow-banner.png"},
 			},
 		},
 		Followed: true,
@@ -49,6 +50,8 @@ func TestCollectionDetailDTOFrom(t *testing.T) {
 	assert.True(t, d.Arrows[0].Resolved)
 	assert.Equal(t, "My Arrow", d.Arrows[0].Name)
 	assert.Equal(t, "Arrow desc", d.Arrows[0].Description)
+	assert.Equal(t, "arrow-icon.png", d.Arrows[0].Media.Icon)
+	assert.Equal(t, "arrow-banner.png", d.Arrows[0].Media.Banner)
 }
 
 // A collection is a curated list; the list names no artifact, so the detail
