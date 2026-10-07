@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -14,15 +15,18 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
+const refreshTimeout = 30 * time.Second
+
 func newResolver(
 	v vault.Vault,
 	m manifold.Manifold,
+	onRefreshed func(domain.Arrow),
 ) ResolveFunc {
 	return func(
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error) {
-		return resolve(ctx, ns, v, m)
+		return resolve(ctx, ns, v, m, onRefreshed)
 	}
 }
 
@@ -31,6 +35,7 @@ func resolve(
 	ns domain.Namespace,
 	v vault.Vault,
 	m manifold.Manifold,
+	onRefreshed func(domain.Arrow),
 ) (*domain.Arrow, error) {
 	if v == nil && m == nil {
 		return nil, fmt.Errorf("resolver: no vault or manifold configured")
@@ -38,7 +43,7 @@ func resolve(
 	if v == nil {
 		return fetchFromManifold(ctx, ns, m)
 	}
-	return resolveWithVault(ctx, ns, v, m)
+	return resolveWithVault(ctx, ns, v, m, onRefreshed)
 }
 
 func resolveWithVault(
@@ -46,6 +51,7 @@ func resolveWithVault(
 	ns domain.Namespace,
 	v vault.Vault,
 	m manifold.Manifold,
+	onRefreshed func(domain.Arrow),
 ) (*domain.Arrow, error) {
 	file, err := v.GetArrow(ctx, ns)
 	if err == nil {
@@ -55,7 +61,7 @@ func resolveWithVault(
 		return nil, wrapManifoldErr("fetch from manifold (cached not-found)", manifoldresolver.ErrNotFound)
 	}
 	if errors.Is(err, vault.ErrStale) {
-		return resolveStale(ctx, ns, v, m, file.Content)
+		return resolveStale(ctx, ns, v, m, onRefreshed, file.Content)
 	}
 	if errors.Is(err, vault.ErrNotCached) {
 		return fetchAndCache(ctx, ns, v, m)
@@ -68,21 +74,46 @@ func resolveStale(
 	ns domain.Namespace,
 	v vault.Vault,
 	m manifold.Manifold,
+	onRefreshed func(domain.Arrow),
 	staleContent []byte,
 ) (*domain.Arrow, error) {
 	if m == nil {
 		return nil, fmt.Errorf("resolver: stale and no manifold configured")
 	}
 
-	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
+	stale, err := parseManifest(m, staleContent, "stale")
 	if err != nil {
-		return parseManifest(m, staleContent, "stale")
+		return fetchAndCache(ctx, ns, v, m)
 	}
 
-	if putErr := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); putErr != nil {
-		return nil, fmt.Errorf("resolver: store refreshed manifest: %w", CacheError(putErr))
+	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshTimeout)
+	go func() {
+		defer cancel()
+		refreshArrow(refreshCtx, ns, v, m, onRefreshed)
+	}()
+	return stale, nil
+}
+
+func refreshArrow(
+	ctx context.Context,
+	ns domain.Namespace,
+	v vault.Vault,
+	m manifold.Manifold,
+	onRefreshed func(domain.Arrow),
+) {
+	fresh, rawBytes, filename, err := resolveAt(ctx, m, ns)
+	if err != nil {
+		slog.WarnContext(ctx, "resolver: refresh cached manifest", "ns", ns, "err", err)
+		return
 	}
-	return fresh, nil
+	if err := v.PutArrow(ctx, ns, Cacheable(fresh, rawBytes, filename)); err != nil {
+		slog.WarnContext(ctx, "resolver: store refreshed manifest", "ns", ns, "err", err)
+		return
+	}
+	if onRefreshed != nil {
+		fresh.Namespace = ns
+		onRefreshed(*fresh)
+	}
 }
 
 func fetchAndCache(

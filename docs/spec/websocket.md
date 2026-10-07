@@ -64,6 +64,8 @@ Pushes an `ArrowDTO` whenever the catalog mutates: an arrow is added, advanced t
 
 **Triggers:** `arrow.added.*`, `arrow.advanced.*`, `arrow.manifest_refreshed.*`, `arrow.installed.*`, `arrow.uninstalled.*`, `arrow.available_checked.*`, `arrow.user_installed.*`, `arrow.last_used.*`, plus the asynx `OnForget` hook when an arrow is deleted.
 
+It also pushes an `upserted` frame with `user_installed: false` when a cached manifest that had expired is served and then refreshed from its host in the background, for an arrow that has no catalog row. The frame is the signal to re-read `GET /v0/arrow/{ns}` and any collection that lists it.
+
 The payload carries no version or row state: a client that needs `resolved_ref` or `available` re-reads `GET /v0/arrow/{ns}`.
 
 ```json

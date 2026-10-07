@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
@@ -154,20 +155,7 @@ func (u *quiverUsecase) Get(
 		failedSet[failedNS] = struct{}{}
 	}
 
-	arrows := make([]models.CollectionArrowDTO, len(coll.Arrows))
-	for i, a := range coll.Arrows {
-		dto := models.CollectionArrowDTO{Namespace: a.Namespace}
-		if _, isFailed := failedSet[a.Namespace]; !isFailed {
-			arrowManifest, _ := u.arrows.ResolveManifest(ctx, a.Namespace)
-			if arrowManifest != nil {
-				dto.Resolved = true
-				dto.Name = arrowManifest.Name
-				dto.Description = arrowManifest.Description
-				dto.Media = arrowManifest.Media
-			}
-		}
-		arrows[i] = dto
-	}
+	arrows := u.describeMembers(ctx, coll.Arrows, failedSet)
 
 	followed, _ := u.repo.IsFollowed(ctx, ns)
 
@@ -182,6 +170,53 @@ func (u *quiverUsecase) Get(
 		Arrows:      arrows,
 		Followed:    followed,
 	}, nil
+}
+
+const memberResolveConcurrency = 8
+
+func (u *quiverUsecase) describeMembers(
+	ctx context.Context,
+	members []domain.CollectionArrow,
+	failed map[domain.Namespace]struct{},
+) []models.CollectionArrowDTO {
+	dtos := make([]models.CollectionArrowDTO, len(members))
+	slots := make(chan struct{}, memberResolveConcurrency)
+	var wg sync.WaitGroup
+
+	for i, member := range members {
+		dtos[i] = models.CollectionArrowDTO{Namespace: member.Namespace}
+		if _, isFailed := failed[member.Namespace]; isFailed {
+			continue
+		}
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-slots }()
+			u.describeMember(ctx, &dtos[i])
+		}()
+	}
+
+	wg.Wait()
+	return dtos
+}
+
+func (u *quiverUsecase) describeMember(
+	ctx context.Context,
+	dto *models.CollectionArrowDTO,
+) {
+	manifest, _ := u.arrows.ResolveManifest(ctx, dto.Namespace)
+	if manifest == nil {
+		return
+	}
+	dto.Resolved = true
+	dto.Name = manifest.Name
+	dto.Description = manifest.Description
+	dto.Media = manifest.Media
 }
 
 func (u *quiverUsecase) List(

@@ -144,12 +144,30 @@ type storeService struct {
 	versionCheckTTL time.Duration
 }
 
+// Option configures a Store.
+type Option func(*storeOptions)
+
+type storeOptions struct {
+	onRefreshed func(domain.Arrow)
+}
+
+// WithRefreshed reports each expired manifest the store has refreshed in the
+// background, as the arrow it now holds.
+func WithRefreshed(
+	fn func(domain.Arrow),
+) Option {
+	return func(o *storeOptions) {
+		o.onRefreshed = fn
+	}
+}
+
 func New(
 	db *gormdb.DB,
 	v vault.Vault,
 	m manifold.Manifold,
+	opts ...Option,
 ) (Store, error) {
-	return newStore(db, v, m, time.Now)
+	return newStore(db, v, m, time.Now, opts...)
 }
 
 // NewWithClock builds a Store whose version-check TTL gating reads the clock
@@ -169,7 +187,12 @@ func newStore(
 	v vault.Vault,
 	m manifold.Manifold,
 	clock func() time.Time,
+	opts ...Option,
 ) (Store, error) {
+	var o storeOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	st, err := storage.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("store: storage: %w", err)
@@ -177,7 +200,7 @@ func newStore(
 	return &storeService{
 		db:              st,
 		projector:       projections.New(st),
-		resolveManifest: newResolver(v, m),
+		resolveManifest: newResolver(v, m, o.onRefreshed),
 		vault:           v,
 		manifold:        m,
 		clock:           clock,

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,12 +73,15 @@ func (m *mockQuiverRepo) OnCollectionUnfollowed(_ func(context.Context, domain.N
 // --- arrow cache mock ---
 
 type mockArrowCache struct {
+	mu            sync.Mutex
 	resolveErr    error
 	resolveCalls  int
 	resolveResult *domain.Arrow
 }
 
 func (m *mockArrowCache) ResolveManifest(_ context.Context, _ domain.Namespace) (*domain.Arrow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.resolveCalls++
 	return m.resolveResult, m.resolveErr
 }
@@ -654,4 +660,44 @@ func TestGetManifest_UnknownCollection_ReturnsNotFound(t *testing.T) {
 
 	_, err := uc.GetManifest(context.Background(), "github.com/user/quiver")
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+// Members resolve side by side, bounded, and come back in the collection's
+// own order whatever order they finish in.
+func TestGet_Enrichment_ResolvesMembersConcurrentlyInOrder(t *testing.T) {
+	members := make([]domain.CollectionArrow, 20)
+	for i := range members {
+		members[i] = domain.CollectionArrow{Namespace: domain.Namespace(fmt.Sprintf("owner/repo@v1/arrow-%02d", i))}
+	}
+	var inFlight, peak atomic.Int32
+	arrows := &ucmocks.MockArrow{
+		ResolveManifestFn: func(_ context.Context, ns domain.Namespace) (*domain.Arrow, error) {
+			now := inFlight.Add(1)
+			defer inFlight.Add(-1)
+			for {
+				seen := peak.Load()
+				if now <= seen || peak.CompareAndSwap(seen, now) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: string(ns)}}, nil
+		},
+	}
+	repo := &ucmocks.MockCollection{
+		GetFn: func(context.Context, domain.Namespace) (*domain.Collection, error) {
+			return &domain.Collection{Arrows: members}, nil
+		},
+	}
+
+	dto, err := NewCollectionUsecase(repo, arrows, nil, nil).Get(context.Background(), "owner/my-collection@v1")
+
+	require.NoError(t, err)
+	require.Len(t, dto.Arrows, len(members))
+	for i, member := range members {
+		assert.Equal(t, member.Namespace, dto.Arrows[i].Namespace)
+		assert.Equal(t, string(member.Namespace), dto.Arrows[i].Name)
+	}
+	assert.Greater(t, peak.Load(), int32(1), "members are not resolved one after another")
+	assert.LessOrEqual(t, peak.Load(), int32(memberResolveConcurrency))
 }
