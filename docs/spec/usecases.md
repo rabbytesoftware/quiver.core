@@ -226,7 +226,7 @@ Lightweight catalog of curated arrow lists. Composes `collection` repository, `a
 
 | Method | Behaviour | Errors |
 |--------|-----------|--------|
-| `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the cache (local arrows via `manifold.ResolveArrowAt` + `arrow.CacheManifest`, which files the manifest in the vault at the collection's ref and writes nothing to the catalog; remote arrows via `arrow.ResolveManifest`). Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
+| `Follow(ctx, ns)` | Resolves the collection manifest, then for each member arrow pre-warms the vault cache with `arrow.ResolveManifest`, which never writes the catalog. Caching uses `withRetry` driven by `config.GetArrows().AutoRetry`. Failed members are recorded in `coll.FailedArrows`. Finally sends `FollowCollection`. | `ErrNotFound`, `ErrAlreadyExists`. |
 | `Unfollow(ctx, ns)` | `collection.Unfollow` (Forget + Vault delete). | `ErrNotFound`. |
 | `Get(ctx, ns)` | Resolves via `collection.Get` (Asynx → Vault → Manifold). For each non-failed member, calls `arrow.ResolveManifest` to populate name/description in the DTO; the member's ref rides on its namespace and needs no lookup. | `ErrNotFound`. |
 | `List(ctx, followed)` | Returns followed collections from the Bolt store; when `followed == nil` or `false`, also lists unfollowed-but-cached collections via `vault.ListCachedCollections`. | — |

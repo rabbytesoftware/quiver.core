@@ -250,7 +250,7 @@ The Collection resource (formerly named "Quiver" in earlier specs — renamed in
 
 #### POST /collection/{ns}/follow — Follow
 
-Follows the collection identified by `{ns}`. The use case layer fetches the collection manifest, then iterates its arrow list — local arrows are cached from the collection's repository, remote arrows are resolved against their upstream; none is written to the arrow catalog. Per-arrow failures are recorded in the collection's `failed_arrows` list (visible in the detail response) but do not abort the follow operation. `Content-Type` is unused — no request body. Returns **201 Created**. Errors: 404 (collection manifest not found), 409 (already followed), 500.
+Follows the collection identified by `{ns}`. The use case layer fetches the collection manifest, then iterates its arrow list — each arrow's manifest is resolved into the vault cache; none is written to the arrow catalog. Per-arrow failures are recorded in the collection's `failed_arrows` list (visible in the detail response) but do not abort the follow operation. `Content-Type` is unused — no request body. Returns **201 Created**. Errors: 404 (collection manifest not found), 409 (already followed), 500.
 
 #### DELETE /collection/{ns}/follow — Unfollow
 
