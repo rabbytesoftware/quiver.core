@@ -407,6 +407,7 @@ namespace:    string
 resolved:     bool
 name:         string   # omitempty
 description:  string   # omitempty
+media:        { icon: string, banner: string }   # the member's own, from its resolved manifest; empty when unresolved
 ```
 
 Neither shape carries a `version`. The Collection's own ref is the `@ref` on its `namespace`; a member's ref is the `@ref` on the member's `namespace`. A scalar restating either would be a copy of the field beside it, and on a member it would be worse than redundant: it was populated only on the resolved branch, so two entries pinned at the same ref reported it differently depending on whether an unrelated manifest fetch had succeeded.

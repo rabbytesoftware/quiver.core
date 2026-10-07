@@ -2967,6 +2967,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "media": {
+                    "$ref": "#/definitions/domain.ArrowMedia"
+                },
                 "name": {
                     "type": "string"
                 },

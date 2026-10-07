@@ -226,6 +226,7 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 			ArrowMeta: domain.ArrowMeta{
 				Name:        "test-arrow",
 				Description: "A test arrow",
+				Media:       domain.ArrowMedia{Icon: "https://example.com/icon.svg", Banner: "https://example.com/banner.png"},
 			},
 		},
 	}
@@ -240,6 +241,8 @@ func TestGet_EnrichesArrows_WithArrowManifests(t *testing.T) {
 	assert.Len(t, dto.Arrows, 2)
 	assert.True(t, dto.Arrows[0].Resolved)
 	assert.Equal(t, "test-arrow", dto.Arrows[0].Name)
+	assert.Equal(t, "https://example.com/icon.svg", dto.Arrows[0].Media.Icon)
+	assert.Equal(t, "https://example.com/banner.png", dto.Arrows[0].Media.Banner)
 	assert.Equal(t, ns1, dto.Arrows[0].Namespace, "the ref a collection pins a member at reaches the client on the member's namespace, not beside it")
 	assert.Equal(t, "v1.2.3", dto.Arrows[0].Namespace.Ref())
 	assert.True(t, dto.Arrows[1].Resolved)
