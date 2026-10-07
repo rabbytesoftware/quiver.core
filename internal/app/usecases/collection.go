@@ -10,6 +10,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow"
 	quiverrepo "github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection"
+	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/ruleset"
@@ -17,6 +18,13 @@ import (
 )
 
 type arrowCache interface {
+	CacheManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
+	) error
 	ResolveManifest(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -77,11 +85,24 @@ func NewCollectionUsecase(
 	}
 }
 
-// Follow subscribes to the collection and nothing else. Its arrows are neither
-// cached nor adopted into the catalog: the catalog is the user's library, and a
-// subscription must not fill it with every arrow the collection lists. A member
-// is resolved when the collection is read (Get), and enters the catalog only
-// when the user adds or installs it.
+func withRetry(retries int, fn func() error) error {
+	var err error
+	for i := 0; i <= retries; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+func retryCount() int {
+	cfg := config.GetArrows()
+	if !cfg.AutoRetry.Enabled {
+		return 0
+	}
+	return cfg.AutoRetry.Retries
+}
+
 func (u *quiverUsecase) Follow(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -94,7 +115,62 @@ func (u *quiverUsecase) Follow(
 		return apperrors.ErrNotFound
 	}
 
-	return u.repo.Follow(ctx, ns, coll, nil)
+	// Following warms the vault cache of every member (what search and the
+	// collection screen read) but never writes the arrow catalog: the catalog is
+	// the user's library, and a subscription must not fill it with every arrow the
+	// collection lists. A member enters the catalog only when the user adds or
+	// installs it.
+	retries := retryCount()
+	var failures []domain.Namespace
+	for _, arrow := range coll.Arrows {
+		arrowNS := arrow.Namespace
+		seedLocal := func() error {
+			_, b, filename, e := u.manifold.ResolveArrowAt(ctx, arrowNS, arrow.SourcePath)
+			if e != nil {
+				return e
+			}
+			seedNS, e := u.refBearing(ctx, arrowNS)
+			if e != nil {
+				return e
+			}
+			return u.arrows.CacheManifest(ctx, seedNS, domain.Resolved{Ref: seedNS.Ref()}, b, filename)
+		}
+		resolveRemote := func() error {
+			_, e := u.arrows.ResolveManifest(ctx, arrowNS)
+			return e
+		}
+		var cacheErr error
+		if arrow.IsLocal {
+			cacheErr = withRetry(retries, seedLocal)
+		} else {
+			cacheErr = withRetry(retries, resolveRemote)
+		}
+		if cacheErr != nil {
+			failures = append(failures, arrowNS)
+		}
+	}
+
+	return u.repo.Follow(ctx, ns, coll, failures)
+}
+
+// refBearing returns ns carrying a ref. A collection followed without one has
+// ref-less local arrows, whose manifests were fetched from the repository's
+// default branch, so that branch is the ref the bytes are cached at.
+func (u *quiverUsecase) refBearing(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.Namespace, error) {
+	if ns.Ref() != "" {
+		return ns, nil
+	}
+	snap, err := u.manifold.Snapshot(ctx, ns)
+	if err != nil {
+		return "", fmt.Errorf("resolve default branch of %s: %w", ns, err)
+	}
+	if snap.Head == "" {
+		return "", fmt.Errorf("resolve default branch of %s: repository reports no default branch", ns)
+	}
+	return ns.WithRef(snap.Head), nil
 }
 
 func (u *quiverUsecase) Unfollow(

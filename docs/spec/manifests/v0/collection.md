@@ -258,28 +258,41 @@ sequenceDiagram
     participant API as HTTP /collection/:ns/follow
     participant UC as CollectionUsecase.Follow
     participant Repo as collectionService.Follow
+    participant Arrows as ArrowUsecase
     participant Asynx
+    participant Mfd as Manifold
 
     Client->>API: POST /collection/:ns/follow
     API->>UC: Follow(ctx, ns)
     UC->>Repo: Get(ctx, ns)
     Repo-->>UC: *Collection
-    UC->>Repo: Follow(ctx, ns, coll, nil)
+    loop for each arrow in coll.Arrows
+        alt arrow.IsLocal
+            UC->>Mfd: ResolveArrow(ctx, arrow.ns)
+            Mfd-->>UC: bytes
+            UC->>Arrows: CacheManifest(ctx, arrow.ns, bytes)
+        else external
+            UC->>Arrows: ResolveManifest(ctx, arrow.ns)
+        end
+        Note over UC: retried up to config.arrows.auto_retry.retries
+        Note over UC: failures collected into FailedArrows
+    end
+    UC->>Repo: Follow(ctx, ns, coll, failedArrows)
     Repo->>Asynx: Send(FollowCollection)
     Asynx-->>Repo: collection.followed event
     Repo-->>UC: nil
     UC-->>API: 201 Created
 ```
 
-Follow subscribes to the Collection and nothing else. It does not cache, resolve or adopt any referenced arrow, and it writes nothing to the arrow catalog: the catalog is the user's library, and a subscription must not fill it with every arrow the Collection lists. A member is resolved when the Collection is read (`GET`, §6.3) and enters the catalog only when the user adds or installs it.
+Warming the manifest cache of every referenced arrow is part of Follow rather than Get so search and the collection screen can read every member the moment the user subscribes. The warm-up fills the vault cache only: Follow never writes the arrow catalog, because the catalog is the user's library and a subscription must not fill it with every arrow the Collection lists. A member enters the catalog only when the user adds or installs it. Auto-retry behaviour is driven by `config.arrows.auto_retry` (`enabled` + `retries`); a count of `0` retries means a single attempt with no fallback.
 
 Already-followed namespaces return `apperrors.ErrAlreadyExists` (mapped to HTTP 409) — `FollowCollection.Validate` rejects re-application of the command at the asynx layer.
 
 ### 6.3 FailedArrows
 
-`Follow` records no failures: it resolves no arrow, so the `FailedArrows` list of a newly followed Collection is empty. The field stays on the aggregate for Collections followed by earlier versions, and `GET` enrichment still uses it to skip per-arrow `ResolveManifest` calls and emit `Resolved: false` entries with no name or description fields populated.
+When a referenced arrow fails to resolve during Follow, its namespace is appended to `coll.FailedArrows` instead of failing the whole Follow. The Follow command persists the aggregate with this list intact; subsequent `GET` enrichment uses the list to skip per-arrow `ResolveManifest` calls and emit `Resolved: false` entries with no name or description fields populated.
 
-A member that cannot be resolved when the Collection is read is reported with `Resolved: false` for that read; the user still sees every reference, namespace and ref included, since those come from the manifest and not from the lookup.
+This keeps a Collection partially usable: the user sees every reference — namespace and ref included, since those come from the manifest and not from the failed lookup — with a flag distinguishing the ones that resolved cleanly from the ones that didn't. There is no automatic retry of failed arrows post-Follow; recovery happens on the next Follow re-issue or out-of-band arrow seed.
 
 ---
 
@@ -337,7 +350,7 @@ One dimension identifies a Collection version: the `@ref` on its namespace, e.g.
 
 Pinning works the same way it does for arrows: a Collection followed at `github.com/char2cs/gaming@v1.0.0` and one followed at `github.com/char2cs/gaming@v2.0.0` are distinct aggregates with separate vault and asynx entries.
 
-Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)). Following the Collection does not adopt its members: they enter the catalog only when the user adds or installs one.
+Local arrows derived from a Collection inherit the Collection's **bare** namespace as their prefix (`BareNamespace()` strips the `@ref` during derivation). They have no release stream of their own; they live inside the Collection's repo and are resolved at the Collection's ref, which is the ref they must be given back before they can be installed — an arrow manifest declares no version of its own (see [versioning.md §7](./versioning.md#7-the-ref-is-the-version)). Following the Collection caches each local member's manifest at that ref but does not adopt it: the member enters the catalog only when the user adds or installs it.
 
 ---
 

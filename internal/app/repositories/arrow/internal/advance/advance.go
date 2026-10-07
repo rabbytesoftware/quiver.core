@@ -40,6 +40,17 @@ type Advancer interface {
 		manifest []byte,
 		filename string,
 	) error
+	// CacheManifest files manifest, named filename, in the vault under ns so
+	// search and previews can read it, without any network and without writing
+	// the catalog: the arrow is not added to the library. An identity the
+	// catalog already holds is left as it is.
+	CacheManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
+	) error
 	// AdoptInstalled registers resolvedRef, settled against the live remote,
 	// as what ns's identity already has installed, and adopts it.
 	AdoptInstalled(
@@ -204,6 +215,40 @@ func (a *advancer) Adopt(
 
 // AdoptInstalled leaves the runtime alone, as the core's own adoption does:
 // whether anything is installed stays the runtime's to report.
+func (a *advancer) CacheManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	if ns.Validate() != nil || ns.Ref() == "" || manifold.HasEmptyComponent(ns.Ref()) {
+		return fmt.Errorf("cache %s: %w", ns, apperrors.ErrInvalidNamespace)
+	}
+	if filename == "" {
+		return fmt.Errorf("cache %s: manifest has no filename: %w", ns, apperrors.ErrInvalidManifest)
+	}
+
+	m, err := a.manifold.ParseArrow(manifest)
+	if err != nil {
+		return fmt.Errorf("cache %s: %w: %w", ns, apperrors.ErrInvalidManifest, err)
+	}
+
+	exists, err := a.axArrow.Exists(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("cache %s: %w", ns, err)
+	}
+	if exists {
+		return nil
+	}
+
+	cache := cacheableAt(m, manifest, filename, domain.Available{Ref: resolved.Ref, Commit: resolved.Commit})
+	if err := a.replaceCachedManifest(ctx, ns, cache); err != nil {
+		return fmt.Errorf("cache %s: %w", ns, err)
+	}
+	return nil
+}
+
 func (a *advancer) AdoptInstalled(
 	ctx context.Context,
 	ns domain.Namespace,

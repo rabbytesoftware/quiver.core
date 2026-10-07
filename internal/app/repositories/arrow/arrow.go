@@ -116,6 +116,17 @@ type Arrow interface {
 		manifest []byte,
 		filename string,
 	) error
+	// CacheManifest files manifest, named filename, in the vault under ns so
+	// search and previews can read it, without any network and without writing
+	// the catalog: the arrow is not added to the library. An identity the
+	// catalog already holds is left as it is.
+	CacheManifest(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
+	) error
 	// AdoptInstalled registers resolvedRef, settled against the live remote,
 	// as what ns's identity already has installed, and adopts it: ns names
 	// the identity exactly as it does for Add, and a ref the selector could
@@ -644,6 +655,16 @@ func (s *arrowService) Adopt(
 	filename string,
 ) error {
 	return s.advance.Adopt(ctx, ns, kind, resolved, manifest, filename)
+}
+
+func (s *arrowService) CacheManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	return s.advance.CacheManifest(ctx, ns, resolved, manifest, filename)
 }
 
 func (s *arrowService) AdoptInstalled(

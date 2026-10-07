@@ -124,6 +124,13 @@ type MockArrow struct {
 		manifest []byte,
 		filename string,
 	) error
+	CacheManifestFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+		resolved domain.Resolved,
+		manifest []byte,
+		filename string,
+	) error
 	SearchFn func(
 		ctx context.Context,
 		q models.SearchQuery,
@@ -422,6 +429,19 @@ func (m *MockArrow) Adopt(
 ) error {
 	if m.AdoptFn != nil {
 		return m.AdoptFn(ctx, ns, kind, resolved, manifest, filename)
+	}
+	return nil
+}
+
+func (m *MockArrow) CacheManifest(
+	ctx context.Context,
+	ns domain.Namespace,
+	resolved domain.Resolved,
+	manifest []byte,
+	filename string,
+) error {
+	if m.CacheManifestFn != nil {
+		return m.CacheManifestFn(ctx, ns, resolved, manifest, filename)
 	}
 	return nil
 }
