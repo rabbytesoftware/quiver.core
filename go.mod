@@ -26,7 +26,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/ulikunitz/xz v0.5.17
 	github.com/xeipuuv/gojsonschema v1.2.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
