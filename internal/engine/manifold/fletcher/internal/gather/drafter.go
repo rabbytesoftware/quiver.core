@@ -64,9 +64,9 @@ func (d *drafter) Draft(
 	return draft(forge.Input{
 		Repo:        repo,
 		Name:        repo,
-		Description: src.description(),
+		Description: src.page.description,
 		URL:         host.RepoPageURL(ns),
-		Media:       media.Resolve(ctx, d.fetch.prefixOf(maxProbeBytes), src.page.socialImage, src.icon, src.ownerAvatar()),
+		Media:       media.Resolve(ctx, d.fetch.prefixOf(maxProbeBytes), src.page.socialImage, src.icon, src.avatar),
 		Readme:      readme.Transform(src.readme, readmeBase(host, ns, tag)),
 		Picks:       src.picks,
 		Unpinned:    isRolling(tag),

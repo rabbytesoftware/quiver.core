@@ -34,7 +34,6 @@ const (
 	brandedFixture   = "acme/branded"
 	plainFixture     = "acme/plain"
 	rollingFixture   = "acme/rolling"
-	avatarURL        = "https://avatars.example.test/u/7?v=4"
 	waitTimeout      = 120 * time.Second
 )
 
@@ -187,11 +186,12 @@ func (s *FletcherSuite) TestFletcher_AddedArrowCarriesMetadataLikeAHandWrittenOn
 		byName[item.Name] = item
 	}
 	s.Require().Len(byName, 2)
-	s.Equal("Authored by the maintainers", byName["branded"].Description)
+	s.Equal("Described on the repository page", byName["branded"].Description)
 	s.Contains(byName["branded"].Media.Icon, "/assets/logo.png")
 	s.Equal("Plain description", byName["plain"].Description)
-	s.Equal(avatarURL, byName["plain"].Media.Icon)
+	s.Empty(byName["plain"].Media.Icon, "the fake host offers no unmetered avatar, and no metered one is asked")
 	s.Empty(byName["plain"].Media.Banner)
+	s.Zero(host.MetadataCalls(), "a build never asks the host's metered metadata API")
 }
 
 func (s *FletcherSuite) TestFletcher_RollingPointerRefInstallsDespiteUnreleasedStableTag() {
@@ -343,18 +343,15 @@ func (s *FletcherSuite) newHost() kit.FakeHost {
 			Tags:        []string{"v1.0.0"},
 		},
 		"quiver.test/" + brandedFixture: {
-			Description:    "Scraped, never used",
-			APIDescription: "Authored by the maintainers",
-			AvatarURL:      avatarURL,
-			Readme:         "# branded\n",
-			Binary:         "branded",
-			Asset:          "branded_{tag}_{os}_{arch}.tar.gz",
-			Tags:           []string{"v1.0.0"},
-			Files:          map[string][]byte{"assets/logo.png": squarePNG(s.T(), 256)},
+			Description: "Described on the repository page",
+			Readme:      "# branded\n",
+			Binary:      "branded",
+			Asset:       "branded_{tag}_{os}_{arch}.tar.gz",
+			Tags:        []string{"v1.0.0"},
+			Files:       map[string][]byte{"assets/logo.png": squarePNG(s.T(), 256)},
 		},
 		"quiver.test/" + plainFixture: {
 			Description: "Plain description",
-			AvatarURL:   avatarURL,
 			Readme:      "# plain\n",
 			Binary:      "plain",
 			Asset:       "plain_{tag}_{os}_{arch}.tar.gz",

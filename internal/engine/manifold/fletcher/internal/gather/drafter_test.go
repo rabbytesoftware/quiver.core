@@ -60,7 +60,6 @@ type stubHost struct {
 	pageCall   int
 	rawCalls   []string
 	meta       domain.RepoMetadata
-	metaErr    error
 	metaCall   int
 	avatarPath string
 }
@@ -175,7 +174,7 @@ func (s *stubHost) RepoMetadata(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.metaCall++
-	return s.meta, s.metaErr
+	return s.meta, nil
 }
 
 func (s *stubHost) ReleaseAssets(
@@ -359,26 +358,29 @@ func TestDrafter_Draft_RendersParseableManifest(t *testing.T) {
 	assert.Equal(t, 1, host.pageCall)
 }
 
-func TestDrafter_Draft_RepoMetadataFillsDescriptionAndAvatarIcon(t *testing.T) {
+// The description comes from the repository page and the icon from the
+// unmetered avatar: the host's metered metadata API is never asked.
+func TestDrafter_Draft_NeverAsksTheMeteredMetadataAPI(t *testing.T) {
 	host := &stubHost{
-		assets: realAssets(),
-		page:   pageWith("og:description", "Scraped description."),
-		meta:   domain.RepoMetadata{Description: "Authored description.", AvatarURL: "https://avatars.example.test/u/9?v=4"},
+		assets:     realAssets(),
+		page:       pageWith("og:description", "Scraped description."),
+		meta:       domain.RepoMetadata{Description: "Authored description.", AvatarURL: "https://avatars.example.test/u/9?v=4"},
+		avatarPath: "/acme.png",
+		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
 	}
 
 	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
 	arrow := parse(t, manifest)
-	assert.Equal(t, "Authored description.", arrow.Description)
-	assert.Equal(t, "https://avatars.example.test/u/9?v=4", arrow.Media.Icon)
-	assert.Equal(t, 1, host.metaCall)
+	assert.Equal(t, "Scraped description.", arrow.Description)
+	assert.Equal(t, host.server.URL+"/acme.png", arrow.Media.Icon)
+	assert.Zero(t, host.metaCall)
 }
 
 func TestDrafter_Draft_RepoIconBeatsTheAvatar(t *testing.T) {
 	host := &stubHost{
 		assets: realAssets(),
-		meta:   domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
 		files:  map[string][]byte{"assets/logo.png": encodePNG(t, 256, 256)},
 	}
 
@@ -388,24 +390,9 @@ func TestDrafter_Draft_RepoIconBeatsTheAvatar(t *testing.T) {
 	assert.Equal(t, host.server.URL+"/raw/v1.0.0/assets/logo.png", parse(t, manifest).Media.Icon)
 }
 
-func TestDrafter_Draft_UnmeteredAvatarIsTheIconWhenMetadataFails(t *testing.T) {
+func TestDrafter_Draft_UnmeteredAvatarIsTheIcon(t *testing.T) {
 	host := &stubHost{
 		assets:     realAssets(),
-		metaErr:    errors.New("rate limited"),
-		avatarPath: "/acme.png",
-		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
-	}
-
-	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
-	require.NoError(t, err)
-
-	assert.Equal(t, host.server.URL+"/acme.png", parse(t, manifest).Media.Icon)
-}
-
-func TestDrafter_Draft_UnmeteredAvatarBeatsTheMeteredOne(t *testing.T) {
-	host := &stubHost{
-		assets:     realAssets(),
-		meta:       domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
 		avatarPath: "/acme.png",
 		images:     map[string][]byte{"/acme.png": encodePNG(t, 460, 460)},
 	}
@@ -430,10 +417,9 @@ func TestDrafter_Draft_RepoIconBeatsTheUnmeteredAvatar(t *testing.T) {
 	assert.Equal(t, host.server.URL+"/raw/v1.0.0/assets/logo.png", parse(t, manifest).Media.Icon)
 }
 
-func TestDrafter_Draft_UnmeteredAvatarThatIsNotAnImageFallsBackToTheMeteredOne(t *testing.T) {
+func TestDrafter_Draft_UnmeteredAvatarThatIsNotAnImageIsNoIcon(t *testing.T) {
 	host := &stubHost{
 		assets:     realAssets(),
-		meta:       domain.RepoMetadata{AvatarURL: "https://avatars.example.test/u/9?v=4"},
 		avatarPath: "/acme.png",
 		images:     map[string][]byte{"/acme.png": []byte("<html>sign in</html>")},
 	}
@@ -441,22 +427,7 @@ func TestDrafter_Draft_UnmeteredAvatarThatIsNotAnImageFallsBackToTheMeteredOne(t
 	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
 	require.NoError(t, err)
 
-	assert.Equal(t, "https://avatars.example.test/u/9?v=4", parse(t, manifest).Media.Icon)
-}
-
-func TestDrafter_Draft_RepoMetadataFailureDegradesToThePage(t *testing.T) {
-	host := &stubHost{
-		assets:  realAssets(),
-		page:    pageWith("og:description", "Scraped description."),
-		metaErr: errors.New("rate limited"),
-	}
-
-	manifest, err := newDrafter(t, host, picker.New()).Draft(context.Background(), testNS, testTag)
-	require.NoError(t, err)
-
-	arrow := parse(t, manifest)
-	assert.Equal(t, "Scraped description.", arrow.Description)
-	assert.Empty(t, arrow.Media.Icon)
+	assert.Empty(t, parse(t, manifest).Media.Icon)
 }
 
 func TestDrafter_Draft_HostWithoutARepoPageHasNoDescription(t *testing.T) {
