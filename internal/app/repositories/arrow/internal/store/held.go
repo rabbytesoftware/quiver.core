@@ -28,11 +28,12 @@ func (r *storeService) resolveRefless(
 	return arrow, nil
 }
 
-// heldPreview serves a refless ns from the manifest an earlier view of it
-// settled on, which the vault marks as its default, whatever the age, so a
-// restart or an expired snapshot never makes a view wait on the host. A pin
-// discovery filed is not that: it names no channel, and a view of it still
-// takes the live path. The host is asked behind the call.
+// heldPreview serves a refless ns from what the vault already holds for its
+// repository, whatever the age, so neither a restart nor an arrow search has
+// already shown makes a view wait on the host. The manifest an earlier view
+// settled on (the vault marks it as the default) is preferred to a build
+// discovery filed under a release tag. The host is asked behind the call, and
+// a view that answered from a build discovery filed learns its channel there.
 func (r *storeService) heldPreview(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -41,15 +42,26 @@ func (r *storeService) heldPreview(
 		return nil, false
 	}
 	refs, _ := r.vault.ListVersions(ctx, ns)
+	var filed *domain.Arrow
+	var filedCommit string
 	for _, ref := range refs {
 		arrow, file, ok := r.readHeld(ctx, ns.WithRef(ref))
-		if !ok || !file.Default {
+		if !ok {
 			continue
 		}
-		r.recheck(ctx, ns, file.Commit)
-		return arrow, true
+		if file.Default {
+			r.recheck(ctx, ns, file.Commit)
+			return arrow, true
+		}
+		if filed == nil {
+			filed, filedCommit = arrow, file.Commit
+		}
 	}
-	return nil, false
+	if filed == nil {
+		return nil, false
+	}
+	r.recheck(ctx, ns, filedCommit)
+	return filed, true
 }
 
 func (r *storeService) readHeld(

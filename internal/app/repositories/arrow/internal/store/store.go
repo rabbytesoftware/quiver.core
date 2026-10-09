@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	gormdb "gorm.io/gorm"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -141,6 +142,7 @@ type storeService struct {
 	resolveManifest ResolveFunc
 	onRefreshed     func(domain.Arrow)
 	rechecking      sync.WaitGroup
+	flights         singleflight.Group
 	vault           vault.Vault
 	manifold        manifold.Manifold
 	clock           func() time.Time
@@ -445,6 +447,23 @@ func (r *storeService) ResolveManifest(
 		return row, nil
 	}
 
+	shared, err, _ := r.flights.Do(ns.String(), func() (any, error) {
+		return r.resolveUncatalogued(context.WithoutCancel(ctx), ns)
+	})
+	if err != nil {
+		return nil, err
+	}
+	arrow := *shared.(*domain.Arrow)
+	return &arrow, nil
+}
+
+// resolveUncatalogued is what every concurrent resolution of one namespace
+// shares: a page opens its detail, manifest, readme and dependencies at once,
+// and each would otherwise resolve the same repository from scratch.
+func (r *storeService) resolveUncatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
 	if ns.Ref() == "" {
 		return r.resolveRefless(ctx, ns)
 	}
