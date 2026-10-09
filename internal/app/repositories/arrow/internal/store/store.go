@@ -138,6 +138,10 @@ type Store interface {
 	// Wait blocks until the background rechecks started by earlier views have
 	// finished, so a shutdown does not leave one writing to the vault.
 	Wait()
+
+	// Stop cancels the background rechecks and waits for them, so a shutdown
+	// neither lingers on a slow git host nor leaves one writing to the vault.
+	Stop()
 }
 
 type storeService struct {
@@ -146,6 +150,8 @@ type storeService struct {
 	resolveManifest ResolveFunc
 	onRefreshed     func(domain.Arrow)
 	rechecking      sync.WaitGroup
+	recheckStop     context.Context
+	stopRechecks    context.CancelFunc
 	flights         singleflight.Group
 	vault           vault.Vault
 	manifold        manifold.Manifold
@@ -206,7 +212,10 @@ func newStore(
 	if err != nil {
 		return nil, fmt.Errorf("store: storage: %w", err)
 	}
+	recheckStop, stopRechecks := context.WithCancel(context.Background())
 	return &storeService{
+		recheckStop:     recheckStop,
+		stopRechecks:    stopRechecks,
 		db:              st,
 		projector:       projections.New(st),
 		resolveManifest: newResolver(v, m, o.onRefreshed),
@@ -224,6 +233,11 @@ func resolveVersionCheckTTL() time.Duration {
 		ttl = d
 	}
 	return ttl
+}
+
+func (r *storeService) Stop() {
+	r.stopRechecks()
+	r.rechecking.Wait()
 }
 
 func (r *storeService) Wait() {

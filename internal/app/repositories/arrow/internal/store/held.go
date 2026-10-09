@@ -92,10 +92,12 @@ func (r *storeService) recheck(
 	heldCommit string,
 ) {
 	recheckCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recheckTimeout)
+	stopOnShutdown := context.AfterFunc(r.recheckStop, cancel)
 	r.rechecking.Add(1)
 	go func() {
 		defer r.rechecking.Done()
 		defer cancel()
+		defer stopOnShutdown()
 		identity, fresh, err := r.ResolveInstall(recheckCtx, ns, Preview())
 		if err != nil {
 			slog.WarnContext(recheckCtx, "store: recheck held preview", "ns", ns, "err", err)

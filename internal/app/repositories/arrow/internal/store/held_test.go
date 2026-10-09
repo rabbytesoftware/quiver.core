@@ -168,3 +168,31 @@ func TestResolveManifest_ColdViewFailing_ReportsTheErrorToEveryWaiter(t *testing
 
 	require.ErrorIs(t, err, hostDown)
 }
+
+func TestStore_Stop_CancelsARecheckStuckOnTheHost(t *testing.T) {
+	v := filedByAPreview(t)
+	asked := make(chan struct{})
+	stuck := parsing(&mocks.Manifold{
+		SnapshotFn: func(ctx context.Context, _ domain.Namespace) (domain.RefSnapshot, error) {
+			close(asked)
+			<-ctx.Done()
+			return domain.RefSnapshot{}, ctx.Err()
+		},
+	})
+	r := openHeld(t, v, stuck)
+	_, err := r.ResolveManifest(context.Background(), selectorBare)
+	require.NoError(t, err)
+	<-asked
+
+	stopped := make(chan struct{})
+	go func() {
+		r.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop waited out the recheck instead of cancelling it")
+	}
+}

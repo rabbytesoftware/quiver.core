@@ -118,6 +118,12 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		return err
 	}
 
+	// Only a refless view marks the entry it settled on, so any other write of
+	// the same entry (a refresh, an add, an install) must not unmark it.
+	if prev, _, err := readCachedMeta(s, ns); err == nil && prev.Default {
+		file.Default = true
+	}
+
 	// Write meta sidecar.
 	metaData, err := json.Marshal(VaultMetadata{
 		CachedAt:  s.clock(),

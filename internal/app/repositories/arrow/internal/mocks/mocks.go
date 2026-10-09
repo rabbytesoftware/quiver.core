@@ -122,6 +122,8 @@ func (m *MockCQRS) ProjectForget(
 
 func (m *MockCQRS) Wait() {}
 
+func (m *MockCQRS) Stop() {}
+
 func (m *MockCQRS) NeedsVersionCheck(
 	ctx context.Context,
 	ns domain.Namespace,

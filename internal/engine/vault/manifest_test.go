@@ -1247,6 +1247,19 @@ func TestFindQuiversUnder_SkipsFilesAndWorkdirs(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+func TestPutArrow_DefaultFlag_SurvivesAnOverwriteThatDoesNotSetIt(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: true}))
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# b"), Filename: "ARROW.md", Ref: "v1.1.0", Commit: "c2"}))
+
+	got, err := s.GetArrow(t.Context(), ns)
+
+	require.NoError(t, err)
+	assert.True(t, got.Default)
+	assert.Equal(t, "c2", got.Commit)
+}
+
 func TestPutArrow_DefaultFlag_RoundTrips(t *testing.T) {
 	testCases := []struct {
 		name      string
