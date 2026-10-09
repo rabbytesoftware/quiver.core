@@ -767,6 +767,7 @@ func TestResolveManifest_Refless_SecondPreviewReusesTheFiledManifest(t *testing.
 	require.Equal(t, 1, fetches)
 
 	second, err := r.ResolveManifest(context.Background(), selectorBare)
+	r.Wait()
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, fetches, "the filed manifest is served, not fetched again")

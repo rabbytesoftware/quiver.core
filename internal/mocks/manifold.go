@@ -21,12 +21,15 @@ type Manifold struct {
 	ParseCollectionResult   *domain.Collection
 	ParseCollectionErr      error
 	ParseArrowResult        *domain.Arrow
-	ParseArrowErr           error
-	ListChannelsResult      []manifold.ChannelInfo
-	ListChannelsErr         error
-	SnapshotResult          domain.RefSnapshot
-	SnapshotErr             error
-	SnapshotCalls           int
+	// ParseArrowFn, when set, answers ParseArrow instead of ParseArrowResult,
+	// so each call can return a fresh value as the real parser does.
+	ParseArrowFn       func(data []byte) (*domain.Arrow, error)
+	ParseArrowErr      error
+	ListChannelsResult []manifold.ChannelInfo
+	ListChannelsErr    error
+	SnapshotResult     domain.RefSnapshot
+	SnapshotErr        error
+	SnapshotCalls      int
 	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
 	// from the same SnapshotFn/SnapshotResult as Snapshot.
 	FreshSnapshotCalls int
@@ -109,8 +112,11 @@ func (m *Manifold) ParseCollection(
 }
 
 func (m *Manifold) ParseArrow(
-	_ []byte,
+	data []byte,
 ) (*domain.Arrow, error) {
+	if m.ParseArrowFn != nil {
+		return m.ParseArrowFn(data)
+	}
 	return m.ParseArrowResult, m.ParseArrowErr
 }
 

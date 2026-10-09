@@ -225,9 +225,9 @@ at an explicit ref, therefore treat a draft whose ref differs from the one asked
 
 **Host sources.** Fletcher reaches the host only through `hosts.Host`, the same contract the
 declared-manifest lookup uses: `ReleaseAssets`, `RawFileURL`, `BlobFileURL`, `RepoPageURL`,
-`OwnerAvatarURL` and `RepoMetadata`. Everything else it fetches itself through `core/fns` (see **Fetch bounds**). On
-GitHub it makes **one** metered API call per repository (60/h unauthenticated), `RepoMetadata`;
-everything else is unmetered pages and raw files:
+and `OwnerAvatarURL`. Everything else it fetches itself through `core/fns` (see **Fetch bounds**). It
+makes **no** metered API call (GitHub's is 60/h unauthenticated, and a build that waited on it stalled
+once that was spent): everything it reads is an unmetered page or raw file:
 
 | Source | Where it comes from |
 |---|---|
@@ -235,7 +235,7 @@ everything else is unmetered pages and raw files:
 | README, icon probes | `RawFileURL` (`raw.githubusercontent.com`). |
 | Repo page | `RepoPageURL` (`github.com/<repo>`), parsed by Fletcher for the banner and as the description fallback. |
 | Owner avatar (icon fallback) | `OwnerAvatarURL`: the stable, unmetered `github.com/<owner>.png` (`owner_avatar_url` in `metadata.yaml`), fetched once through the same 64 KiB prefix probe and image sniff as any icon, and stored as that stable URL, never the `avatars.githubusercontent.com` address it redirects to. A host with no template returns `""`. |
-| Description (and avatar, secondarily) | `RepoMetadata`: GitHub provider, `api.github.com/repos/<repo>` (`repo_api_url`), at most one request per bare repository, memoized in-process (concurrent callers share it; a failure is remembered for 10 minutes). Unauthenticated; any failure, rate limits included, is a miss and never fails a draft. |
+| Description | The repo page's `og:description` (see **Repo page**). A host with no repo page has none. |
 | README links | `RawFileURL` for images, `BlobFileURL` for other relative links, both pinned to the ref. |
 
 On GitLab the provider uses the public REST API anonymously (500/min) for release assets only:
@@ -248,13 +248,12 @@ while an installable asset still lacks a digest; any failure is a miss). Names m
 name and on the basename of the link and download URLs; an entry listed twice with different
 digests is dropped. An asset whose link or download URL is not https never carries a digest, so
 the picker drops it. A 404 on the release is an empty list. The README, icon probes and repo page
-(`gitlab.com/<repo>`) come through `RawFileURL` and `RepoPageURL` exactly as on GitHub. GitLab
-and Bitbucket offer no `RepoMetadata` (it is always a miss), so their description comes from the
-repo page and they have no avatar fallback.
+(`gitlab.com/<repo>`) come through `RawFileURL` and `RepoPageURL` exactly as on GitHub. A host
+with no `OwnerAvatarURL` template has no avatar fallback.
 
 **Repo page.** Fletcher reads the page's Open Graph tags with one host-agnostic rule set: text or
 images that name the repository's own `owner/repo` slug are the site's template, not the
-author's. `og:description` is the description only when `RepoMetadata` gave none; it becomes the description after a trailing ` - <slug>` and every
+author's. `og:description` is the description; it becomes the description after a trailing ` - <slug>` and every
 sentence naming the slug are dropped. `og:image` is a banner candidate only when its URL does not
 name the slug and its sniffed dimensions (one capped fetch) are banner-shaped; it is never an
 icon. A host with no repo page (`RepoPageURL` empty) contributes neither.
@@ -282,19 +281,13 @@ stable — is answered from the one `Snapshot` cache (§2.1), so the detail sub-
 refless namespace list the remote's refs once per TTL, not once each. A failed lookup is never
 cached.
 
-A manifest built while `RepoMetadata` was failing is cached like any other (the vault has one TTL
-per entry and no per-entry override): no icon depends on that call any more, and the only loss
-is an API-authored description where the page has no `og:description`.
-
 **One build.** There is a single Fletcher mode, `Recover` (used by `ResolveArrow`), and it builds
 the whole manifest: picks, page metadata, a transformed README (relative URLs absolutized and
 pinned to the ref; badge rows, the leading title block and install/download sections stripped;
 an English README preferred when the default is CJK-dominant; a literal ` ```arrow ` fence
 escaped) and a media cascade: icon from the icon probes, then the owner's avatar from
-`OwnerAvatarURL` (unmetered, validated as an image), then the avatar `RepoMetadata` reported
-(no README image is ever parsed for media). The icon therefore never depends on the metered API:
-a rate-limited `RepoMetadata` costs the API description and nothing else, since the page's
-`og:description` still covers it; banner from the repo page's `og:image` only. Search results, details and adds
+`OwnerAvatarURL` (unmetered, validated as an image; no README image is ever parsed for media);
+banner from the repo page's `og:image` only. Search results, details and adds
 all come from this build and the same vault cache.
 
 **Latency.** Once the tag is known, the release assets, the repo page, the README and the icon

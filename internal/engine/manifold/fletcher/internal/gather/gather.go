@@ -20,7 +20,6 @@ type sources struct {
 	readmeErr error
 	icon      string
 	avatar    string
-	meta      domain.RepoMetadata
 }
 
 func (d *drafter) gather(
@@ -34,7 +33,7 @@ func (d *drafter) gather(
 
 	var src sources
 	var wg sync.WaitGroup
-	wg.Add(6)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		src.picks, src.picksErr = d.pickAll(ctx, host, ns, tag)
@@ -57,10 +56,6 @@ func (d *drafter) gather(
 	go func() {
 		defer wg.Done()
 		src.avatar = media.ProbeAvatar(ctx, d.fetch.prefixOf(maxProbeBytes), host, ns)
-	}()
-	go func() {
-		defer wg.Done()
-		src.meta = repoMetadataOf(ctx, host, ns)
 	}()
 	wg.Wait()
 

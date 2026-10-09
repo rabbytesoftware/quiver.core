@@ -173,6 +173,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 | `Content` | `[]byte` | Raw manifest bytes — written verbatim, returned verbatim. |
 | `Filename` | `string` | Source filename, used to pick the on-disk extension (`.yaml`, `.md`). Stored in the meta sidecar so the matching content file can be re-located on read. |
 | `Ref`, `Commit` | `string` | The release the manifest was read at, when the writer knew it: an add, advance, staging or adoption records the target it read; discovery records the tag it filed a build under and, from the ref snapshot it reads first, that tag's commit (a branch build records no commit, since a branch moves under it). A reader reuses the bytes for that exact release only — same ref, same commit — so a moved tag, or another tag of the same commit, is read from the host again. |
+| `Default` | `bool` | Set by a preview of a refless namespace on the manifest it settled on (`pkg@stable` for `pkg`). A later view of that namespace is answered from the entry carrying it, whatever its age, and re-checked behind the answer; entries without it (a build discovery filed under a tag) are not, since they name no channel. |
 
 ### 5.2 `VaultMetadata`
 
@@ -181,6 +182,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 | `CachedAt` | `time.Time` | Wall-clock time at which `PutArrow` was called. Used to compute staleness against the configured TTL. |
 | `Filename` | `string` | Original filename — required to reconstruct the manifest path on `Get`. |
 | `Ref`, `Commit` | `string` | The release a manifest was read at (see `ManifestFile`); on a confirmed-absent marker, the commit the fetch found no manifest at. |
+| `Default` | `bool` | See `ManifestFile`. |
 
 `Source`, `EvictionTTL`, `OS` from the previous design are *not* present. TTL is a single global value from config, not per-entry. Source URL is reconstructible from the namespace via `Namespace.CloneURL()`.
 

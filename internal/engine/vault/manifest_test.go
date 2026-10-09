@@ -1246,3 +1246,76 @@ func TestFindQuiversUnder_SkipsFilesAndWorkdirs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestPutArrow_DefaultFlag_SurvivesAnOverwriteThatDoesNotSetIt(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: true}))
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# b"), Filename: "ARROW.md", Ref: "v1.1.0", Commit: "c2"}))
+
+	got, err := s.GetArrow(t.Context(), ns)
+
+	require.NoError(t, err)
+	assert.True(t, got.Default)
+	assert.Equal(t, "c2", got.Commit)
+}
+
+func TestPutArrow_Channels_RoundTripAndSurviveAnOverwriteWithoutThem(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	channels := []byte(`[{"Name":"stable"}]`)
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Channels: channels}))
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# b"), Filename: "ARROW.md", Ref: "v1.1.0", Commit: "c2"}))
+
+	got, err := s.GetArrow(t.Context(), ns)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, string(channels), string(got.Channels))
+}
+
+func TestPutArrow_DefaultAt_MovesWhenTheMarkIsSetAndNotWhenOnlyKept(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	file := ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: true}
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	first, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	require.False(t, first.DefaultAt.IsZero())
+
+	time.Sleep(10 * time.Millisecond)
+	file.Default = false
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	kept, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	assert.True(t, kept.Default)
+	assert.True(t, first.DefaultAt.Equal(kept.DefaultAt), "a rewrite keeps the mark's age")
+
+	time.Sleep(10 * time.Millisecond)
+	file.Default = true
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	renewed, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	assert.True(t, renewed.DefaultAt.After(first.DefaultAt), "setting the mark again renews it")
+}
+
+func TestPutArrow_DefaultFlag_RoundTrips(t *testing.T) {
+	testCases := []struct {
+		name      string
+		isDefault bool
+	}{
+		{name: "a manifest a refless namespace settled on", isDefault: true},
+		{name: "any other manifest", isDefault: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			file := ManifestFile{Content: []byte("# arrow"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: tc.isDefault}
+			require.NoError(t, s.PutArrow(t.Context(), "github.com/u/r@stable", file))
+
+			got, err := s.GetArrow(t.Context(), "github.com/u/r@stable")
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.isDefault, got.Default)
+		})
+	}
+}

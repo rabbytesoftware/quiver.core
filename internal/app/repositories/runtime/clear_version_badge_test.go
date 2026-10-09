@@ -110,6 +110,7 @@ func TestRuntime_ExecutionEnd_ReconcilesTheBadgeExceptAfterAnUpdate(t *testing.T
 			ns := testNs()
 			seedReadyRuntime(t, ax, ns)
 			var reconciled atomic.Int32
+			reconcileRan := make(chan struct{}, 1)
 			w := &mocks.Wizard{StartFn: func(context.Context, wizardPkg.RunRequest) wizardPkg.Execution {
 				return mocks.NewDoneExecution(domainRuntime.ExecutionOutcomeSuccess)
 			}}
@@ -118,6 +119,10 @@ func TestRuntime_ExecutionEnd_ReconcilesTheBadgeExceptAfterAnUpdate(t *testing.T
 				f.hasDependents, f.listArrows, func(context.Context) ([]domain.Namespace, error) { return nil, nil },
 				func(context.Context, domain.Namespace) error {
 					reconciled.Add(1)
+					select {
+					case reconcileRan <- struct{}{}:
+					default:
+					}
 					return nil
 				})
 			require.NoError(t, err)
@@ -130,6 +135,15 @@ func TestRuntime_ExecutionEnd_ReconcilesTheBadgeExceptAfterAnUpdate(t *testing.T
 			case <-ended:
 			case <-time.After(5 * time.Second):
 				require.FailNow(t, "the execution never ended")
+			}
+			if tc.want > 0 {
+				// The reconcile is its own subscriber of the ended event, so it
+				// can land after the event a listener sees.
+				select {
+				case <-reconcileRan:
+				case <-time.After(5 * time.Second):
+					require.FailNow(t, "the badge was never reconciled")
+				}
 			}
 			require.NoError(t, repo.Shutdown(context.Background()))
 

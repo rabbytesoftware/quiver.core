@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	gormdb "gorm.io/gorm"
 
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
@@ -132,12 +134,32 @@ type Store interface {
 		ns domain.Namespace,
 		lastCheckedAt time.Time,
 	) (bool, error)
+
+	// Wait blocks until the background rechecks started by earlier views have
+	// finished, so a shutdown does not leave one writing to the vault.
+	Wait()
+
+	// HeldChannels answers ns's channel list from what the vault filed with
+	// its default manifest, whatever the age, and asks the host behind it.
+	HeldChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]manifold.ChannelInfo, bool)
+
+	// Stop cancels the background rechecks and waits for them, so a shutdown
+	// neither lingers on a slow git host nor leaves one writing to the vault.
+	Stop()
 }
 
 type storeService struct {
 	db              storage.Store
 	projector       projections.Projector
 	resolveManifest ResolveFunc
+	onRefreshed     func(domain.Arrow)
+	rechecking      sync.WaitGroup
+	recheckStop     context.Context
+	stopRechecks    context.CancelFunc
+	flights         singleflight.Group
 	vault           vault.Vault
 	manifold        manifold.Manifold
 	clock           func() time.Time
@@ -197,10 +219,14 @@ func newStore(
 	if err != nil {
 		return nil, fmt.Errorf("store: storage: %w", err)
 	}
+	recheckStop, stopRechecks := context.WithCancel(context.Background())
 	return &storeService{
+		recheckStop:     recheckStop,
+		stopRechecks:    stopRechecks,
 		db:              st,
 		projector:       projections.New(st),
 		resolveManifest: newResolver(v, m, o.onRefreshed),
+		onRefreshed:     o.onRefreshed,
 		vault:           v,
 		manifold:        m,
 		clock:           clock,
@@ -214,6 +240,15 @@ func resolveVersionCheckTTL() time.Duration {
 		ttl = d
 	}
 	return ttl
+}
+
+func (r *storeService) Stop() {
+	r.stopRechecks()
+	r.rechecking.Wait()
+}
+
+func (r *storeService) Wait() {
+	r.rechecking.Wait()
 }
 
 func (r *storeService) NeedsVersionCheck(
@@ -441,13 +476,25 @@ func (r *storeService) ResolveManifest(
 		return row, nil
 	}
 
+	shared, err, _ := r.flights.Do(ns.String(), func() (any, error) {
+		return r.resolveUncatalogued(context.WithoutCancel(ctx), ns)
+	})
+	if err != nil {
+		return nil, err
+	}
+	arrow := *shared.(*domain.Arrow)
+	return &arrow, nil
+}
+
+// resolveUncatalogued is what every concurrent resolution of one namespace
+// shares: a page opens its detail, manifest, readme and dependencies at once,
+// and each would otherwise resolve the same repository from scratch.
+func (r *storeService) resolveUncatalogued(
+	ctx context.Context,
+	ns domain.Namespace,
+) (*domain.Arrow, error) {
 	if ns.Ref() == "" {
-		identity, arrow, err := r.ResolveInstall(ctx, ns, Preview())
-		if err != nil {
-			return nil, fmt.Errorf("reader resolve manifest: %w", err)
-		}
-		arrow.Namespace = identity
-		return arrow, nil
+		return r.resolveRefless(ctx, ns)
 	}
 
 	arrow, err := r.resolveAtRef(ctx, ns)

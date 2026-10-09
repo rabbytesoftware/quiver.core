@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,6 +25,7 @@ type InstallOption func(*installOpts)
 type installOpts struct {
 	exists  ExistsFunc
 	preview bool
+	refless bool
 }
 
 // CacheWhenAbsent caches the resolved manifest under the identity, but only
@@ -56,6 +58,7 @@ func (r *storeService) ResolveInstall(
 	for _, opt := range opts {
 		opt(&o)
 	}
+	o.refless = ns.Ref() == ""
 
 	identity, kind, snap, err := identify(ctx, ns, r.manifold.Snapshot)
 	if err != nil {
@@ -210,7 +213,7 @@ func (r *storeService) readTarget(
 		if err != nil {
 			return nil, err
 		}
-		r.cachePreview(ctx, identity, target, previewedManifest{arrow: arrow, raw: raw, filename: filename})
+		r.cachePreview(ctx, identity, target, previewedManifest{arrow: arrow, raw: raw, filename: filename}, o.refless)
 		return arrow, nil
 	}
 	return r.fetchAtCommit(ctx, identity, target, o.exists)
@@ -222,11 +225,29 @@ type previewedManifest struct {
 	filename string
 }
 
+// channelsOf is identity's channel list as the vault stores it, read from the
+// refs the resolution just fetched; empty when it cannot be had.
+func (r *storeService) channelsOf(
+	ctx context.Context,
+	identity domain.Namespace,
+) []byte {
+	channels, err := r.manifold.ListChannels(ctx, identity)
+	if err != nil || len(channels) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(channels)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
 func (r *storeService) cachePreview(
 	ctx context.Context,
 	identity domain.Namespace,
 	target domain.Available,
 	manifest previewedManifest,
+	refless bool,
 ) {
 	if r.vault == nil {
 		return
@@ -234,6 +255,10 @@ func (r *storeService) cachePreview(
 	file := Cacheable(manifest.arrow, manifest.raw, manifest.filename)
 	file.Ref = target.Ref
 	file.Commit = target.Commit
+	file.Default = refless
+	if refless && r.manifold != nil {
+		file.Channels = r.channelsOf(ctx, identity)
+	}
 	if err := r.vault.PutArrow(ctx, identity, file); err != nil {
 		slog.WarnContext(ctx, "store: cache previewed manifest", "ns", identity, "err", err)
 	}

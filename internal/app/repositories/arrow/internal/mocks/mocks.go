@@ -7,6 +7,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
 	arrowstore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 )
 
@@ -21,6 +22,7 @@ type MockCQRS struct {
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
 	ProjectForgetFn     func(ctx context.Context, arrow domain.Arrow) error
+	HeldChannelsFn      func(ctx context.Context, ns domain.Namespace) ([]manifold.ChannelInfo, bool)
 	NeedsVersionCheckFn func(ctx context.Context, ns domain.Namespace, lastCheckedAt time.Time) (bool, error)
 	ResolveInstallFn    func(ctx context.Context, ns domain.Namespace) (domain.Namespace, *domain.Arrow, error)
 	ResolveAdoptionFn   func(ctx context.Context, ns domain.Namespace, resolvedRef string) (arrowstore.Adoption, error)
@@ -118,6 +120,20 @@ func (m *MockCQRS) ProjectForget(
 		return m.ProjectForgetFn(ctx, arrow)
 	}
 	return nil
+}
+
+func (m *MockCQRS) Wait() {}
+
+func (m *MockCQRS) Stop() {}
+
+func (m *MockCQRS) HeldChannels(
+	ctx context.Context,
+	ns domain.Namespace,
+) ([]manifold.ChannelInfo, bool) {
+	if m.HeldChannelsFn != nil {
+		return m.HeldChannelsFn(ctx, ns)
+	}
+	return nil, false
 }
 
 func (m *MockCQRS) NeedsVersionCheck(

@@ -45,8 +45,10 @@ func countingFetches(
 	fetched *int,
 ) *mocks.Manifold {
 	return &mocks.Manifold{
-		SnapshotResult:   snap,
-		ParseArrowResult: &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "crowbar"}},
+		SnapshotResult: snap,
+		ParseArrowFn: func([]byte) (*domain.Arrow, error) {
+			return &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "crowbar"}}, nil
+		},
 		ResolveArrowAtCommitFn: func(_ context.Context, ns domain.Namespace, _, _ string) (*domain.Arrow, []byte, string, error) {
 			*fetched++
 			if fetchErr != nil {
@@ -97,19 +99,27 @@ func TestResolveInstall_ReusesTheVaultCopyOfTheTargetCommit(t *testing.T) {
 	}
 }
 
-// A preview of a discovered arrow reads discovery's build and fetches nothing.
-func TestResolveManifest_UncataloguedPreview_ReusesTheBuildAtTheTarget(t *testing.T) {
+// A preview of an arrow search has already shown answers from the build
+// discovery filed, whatever the host is doing, and learns its channel behind
+// that answer: the next view of it names the channel.
+func TestResolveManifest_UncataloguedPreview_AnswersFromDiscoverysBuildThenLearnsItsChannel(t *testing.T) {
 	v := realVault(t)
 	cachedAt(t, v, selectorBare.WithRef("v2.0.0"), stableTarget)
 	fetches := 0
 	r := newTestReaderWithVaultManifold(t, v, countingFetches(selectorSnapshot(), nil, &fetches))
 
-	arrow, err := r.ResolveManifest(context.Background(), selectorBare)
+	first, err := r.ResolveManifest(context.Background(), selectorBare)
+	r.Wait()
+	second, secondErr := r.ResolveManifest(context.Background(), selectorBare)
+	r.Wait()
 
 	require.NoError(t, err)
-	assert.Zero(t, fetches)
-	assert.Equal(t, selectorBare.WithRef("stable"), arrow.Namespace)
-	assert.Equal(t, domain.Resolved{Ref: "v2.0.0", Commit: "c200", Fingerprint: "c200"}, arrow.Resolved)
+	require.NoError(t, secondErr)
+	assert.Zero(t, fetches, "discovery's build is reused, never fetched again")
+	assert.Equal(t, selectorBare.WithRef("v2.0.0"), first.Namespace, "the first answer is the build search showed")
+	assert.Equal(t, domain.Resolved{Ref: "v2.0.0", Commit: "c200", Fingerprint: "c200"}, first.Resolved)
+	assert.Equal(t, selectorBare.WithRef("stable"), second.Namespace, "the re-check behind it learned the channel")
+	assert.Equal(t, first.Resolved, second.Resolved)
 }
 
 // A target that definitively holds no manifest is recorded at its ref for
