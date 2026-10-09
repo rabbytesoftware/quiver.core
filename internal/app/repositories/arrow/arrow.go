@@ -866,6 +866,7 @@ func (s *arrowService) Forget(
 }
 
 func (s *arrowService) Shutdown(ctx context.Context) error {
+	s.store.Wait()
 	return s.axArrow.Shutdown(ctx)
 }
 

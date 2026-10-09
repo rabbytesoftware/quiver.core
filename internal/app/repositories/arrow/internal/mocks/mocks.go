@@ -120,6 +120,8 @@ func (m *MockCQRS) ProjectForget(
 	return nil
 }
 
+func (m *MockCQRS) Wait() {}
+
 func (m *MockCQRS) NeedsVersionCheck(
 	ctx context.Context,
 	ns domain.Namespace,

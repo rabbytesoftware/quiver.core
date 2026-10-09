@@ -59,7 +59,7 @@ func TestResolveManifest_Refless_AfterARestartIsServedFromTheVaultWhileTheHostIs
 	r := openHeld(t, v, parsing(hostDown))
 
 	got, err := r.ResolveManifest(context.Background(), selectorBare)
-	store.WaitRechecks(r)
+	r.Wait()
 
 	require.NoError(t, err)
 	assert.Equal(t, "crowbar", got.Name)
@@ -78,7 +78,7 @@ func TestResolveManifest_Refless_RecheckFindingANewerCommit_IsReported(t *testin
 	r := openHeld(t, v, parsing(selectorManifold(moved, &fetched)), store.WithRefreshed(func(a domain.Arrow) { reported <- a }))
 
 	got, err := r.ResolveManifest(context.Background(), selectorBare)
-	store.WaitRechecks(r)
+	r.Wait()
 
 	require.NoError(t, err)
 	assert.Equal(t, "c200", got.Resolved.Commit, "the held copy answers first")
@@ -99,7 +99,7 @@ func TestResolveManifest_Refless_RecheckFindingNothingNew_ReportsNothing(t *test
 	r := openHeld(t, v, parsing(selectorManifold(selectorSnapshot(), &fetched)), store.WithRefreshed(func(a domain.Arrow) { reported <- a }))
 
 	_, err := r.ResolveManifest(context.Background(), selectorBare)
-	store.WaitRechecks(r)
+	r.Wait()
 
 	require.NoError(t, err)
 	assert.Empty(t, reported)
@@ -150,7 +150,7 @@ func TestResolveManifest_ConcurrentColdViews_ShareOneResolution(t *testing.T) {
 	require.Eventually(t, func() bool { return fetches.Load() == 1 }, 5*time.Second, time.Millisecond)
 	close(release)
 	wg.Wait()
-	store.WaitRechecks(r)
+	r.Wait()
 
 	assert.Equal(t, int32(1), fetches.Load())
 	for _, arrow := range results {

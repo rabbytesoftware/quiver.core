@@ -109,9 +109,9 @@ func TestResolveManifest_UncataloguedPreview_AnswersFromDiscoverysBuildThenLearn
 	r := newTestReaderWithVaultManifold(t, v, countingFetches(selectorSnapshot(), nil, &fetches))
 
 	first, err := r.ResolveManifest(context.Background(), selectorBare)
-	store.WaitRechecks(r)
+	r.Wait()
 	second, secondErr := r.ResolveManifest(context.Background(), selectorBare)
-	store.WaitRechecks(r)
+	r.Wait()
 
 	require.NoError(t, err)
 	require.NoError(t, secondErr)

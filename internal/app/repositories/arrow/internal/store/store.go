@@ -134,6 +134,10 @@ type Store interface {
 		ns domain.Namespace,
 		lastCheckedAt time.Time,
 	) (bool, error)
+
+	// Wait blocks until the background rechecks started by earlier views have
+	// finished, so a shutdown does not leave one writing to the vault.
+	Wait()
 }
 
 type storeService struct {
@@ -220,6 +224,10 @@ func resolveVersionCheckTTL() time.Duration {
 		ttl = d
 	}
 	return ttl
+}
+
+func (r *storeService) Wait() {
+	r.rechecking.Wait()
 }
 
 func (r *storeService) NeedsVersionCheck(
