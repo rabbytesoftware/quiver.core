@@ -719,6 +719,22 @@ func TestListChannels_DelegatesToManifold(t *testing.T) {
 	assert.Equal(t, "pointer", got[1].Kind)
 }
 
+func TestListChannels_AHeldListIsServedWithoutAskingTheHost(t *testing.T) {
+	m := &mocks.Manifold{ListChannelsErr: errors.New("host unreachable")}
+	store := &arrowStoreMocks.MockCQRS{
+		HeldChannelsFn: func(context.Context, domain.Namespace) ([]manifold.ChannelInfo, bool) {
+			return []manifold.ChannelInfo{{Name: "stable", Kind: "ordered", Latest: "v2.0.0"}}, true
+		},
+	}
+	cat := arrowRepo.NewTestable(store, newTestAsynxArrow(t), nil, m)
+
+	got, err := cat.ListChannels(context.Background(), testNs())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "v2.0.0", got[0].Latest)
+}
+
 func TestListChannels_ManifoldError_Propagates(t *testing.T) {
 	wantErr := errors.New("list tags: connection refused")
 	m := &mocks.Manifold{ListChannelsErr: wantErr}

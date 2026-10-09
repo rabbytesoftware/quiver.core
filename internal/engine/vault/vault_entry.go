@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
@@ -20,6 +21,11 @@ type ManifestFile struct {
 	// Default marks the manifest a refless namespace settled on: the entry a
 	// later view of that namespace is answered from.
 	Default bool
+	// Channels is the channel list of the repository when the manifest was
+	// filed, opaque to the vault. It is kept across a write that carries none.
+	Channels []byte
+	// CachedAt is when the entry was written; a read fills it, a write ignores it.
+	CachedAt time.Time
 }
 
 type CollectionVaultEntry struct {
@@ -43,4 +49,6 @@ type VaultMetadata struct {
 	Ref     string `json:"ref,omitempty"`
 	Commit  string `json:"commit,omitempty"`
 	Default bool   `json:"default,omitempty"`
+	// Channels is ManifestFile.Channels.
+	Channels json.RawMessage `json:"channels,omitempty"`
 }

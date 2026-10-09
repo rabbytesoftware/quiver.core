@@ -974,7 +974,11 @@ func (s *arrowService) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]models.ChannelInfo, error) {
-	channels, err := s.manifold.ListChannels(ctx, ns)
+	channels, held := s.store.HeldChannels(ctx, ns)
+	var err error
+	if !held {
+		channels, err = s.manifold.ListChannels(ctx, ns)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}

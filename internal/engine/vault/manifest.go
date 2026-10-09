@@ -46,7 +46,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, err
 	}
 
-	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit, Default: meta.Default}
+	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit, Default: meta.Default, Channels: meta.Channels, CachedAt: meta.CachedAt}
 
 	if s.clock().Sub(meta.CachedAt) > s.ttl {
 		return file, ErrStale
@@ -120,8 +120,11 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 
 	// Only a refless view marks the entry it settled on, so any other write of
 	// the same entry (a refresh, an add, an install) must not unmark it.
-	if prev, _, err := readCachedMeta(s, ns); err == nil && prev.Default {
-		file.Default = true
+	if prev, _, err := readCachedMeta(s, ns); err == nil {
+		file.Default = file.Default || prev.Default
+		if len(file.Channels) == 0 {
+			file.Channels = prev.Channels
+		}
 	}
 
 	// Write meta sidecar.
@@ -132,6 +135,7 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		Ref:       file.Ref,
 		Commit:    file.Commit,
 		Default:   file.Default,
+		Channels:  file.Channels,
 	})
 	if err != nil {
 		return err

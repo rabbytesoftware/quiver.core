@@ -139,6 +139,13 @@ type Store interface {
 	// finished, so a shutdown does not leave one writing to the vault.
 	Wait()
 
+	// HeldChannels answers ns's channel list from what the vault filed with
+	// its default manifest, whatever the age, and asks the host behind it.
+	HeldChannels(
+		ctx context.Context,
+		ns domain.Namespace,
+	) ([]manifold.ChannelInfo, bool)
+
 	// Stop cancels the background rechecks and waits for them, so a shutdown
 	// neither lingers on a slow git host nor leaves one writing to the vault.
 	Stop()

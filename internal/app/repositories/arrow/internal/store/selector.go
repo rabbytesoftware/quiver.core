@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -224,6 +225,23 @@ type previewedManifest struct {
 	filename string
 }
 
+// channelsOf is identity's channel list as the vault stores it, read from the
+// refs the resolution just fetched; empty when it cannot be had.
+func (r *storeService) channelsOf(
+	ctx context.Context,
+	identity domain.Namespace,
+) []byte {
+	channels, err := r.manifold.ListChannels(ctx, identity)
+	if err != nil || len(channels) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(channels)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
 func (r *storeService) cachePreview(
 	ctx context.Context,
 	identity domain.Namespace,
@@ -238,6 +256,9 @@ func (r *storeService) cachePreview(
 	file.Ref = target.Ref
 	file.Commit = target.Commit
 	file.Default = refless
+	if refless && r.manifold != nil {
+		file.Channels = r.channelsOf(ctx, identity)
+	}
 	if err := r.vault.PutArrow(ctx, identity, file); err != nil {
 		slog.WarnContext(ctx, "store: cache previewed manifest", "ns", identity, "err", err)
 	}

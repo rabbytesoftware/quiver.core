@@ -14,6 +14,7 @@ import (
 	adapterSQLite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/arrow/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/vault"
 	"github.com/rabbytesoftware/quiver.core/internal/mocks"
 )
@@ -195,4 +196,65 @@ func TestStore_Stop_CancelsARecheckStuckOnTheHost(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Stop waited out the recheck instead of cancelling it")
 	}
+}
+
+func filedWithChannels(t *testing.T) vault.Vault {
+	t.Helper()
+	v := realVault(t)
+	var fetched []commitFetch
+	m := selectorManifold(selectorSnapshot(), &fetched)
+	m.ListChannelsResult = []manifold.ChannelInfo{{Name: "stable", Kind: "ordered", Latest: "v2.0.0", Count: 2}}
+	_, err := openHeld(t, v, m).ResolveManifest(context.Background(), selectorBare)
+	require.NoError(t, err)
+	return v
+}
+
+func TestStore_HeldChannels_AfterARestartAreServedFromTheVaultWhileTheHostIsDown(t *testing.T) {
+	v := filedWithChannels(t)
+	hostDown := parsing(&mocks.Manifold{SnapshotErr: errors.New("host unreachable")})
+	r := openHeld(t, v, hostDown)
+
+	got, ok := r.HeldChannels(context.Background(), selectorBare)
+	r.Wait()
+
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.Equal(t, "stable", got[0].Name)
+	assert.Equal(t, "v2.0.0", got[0].Latest)
+	assert.Equal(t, 1, hostDown.SnapshotCalls, "the host is asked behind the answer")
+}
+
+func TestStore_HeldChannels_NothingFiledWithThem_AnswersNothing(t *testing.T) {
+	v := filedByAPreview(t)
+	r := openHeld(t, v, parsing(&mocks.Manifold{}))
+
+	_, ok := r.HeldChannels(context.Background(), selectorBare)
+
+	assert.False(t, ok)
+}
+
+func TestStore_HeldChannels_ASecondDefaultMark_TheNewestEntryWins(t *testing.T) {
+	v := realVault(t)
+	older := selectorBare.WithRef("stable")
+	newer := selectorBare.WithRef("nightly")
+	clock := time.Now()
+	for i, tc := range []struct {
+		ns   domain.Namespace
+		name string
+	}{{older, "stable"}, {newer, "nightly"}} {
+		raw := []byte(`[{"Name":"` + tc.name + `"}]`)
+		require.NoError(t, v.PutArrow(context.Background(), tc.ns, vault.ManifestFile{
+			Content: []byte("raw"), Filename: "ARROW.md", Ref: "v1.0." + string(rune('0'+i)), Commit: "c" + tc.name, Default: true, Channels: raw,
+		}))
+		clock = clock.Add(time.Second)
+		time.Sleep(10 * time.Millisecond)
+	}
+	r := openHeld(t, v, parsing(&mocks.Manifold{}))
+
+	got, ok := r.HeldChannels(context.Background(), selectorBare)
+	r.Wait()
+
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.Equal(t, "nightly", got[0].Name)
 }

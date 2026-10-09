@@ -1260,6 +1260,20 @@ func TestPutArrow_DefaultFlag_SurvivesAnOverwriteThatDoesNotSetIt(t *testing.T) 
 	assert.Equal(t, "c2", got.Commit)
 }
 
+func TestPutArrow_Channels_RoundTripAndSurviveAnOverwriteWithoutThem(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	channels := []byte(`[{"Name":"stable"}]`)
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Channels: channels}))
+	require.NoError(t, s.PutArrow(t.Context(), ns, ManifestFile{Content: []byte("# b"), Filename: "ARROW.md", Ref: "v1.1.0", Commit: "c2"}))
+
+	got, err := s.GetArrow(t.Context(), ns)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, string(channels), string(got.Channels))
+	assert.False(t, got.CachedAt.IsZero())
+}
+
 func TestPutArrow_DefaultFlag_RoundTrips(t *testing.T) {
 	testCases := []struct {
 		name      string
