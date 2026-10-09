@@ -266,6 +266,7 @@ func (s *VersioningSuite) TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRech
 	ns := kit.NSFor(key, "stable")
 
 	s.addAndInstall(env, tc, ns)
+	afterInstall := live.calls.Load()
 	s.release(storer, "v1.1.0")
 
 	kit.WaitForDetail(s.T(), tc, ns, "the first check's answer", wait,
@@ -273,14 +274,14 @@ func (s *VersioningSuite) TestVersionDrift_TTL_SecondCallWithinWindowDoesNotRech
 			return status == http.StatusOK && d.Available != nil && d.Available.Ref == "v1.1.0"
 		},
 	)
-	s.Equal(int32(1), live.calls.Load())
+	s.Equal(afterInstall+1, live.calls.Load(), "the first check is one live read")
 
 	s.release(storer, "v1.2.0")
 	for range 20 {
 		detail := s.getDetail(tc, ns)
 		s.Equal("v1.1.0", detail.Available.Ref, "a read inside the TTL window answers from the last check")
 	}
-	s.Equal(int32(1), live.calls.Load(), "no read inside the TTL window reached the remote")
+	s.Equal(afterInstall+1, live.calls.Load(), "no read inside the TTL window reached the remote")
 }
 
 // The explicit check reads the remote live: a release the snapshot cache has
@@ -306,8 +307,8 @@ func (s *VersioningSuite) TestVersionDrift_Check_ReadsTheRemoteLive() {
 	s.Equal("v1.1.0", result.Available.Ref)
 }
 
-// Channel discovery answers from the manifold's snapshot cache until its TTL
-// passes, then reads the remote again. The clock is injected, so the TTL is
+// Channel discovery answers from the manifold's snapshot cache; past its TTL
+// it still answers from it, and reads the remote again behind that answer. The clock is injected, so the TTL is
 // crossed without a real wait.
 func (s *VersioningSuite) TestVersionDrift_ManifoldCache_PastTTL_ChannelsReflectNewTag() {
 	key := "quiver-test/version-drift-cache-ttl"
@@ -327,8 +328,13 @@ func (s *VersioningSuite) TestVersionDrift_ManifoldCache_PastTTL_ChannelsReflect
 
 	clock.Advance(2 * time.Hour)
 
-	fresh, status := tc.Channels(ns)
+	expired, status := tc.Channels(ns)
 	s.Require().Equal(http.StatusOK, status)
-	s.Require().NotEmpty(fresh.Channels)
-	s.Equal("v1.1.0", fresh.Channels[0].Latest, "past the TTL the remote is read again")
+	s.Require().NotEmpty(expired.Channels)
+	s.Equal("v1.0.0", expired.Channels[0].Latest, "past the TTL the held answer comes back at once")
+
+	s.Require().Eventually(func() bool {
+		fresh, freshStatus := tc.Channels(ns)
+		return freshStatus == http.StatusOK && len(fresh.Channels) > 0 && fresh.Channels[0].Latest == "v1.1.0"
+	}, wait, 10*time.Millisecond, "past the TTL the remote is read again, behind that answer")
 }

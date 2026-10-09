@@ -57,7 +57,11 @@ func (r *storeService) ResolveInstall(
 		opt(&o)
 	}
 
-	identity, kind, snap, err := identify(ctx, ns, r.manifold.Snapshot)
+	take := r.manifold.FreshSnapshot
+	if o.preview {
+		take = r.manifold.Snapshot
+	}
+	identity, kind, snap, err := identify(ctx, ns, take)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}

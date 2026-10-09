@@ -773,3 +773,64 @@ func TestResolveManifest_Refless_SecondPreviewReusesTheFiledManifest(t *testing.
 	assert.Equal(t, first.Namespace, second.Namespace)
 	assert.Equal(t, first.Resolved, second.Resolved)
 }
+
+// A selector is never a ref a host serves, so asking one for it is a fetch that
+// cannot succeed; it is resolved as a selector and the host is not asked.
+func TestResolveManifest_Selector_IsNotAskedOfTheHostAsARef(t *testing.T) {
+	var fetched []commitFetch
+	m := selectorManifold(selectorSnapshot(), &fetched)
+	r := newTestReaderWithVaultManifold(t, realVault(t), m)
+
+	got, err := r.ResolveManifest(context.Background(), selectorBare.WithRef("v1.*"))
+
+	require.NoError(t, err)
+	assert.Equal(t, selectorBare.WithRef("v1.*"), got.Namespace)
+	assert.Zero(t, m.ResolveArrowCalls)
+	assert.Len(t, fetched, 1)
+}
+
+// When the repository's refs cannot be read, the host is still asked for the
+// namespace as typed, so a ref it serves directly keeps resolving.
+func TestResolveManifest_Selector_FallsBackToTheHostWhenRefsCannotBeRead(t *testing.T) {
+	var fetched []commitFetch
+	m := selectorManifold(selectorSnapshot(), &fetched)
+	m.SnapshotErr = errors.New("refs unavailable")
+	m.ResolveArrowResult = &domain.Arrow{ArrowMeta: domain.ArrowMeta{Name: "direct"}}
+	m.ResolveArrowRaw = []byte("raw")
+	m.ResolveArrowFilename = "ARROW.md"
+	r := newTestReaderWithVaultManifold(t, realVault(t), m)
+
+	got, err := r.ResolveManifest(context.Background(), selectorBare.WithRef("v1.2.0"))
+
+	require.NoError(t, err)
+	assert.Equal(t, "direct", got.Name)
+	assert.Equal(t, 1, m.ResolveArrowCalls)
+	assert.Empty(t, fetched)
+}
+
+// A preview may show refs a little behind; an install resolves what it will
+// install, so it reads the remote's refs as they are now.
+func TestResolveInstall_ReadsLiveRefsAndAPreviewTheHeldOnes(t *testing.T) {
+	testCases := []struct {
+		name          string
+		opts          []store.InstallOption
+		wantFresh     int
+		wantSnapshots int
+	}{
+		{name: "an install", wantFresh: 1},
+		{name: "a preview", opts: []store.InstallOption{store.Preview()}, wantSnapshots: 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetched []commitFetch
+			m := selectorManifold(selectorSnapshot(), &fetched)
+			r := newTestReaderWithVaultManifold(t, realVault(t), m)
+
+			_, _, err := r.ResolveInstall(context.Background(), selectorBare, tc.opts...)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFresh, m.FreshSnapshotCalls)
+			assert.Equal(t, tc.wantSnapshots, m.SnapshotCalls)
+		})
+	}
+}

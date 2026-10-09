@@ -30,6 +30,8 @@ type Manifold struct {
 	// FreshSnapshotCalls counts FreshSnapshot separately, since it answers
 	// from the same SnapshotFn/SnapshotResult as Snapshot.
 	FreshSnapshotCalls int
+	// RefsRefreshed is what OnRefsRefreshed registered.
+	RefsRefreshed func(ns domain.Namespace)
 	// FreshSnapshotFn, when set, answers FreshSnapshot alone, so a test can
 	// give the live remote a different view than the cached Snapshot.
 	FreshSnapshotFn func(
@@ -137,6 +139,12 @@ func (m *Manifold) Snapshot(
 		return m.SnapshotFn(ctx, ns)
 	}
 	return m.SnapshotResult, m.SnapshotErr
+}
+
+func (m *Manifold) OnRefsRefreshed(
+	fn func(ns domain.Namespace),
+) {
+	m.RefsRefreshed = fn
 }
 
 func (m *Manifold) FreshSnapshot(

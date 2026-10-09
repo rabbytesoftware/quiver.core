@@ -206,7 +206,7 @@ func New(ctx context.Context, opts ...Option) (*Container, error) {
 
 	return &Container{
 		Vault:     v,
-		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL, manifold.WithFletcher(config.GetManifold().Fletcher.Enabled)),
+		Manifold:  manifold.New(fetchTimeout, hostLookup(providers), manifoldCacheTTL, manifold.WithFletcher(config.GetManifold().Fletcher.Enabled), manifold.WithRefsDir(filepath.Join(filepath.Dir(eventsPath), "refs"))),
 		Wizard:    wiz,
 		Netbridge: nb,
 		DepTree:   deptree.New(),

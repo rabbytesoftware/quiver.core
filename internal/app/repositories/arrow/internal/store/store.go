@@ -479,22 +479,21 @@ func cataloguedRow(
 	return &row, true
 }
 
-// resolveAtRef falls back to reading a selector identity (pkg@v1.*,
-// pkg@stable) at its target commit, since no host serves a selector as a
-// ref. When that fails too, the original failure is the one that describes ns.
+// resolveAtRef reads ns's manifest. A copy the vault already holds is served
+// as is. Without one, ns is resolved as a selector first (pkg@v1.*,
+// pkg@stable), since no host serves a selector as a ref and asking for it as
+// one is a fetch that cannot succeed; only when that fails is the host asked
+// for ns itself. The failure that describes ns is then the host's.
 func (r *storeService) resolveAtRef(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	arrow, err := r.resolveManifest(ctx, ns)
-	if err == nil || r.manifold == nil {
-		return arrow, err
+	if r.manifold != nil && (r.vault == nil || !r.holdsManifest(ctx, ns)) {
+		if _, selected, err := r.ResolveInstall(ctx, ns, Preview()); err == nil {
+			return selected, nil
+		}
 	}
-	_, selected, selErr := r.ResolveInstall(ctx, ns, Preview())
-	if selErr != nil {
-		return nil, err
-	}
-	return selected, nil
+	return r.resolveManifest(ctx, ns)
 }
 
 // ResolveCatalogued maps a namespace as the caller typed it onto the one the

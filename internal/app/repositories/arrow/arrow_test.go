@@ -2705,3 +2705,24 @@ func TestNew_RefreshedManifest_IsBroadcastAsNotUserInstalled(t *testing.T) {
 	assert.Equal(t, ns, hub.events[0].Namespace)
 	assert.False(t, hub.events[0].UserInstalled)
 }
+
+// Refs a background re-read found changed reach the desktop as an upsert of a
+// non-library arrow, which the library stream's default filter never delivers.
+func TestNew_RefsRefreshed_AreBroadcastAsNotUserInstalled(t *testing.T) {
+	ns := domain.Namespace("github.com/u/r")
+	db, err := adapterSQLite.OpenDB(":memory:")
+	require.NoError(t, err)
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
+	hub := &recordingHub{}
+	m := &mocks.Manifold{}
+	_, err = arrowRepo.New(db, axArrow, &mocks.Vault{}, m, hub)
+	require.NoError(t, err)
+	require.NotNil(t, m.RefsRefreshed, "the catalog asks to hear about refreshed refs")
+
+	m.RefsRefreshed(ns)
+
+	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
+	assert.Equal(t, ns, hub.events[0].Namespace)
+	assert.False(t, hub.events[0].UserInstalled)
+}

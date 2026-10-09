@@ -19,6 +19,11 @@ import (
 // its early candidates are cached as misses.
 const sourcePool = 100
 
+// browseConcurrency is how many candidates a refresh resolves at once. Nobody
+// waits on it, and each resolve is a burst of requests to the host, so a wide
+// refresh starves whatever the user opens while it runs.
+const browseConcurrency = 2
+
 // Refresher rebuilds the snapshot of every shelf.
 type Refresher interface {
 	// Refresh rebuilds every shelf in turn. A shelf that fails keeps its previous
@@ -140,7 +145,7 @@ func request(
 			Limit:        sourcePool,
 		})
 	}
-	return discovery.BrowseRequest{Sources: sources, Budget: budget, Want: shelf.Limit}
+	return discovery.BrowseRequest{Sources: sources, Budget: budget, Want: shelf.Limit, Concurrency: browseConcurrency}
 }
 
 func noneAnswered(

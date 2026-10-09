@@ -28,4 +28,8 @@ type BrowseRequest struct {
 	Sources []BrowseSource
 	Budget  int
 	Want    int
+	// Concurrency caps how many candidates are resolved at once; zero uses the
+	// pipeline's own. A pass nobody is waiting on sets it low, so it cannot
+	// starve the requests someone is.
+	Concurrency int
 }
