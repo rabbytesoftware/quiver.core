@@ -19,6 +19,10 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
+// createNoWindow keeps a console program from opening a cmd window of its own;
+// every step runs under the daemon, which has no console to share.
+const createNoWindow = 0x08000000
+
 type windowsProcess struct {
 	*baseProcess
 }
@@ -53,8 +57,9 @@ func newProcess(
 	// given, but the line cmd itself re-parses comes from here. A step that is
 	// not shell-wrapped is left alone: it runs an executable directly, and Go's
 	// escaping is the right escaping for that.
+	base.cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	if shellWrapped {
-		base.cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine}
+		base.cmd.SysProcAttr.CmdLine = cmdLine
 	}
 
 	// exec.CommandContext's own cancellation kills the single spawned PID,
@@ -197,6 +202,7 @@ func killTree(pid int) error {
 	}
 
 	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)) // #nosec -- pid is validated > 0 above, never caller-controlled string input
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("taskkill %d: %w: %s", pid, err, strings.TrimSpace(string(out)))
 	}
