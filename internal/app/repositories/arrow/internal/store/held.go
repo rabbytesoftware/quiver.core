@@ -68,7 +68,7 @@ func (r *storeService) HeldChannels(
 // heldDefault is the manifest an earlier view of the refless ns settled on (the
 // vault marks it as the default), else the first build discovery filed under a
 // release tag. A repository that switched channels leaves a mark on each, so
-// the newest one wins.
+// the one set last wins.
 func (r *storeService) heldDefault(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -84,7 +84,7 @@ func (r *storeService) heldDefault(
 		if !ok {
 			continue
 		}
-		if file.Default && (best == nil || file.CachedAt.After(bestFile.CachedAt)) {
+		if file.Default && (best == nil || file.DefaultAt.After(bestFile.DefaultAt)) {
 			best, bestFile = arrow, file
 		}
 		if filed == nil {

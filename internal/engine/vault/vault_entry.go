@@ -24,8 +24,9 @@ type ManifestFile struct {
 	// Channels is the channel list of the repository when the manifest was
 	// filed, opaque to the vault. It is kept across a write that carries none.
 	Channels []byte
-	// CachedAt is when the entry was written; a read fills it, a write ignores it.
-	CachedAt time.Time
+	// DefaultAt is when Default was last set on the entry, so two marks can be
+	// ordered; a write that does not set Default keeps it. A read fills it.
+	DefaultAt time.Time
 }
 
 type CollectionVaultEntry struct {
@@ -49,6 +50,8 @@ type VaultMetadata struct {
 	Ref     string `json:"ref,omitempty"`
 	Commit  string `json:"commit,omitempty"`
 	Default bool   `json:"default,omitempty"`
+	// DefaultAt is ManifestFile.DefaultAt.
+	DefaultAt time.Time `json:"default_at,omitempty"`
 	// Channels is ManifestFile.Channels.
 	Channels json.RawMessage `json:"channels,omitempty"`
 }

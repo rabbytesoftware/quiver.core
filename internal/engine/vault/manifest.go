@@ -46,7 +46,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, err
 	}
 
-	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit, Default: meta.Default, Channels: meta.Channels, CachedAt: meta.CachedAt}
+	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit, Default: meta.Default, Channels: meta.Channels, DefaultAt: meta.DefaultAt}
 
 	if s.clock().Sub(meta.CachedAt) > s.ttl {
 		return file, ErrStale
@@ -118,14 +118,7 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		return err
 	}
 
-	// Only a refless view marks the entry it settled on, so any other write of
-	// the same entry (a refresh, an add, an install) must not unmark it.
-	if prev, _, err := readCachedMeta(s, ns); err == nil {
-		file.Default = file.Default || prev.Default
-		if len(file.Channels) == 0 {
-			file.Channels = prev.Channels
-		}
-	}
+	file, defaultAt := keepPrevious(s, ns, file)
 
 	// Write meta sidecar.
 	metaData, err := json.Marshal(VaultMetadata{
@@ -136,6 +129,7 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		Commit:    file.Commit,
 		Default:   file.Default,
 		Channels:  file.Channels,
+		DefaultAt: defaultAt,
 	})
 	if err != nil {
 		return err
@@ -154,6 +148,28 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 
 	// Create namespace workdir as a side effect.
 	return os.MkdirAll(workdir, 0o700)
+}
+
+// keepPrevious carries over what a write that does not set it must not drop
+// from the entry it overwrites: only a refless view marks the entry it settled
+// on, so a refresh, an add or an install keeps the mark and its age, and the
+// channel list.
+func keepPrevious(s *store, ns domain.Namespace, file ManifestFile) (ManifestFile, time.Time) {
+	var defaultAt time.Time
+	if file.Default {
+		defaultAt = s.clock()
+	}
+	prev, _, err := readCachedMeta(s, ns)
+	if err != nil {
+		return file, defaultAt
+	}
+	if !file.Default && prev.Default {
+		file.Default, defaultAt = true, prev.DefaultAt
+	}
+	if len(file.Channels) == 0 {
+		file.Channels = prev.Channels
+	}
+	return file, defaultAt
 }
 
 func deleteArrow(s *store, ns domain.Namespace) error {

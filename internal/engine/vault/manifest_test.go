@@ -1271,7 +1271,31 @@ func TestPutArrow_Channels_RoundTripAndSurviveAnOverwriteWithoutThem(t *testing.
 
 	require.NoError(t, err)
 	assert.JSONEq(t, string(channels), string(got.Channels))
-	assert.False(t, got.CachedAt.IsZero())
+}
+
+func TestPutArrow_DefaultAt_MovesWhenTheMarkIsSetAndNotWhenOnlyKept(t *testing.T) {
+	s := newTestStore(t)
+	ns := domain.Namespace("github.com/u/r@stable")
+	file := ManifestFile{Content: []byte("# a"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: true}
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	first, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	require.False(t, first.DefaultAt.IsZero())
+
+	time.Sleep(10 * time.Millisecond)
+	file.Default = false
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	kept, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	assert.True(t, kept.Default)
+	assert.True(t, first.DefaultAt.Equal(kept.DefaultAt), "a rewrite keeps the mark's age")
+
+	time.Sleep(10 * time.Millisecond)
+	file.Default = true
+	require.NoError(t, s.PutArrow(t.Context(), ns, file))
+	renewed, err := s.GetArrow(t.Context(), ns)
+	require.NoError(t, err)
+	assert.True(t, renewed.DefaultAt.After(first.DefaultAt), "setting the mark again renews it")
 }
 
 func TestPutArrow_DefaultFlag_RoundTrips(t *testing.T) {

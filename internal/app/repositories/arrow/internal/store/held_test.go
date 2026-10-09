@@ -258,3 +258,28 @@ func TestStore_HeldChannels_ASecondDefaultMark_TheNewestEntryWins(t *testing.T) 
 	require.Len(t, got, 1)
 	assert.Equal(t, "nightly", got[0].Name)
 }
+
+func TestStore_HeldChannels_AnOlderDefaultRewrittenByARefresh_DoesNotOutrankTheCurrentOne(t *testing.T) {
+	v := realVault(t)
+	ctx := context.Background()
+	put := func(ns domain.Namespace, name string, isDefault bool) {
+		require.NoError(t, v.PutArrow(ctx, ns, vault.ManifestFile{
+			Content: []byte("raw"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c" + name, Default: isDefault,
+			Channels: []byte(`[{"Name":"` + name + `"}]`),
+		}))
+		time.Sleep(10 * time.Millisecond)
+	}
+	older := selectorBare.WithRef("stable")
+	current := selectorBare.WithRef("nightly")
+	put(older, "stable", true)
+	put(current, "nightly", true)
+	put(older, "stable", false)
+	r := openHeld(t, v, parsing(&mocks.Manifold{}))
+
+	got, ok := r.HeldChannels(ctx, selectorBare)
+	r.Wait()
+
+	require.True(t, ok)
+	require.Len(t, got, 1)
+	assert.Equal(t, "nightly", got[0].Name)
+}
