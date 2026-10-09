@@ -17,6 +17,7 @@ func ArrowListDTOsFrom(
 				State:       ver.State,
 				InstalledAt: ver.Metadata.InstalledAt,
 				LastUsedAt:  ver.Metadata.LastUsedAt,
+				Openable:    ver.Openable,
 			})
 		}
 		result = append(result, models.ArrowListDTO{

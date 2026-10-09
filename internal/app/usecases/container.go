@@ -49,6 +49,7 @@ func New(
 		repos.Graph,
 		repos.Runtime,
 		repos.Lifecycle,
+		NewLauncher(v, w),
 	)
 	quiverUC := NewCollectionUsecase(
 		repos.Collection,

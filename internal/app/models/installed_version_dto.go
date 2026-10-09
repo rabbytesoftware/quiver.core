@@ -15,4 +15,5 @@ type InstalledVersionDTO struct {
 	State       domain.ArrowState `json:"state"`
 	InstalledAt time.Time         `json:"installed_at"`
 	LastUsedAt  time.Time         `json:"last_used_at"`
+	Openable    bool              `json:"openable"`
 }

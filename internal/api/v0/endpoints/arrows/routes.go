@@ -27,6 +27,7 @@ func Register(
 	rg.GET("/arrow/:ns/channels", h.ListChannels)
 	rg.POST("/arrow/:ns/manifest", h.Seed)
 	rg.POST("/arrow/:ns/adopt", h.AdoptInstalled)
+	rg.POST("/arrow/:ns/open", h.Open)
 	rg.POST("/arrow/:ns/manifest/validate", h.Validate)
 }
 

@@ -19,7 +19,7 @@ import (
 
 // newArrowUC wires the usecase to a real lifecycle over the same mocks.
 func newArrowUC(a *ucmocks.MockArrow, g *ucmocks.MockGraph, rt *ucmocks.MockRuntime) ArrowUsecase {
-	return NewArrowUsecase(a, g, rt, lifecycle.New(a, rt, g))
+	return NewArrowUsecase(a, g, rt, lifecycle.New(a, rt, g), nil)
 }
 
 // --- tests ---
@@ -719,7 +719,7 @@ func TestArrowUsecase_Update_RechecksThroughTheLifecycle(t *testing.T) {
 		},
 	}
 
-	got, err := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{}, lc).Update(context.Background(), ns)
+	got, err := NewArrowUsecase(&ucmocks.MockArrow{}, &ucmocks.MockGraph{}, &ucmocks.MockRuntime{}, lc, nil).Update(context.Background(), ns)
 
 	require.NoError(t, err)
 	assert.Equal(t, want, got)

@@ -35,6 +35,7 @@ type ArrowService struct {
 	ValidateManifestErr    error
 	ListChannelsResult     []models.ChannelInfo
 	ListChannelsErr        error
+	OpenErr                error
 
 	// AddCalls records the namespace each Add was called with.
 	AddCalls []domain.Namespace
@@ -161,4 +162,11 @@ func (m *ArrowService) ListChannels(
 	_ domain.Namespace,
 ) ([]models.ChannelInfo, error) {
 	return m.ListChannelsResult, m.ListChannelsErr
+}
+
+func (m *ArrowService) Open(
+	_ context.Context,
+	_ domain.Namespace,
+) error {
+	return m.OpenErr
 }

@@ -23,6 +23,7 @@ var (
 	ErrUnauthorized         = errors.New("unauthorized")
 	ErrChannelNotFound      = errors.New("channel not found")
 	ErrNoSurface            = errors.New("arrow has no open surface")
+	ErrNotOpenable          = errors.New("arrow has no app to open")
 )
 
 // StateViolationError describes an operation rejected because the arrow was in

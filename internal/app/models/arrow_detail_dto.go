@@ -27,4 +27,5 @@ type ArrowDetailDTO struct {
 	LastReturn    *domainRuntime.Return       `json:"last_return,omitempty"`
 	Origin        string                      `json:"origin"`
 	Generator     *domain.ArrowGenerator      `json:"generator,omitempty"`
+	Openable      bool                        `json:"openable"`
 }

@@ -14,6 +14,7 @@ type InstalledVersionItemDTO struct {
 	State       string `json:"state" yaml:"state"`
 	InstalledAt string `json:"installed_at,omitempty" yaml:"installed_at,omitempty"`
 	LastUsedAt  string `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
+	Openable    bool   `json:"openable,omitempty" yaml:"openable,omitempty"`
 }
 
 type ArrowListItemDTO struct {
@@ -46,6 +47,7 @@ func ArrowListItemDTOFrom(
 			State:       string(v.State),
 			InstalledAt: installedAt,
 			LastUsedAt:  lastUsedAt,
+			Openable:    v.Openable,
 		})
 	}
 	return ArrowListItemDTO{

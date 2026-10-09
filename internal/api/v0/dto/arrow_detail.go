@@ -23,6 +23,8 @@ type ArrowDetailDTO struct {
 	LastReturn *ReturnDTO    `json:"last_return,omitempty" yaml:"last_return,omitempty"`
 	Origin     string        `json:"origin" yaml:"origin"`
 	Inference  *InferenceDTO `json:"inference,omitempty" yaml:"inference,omitempty"`
+	// Openable is true when POST /arrow/{ns}/open can start the installed app.
+	Openable bool `json:"openable,omitempty" yaml:"openable,omitempty"`
 }
 
 func ArrowDetailDTOFrom(
@@ -55,5 +57,6 @@ func ArrowDetailDTOFrom(
 		LastReturn:      ReturnDTOFrom(a.LastReturn),
 		Origin:          a.Origin,
 		Inference:       InferenceDTOFrom(a.Generator),
+		Openable:        a.Openable,
 	}
 }

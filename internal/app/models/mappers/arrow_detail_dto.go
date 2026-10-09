@@ -30,5 +30,6 @@ func ArrowDetailDTOFrom(
 		LastReturn:    view.LastReturn,
 		Origin:        view.Metadata.Origin(),
 		Generator:     view.Metadata.Generator,
+		Openable:      view.Openable,
 	}
 }
