@@ -81,9 +81,7 @@ type Manifold interface {
 	) ([]ChannelInfo, error)
 
 	// Snapshot reads every tag, branch and the HEAD branch of ns's
-	// repository in one round trip. It answers from what it already holds,
-	// in memory or on disk, whatever its age, and re-reads an expired one
-	// behind the call; only a repository never seen before waits on the host.
+	// repository in one round trip, cached for the manifold's cache TTL.
 	Snapshot(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -380,14 +378,6 @@ func (m *manifold) Snapshot(
 	ns domain.Namespace,
 ) (domain.RefSnapshot, error) {
 	return m.snapshots.Snapshot(ctx, ns)
-}
-
-// OnRefsRefreshed reports a repository whose refs a background re-read found
-// changed. It is not part of Manifold: a caller that wants it asks for it.
-func (m *manifold) OnRefsRefreshed(
-	fn func(ns domain.Namespace),
-) {
-	m.snapshots.OnRefreshed(fn)
 }
 
 func (m *manifold) FreshSnapshot(

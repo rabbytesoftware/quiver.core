@@ -3,8 +3,6 @@ package snapshot
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -92,13 +90,9 @@ func TestSnapshot_ExpiresAfterTTL(t *testing.T) {
 	assert.Equal(t, before, cached)
 
 	clock.now = now.Add(time.Hour + time.Minute)
-	stale, err := m.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-	assert.Equal(t, before, stale, "an expired snapshot answers at once")
-	m.Wait()
 	fresh, err := m.Snapshot(context.Background(), ns)
 	require.NoError(t, err)
-	assert.Equal(t, after, fresh, "and the re-read it started is what the next call sees")
+	assert.Equal(t, after, fresh)
 	assert.Equal(t, 2, crs.refsCall)
 }
 
@@ -168,126 +162,4 @@ func TestFreshSnapshot_ErrorKeepsTheCachedSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, snap, cached)
 	assert.Equal(t, 2, crs.refsCall)
-}
-
-// A restarted daemon starts with the refs it had, so a repository it has seen
-// never makes a view wait on its host again.
-func TestSnapshot_PersistedSnapshotAnswersAfterARestart(t *testing.T) {
-	dir := t.TempDir()
-	snap := sharedSnapshot()
-	now := time.Now()
-	ns := domain.Namespace("github.com/u/r")
-
-	before := New(&stubRefs{refs: &snap}, (&fakeClock{now: now}).Now, time.Hour)
-	before.Persist(dir)
-	_, err := before.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-
-	hostDown := &stubRefs{refsErr: errors.New("host unreachable")}
-	after := New(hostDown, (&fakeClock{now: now.Add(10 * time.Minute)}).Now, time.Hour)
-	after.Persist(dir)
-	got, err := after.Snapshot(context.Background(), ns.WithRef("stable"))
-
-	require.NoError(t, err)
-	assert.Equal(t, snap, got)
-	assert.Zero(t, hostDown.refsCall, "a fresh persisted snapshot is not re-read")
-}
-
-func TestSnapshot_ExpiredPersistedSnapshot_IsServedThenReReadAndReported(t *testing.T) {
-	dir := t.TempDir()
-	old := domain.RefSnapshot{Tags: map[string]string{"nightly": "old"}}
-	moved := domain.RefSnapshot{Tags: map[string]string{"nightly": "new"}}
-	now := time.Now()
-	ns := domain.Namespace("github.com/u/r")
-
-	seed := New(&stubRefs{refs: &old}, (&fakeClock{now: now}).Now, time.Hour)
-	seed.Persist(dir)
-	_, err := seed.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-
-	crs := &stubRefs{refs: &moved}
-	restarted := New(crs, (&fakeClock{now: now.Add(2 * time.Hour)}).Now, time.Hour)
-	restarted.Persist(dir)
-	reported := make(chan domain.Namespace, 1)
-	restarted.OnRefreshed(func(ns domain.Namespace) { reported <- ns })
-
-	got, err := restarted.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-	assert.Equal(t, old, got, "the expired copy answers before the host does")
-
-	restarted.Wait()
-	assert.Equal(t, ns, <-reported)
-	again, err := restarted.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-	assert.Equal(t, moved, again)
-}
-
-func TestSnapshot_ReReadFindingNothingNew_ReportsNothing(t *testing.T) {
-	snap := sharedSnapshot()
-	crs := &stubRefs{refs: &snap}
-	now := time.Now()
-	clock := &fakeClock{now: now}
-	m := newSnapshots(crs, clock)
-	reported := make(chan domain.Namespace, 1)
-	m.OnRefreshed(func(ns domain.Namespace) { reported <- ns })
-	ns := domain.Namespace("github.com/u/r")
-	_, err := m.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-
-	clock.now = now.Add(2 * time.Hour)
-	_, err = m.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-	m.Wait()
-
-	assert.Equal(t, 2, crs.refsCall)
-	assert.Empty(t, reported)
-}
-
-func TestSnapshot_FailedReRead_KeepsServingTheHeldSnapshot(t *testing.T) {
-	snap := sharedSnapshot()
-	crs := &stubRefs{refs: &snap}
-	now := time.Now()
-	clock := &fakeClock{now: now}
-	m := newSnapshots(crs, clock)
-	ns := domain.Namespace("github.com/u/r")
-	_, err := m.Snapshot(context.Background(), ns)
-	require.NoError(t, err)
-
-	crs.refsErr = errors.New("host unreachable")
-	clock.now = now.Add(2 * time.Hour)
-	for range 2 {
-		got, snapErr := m.Snapshot(context.Background(), ns)
-		require.NoError(t, snapErr)
-		assert.Equal(t, snap, got)
-		m.Wait()
-	}
-}
-
-func TestSnapshot_UnreadablePersistedFile_IsReadFromTheHost(t *testing.T) {
-	dir := t.TempDir()
-	ns := domain.Namespace("github.com/u/r")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "github.com%2Fu%2Fr.json"), []byte("{torn"), 0o600))
-	snap := sharedSnapshot()
-	crs := &stubRefs{refs: &snap}
-	m := newSnapshots(crs, &fakeClock{now: time.Now()})
-	m.Persist(dir)
-
-	got, err := m.Snapshot(context.Background(), ns)
-
-	require.NoError(t, err)
-	assert.Equal(t, snap, got)
-	assert.Equal(t, 1, crs.refsCall)
-}
-
-func TestSnapshot_UnwritableDir_StillAnswers(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "file")
-	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
-	snap := sharedSnapshot()
-	m := newSnapshots(&stubRefs{refs: &snap}, &fakeClock{now: time.Now()})
-	m.Persist(filepath.Join(blocker, "refs"))
-
-	got, err := m.Snapshot(context.Background(), "github.com/u/r")
-
-	require.NoError(t, err)
-	assert.Equal(t, snap, got)
 }

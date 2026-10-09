@@ -38,6 +38,12 @@ type Vault struct {
 	WorkDirErr        error
 	WorkDirNamespaces []domain.Namespace
 
+	// GetRefsEntry is what GetRefs returns; nil means no ref list was saved.
+	GetRefsEntry *vault.RefsEntry
+	GetRefsErr   error
+	PutRefsCalls int
+	PutRefsErr   error
+
 	GetCollectionEntry  *vault.CollectionVaultEntry
 	GetCollectionPath   string
 	GetCollectionErr    error
@@ -65,6 +71,29 @@ func (m *Vault) GetArrow(
 	_ domain.Namespace,
 ) (vault.ManifestFile, error) {
 	return m.GetArrowFile, m.GetArrowErr
+}
+
+func (m *Vault) GetRefs(
+	_ context.Context,
+	_ domain.Namespace,
+) (vault.RefsEntry, error) {
+	if m.GetRefsErr != nil {
+		return vault.RefsEntry{}, m.GetRefsErr
+	}
+	if m.GetRefsEntry == nil {
+		return vault.RefsEntry{}, vault.ErrNotCached
+	}
+	return *m.GetRefsEntry, nil
+}
+
+func (m *Vault) PutRefs(
+	_ context.Context,
+	_ domain.Namespace,
+	snap domain.RefSnapshot,
+) error {
+	m.PutRefsCalls++
+	m.GetRefsEntry = &vault.RefsEntry{Snapshot: snap}
+	return m.PutRefsErr
 }
 
 func (m *Vault) PutArrow(

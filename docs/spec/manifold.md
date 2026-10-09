@@ -4,7 +4,7 @@
 
 `manifold` is the engine that resolves a `Namespace` (`domain/user/repo[/auid][@ref]`) to a fully validated, OS-compiled domain aggregate. The app layer hands it a namespace and gets back either a `*domain.Arrow` (with `Targets` precompiled for every supported `domain.OS`) or a `*domain.Collection` (with arrow entries materialized as namespaces). The app layer never sees git, HTTP, YAML, JSON Schema, or markdown.
 
-Manifold is an in-memory pipeline. It emits **no** events. Its only state is a cache of ref snapshots (§2.1), kept in memory and, when the engine gives it a directory, on disk; manifest caching is the job of `vault`, orchestration the job of `runtime`. Manifold is resolution + validation.
+Manifold is an in-memory pipeline. It does **no** disk I/O and emits **no** events. Its only state is a TTL-bounded, in-memory cache of ref snapshots (§2.1); manifest caching is the job of `vault`, orchestration the job of `runtime`. Manifold is resolution + validation.
 
 The package lives at `internal/engine/manifold` and is composed of five concrete sub-modules: `resolver`, `translator`, `compiler`, `ruleset`, and the in-package `manifold` service that wires them together.
 
@@ -23,7 +23,7 @@ The `Manifold` interface is the only surface the app layer imports.
 | `ResolveArrowAt` | `ctx`, `namespace`, `path` | as `ResolveArrow`, at an explicit path inside the repository |
 | `ResolveArrowAtCommit` | `ctx`, `namespace`, `ref`, `commit` | as `ResolveArrow`, fetched at `commit` (falling back to `ref`) and stamped with `namespace` |
 | `ListChannels` | `ctx`, `namespace` | `[]ChannelInfo`, `error` |
-| `Snapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (held, re-read behind the call once expired), `error` |
+| `Snapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (cached), `error` |
 | `FreshSnapshot` | `ctx`, `namespace` | `domain.RefSnapshot` (read live, refreshes the cache), `error` |
 
 `ResolveArrow` returns the raw bytes alongside the parsed aggregate so the app layer (Vault, primarily) can persist exactly what was fetched without re-serializing. The filename is whichever of `ARROW.md` / `arrow.yaml` / `<auid>.md` / `<auid>.yaml` was actually picked up.
@@ -34,7 +34,7 @@ The `Manifold` interface is the only surface the app layer imports.
 
 ### 2.1 Ref snapshots, selectors and drift
 
-`Snapshot` reads every tag (annotated tags peeled to their commit), every branch and the `HEAD` branch of a repository in one ref advertisement (`git ls-remote`, in-memory `gogit.Remote.ListContext`) and returns them as one `domain.RefSnapshot`. It is held per bare namespace and answers at once from what it holds, in memory or from `state/refs/` (one JSON file per repository, so a restart starts with them), whatever its age. A snapshot older than the manifold's cache TTL, which production wiring ties to `arrows.version_check_ttl`, is re-read in the background, once per repository, replacing the held one and the file; when the re-read found the refs changed, `OnRefsRefreshed` reports the repository. Only a repository never seen waits on its host. `FreshSnapshot` always reads the remote and refreshes the cache, for decisions that must not act on a view that old: version checks, the update commit, and every install or add (`ResolveInstall` outside a preview). `ListChannels` is `ChannelsOf` over a `Snapshot`.
+`Snapshot` reads every tag (annotated tags peeled to their commit), every branch and the `HEAD` branch of a repository in one ref advertisement (`git ls-remote`, in-memory `gogit.Remote.ListContext`) and returns them as one `domain.RefSnapshot`. It is cached per bare namespace for the manifold's cache TTL, which production wiring ties to `arrows.version_check_ttl`; `FreshSnapshot` bypasses and refreshes that cache for decisions that must not act on a view up to a TTL old (version checks, the update commit). `ListChannels` is `ChannelsOf` over a `Snapshot`.
 
 Everything else is a pure function of a snapshot, re-exported from the package root:
 

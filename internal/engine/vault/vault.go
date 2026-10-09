@@ -25,6 +25,20 @@ type Vault interface {
 		ns domain.Namespace,
 	) (*CollectionVaultEntry, string, error)
 
+	// GetRefs returns the ref list last saved for ns's repository, whatever
+	// its age. Returns ErrNotCached if none was saved or the file is unreadable.
+	GetRefs(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (RefsEntry, error)
+
+	// PutRefs saves snap as the ref list of ns's repository, stamped now.
+	PutRefs(
+		ctx context.Context,
+		ns domain.Namespace,
+		snap domain.RefSnapshot,
+	) error
+
 	// WorkDir returns the namespace workdir path, creating it on disk if it
 	// does not already exist. Both arrows and quivers share the same workdir
 	// layout under namespacesPath. Callers should not construct or create

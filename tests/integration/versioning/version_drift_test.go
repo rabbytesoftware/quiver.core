@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -307,34 +306,28 @@ func (s *VersioningSuite) TestVersionDrift_Check_ReadsTheRemoteLive() {
 	s.Equal("v1.1.0", result.Available.Ref)
 }
 
-// Channel discovery answers from the manifold's snapshot cache; past its TTL
-// it still answers from it, and reads the remote again behind that answer. The clock is injected, so the TTL is
-// crossed without a real wait.
-func (s *VersioningSuite) TestVersionDrift_ManifoldCache_PastTTL_ChannelsReflectNewTag() {
-	key := "quiver-test/version-drift-cache-ttl"
+// Channel discovery answers from the ref list saved at the first view, so a
+// release published afterwards stays unseen until a refresh. The refresh once
+// that list is past its TTL is covered by the store's unit tests: the TTL is
+// the store's and the vault's to judge, and this fixture only moves the
+// manifold's clock.
+func (s *VersioningSuite) TestVersionDrift_SavedRefs_ChannelsKeepAnsweringUntilRefreshed() {
+	key := "quiver-test/version-drift-saved-refs"
 	storer := s.releasedRepo(key)
-	clock := kit.NewAdvanceableClock(time.Now())
-	env := s.NewEnv(kit.WithClock(clock.Now))
+	env := s.NewEnv()
 	tc := env.TypedClient(s.T())
 	ns := kit.NSFor(key, "stable")
 
 	s.Require().Equal(http.StatusCreated, tc.Add(ns))
+	first, status := tc.Channels(ns)
+	s.Require().Equal(http.StatusOK, status)
+	s.Require().NotEmpty(first.Channels)
+	s.Equal("v1.0.0", first.Channels[0].Latest)
+
 	s.release(storer, "v1.1.0")
 
-	cached, status := tc.Channels(ns)
+	saved, status := tc.Channels(ns)
 	s.Require().Equal(http.StatusOK, status)
-	s.Require().NotEmpty(cached.Channels)
-	s.Equal("v1.0.0", cached.Channels[0].Latest, "a fresh cache keeps answering from before the release")
-
-	clock.Advance(2 * time.Hour)
-
-	expired, status := tc.Channels(ns)
-	s.Require().Equal(http.StatusOK, status)
-	s.Require().NotEmpty(expired.Channels)
-	s.Equal("v1.0.0", expired.Channels[0].Latest, "past the TTL the held answer comes back at once")
-
-	s.Require().Eventually(func() bool {
-		fresh, freshStatus := tc.Channels(ns)
-		return freshStatus == http.StatusOK && len(fresh.Channels) > 0 && fresh.Channels[0].Latest == "v1.1.0"
-	}, wait, 10*time.Millisecond, "past the TTL the remote is read again, behind that answer")
+	s.Require().NotEmpty(saved.Channels)
+	s.Equal("v1.0.0", saved.Channels[0].Latest, "inside the TTL the saved list answers, unaffected by the new release")
 }

@@ -6,16 +6,6 @@ import (
 
 type Option func(*manifold)
 
-// WithRefsDir keeps each repository's refs in dir, so a restart starts with
-// them instead of asking every host again.
-func WithRefsDir(
-	dir string,
-) Option {
-	return func(m *manifold) {
-		m.snapshots.Persist(dir)
-	}
-}
-
 func WithFletcher(
 	enabled bool,
 ) Option {

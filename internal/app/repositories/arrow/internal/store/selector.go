@@ -59,7 +59,7 @@ func (r *storeService) ResolveInstall(
 
 	take := r.manifold.FreshSnapshot
 	if o.preview {
-		take = r.manifold.Snapshot
+		take = r.Refs
 	}
 	identity, kind, snap, err := identify(ctx, ns, take)
 	if err != nil {

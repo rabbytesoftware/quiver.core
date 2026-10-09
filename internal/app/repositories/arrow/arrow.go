@@ -254,11 +254,6 @@ func New(
 	if err != nil {
 		return nil, fmt.Errorf("catalog: store: %w", err)
 	}
-	if watcher, ok := m.(refsWatcher); ok && hub != nil {
-		watcher.OnRefsRefreshed(func(ns domain.Namespace) {
-			hub.BroadcastArrow(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: domain.Arrow{Namespace: ns}})
-		})
-	}
 
 	s := newService(r, axArrow, v, m, hub, resolveOptions(opts))
 	if err := s.registerProjections(); err != nil {
@@ -266,12 +261,6 @@ func New(
 	}
 
 	return s, nil
-}
-
-// refsWatcher is a manifold that reports repositories whose refs changed behind
-// a read.
-type refsWatcher interface {
-	OnRefsRefreshed(fn func(ns domain.Namespace))
 }
 
 func newService(
@@ -984,10 +973,11 @@ func (s *arrowService) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]models.ChannelInfo, error) {
-	channels, err := s.manifold.ListChannels(ctx, ns)
+	snap, err := s.store.Refs(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
+	channels := manifold.ChannelsOf(snap)
 	out := make([]models.ChannelInfo, 0, len(channels))
 	for _, c := range channels {
 		out = append(out, models.ChannelInfo{

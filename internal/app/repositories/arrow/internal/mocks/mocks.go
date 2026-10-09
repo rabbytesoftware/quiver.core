@@ -17,6 +17,7 @@ type MockCQRS struct {
 	GetDetailFn         func(ctx context.Context, ns domain.Namespace) (*models.ArrowDetailView, error)
 	GetManifestFn       func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
 	ResolveManifestFn   func(ctx context.Context, ns domain.Namespace) (*domain.Arrow, error)
+	RefsFn              func(ctx context.Context, ns domain.Namespace) (domain.RefSnapshot, error)
 	ResolveCataloguedFn func(ctx context.Context, ns domain.Namespace) (domain.Namespace, error)
 	SearchFn            func(ctx context.Context, q models.SearchQuery) ([]models.CatalogHit, error)
 	ProjectFn           func(ctx context.Context, arrow domain.Arrow) error
@@ -78,6 +79,16 @@ func (m *MockCQRS) ResolveManifest(
 		return m.ResolveManifestFn(ctx, ns)
 	}
 	return nil, nil
+}
+
+func (m *MockCQRS) Refs(
+	ctx context.Context,
+	ns domain.Namespace,
+) (domain.RefSnapshot, error) {
+	if m.RefsFn != nil {
+		return m.RefsFn(ctx, ns)
+	}
+	return domain.RefSnapshot{}, nil
 }
 
 func (m *MockCQRS) ResolveCatalogued(

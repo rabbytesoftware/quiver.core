@@ -698,31 +698,40 @@ func TestForget_UsesAsynxArrow(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestListChannels_DelegatesToManifold(t *testing.T) {
-	m := &mocks.Manifold{
-		ListChannelsResult: []manifold.ChannelInfo{
-			{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
-			{Name: "main", Kind: "pointer", Latest: "main"},
+func TestListChannels_ReadsTheChannelsOfTheStoresRefs(t *testing.T) {
+	snap := domain.RefSnapshot{
+		Tags:     map[string]string{"v1.0.0": "c1", "v1.1.0": "c2"},
+		Branches: map[string]string{"main": "c3"},
+		Head:     "main",
+	}
+	r := &arrowStoreMocks.MockCQRS{
+		RefsFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+			return snap, nil
 		},
 	}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, &mocks.Manifold{})
 
 	got, err := cat.ListChannels(context.Background(), testNs())
+
 	require.NoError(t, err)
-	require.Len(t, got, 2)
-	assert.Equal(t, "stable", got[0].Name)
-	assert.Equal(t, "ordered", got[0].Kind)
-	assert.Equal(t, "v1.0.0", got[0].Latest)
-	assert.Equal(t, 1, got[0].Count)
-	assert.Equal(t, []string{"v1.0.0"}, got[0].Members)
-	assert.Equal(t, "main", got[1].Name)
-	assert.Equal(t, "pointer", got[1].Kind)
+	want := manifold.ChannelsOf(snap)
+	require.NotEmpty(t, want)
+	require.Len(t, got, len(want))
+	for i, channel := range want {
+		assert.Equal(t, channel.Name, got[i].Name)
+		assert.Equal(t, channel.Latest, got[i].Latest)
+		assert.Equal(t, channel.Count, got[i].Count)
+	}
 }
 
-func TestListChannels_ManifoldError_Propagates(t *testing.T) {
+func TestListChannels_RefsError_Propagates(t *testing.T) {
 	wantErr := errors.New("list tags: connection refused")
-	m := &mocks.Manifold{ListChannelsErr: wantErr}
-	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
+	r := &arrowStoreMocks.MockCQRS{
+		RefsFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
+			return domain.RefSnapshot{}, wantErr
+		},
+	}
+	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, &mocks.Manifold{})
 
 	_, err := cat.ListChannels(context.Background(), testNs())
 	require.ErrorIs(t, err, wantErr)
@@ -2701,27 +2710,6 @@ func TestNew_RefreshedManifest_IsBroadcastAsNotUserInstalled(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return hub.count() == 1 }, 5*time.Second, 5*time.Millisecond)
-	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
-	assert.Equal(t, ns, hub.events[0].Namespace)
-	assert.False(t, hub.events[0].UserInstalled)
-}
-
-// Refs a background re-read found changed reach the desktop as an upsert of a
-// non-library arrow, which the library stream's default filter never delivers.
-func TestNew_RefsRefreshed_AreBroadcastAsNotUserInstalled(t *testing.T) {
-	ns := domain.Namespace("github.com/u/r")
-	db, err := adapterSQLite.OpenDB(":memory:")
-	require.NoError(t, err)
-	axArrow := newTestAsynxArrow(t)
-	t.Cleanup(func() { _ = axArrow.Shutdown(context.Background()) })
-	hub := &recordingHub{}
-	m := &mocks.Manifold{}
-	_, err = arrowRepo.New(db, axArrow, &mocks.Vault{}, m, hub)
-	require.NoError(t, err)
-	require.NotNil(t, m.RefsRefreshed, "the catalog asks to hear about refreshed refs")
-
-	m.RefsRefreshed(ns)
-
 	assert.Equal(t, []apphub.CatalogEventKind{apphub.CatalogUpserted}, hub.kinds())
 	assert.Equal(t, ns, hub.events[0].Namespace)
 	assert.False(t, hub.events[0].UserInstalled)

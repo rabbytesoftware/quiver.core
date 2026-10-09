@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	gormdb "gorm.io/gorm"
@@ -44,6 +45,13 @@ type Store interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
+	// Refs is ns's repository's tags and branches for a view: the vault's
+	// saved copy whatever its age, read again behind the call once it is past
+	// the version-check TTL. Only a repository never saved waits on its host.
+	Refs(
+		ctx context.Context,
+		ns domain.Namespace,
+	) (domain.RefSnapshot, error)
 	// ResolveInstall settles the identity a namespace is installed under and
 	// what that identity resolves to right now: a refless namespace follows
 	// its repository's default channel, any other keeps its ref as the
@@ -138,6 +146,9 @@ type storeService struct {
 	db              storage.Store
 	projector       projections.Projector
 	resolveManifest ResolveFunc
+	onRefreshed     func(domain.Arrow)
+	refreshing      sync.Map
+	running         sync.WaitGroup
 	vault           vault.Vault
 	manifold        manifold.Manifold
 	clock           func() time.Time
@@ -178,8 +189,9 @@ func NewWithClock(
 	v vault.Vault,
 	m manifold.Manifold,
 	clock func() time.Time,
+	opts ...Option,
 ) (Store, error) {
-	return newStore(db, v, m, clock)
+	return newStore(db, v, m, clock, opts...)
 }
 
 func newStore(
@@ -201,6 +213,7 @@ func newStore(
 		db:              st,
 		projector:       projections.New(st),
 		resolveManifest: newResolver(v, m, o.onRefreshed),
+		onRefreshed:     o.onRefreshed,
 		vault:           v,
 		manifold:        m,
 		clock:           clock,
@@ -389,7 +402,7 @@ func (r *storeService) classifyPreview(
 	if r.manifold == nil || selector == "" || arrow.Resolved.Commit != "" {
 		return
 	}
-	snap, err := r.manifold.Snapshot(ctx, arrow.Namespace)
+	snap, err := r.Refs(ctx, arrow.Namespace)
 	if err != nil {
 		return
 	}

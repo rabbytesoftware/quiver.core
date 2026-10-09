@@ -19,6 +19,14 @@ type ManifestFile struct {
 	Commit string
 }
 
+// RefsEntry is a repository's tags and branches as they were when saved. The
+// vault keeps no opinion on how old is too old: that is the caller's to judge
+// from CachedAt.
+type RefsEntry struct {
+	Snapshot domain.RefSnapshot `json:"snapshot"`
+	CachedAt time.Time          `json:"cached_at"`
+}
+
 type CollectionVaultEntry struct {
 	Collection *domain.Collection `json:"collection"`
 	Metadata   VaultMetadata      `json:"metadata"`

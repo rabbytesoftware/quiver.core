@@ -155,7 +155,6 @@ func assertCacheExpiresAfter(
 	if _, err := m.Snapshot(context.Background(), ns); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	m.(*manifold).snapshots.Wait()
 	if crs.refsCall != 2 {
 		t.Errorf("refsCall = %d past the TTL, want 2 (expired)", crs.refsCall)
 	}
@@ -221,10 +220,6 @@ func TestNew_CacheTTL_ThreadsThroughAndGovernsExpiry(t *testing.T) {
 	// "within TTL" here, so this specifically proves the constructor's
 	// value, not some other constant, is what governs this.
 	clock.now = now.Add(shortTTL + time.Millisecond)
-	if _, err := built.ListChannels(context.Background(), ns); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	built.(*manifold).snapshots.Wait()
 	fresh, err := built.ListChannels(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2325,10 +2320,6 @@ func TestListChannels_CacheExpiresAfterTTL_RefetchesLive(t *testing.T) {
 
 	// Past TTL: must refetch and pick up the new tag.
 	clock.now = now.Add(testTTL + time.Minute)
-	if _, err := m.ListChannels(context.Background(), ns); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	m.snapshots.Wait()
 	fresh, err := m.ListChannels(context.Background(), ns)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
