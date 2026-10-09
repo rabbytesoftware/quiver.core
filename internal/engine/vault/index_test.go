@@ -292,7 +292,7 @@ func TestIndex_Search_TokenMatching(t *testing.T) {
 		{"multi word in one field", "fast web", []domain.Namespace{"github.com/u/r"}},
 		{"case insensitive", "ROCKETSHIP", []domain.Namespace{"github.com/acme/rocketship"}},
 		{"like wildcard is literal", "roc%", []domain.Namespace{}},
-		{"underscore is literal", "r_cket", []domain.Namespace{}},
+		{"underscore separates terms", "rocket_ship", []domain.Namespace{"github.com/acme/rocketship"}},
 		{"backslash is literal", `a\c`, []domain.Namespace{}},
 	}
 	for _, tc := range testCases {
@@ -774,4 +774,22 @@ func TestIndex_Upsert_DuplicateTagInManifest(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, []string{"browser", "web"}, rows[0].Meta.Arrow.Tags,
 		"a repeated tag must be stored once, not fail the write")
+}
+
+func TestIndex_Search_SeparatorsAreInterchangeable(t *testing.T) {
+	idx := newTestIndex(t)
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	meta := testMeta()
+	meta.Arrow.Name = "quiver.chat"
+	require.NoError(t, idx.upsert("github.com/rabbytesoftware/quiver.chat@v1", ManifestFile{Filename: "ARROW.md"}, meta, now, testIndexTTL))
+	other := testMeta()
+	other.Arrow.Name = "quiver-core"
+	require.NoError(t, idx.upsert("github.com/rabbytesoftware/quiver.core@v1", ManifestFile{Filename: "ARROW.md"}, other, now, testIndexTTL))
+
+	for _, q := range []string{"quiver-chat", "quiver.chat", "quiver_chat", "Quiver Chat"} {
+		rows, err := idx.search(IndexQuery{Text: q, Limit: 10}, now)
+		require.NoError(t, err, q)
+		require.Len(t, rows, 1, "query %q should find only quiver.chat", q)
+		require.Equal(t, "github.com/rabbytesoftware/quiver.chat", rows[0].Namespace.String())
+	}
 }

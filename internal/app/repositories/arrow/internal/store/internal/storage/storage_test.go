@@ -1464,3 +1464,20 @@ func TestLastUsedStamp_NeverRunRoundTripsAsZero(t *testing.T) {
 	require.Len(t, found.Versions, 1)
 	assert.True(t, found.Versions[0].Metadata.LastUsedAt.IsZero())
 }
+
+func TestStorage_Search_SeparatorsAreInterchangeable(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchable(t, s, "github.com/user/chat@v1.0.0", func(a *domain.Arrow) {
+		a.Name = "quiver.chat"
+	})
+	seedSearchable(t, s, "github.com/user/other@v1.0.0", func(a *domain.Arrow) {
+		a.Name = "quiver-core"
+	})
+
+	for _, q := range []string{"quiver-chat", "quiver.chat", "quiver_chat", "Quiver Chat"} {
+		rows, err := s.Search(context.Background(), storage.Query{Text: q, Limit: 10})
+		require.NoError(t, err, q)
+		require.Len(t, rows, 1, "query %q should find quiver.chat and not quiver-core", q)
+		assert.Equal(t, "quiver.chat", rows[0].Metadata.Name)
+	}
+}

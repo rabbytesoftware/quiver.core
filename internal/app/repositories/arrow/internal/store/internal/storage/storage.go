@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	gormdb "gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -208,7 +209,7 @@ func (s *storageService) Search(
 		FROM catalog_arrows_fts f
 		JOIN catalog_arrows a ON a.namespace = f.namespace
 		WHERE catalog_arrows_fts MATCH ?`
-	args := []any{ftsPhrase(text)}
+	args := []any{ftsQuery(text)}
 
 	if q.OS != "" {
 		sql += ` AND EXISTS (
@@ -235,6 +236,27 @@ func (s *storageService) Search(
 		return nil, err
 	}
 	return assemble(parents, versions), nil
+}
+
+const trigramLength = 3
+
+// ftsQuery requires every term of text, split the way domain.SearchTerms
+// splits it, so quiver-chat finds an arrow named Quiver Chat. A term too short
+// for the trigram tokenizer cannot match anything, so it is dropped; text with
+// no usable term falls back to one literal phrase.
+func ftsQuery(
+	text string,
+) string {
+	var phrases []string
+	for _, term := range domain.SearchTerms(text) {
+		if utf8.RuneCountInString(term) >= trigramLength {
+			phrases = append(phrases, ftsPhrase(term))
+		}
+	}
+	if len(phrases) == 0 {
+		return ftsPhrase(text)
+	}
+	return strings.Join(phrases, " AND ")
 }
 
 // ftsPhrase wraps text as a single FTS5 quoted phrase, so punctuation that is

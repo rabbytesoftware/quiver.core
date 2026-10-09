@@ -183,7 +183,7 @@ func (i *index) search(
 	q IndexQuery,
 	now time.Time,
 ) ([]IndexRow, error) {
-	tokens := strings.Fields(q.Text)
+	tokens := domain.SearchTerms(q.Text)
 	if len(tokens) == 0 {
 		return []IndexRow{}, nil
 	}
