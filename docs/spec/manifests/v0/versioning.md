@@ -298,7 +298,7 @@ Channels, constraint matches, pins and commits are all derived from that one val
 decision can never combine two inconsistent views of the remote. `Manifold.Snapshot` caches
 it per bare namespace for the manifold cache TTL (tied to `arrows.version_check_ttl`,
 default `1h`); `Manifold.FreshSnapshot` reads it live and refreshes the cache. Installs
-resolve through `Snapshot`; every version check and the update commit use `FreshSnapshot`.
+with a pinned selector resolve through `Snapshot`; a refless install, the background recheck of a held default, every version check and the update commit use `FreshSnapshot`, so the default channel is never chosen from a view up to a TTL old.
 
 ### 5.2 Target and drift
 

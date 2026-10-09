@@ -26,6 +26,7 @@ type installOpts struct {
 	exists  ExistsFunc
 	preview bool
 	refless bool
+	fresh   bool
 }
 
 // CacheWhenAbsent caches the resolved manifest under the identity, but only
@@ -35,6 +36,15 @@ func CacheWhenAbsent(
 ) InstallOption {
 	return func(o *installOpts) {
 		o.exists = exists
+	}
+}
+
+// Fresh reads the repository's refs live instead of from the snapshot cache.
+// A refless install always does: which channel it follows is decided here, and
+// a snapshot up to a TTL old can still name the release before the current one.
+func Fresh() InstallOption {
+	return func(o *installOpts) {
+		o.fresh = true
 	}
 }
 
@@ -60,7 +70,11 @@ func (r *storeService) ResolveInstall(
 	}
 	o.refless = ns.Ref() == ""
 
-	identity, kind, snap, err := identify(ctx, ns, r.manifold.Snapshot)
+	take := r.manifold.Snapshot
+	if o.fresh || (o.refless && !o.preview) {
+		take = r.manifold.FreshSnapshot
+	}
+	identity, kind, snap, err := identify(ctx, ns, take)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}

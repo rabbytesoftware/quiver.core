@@ -131,7 +131,7 @@ func (r *storeService) recheck(
 		defer r.rechecking.Done()
 		defer cancel()
 		defer stopOnShutdown()
-		identity, fresh, err := r.ResolveInstall(recheckCtx, ns, Preview())
+		identity, fresh, err := r.ResolveInstall(recheckCtx, ns, Preview(), Fresh())
 		if err != nil {
 			slog.WarnContext(recheckCtx, "store: recheck held preview", "ns", ns, "err", err)
 			return
