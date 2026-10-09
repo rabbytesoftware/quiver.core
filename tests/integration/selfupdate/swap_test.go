@@ -274,7 +274,9 @@ func TestSelfUpdate_E2E_NewDaemonTakesOverTheSocket(t *testing.T) {
 		left, _ := filepath.Glob(filepath.Join(filepath.Dir(d.self), "quiver.old-*"))
 		return len(left) == 0
 	}, 30*time.Second, 200*time.Millisecond, "the previous binary is cleaned up")
-	assert.Contains(t, d.selfLog(), "new daemon healthy")
+	require.Eventually(t, func() bool {
+		return strings.Contains(d.selfLog(), "new daemon healthy")
+	}, 30*time.Second, 200*time.Millisecond, "the updater to log the new daemon healthy")
 	t.Logf("self-update.log:\n%s", d.selfLog())
 
 	assert.NoError(t, syscall.Kill(fixturePID, 0), "the supervised process survived the daemon replacing itself")
