@@ -45,13 +45,6 @@ type Store interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (*domain.Arrow, error)
-	// Refs is ns's repository's tags and branches for a view: the vault's
-	// saved copy whatever its age, read again behind the call once it is past
-	// the version-check TTL. Only a repository never saved waits on its host.
-	Refs(
-		ctx context.Context,
-		ns domain.Namespace,
-	) (domain.RefSnapshot, error)
 	// ResolveInstall settles the identity a namespace is installed under and
 	// what that identity resolves to right now: a refless namespace follows
 	// its repository's default channel, any other keeps its ref as the
@@ -147,8 +140,7 @@ type storeService struct {
 	projector       projections.Projector
 	resolveManifest ResolveFunc
 	onRefreshed     func(domain.Arrow)
-	refreshing      sync.Map
-	running         sync.WaitGroup
+	rechecking      sync.WaitGroup
 	vault           vault.Vault
 	manifold        manifold.Manifold
 	clock           func() time.Time
@@ -189,9 +181,8 @@ func NewWithClock(
 	v vault.Vault,
 	m manifold.Manifold,
 	clock func() time.Time,
-	opts ...Option,
 ) (Store, error) {
-	return newStore(db, v, m, clock, opts...)
+	return newStore(db, v, m, clock)
 }
 
 func newStore(
@@ -402,7 +393,7 @@ func (r *storeService) classifyPreview(
 	if r.manifold == nil || selector == "" || arrow.Resolved.Commit != "" {
 		return
 	}
-	snap, err := r.Refs(ctx, arrow.Namespace)
+	snap, err := r.manifold.Snapshot(ctx, arrow.Namespace)
 	if err != nil {
 		return
 	}
@@ -455,12 +446,7 @@ func (r *storeService) ResolveManifest(
 	}
 
 	if ns.Ref() == "" {
-		identity, arrow, err := r.ResolveInstall(ctx, ns, Preview())
-		if err != nil {
-			return nil, fmt.Errorf("reader resolve manifest: %w", err)
-		}
-		arrow.Namespace = identity
-		return arrow, nil
+		return r.resolveRefless(ctx, ns)
 	}
 
 	arrow, err := r.resolveAtRef(ctx, ns)
@@ -492,21 +478,22 @@ func cataloguedRow(
 	return &row, true
 }
 
-// resolveAtRef reads ns's manifest. A copy the vault already holds is served
-// as is. Without one, ns is resolved as a selector first (pkg@v1.*,
-// pkg@stable), since no host serves a selector as a ref and asking for it as
-// one is a fetch that cannot succeed; only when that fails is the host asked
-// for ns itself. The failure that describes ns is then the host's.
+// resolveAtRef falls back to reading a selector identity (pkg@v1.*,
+// pkg@stable) at its target commit, since no host serves a selector as a
+// ref. When that fails too, the original failure is the one that describes ns.
 func (r *storeService) resolveAtRef(
 	ctx context.Context,
 	ns domain.Namespace,
 ) (*domain.Arrow, error) {
-	if r.manifold != nil && (r.vault == nil || !r.holdsManifest(ctx, ns)) {
-		if _, selected, err := r.ResolveInstall(ctx, ns, Preview()); err == nil {
-			return selected, nil
-		}
+	arrow, err := r.resolveManifest(ctx, ns)
+	if err == nil || r.manifold == nil {
+		return arrow, err
 	}
-	return r.resolveManifest(ctx, ns)
+	_, selected, selErr := r.ResolveInstall(ctx, ns, Preview())
+	if selErr != nil {
+		return nil, err
+	}
+	return selected, nil
 }
 
 // ResolveCatalogued maps a namespace as the caller typed it onto the one the

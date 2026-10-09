@@ -46,7 +46,7 @@ func getArrow(s *store, ns domain.Namespace) (ManifestFile, error) {
 		return ManifestFile{}, err
 	}
 
-	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit}
+	file := ManifestFile{Content: content, Filename: meta.Filename, Ref: meta.Ref, Commit: meta.Commit, Default: meta.Default}
 
 	if s.clock().Sub(meta.CachedAt) > s.ttl {
 		return file, ErrStale
@@ -125,6 +125,7 @@ func putArrow(s *store, ns domain.Namespace, file ManifestFile) error {
 		Namespace: ns,
 		Ref:       file.Ref,
 		Commit:    file.Commit,
+		Default:   file.Default,
 	})
 	if err != nil {
 		return err

@@ -698,40 +698,31 @@ func TestForget_UsesAsynxArrow(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestListChannels_ReadsTheChannelsOfTheStoresRefs(t *testing.T) {
-	snap := domain.RefSnapshot{
-		Tags:     map[string]string{"v1.0.0": "c1", "v1.1.0": "c2"},
-		Branches: map[string]string{"main": "c3"},
-		Head:     "main",
-	}
-	r := &arrowStoreMocks.MockCQRS{
-		RefsFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
-			return snap, nil
+func TestListChannels_DelegatesToManifold(t *testing.T) {
+	m := &mocks.Manifold{
+		ListChannelsResult: []manifold.ChannelInfo{
+			{Name: "stable", Kind: "ordered", Latest: "v1.0.0", Count: 1, Members: []string{"v1.0.0"}},
+			{Name: "main", Kind: "pointer", Latest: "main"},
 		},
 	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, &mocks.Manifold{})
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
 
 	got, err := cat.ListChannels(context.Background(), testNs())
-
 	require.NoError(t, err)
-	want := manifold.ChannelsOf(snap)
-	require.NotEmpty(t, want)
-	require.Len(t, got, len(want))
-	for i, channel := range want {
-		assert.Equal(t, channel.Name, got[i].Name)
-		assert.Equal(t, channel.Latest, got[i].Latest)
-		assert.Equal(t, channel.Count, got[i].Count)
-	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "stable", got[0].Name)
+	assert.Equal(t, "ordered", got[0].Kind)
+	assert.Equal(t, "v1.0.0", got[0].Latest)
+	assert.Equal(t, 1, got[0].Count)
+	assert.Equal(t, []string{"v1.0.0"}, got[0].Members)
+	assert.Equal(t, "main", got[1].Name)
+	assert.Equal(t, "pointer", got[1].Kind)
 }
 
-func TestListChannels_RefsError_Propagates(t *testing.T) {
+func TestListChannels_ManifoldError_Propagates(t *testing.T) {
 	wantErr := errors.New("list tags: connection refused")
-	r := &arrowStoreMocks.MockCQRS{
-		RefsFn: func(context.Context, domain.Namespace) (domain.RefSnapshot, error) {
-			return domain.RefSnapshot{}, wantErr
-		},
-	}
-	cat := arrowRepo.NewTestable(r, newTestAsynxArrow(t), nil, &mocks.Manifold{})
+	m := &mocks.Manifold{ListChannelsErr: wantErr}
+	cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, newTestAsynxArrow(t), nil, m)
 
 	_, err := cat.ListChannels(context.Background(), testNs())
 	require.ErrorIs(t, err, wantErr)

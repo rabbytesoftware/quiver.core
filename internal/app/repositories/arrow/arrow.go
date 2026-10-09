@@ -973,11 +973,10 @@ func (s *arrowService) ListChannels(
 	ctx context.Context,
 	ns domain.Namespace,
 ) ([]models.ChannelInfo, error) {
-	snap, err := s.store.Refs(ctx, ns)
+	channels, err := s.manifold.ListChannels(ctx, ns)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
-	channels := manifold.ChannelsOf(snap)
 	out := make([]models.ChannelInfo, 0, len(channels))
 	for _, c := range channels {
 		out = append(out, models.ChannelInfo{

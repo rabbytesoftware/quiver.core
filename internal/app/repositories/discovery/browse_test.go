@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -393,56 +392,4 @@ func TestBrowse_WantWithCancelledContext_DispatchesNothing(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, m.requests())
-}
-
-// A pass nobody is waiting on can ask for fewer resolves at once than the
-// pipeline's own bound, so it leaves room for the requests someone is.
-func TestBrowse_ConcurrencyNarrowsThePipelineBound(t *testing.T) {
-	const narrow = 2
-	names := []string{"a", "b", "c", "d", "e", "f"}
-
-	var inFlight, peak atomic.Int64
-	entered := make(chan struct{}, len(names))
-	release := make(chan struct{})
-	m := &stubManifold{
-		resolve: func(context.Context, domain.Namespace) (*domain.Arrow, []byte, string, error) {
-			current := inFlight.Add(1)
-			for {
-				best := peak.Load()
-				if current <= best || peak.CompareAndSwap(best, current) {
-					break
-				}
-			}
-			entered <- struct{}{}
-			<-release
-			inFlight.Add(-1)
-			return resolvesTo("X")(context.Background(), "")
-		},
-	}
-	d := newDiscovery(t, []provider.Provider{browseProvider(names...)}, m, newVault(t), neverKnown, func(c *discovery.Config) {
-		c.FetchConcurrency = 8
-	})
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := d.Browse(context.Background(), discovery.BrowseRequest{
-			Sources:     []discovery.BrowseSource{browseSource("github")},
-			Budget:      len(names),
-			Concurrency: narrow,
-		}, func(discovery.Result) {})
-		done <- err
-	}()
-
-	for range narrow {
-		<-entered
-	}
-	select {
-	case <-entered:
-		t.Fatal("more resolves ran at once than the pass asked for")
-	default:
-	}
-
-	close(release)
-	require.NoError(t, <-done)
-	assert.Equal(t, int64(narrow), peak.Load())
 }

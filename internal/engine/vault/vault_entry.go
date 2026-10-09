@@ -17,14 +17,9 @@ type ManifestFile struct {
 	// tags of one commit can publish different release assets.
 	Ref    string
 	Commit string
-}
-
-// RefsEntry is a repository's tags and branches as they were when saved. The
-// vault keeps no opinion on how old is too old: that is the caller's to judge
-// from CachedAt.
-type RefsEntry struct {
-	Snapshot domain.RefSnapshot `json:"snapshot"`
-	CachedAt time.Time          `json:"cached_at"`
+	// Default marks the manifest a refless namespace settled on: the entry a
+	// later view of that namespace is answered from.
+	Default bool
 }
 
 type CollectionVaultEntry struct {
@@ -45,6 +40,7 @@ type VaultMetadata struct {
 	NotFound bool `json:"not_found,omitempty"`
 	// Ref and Commit name the release the cached manifest was read at, empty
 	// when the writer did not know them.
-	Ref    string `json:"ref,omitempty"`
-	Commit string `json:"commit,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	Commit  string `json:"commit,omitempty"`
+	Default bool   `json:"default,omitempty"`
 }

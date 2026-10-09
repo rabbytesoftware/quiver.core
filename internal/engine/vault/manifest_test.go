@@ -1246,3 +1246,25 @@ func TestFindQuiversUnder_SkipsFilesAndWorkdirs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestPutArrow_DefaultFlag_RoundTrips(t *testing.T) {
+	testCases := []struct {
+		name      string
+		isDefault bool
+	}{
+		{name: "a manifest a refless namespace settled on", isDefault: true},
+		{name: "any other manifest", isDefault: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			file := ManifestFile{Content: []byte("# arrow"), Filename: "ARROW.md", Ref: "v1.0.0", Commit: "c1", Default: tc.isDefault}
+			require.NoError(t, s.PutArrow(t.Context(), "github.com/u/r@stable", file))
+
+			got, err := s.GetArrow(t.Context(), "github.com/u/r@stable")
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.isDefault, got.Default)
+		})
+	}
+}

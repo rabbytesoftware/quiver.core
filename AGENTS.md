@@ -499,7 +499,7 @@ Injected via DI. Use `manifold.ResolveArrow(ctx, ns)` for the full fetch+parse+c
 
 ### 15.7 Manifest cache + workdirs — `engine/vault`
 
-Injected via DI. Use vault to: store resolved manifests, retrieve cached manifests, keep a repository's last ref list (`GetRefs` / `PutRefs`; how old is too old is the arrow store's call, `store.Refs`), allocate workdirs for executions, delete workdirs after uninstall, list cached versions. `vault.Start(ctx)` must be called (done by `engine.Container.Start`). Read the interface in `internal/engine/vault/` for current method signatures.
+Injected via DI. Use vault to: store resolved manifests, retrieve cached manifests, allocate workdirs for executions, delete workdirs after uninstall, list cached versions. `vault.Start(ctx)` must be called (done by `engine.Container.Start`). Read the interface in `internal/engine/vault/` for current method signatures.
 
 **Do NOT:** write files to `~/.quiver/vault/` directly, create workdirs manually.
 

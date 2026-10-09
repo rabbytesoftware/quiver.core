@@ -321,24 +321,19 @@ func (d *discovery) verify(
 	candidates []provider.Candidate,
 	emit func(Result),
 ) tally {
-	return d.verifyUntil(ctx, candidates, emit, 0, 0)
+	return d.verifyUntil(ctx, candidates, emit, 0)
 }
 
 // verifyUntil is verify that stops dispatching once goal candidates have proven
 // to be arrows; goal zero or less means no target. Candidates already in
 // flight finish, so the count can overshoot the goal by up to concurrency-1.
-// width, when positive, replaces the pipeline's concurrency for this pass.
 func (d *discovery) verifyUntil(
 	ctx context.Context,
 	candidates []provider.Candidate,
 	emit func(Result),
 	goal int,
-	width int,
 ) tally {
-	if width <= 0 {
-		width = d.concurrency
-	}
-	slots := make(chan struct{}, width)
+	slots := make(chan struct{}, d.concurrency)
 	stream := newStream(emit)
 
 	var counted counters

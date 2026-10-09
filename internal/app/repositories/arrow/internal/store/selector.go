@@ -24,6 +24,7 @@ type InstallOption func(*installOpts)
 type installOpts struct {
 	exists  ExistsFunc
 	preview bool
+	refless bool
 }
 
 // CacheWhenAbsent caches the resolved manifest under the identity, but only
@@ -56,12 +57,9 @@ func (r *storeService) ResolveInstall(
 	for _, opt := range opts {
 		opt(&o)
 	}
+	o.refless = ns.Ref() == ""
 
-	take := r.manifold.FreshSnapshot
-	if o.preview {
-		take = r.Refs
-	}
-	identity, kind, snap, err := identify(ctx, ns, take)
+	identity, kind, snap, err := identify(ctx, ns, r.manifold.Snapshot)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}
@@ -214,7 +212,7 @@ func (r *storeService) readTarget(
 		if err != nil {
 			return nil, err
 		}
-		r.cachePreview(ctx, identity, target, previewedManifest{arrow: arrow, raw: raw, filename: filename})
+		r.cachePreview(ctx, identity, target, previewedManifest{arrow: arrow, raw: raw, filename: filename}, o.refless)
 		return arrow, nil
 	}
 	return r.fetchAtCommit(ctx, identity, target, o.exists)
@@ -231,6 +229,7 @@ func (r *storeService) cachePreview(
 	identity domain.Namespace,
 	target domain.Available,
 	manifest previewedManifest,
+	refless bool,
 ) {
 	if r.vault == nil {
 		return
@@ -238,6 +237,7 @@ func (r *storeService) cachePreview(
 	file := Cacheable(manifest.arrow, manifest.raw, manifest.filename)
 	file.Ref = target.Ref
 	file.Commit = target.Commit
+	file.Default = refless
 	if err := r.vault.PutArrow(ctx, identity, file); err != nil {
 		slog.WarnContext(ctx, "store: cache previewed manifest", "ns", identity, "err", err)
 	}

@@ -110,7 +110,6 @@ func TestRefresher_Refresh_SendsSourcesBudgetAndWantWithAFullPage(t *testing.T) 
 	req := f.browser.Requests[0]
 	assert.Equal(t, 30, req.Budget)
 	assert.Equal(t, 24, req.Want)
-	assert.Equal(t, 2, req.Concurrency, "a refresh nobody waits on resolves few candidates at once")
 	assert.Equal(t, []discovery.BrowseSource{
 		{Host: "github", Sort: "stars", MinStars: 500, MaxStars: 20000, PushedWithin: 90 * 24 * time.Hour, Limit: 100},
 	}, req.Sources)

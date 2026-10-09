@@ -31,7 +31,7 @@ func (d *discovery) Browse(
 	for _, hit := range plan.cached {
 		stream.send(d.cachedResult(ctx, hit))
 	}
-	counted := d.resolvePending(ctx, plan, req.Want, req.Concurrency, emit)
+	counted := d.resolvePending(ctx, plan, req.Want, emit)
 
 	return Outcome{
 		Found:     len(unique),
@@ -49,18 +49,17 @@ func (d *discovery) resolvePending(
 	ctx context.Context,
 	plan browsePlan,
 	want int,
-	width int,
 	emit func(Result),
 ) tally {
 	if want <= 0 {
-		return d.verifyUntil(ctx, plan.pending, emit, 0, width)
+		return d.verify(ctx, plan.pending, emit)
 	}
 
 	remaining := want - len(plan.cached)
 	if remaining <= 0 {
 		return tally{}
 	}
-	return d.verifyUntil(ctx, plan.pending, emit, remaining, width)
+	return d.verifyUntil(ctx, plan.pending, emit, remaining)
 }
 
 type cachedHit struct {

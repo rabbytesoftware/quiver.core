@@ -1,5 +1,5 @@
 package store
 
-func WaitRefs(s Store) {
-	s.(*storeService).running.Wait()
+func WaitRechecks(s Store) {
+	s.(*storeService).rechecking.Wait()
 }

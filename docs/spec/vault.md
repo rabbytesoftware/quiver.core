@@ -23,8 +23,7 @@ Package: `internal/engine/vault`
 | `store.go` | `store` struct, constructors `New` / `NewWithClock`, all interface dispatch, per-namespace locking, workdir handling |
 | `pathsafe.go` | Identity-safe percent-encoding of identity-derived filenames and directories (§4.1) |
 | `manifest.go` | Arrow manifest read/write/delete, collection JSON envelope read/write/delete, list versions, list cached collections, atomic write helper, namespace path acquisition |
-| `vault_entry.go` | `ManifestFile`, `RefsEntry`, `CollectionVaultEntry`, `VaultMetadata` |
-| `refs.go` | `GetRefs` / `PutRefs`: a repository's ref list, saved beside the manifest cache as `<bare>.refs.json`. Not swept (the sweep reads `*.meta.json`) and not removed with an arrow; a list is a few kilobytes and is replaced in place. |
+| `vault_entry.go` | `ManifestFile`, `CollectionVaultEntry`, `VaultMetadata` |
 | `sweep.go` | TTL sweep over arrow meta files and collection JSON files |
 | `errors.go` | `ErrNotCached`, `ErrStale`, `ErrInvalidNamespace` |
 
@@ -39,8 +38,6 @@ The engine container (`internal/engine/container.go`) constructs Vault via `vaul
 | `GetArrow(ctx, ns) (ManifestFile, error)` | Read cached raw manifest. Returns `ErrNotCached` if absent. Returns `ErrStale` *with* the file content when TTL expired. Returns `ErrConfirmedAbsent` for a fresh not-found marker, with only the marker's `Commit` set. |
 | `PutArrowNotFound(ctx, ns, commit) error` | Record that `ns` definitively has no manifest (at `commit`, when known), for one TTL. |
 | `PutArrow(ctx, ns, file) error` | Write raw manifest verbatim, write meta sidecar, ensure namespace workdir exists. |
-| `GetRefs(ctx, ns) (RefsEntry, error)` | Read the ref list (tags, branches, `HEAD`) last saved for `ns`'s repository, whatever its age, with the time it was saved. Returns `ErrNotCached` if none was saved or the file is unreadable. The vault judges no age: the caller decides when a list is too old. |
-| `PutRefs(ctx, ns, snapshot) error` | Save `snapshot` as the ref list of `ns`'s repository (its bare namespace), stamped now, replacing the last. |
 | `DeleteArrow(ctx, ns) error` | Idempotent delete of the manifest + meta files. Staging a manifest (`arrow.RefreshToTarget`: an update's target, a restore, or the one-shot retry after a fetch checksum mismatch) deletes before it writes, so the next read never serves the replaced copy. |
 | `ListVersions(ctx, ns) ([]string, error)` | List all `@ref` suffixes (catalog selectors) cached under the same bare namespace. |
 | `GetCollection(ctx, ns) (*CollectionVaultEntry, string, error)` | Read cached `Collection` aggregate JSON. Same `ErrStale` / `ErrNotCached` semantics. Returns the on-disk path. |
@@ -89,7 +86,6 @@ The engine accepts `engine.WithHomeDir(dir)` for tests and isolated environments
     github.com%2Fvalve%2Fsteamcmd@v1.%2A.yaml                 ← selector v1.* — `*` escaped
     github.com%2Fdiscord%2Fdiscord.md                        ← `ARROW.md` source — extension preserved
     github.com%2Fdiscord%2Fdiscord.meta.json
-    github.com%2Fvalve%2Fsteamcmd.refs.json                  ← RefsEntry: the repository's ref list, one per bare namespace
   namespaces/                                                ← per-namespace tree
     github.com/
       valve/
@@ -177,6 +173,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 | `Content` | `[]byte` | Raw manifest bytes — written verbatim, returned verbatim. |
 | `Filename` | `string` | Source filename, used to pick the on-disk extension (`.yaml`, `.md`). Stored in the meta sidecar so the matching content file can be re-located on read. |
 | `Ref`, `Commit` | `string` | The release the manifest was read at, when the writer knew it: an add, advance, staging or adoption records the target it read; discovery records the tag it filed a build under and, from the ref snapshot it reads first, that tag's commit (a branch build records no commit, since a branch moves under it). A reader reuses the bytes for that exact release only — same ref, same commit — so a moved tag, or another tag of the same commit, is read from the host again. |
+| `Default` | `bool` | Set by a preview of a refless namespace on the manifest it settled on (`pkg@stable` for `pkg`). A later view of that namespace is answered from the entry carrying it, whatever its age, and re-checked behind the answer; entries without it (a build discovery filed under a tag) are not, since they name no channel. |
 
 ### 5.2 `VaultMetadata`
 
@@ -185,6 +182,7 @@ any namespace whose bare segments would resolve outside `namespacesPath`.
 | `CachedAt` | `time.Time` | Wall-clock time at which `PutArrow` was called. Used to compute staleness against the configured TTL. |
 | `Filename` | `string` | Original filename — required to reconstruct the manifest path on `Get`. |
 | `Ref`, `Commit` | `string` | The release a manifest was read at (see `ManifestFile`); on a confirmed-absent marker, the commit the fetch found no manifest at. |
+| `Default` | `bool` | See `ManifestFile`. |
 
 `Source`, `EvictionTTL`, `OS` from the previous design are *not* present. TTL is a single global value from config, not per-entry. Source URL is reconstructible from the namespace via `Namespace.CloneURL()`.
 
