@@ -44,12 +44,6 @@ type Shelf interface {
 	SetupPath(
 		ctx context.Context,
 	) (PathStatus, error)
-	// Discard empties the workdir of an arrow that was just uninstalled.
-	// Only a directory under the namespaces folder is touched.
-	Discard(
-		ctx context.Context,
-		workdir string,
-	) error
 	// Launchable reports whether the arrow installed in workdir has a desktop
 	// entry Launch can start.
 	Launchable(

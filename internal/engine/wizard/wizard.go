@@ -250,9 +250,6 @@ func (w *wizard) Start(
 		}
 
 		outcome := w.runSteps(runCtx, req, exec)
-		if outcome == domainRuntime.ExecutionOutcomeSuccess && req.Method == domain.MethodUninstall {
-			w.discardInstalled(runCtx, req)
-		}
 		exec.Finish(outcome)
 	}()
 	w.mu.Unlock()
@@ -559,23 +556,5 @@ func adapt[S domainstep.Step](
 			return fmt.Errorf("adapt: step type mismatch: expected %T, got %T", *new(S), s)
 		}
 		return h.Execute(ctx, req, typed)
-	}
-}
-
-// discardInstalled empties the workdir once an uninstall has succeeded. The
-// manifest's own uninstall steps remove what it placed elsewhere; what the
-// install put in the workdir (a portable app, an extracted archive) has no
-// step of its own to undo it, so it would stay on disk for good. Failing here
-// never fails the uninstall: the files of a program that is still running can
-// be locked, and a later removal of the arrow clears the workdir again.
-func (w *wizard) discardInstalled(
-	ctx context.Context,
-	req RunRequest,
-) {
-	if req.WorkDir == "" {
-		return
-	}
-	if err := w.shelf.Discard(ctx, req.WorkDir); err != nil {
-		slog.WarnContext(ctx, "wizard: discard uninstalled workdir", "ns", req.Namespace, "err", err)
 	}
 }
