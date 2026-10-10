@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
@@ -207,6 +209,53 @@ func TestWindowsProcess_WithoutShellWrap_LeavesCmdLineEmpty(t *testing.T) {
 	}
 }
 
+// A step's shell must not get a console window of its own: with a daemon that
+// has no console (started detached, as self-update starts one) Windows gives
+// every console child a new, visible one.
+func TestWindowsProcess_StepsAreCreatedWithoutAConsoleWindow(t *testing.T) {
+	testCases := []struct {
+		name      string
+		shellWrap bool
+		command   []string
+	}{
+		{name: "shell wrapped", shellWrap: true, command: []string{"exit 0"}},
+		{name: "direct", command: []string{"cmd.exe", "/C", "exit 0"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := models.NewConfig(tc.command)
+			config.ShellWrap = tc.shellWrap
+
+			proc, err := newProcess(context.Background(), config)
+			if err != nil {
+				t.Fatalf("newProcess() error = %v", err)
+			}
+			t.Cleanup(func() { _ = proc.Close() })
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := proc.Wait(ctx); err != nil {
+				t.Fatalf("Wait() error = %v", err)
+			}
+
+			attrs := proc.(*windowsProcess).cmd.SysProcAttr
+			if attrs == nil || attrs.CreationFlags&windows.CREATE_NO_WINDOW == 0 {
+				t.Errorf("SysProcAttr = %+v, want CREATE_NO_WINDOW set", attrs)
+			}
+			if attrs != nil && attrs.HideWindow {
+				t.Error("HideWindow is set, which would hide the window of a GUI program a step starts")
+			}
+		})
+	}
+}
+
+func TestNoWindowAttrs_AreNeverShared(t *testing.T) {
+	if noWindowAttrs() == noWindowAttrs() {
+		t.Fatal("two calls returned the same *SysProcAttr, so one step could change another's")
+	}
+}
+
 // Pinned against the real escaper rather than a copy of it: this is the
 // transformation the fix exists to avoid, and the backslashes it inserts are
 // exactly what ends up inside the path cmd then fails to find.
@@ -299,26 +348,5 @@ func TestIsAlive_FollowsTheProcess(t *testing.T) {
 	}
 	if isAlive(0) || isAlive(-1) {
 		t.Error("isAlive must refuse a non positive pid")
-	}
-}
-
-func TestWindowsProcess_StepsNeverOpenAConsoleWindow(t *testing.T) {
-	for _, shellWrap := range []bool{false, true} {
-		config := models.NewConfig([]string{"cmd", "/C", "exit 0"})
-		config.ShellWrap = shellWrap
-
-		proc, err := newProcess(context.Background(), config)
-		if err != nil {
-			t.Fatalf("newProcess(shellWrap=%v) error = %v", shellWrap, err)
-		}
-		t.Cleanup(func() { _ = proc.Close() })
-
-		attr := proc.(*windowsProcess).cmd.SysProcAttr
-		if attr.CreationFlags&createNoWindow == 0 {
-			t.Errorf("shellWrap=%v: CREATE_NO_WINDOW not set, flags = %#x", shellWrap, attr.CreationFlags)
-		}
-		if attr.HideWindow {
-			t.Errorf("shellWrap=%v: HideWindow set, which would hide a GUI installer's own window", shellWrap)
-		}
 	}
 }
