@@ -19,6 +19,17 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/runtime/internal/models"
 )
 
+// noWindowAttrs is what every child process of a step is created with. A console
+// program started by a process with no console of its own, as a daemon
+// started detached is (self-update starts the new one that way), is given a
+// console window of its own: a step's cmd.exe flashed one up on screen for
+// the whole step. Only console programs are affected; a GUI program a step
+// starts shows its window as usual. HideWindow is deliberately not set, since
+// it would also hide that window.
+func noWindowAttrs() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+}
+
 type windowsProcess struct {
 	*baseProcess
 }
@@ -53,8 +64,9 @@ func newProcess(
 	// given, but the line cmd itself re-parses comes from here. A step that is
 	// not shell-wrapped is left alone: it runs an executable directly, and Go's
 	// escaping is the right escaping for that.
+	base.cmd.SysProcAttr = noWindowAttrs()
 	if shellWrapped {
-		base.cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: cmdLine}
+		base.cmd.SysProcAttr.CmdLine = cmdLine
 	}
 
 	// exec.CommandContext's own cancellation kills the single spawned PID,
@@ -197,6 +209,7 @@ func killTree(pid int) error {
 	}
 
 	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)) // #nosec -- pid is validated > 0 above, never caller-controlled string input
+	cmd.SysProcAttr = noWindowAttrs()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("taskkill %d: %w: %s", pid, err, strings.TrimSpace(string(out)))
 	}
