@@ -41,6 +41,7 @@ func buildKnownVars(
 		"PLATFORM":              true,
 		"REF":                   true,
 		domain.VarArrowUIListen: true,
+		domain.VarArrowApp:      true,
 	}
 	for _, v := range m.Variables {
 		known[v.Name] = true

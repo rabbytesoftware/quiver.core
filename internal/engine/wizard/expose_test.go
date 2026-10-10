@@ -201,3 +201,22 @@ func TestPlan_ExposesTheTargetOfTheGivenOS(t *testing.T) {
 	assert.Equal(t, []domainstep.Step{run, want}, Plan(domain.MethodInstall, arrow, domain.OSLinuxAMD64, []domainstep.Step{run}))
 	assert.Equal(t, []domainstep.Step{run}, Plan(domain.MethodInstall, arrow, domain.OSDarwinARM64, []domainstep.Step{run}))
 }
+
+func TestStart_RunStepNamingTheAppStartsTheExposedExecutable(t *testing.T) {
+	s := newExposeSandbox(t)
+	ns := domain.Namespace("github.com/acme/tool@v1")
+	wd := s.emptyWorkdir(t, ns)
+	out := filepath.Join(wd, "ran")
+	app := filepath.Join(wd, "app")
+	require.NoError(t, os.WriteFile(app, []byte("#!/bin/sh\necho started > \""+out+"\"\n"), 0o700)) // #nosec G306 -- fixture executable
+	start := domainstep.NewRunStep("Start", `exec "${ARROW_APP}"`, false, "10s", true)
+
+	missing := s.run(ns, domain.MethodExecute, wd, start)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, missing.Outcome, "no recorded app fails the start instead of running an empty command")
+	assert.NoFileExists(t, out)
+
+	require.NoError(t, os.WriteFile(filepath.Join(wd, ".quiver-app"), []byte(app+"\n"), 0o600))
+	started := s.run(ns, domain.MethodExecute, wd, start)
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, started.Outcome)
+	assert.FileExists(t, out)
+}

@@ -334,6 +334,7 @@ func TestReservedVariableNames_ListsEveryBuiltIn(t *testing.T) {
 		VarPlatform,
 		VarRef,
 		VarArrowUIListen,
+		VarArrowApp,
 	}, ReservedVariableNames())
 }
 
