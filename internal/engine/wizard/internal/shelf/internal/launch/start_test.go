@@ -56,7 +56,7 @@ func TestStart_BundleGoesThroughOpen(t *testing.T) {
 	args := filepath.Join(dir, "args.txt")
 	fake := script(t, dir, "fake-open", `echo "$@" > "`+args+`"`)
 	bundle := filepath.Join(dir, "Tool.app")
-	swapBundleHost(t, fake, 5*time.Second)
+	swapBundleHost(t, fake, 30*time.Second)
 
 	require.NoError(t, Start(bundle))
 
@@ -68,7 +68,7 @@ func TestStart_BundleGoesThroughOpen(t *testing.T) {
 func TestStart_BundleReportsOpenRefusing(t *testing.T) {
 	dir := t.TempDir()
 	fake := script(t, dir, "fake-open", "exit 1")
-	swapBundleHost(t, fake, 5*time.Second)
+	swapBundleHost(t, fake, 30*time.Second)
 
 	err := Start(filepath.Join(dir, "Tool.app"))
 

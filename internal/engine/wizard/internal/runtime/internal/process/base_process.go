@@ -102,6 +102,9 @@ func (h *outputHandler) close() {
 	close(h.errChan)
 }
 
+// cancelGrace bounds how long Wait waits for a cancelled process to be gone.
+const cancelGrace = 5 * time.Second
+
 type baseProcess struct {
 	id       string
 	cmd      *exec.Cmd
@@ -190,7 +193,22 @@ func (p *baseProcess) Wait(
 	case <-p.done:
 		return nil
 	case <-ctx.Done():
+		p.awaitKilled()
 		return ctx.Err()
+	}
+}
+
+// awaitKilled gives a process whose context was cancelled the time its kill
+// needs. exec.CommandContext starts the kill when the context ends, but only
+// in its own goroutine: returning at once lets the caller go on, and a daemon
+// shutting down exit, before a tree kill that is still running (taskkill on
+// Windows) has reached the arrow's children, which are then left orphaned.
+func (p *baseProcess) awaitKilled() {
+	timer := time.NewTimer(cancelGrace)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+	case <-timer.C:
 	}
 }
 

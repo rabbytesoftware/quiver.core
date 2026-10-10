@@ -201,3 +201,18 @@ func TestPlan_ExposesTheTargetOfTheGivenOS(t *testing.T) {
 	assert.Equal(t, []domainstep.Step{run, want}, Plan(domain.MethodInstall, arrow, domain.OSLinuxAMD64, []domainstep.Step{run}))
 	assert.Equal(t, []domainstep.Step{run}, Plan(domain.MethodInstall, arrow, domain.OSDarwinARM64, []domainstep.Step{run}))
 }
+
+func TestStart_Uninstall_EmptiesTheWorkdirOnlyWhenItSucceeds(t *testing.T) {
+	s := newExposeSandbox(t)
+	ns := domain.Namespace("github.com/acme/tool@v1")
+	wd := s.workdir(t, ns)
+
+	failed := s.run(ns, domain.MethodUninstall, wd, domainstep.NewRunStep("broken", "false", false, "", true))
+	assert.Equal(t, domainRuntime.ExecutionOutcomeFailed, failed.Outcome)
+	assert.FileExists(t, filepath.Join(wd, "tool"), "a failed uninstall leaves the files in place")
+
+	removed := s.run(ns, domain.MethodUninstall, wd, domainstep.NewRunStep("fine", "true", false, "", true))
+	assert.Equal(t, domainRuntime.ExecutionOutcomeSuccess, removed.Outcome)
+	assert.NoFileExists(t, filepath.Join(wd, "tool"))
+	assert.DirExists(t, wd)
+}
