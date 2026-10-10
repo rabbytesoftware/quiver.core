@@ -388,7 +388,7 @@ func (h *Handlers) Validate(c *gin.Context) {
 // Open starts the installed arrow's desktop app.
 //
 // @Summary      Open arrow
-// @Description  Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened; arrow-apps that serve a ui are opened through their surface instead.
+// @Description  Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened.
 // @Tags         arrows
 // @Param        ns   path  string  true  "Arrow namespace"
 // @Success      200  {object}  libs.MutationResponse

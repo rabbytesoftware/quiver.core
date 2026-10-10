@@ -11,6 +11,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/discover"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/host"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/launch"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/ownership"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
@@ -147,6 +148,9 @@ func (s *shelf) Remove(
 
 	if err := s.prune(ctx, l, models.WorkdirClaim(bare, clean), nil); err != nil {
 		return fmt.Errorf("shelf: remove %s: %w", workdir, err)
+	}
+	if err := launch.Clear(clean); err != nil {
+		return fmt.Errorf("shelf: remove %s: clear launch: %w", workdir, err)
 	}
 	return nil
 }

@@ -57,7 +57,7 @@ func newProcess(
 	// given, but the line cmd itself re-parses comes from here. A step that is
 	// not shell-wrapped is left alone: it runs an executable directly, and Go's
 	// escaping is the right escaping for that.
-	base.cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	base.cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	if shellWrapped {
 		base.cmd.SysProcAttr.CmdLine = cmdLine
 	}
@@ -202,7 +202,7 @@ func killTree(pid int) error {
 	}
 
 	cmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(pid)) // #nosec -- pid is validated > 0 above, never caller-controlled string input
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("taskkill %d: %w: %s", pid, err, strings.TrimSpace(string(out)))
 	}

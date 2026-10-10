@@ -301,3 +301,24 @@ func TestIsAlive_FollowsTheProcess(t *testing.T) {
 		t.Error("isAlive must refuse a non positive pid")
 	}
 }
+
+func TestWindowsProcess_StepsNeverOpenAConsoleWindow(t *testing.T) {
+	for _, shellWrap := range []bool{false, true} {
+		config := models.NewConfig([]string{"cmd", "/C", "exit 0"})
+		config.ShellWrap = shellWrap
+
+		proc, err := newProcess(context.Background(), config)
+		if err != nil {
+			t.Fatalf("newProcess(shellWrap=%v) error = %v", shellWrap, err)
+		}
+		t.Cleanup(func() { _ = proc.Close() })
+
+		attr := proc.(*windowsProcess).cmd.SysProcAttr
+		if attr.CreationFlags&createNoWindow == 0 {
+			t.Errorf("shellWrap=%v: CREATE_NO_WINDOW not set, flags = %#x", shellWrap, attr.CreationFlags)
+		}
+		if attr.HideWindow {
+			t.Errorf("shellWrap=%v: HideWindow set, which would hide a GUI installer's own window", shellWrap)
+		}
+	}
+}

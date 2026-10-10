@@ -727,7 +727,7 @@ const docTemplate = `{
         },
         "/arrow/{ns}/open": {
             "post": {
-                "description": "Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened; arrow-apps that serve a ui are opened through their surface instead.",
+                "description": "Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened.",
                 "tags": [
                     "arrows"
                 ],
