@@ -25,16 +25,22 @@ func newTarget(
 
 type lifecycle struct {
 	Install []step `yaml:"install"`
+	Execute []step `yaml:"execute,omitempty"`
+	Stop    []step `yaml:"stop,omitempty"`
 }
 
 const (
-	installPath  = "${INSTALL_PATH}"
-	stepTimeout  = "15m"
-	stepFetch    = "fetch"
-	stepPortable = "portable"
-	windowsExt   = ".exe"
-	downloadExt  = ".download"
-	msiExt       = ".msi"
+	installPath    = "${INSTALL_PATH}"
+	stepTimeout    = "15m"
+	stepFetch      = "fetch"
+	stepPortable   = "portable"
+	stepRun        = "run"
+	stepSignal     = "signal"
+	signalGraceful = "graceful"
+	stopTimeout    = "10s"
+	windowsExt     = ".exe"
+	downloadExt    = ".download"
+	msiExt         = ".msi"
 )
 
 type step struct {
@@ -46,6 +52,10 @@ type step struct {
 	Name     string `yaml:"name,omitempty"`
 	Checksum string `yaml:"checksum,omitempty"`
 	Timeout  string `yaml:"timeout,omitempty"`
+	Command  string `yaml:"command,omitempty"`
+	Signal   string `yaml:"signal,omitempty"`
+	// ExitOnFailure is a pointer so a step can state false.
+	ExitOnFailure *bool `yaml:"exit_on_failure,omitempty"`
 }
 
 func installSteps(
@@ -104,4 +114,21 @@ func binaryPath(
 	windows bool,
 ) string {
 	return installDir(name) + "/" + executableName(name, windows)
+}
+
+// startStopSteps run and end the app the install exposed as a desktop entry. The
+// run step names the ${ARROW_APP} variable, which the wizard fills with the
+// app's executable when the step starts, and fails with a message when the
+// install placed none. Stop ends the process and, on Windows, its whole tree.
+func startStopSteps(
+	name string,
+	windows bool,
+) ([]step, []step) {
+	command := `exec "${ARROW_APP}"`
+	if windows {
+		command = `"${ARROW_APP}"`
+	}
+	stayOnFailure := false
+	return []step{{Type: stepRun, Title: "Start " + name, Command: command}},
+		[]step{{Type: stepSignal, Title: "Stop " + name, Signal: signalGraceful, Timeout: stopTimeout, ExitOnFailure: &stayOnFailure}}
 }
