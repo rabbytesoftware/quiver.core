@@ -99,14 +99,6 @@ type ArrowUsecase interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) ([]models.ChannelInfo, error)
-
-	// Open starts the installed arrow's desktop app, detached from the
-	// daemon. It fails with ErrNotOpenable when the arrow is not installed or
-	// exposed no desktop entry.
-	Open(
-		ctx context.Context,
-		ns domain.Namespace,
-	) error
 }
 
 type arrowUsecase struct {
@@ -114,7 +106,6 @@ type arrowUsecase struct {
 	graph     graph.Graph
 	runtime   runtimerepo.Runtime
 	lifecycle lifecycle.Lifecycle
-	launcher  Launcher
 }
 
 // NewArrowUsecase wires arrow, graph, and runtime repositories and the
@@ -124,14 +115,12 @@ func NewArrowUsecase(
 	graph graph.Graph,
 	runtime runtimerepo.Runtime,
 	lc lifecycle.Lifecycle,
-	launcher Launcher,
 ) ArrowUsecase {
 	return &arrowUsecase{
 		arrow:     arrow,
 		graph:     graph,
 		runtime:   runtime,
 		lifecycle: lc,
-		launcher:  launcher,
 	}
 }
 
@@ -199,7 +188,6 @@ func (u *arrowUsecase) List(
 			if state, stateErr := u.runtime.GetState(ctx, ver.Namespace); stateErr == nil {
 				views[i].Versions[j].State = state
 			}
-			views[i].Versions[j].Openable = u.openable(ctx, ver.Namespace, views[i].Versions[j].State)
 		}
 	}
 	return mappers.ArrowListDTOsFrom(views), nil
@@ -232,7 +220,6 @@ func (u *arrowUsecase) GetDetail(
 		view.ActiveRun = rt.Execution
 		view.LastReturn = rt.LastReturn
 	}
-	view.Openable = u.openable(ctx, view.Metadata.Namespace, view.State)
 	return mappers.ArrowDetailDTOFrom(view), nil
 }
 
@@ -307,30 +294,4 @@ func (u *arrowUsecase) ListChannels(
 	ns domain.Namespace,
 ) ([]models.ChannelInfo, error) {
 	return u.arrow.ListChannels(ctx, ns)
-}
-
-func (u *arrowUsecase) Open(
-	ctx context.Context,
-	ns domain.Namespace,
-) error {
-	ns, err := u.arrow.ResolveCatalogued(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("open: %w", err)
-	}
-	state, err := u.runtime.GetState(ctx, ns)
-	if err != nil {
-		return fmt.Errorf("open: get state: %w", err)
-	}
-	if state != domain.ArrowStateReady || u.launcher == nil {
-		return fmt.Errorf("open %s: %w", ns, apperrors.ErrNotOpenable)
-	}
-	return u.launcher.Launch(ctx, ns)
-}
-
-func (u *arrowUsecase) openable(
-	ctx context.Context,
-	ns domain.Namespace,
-	state domain.ArrowState,
-) bool {
-	return u.launcher != nil && state == domain.ArrowStateReady && u.launcher.Launchable(ctx, ns)
 }

@@ -36,9 +36,6 @@ import (
 // validator gap or a bypassed one lets an unbounded step through.
 const maxProbeDuration = 30 * time.Second
 
-// ErrNotLaunchable is what Launch returns for an arrow with no desktop entry to start.
-var ErrNotLaunchable = shelf.ErrNotLaunchable
-
 // Re-exports from internal/models — public API of the wizard package.
 type (
 	Event      = models.Event
@@ -114,21 +111,6 @@ type Wizard interface {
 	SetupPath(
 		ctx context.Context,
 	) (PathStatus, error)
-
-	// Launchable reports whether the arrow installed in workdir exposed a
-	// desktop entry that Launch can start.
-	Launchable(
-		ctx context.Context,
-		workdir string,
-	) bool
-
-	// Launch starts, detached from the daemon, the desktop entry the arrow
-	// installed in workdir exposed. It fails with ErrNotLaunchable when there
-	// is none.
-	Launch(
-		ctx context.Context,
-		workdir string,
-	) error
 }
 
 // DispatchFn is the untyped handler signature used in the dispatch table.
@@ -400,20 +382,6 @@ func (w *wizard) SetupPath(
 	ctx context.Context,
 ) (PathStatus, error) {
 	return w.shelf.SetupPath(ctx)
-}
-
-func (w *wizard) Launchable(
-	ctx context.Context,
-	workdir string,
-) bool {
-	return w.shelf.Launchable(ctx, workdir)
-}
-
-func (w *wizard) Launch(
-	ctx context.Context,
-	workdir string,
-) error {
-	return w.shelf.Launch(ctx, workdir)
 }
 
 func (w *wizard) Shutdown(

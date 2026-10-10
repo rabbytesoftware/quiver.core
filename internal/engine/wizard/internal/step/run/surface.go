@@ -37,26 +37,7 @@ func openSurface(
 		return nil, err
 	}
 	emit(req, models.Event{Kind: models.EventKindSurface, Surface: &surface})
-	return func() {
-		removeSocket(req, ui)
-		emit(req, models.Event{Kind: models.EventKindSurfaceClosed})
-	}, nil
-}
-
-// removeSocket deletes the unix socket a listening ui served on. The surface
-// engine removes it too, but only once the closed event has travelled to the
-// runtime repository, which a daemon shutting down never waits for, and a
-// killed process does not unlink its own socket on Windows.
-func removeSocket(
-	req wizstep.Request,
-	ui *domainstep.UIOptions,
-) {
-	if !ui.Listens() {
-		return
-	}
-	if path := req.Vars[domain.VarArrowUIListen]; path != "" {
-		_ = os.Remove(path)
-	}
+	return func() { emit(req, models.Event{Kind: models.EventKindSurfaceClosed}) }, nil
 }
 
 func surfaceFor(

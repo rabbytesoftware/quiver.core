@@ -6,5 +6,4 @@ type VersionView struct {
 	Namespace domain.Namespace
 	Metadata  domain.Arrow
 	State     domain.ArrowState
-	Openable  bool
 }

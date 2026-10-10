@@ -32,8 +32,6 @@ func StatusAndMessage(err error) (int, string) {
 		return http.StatusUnprocessableEntity, "other arrows depend on this arrow"
 	case errors.Is(err, apperrors.ErrPlatformNotSupported):
 		return http.StatusUnprocessableEntity, "no target for the current platform"
-	case errors.Is(err, apperrors.ErrNotOpenable):
-		return http.StatusConflict, "arrow has no app to open"
 	case errors.Is(err, apperrors.ErrMissingVariable):
 		return http.StatusUnprocessableEntity, "required variable not provided"
 	// The next two forward the error text instead of a constant message: the

@@ -67,7 +67,7 @@ func TestResolveManifest_Refless_AfterARestartIsServedFromTheVaultWhileTheHostIs
 	assert.Equal(t, selectorBare.WithRef("stable"), got.Namespace, "the channel the namespace follows, not the tag it stands at")
 	assert.Equal(t, "v2.0.0", got.Resolved.Ref)
 	assert.Equal(t, "c200", got.Resolved.Commit)
-	assert.Equal(t, 1, hostDown.FreshSnapshotCalls, "the host is asked live behind the answer")
+	assert.Equal(t, 1, hostDown.SnapshotCalls, "the host is asked behind the answer")
 }
 
 func TestResolveManifest_Refless_RecheckFindingANewerCommit_IsReported(t *testing.T) {
@@ -221,7 +221,7 @@ func TestStore_HeldChannels_AfterARestartAreServedFromTheVaultWhileTheHostIsDown
 	require.Len(t, got, 1)
 	assert.Equal(t, "stable", got[0].Name)
 	assert.Equal(t, "v2.0.0", got[0].Latest)
-	assert.Equal(t, 1, hostDown.FreshSnapshotCalls, "the host is asked live behind the answer")
+	assert.Equal(t, 1, hostDown.SnapshotCalls, "the host is asked behind the answer")
 }
 
 func TestStore_HeldChannels_NothingFiledWithThem_AnswersNothing(t *testing.T) {

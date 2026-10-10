@@ -11,7 +11,6 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/domain"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/discover"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/host"
-	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/launch"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/models"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/ownership"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/wizard/internal/shelf/internal/platform"
@@ -44,18 +43,6 @@ type Shelf interface {
 	SetupPath(
 		ctx context.Context,
 	) (PathStatus, error)
-	// Launchable reports whether the arrow installed in workdir has a desktop
-	// entry Launch can start.
-	Launchable(
-		ctx context.Context,
-		workdir string,
-	) bool
-	// Launch starts the desktop entry the arrow installed in workdir exposed,
-	// detached from the daemon.
-	Launch(
-		ctx context.Context,
-		workdir string,
-	) error
 }
 
 type shelf struct {
@@ -125,9 +112,6 @@ func (s *shelf) Apply(
 	if err := s.prune(ctx, req.Layout, models.NamespaceClaim(req.Bare), out.Locations()); err != nil {
 		return out, fmt.Errorf("shelf: apply %s: prune: %w", ns, err)
 	}
-	if err := s.recordLaunch(req.Workdir, out); err != nil {
-		return out, fmt.Errorf("shelf: apply %s: record launch: %w", ns, err)
-	}
 	return out, nil
 }
 
@@ -148,9 +132,6 @@ func (s *shelf) Remove(
 
 	if err := s.prune(ctx, l, models.WorkdirClaim(bare, clean), nil); err != nil {
 		return fmt.Errorf("shelf: remove %s: %w", workdir, err)
-	}
-	if err := launch.Clear(clean); err != nil {
-		return fmt.Errorf("shelf: remove %s: clear launch: %w", workdir, err)
 	}
 	return nil
 }

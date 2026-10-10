@@ -44,7 +44,6 @@ func setup(svc *mocks.ArrowService) (*arrows.Handlers, *gin.Engine) {
 	r.GET("/v0/arrow/:ns/channels", h.ListChannels)
 	r.POST("/v0/arrow/:ns/manifest", h.Seed)
 	r.POST("/v0/arrow/:ns/adopt", h.AdoptInstalled)
-	r.POST("/v0/arrow/:ns/open", h.Open)
 	r.POST("/v0/arrow/:ns/manifest/validate", h.Validate)
 	return h, r
 }
@@ -680,25 +679,4 @@ func TestUpdate_ReturnsTheResult(t *testing.T) {
 	require.NotNil(t, env.Data.Available)
 	assert.Equal(t, "v1.1.0", env.Data.Available.Ref)
 	assert.Equal(t, "c2", env.Data.Available.Commit)
-}
-
-func TestOpen_StatusMapping(t *testing.T) {
-	testCases := []struct {
-		name string
-		err  error
-		want int
-	}{
-		{"opened", nil, http.StatusOK},
-		{"not openable", apperrors.ErrNotOpenable, http.StatusConflict},
-		{"not found", apperrors.ErrNotFound, http.StatusNotFound},
-		{"launch failed", errors.New("spawn failed"), http.StatusInternalServerError},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, r := setup(&mocks.ArrowService{OpenErr: tc.err})
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, encodedNS+"/open", nil))
-			assert.Equal(t, tc.want, w.Code)
-		})
-	}
 }

@@ -423,10 +423,6 @@ definitions:
         type: string
       namespace:
         type: string
-      openable:
-        description: Openable is true when POST /arrow/{ns}/open can start the installed
-          app.
-        type: boolean
       origin:
         type: string
       outdated:
@@ -798,8 +794,6 @@ definitions:
         type: string
       last_used_at:
         type: string
-      openable:
-        type: boolean
       ref:
         type: string
       resolved_ref:
@@ -1616,36 +1610,6 @@ paths:
           schema:
             $ref: '#/definitions/libs.ErrResponse'
       summary: Validate arrow manifest
-      tags:
-      - arrows
-  /arrow/{ns}/open:
-    post:
-      description: Launches the installed arrow's desktop app, detached from the daemon.
-        Only arrows whose detail reports openable can be opened.
-      parameters:
-      - description: Arrow namespace
-        in: path
-        name: ns
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/libs.MutationResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/libs.ErrResponse'
-        "409":
-          description: Arrow has no app to open
-          schema:
-            $ref: '#/definitions/libs.ErrResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/libs.ErrResponse'
-      summary: Open arrow
       tags:
       - arrows
   /arrow/{ns}/readme:

@@ -137,7 +137,6 @@ The Arrow resource manages catalog entries: registration, version checks, manife
 | GET | `/arrow/{ns}/channels` | List the channels the repository publishes | Sync |
 | POST | `/arrow/{ns}/manifest` | Adopt a raw manifest as a pin of `{ns}`'s own ref | Sync |
 | POST | `/arrow/{ns}/adopt` | Register `{ns}` as already installed at a declared ref | Sync |
-| POST | `/arrow/{ns}/open` | Start the installed arrow's desktop app | Sync |
 | POST | `/arrow/{ns}/manifest/validate` | Validate a raw YAML manifest without writing it | Sync |
 
 #### POST /arrow/{ns} — Register
@@ -218,10 +217,6 @@ Lists the channels the repository publishes, for picking a selector at install t
 #### POST /arrow/{ns}/manifest — Seed
 
 Accepts a raw manifest in the request body and adopts it as a **pin of `{ns}`'s own ref**: a new user-installed row when the identity is absent, a manifest replacement when it exists. `{ns}` must carry a ref. Used to register an arrow from a local manifest file. `Content-Type: application/x-yaml` is expected but not enforced — the body is read raw via `io.ReadAll`. Returns **201 Created** with the mutation envelope. Errors: 400 (failed to read body, or a namespace without a ref or with an empty ref component), 409 (a concurrent registration of the same identity won the race), 422 (invalid manifest), 500.
-
-#### POST /arrow/{ns}/open: Open
-
-Starts the app the installed arrow exposed as a desktop entry, detached from the daemon (`open` on a macOS bundle, the executable itself elsewhere, never a console window of its own on Windows). Only a version in state `ready` whose install placed a desktop entry can be opened: `openable` on the arrow detail and on each version of the arrow list says so, and is omitted otherwise. The target is recorded by the shelf when the entry is placed and checked again at launch: it must still exist inside the arrow's workdir (a `.app` bundle may instead sit directly in an applications folder), be a file with an execute bit on unix, and not be a directory unless it is a bundle. On macOS `open` is given about two seconds to refuse the bundle, and a refusal is a 409. Returns **200 OK** with the mutation envelope. Errors: 404 (arrow not catalogued), 409 (not installed, or no desktop entry to open), 500.
 
 #### POST /arrow/{ns}/adopt — Adopt installed
 
@@ -338,7 +333,7 @@ Registered from `internal/api/v0/endpoints/search/routes.go`.
 | POST | `/search/discover` | Start a network discovery pass; **202** with a job id |
 | GET | `/search/discover/{job}` | Job summary; with `Upgrade: websocket`, the result stream ([websocket.md § 3.4](websocket.md)) |
 
-**Matching (Lane A, vault lane).** The query is split on whitespace, `.`, `-` and `_`, so `quiver-chat`, `quiver.chat` and `quiver_chat` are the same query. A vault row matches when every token appears, case-insensitively, as a substring of the arrow's namespace (so the owner and repository name count), name, description, or one of its tags. Trigram FTS only ranks the matches (name above tags above description, then stars); rows it cannot score rank after those it can. This is why a one- or two-character query, a multi-word query, or an arrow whose only match is its repository name is found, and why an arrow a discovery pass indexed is found again by the query that discovered it. The catalog lane requires every term (three characters or more) as a trigram phrase over name, description and tags.
+**Matching (Lane A, vault lane).** The query is split on whitespace. A vault row matches when every token appears, case-insensitively, as a substring of the arrow's namespace (so the owner and repository name count), name, description, or one of its tags. Trigram FTS only ranks the matches (name above tags above description, then stars); rows it cannot score rank after those it can. This is why a one- or two-character query, a multi-word query, or an arrow whose only match is its repository name is found, and why an arrow a discovery pass indexed is found again by the query that discovered it. The catalog lane still uses a single trigram phrase over name, description and tags.
 
 **Limit.** `limit` (default 25, cap 100) counts arrows, not refs: the vault lane keeps every ref of the best-ranked bare namespaces, and the merged answer is cut to `limit` only after ranking and grouping.
 
@@ -443,7 +438,6 @@ Errors: 422 (the daemon was built without a way to stop itself), 500.
 | `GET /v0/arrow/{ns}/channels` | Sync | 200 |
 | `POST /v0/arrow/{ns}/manifest` | Sync | 201 |
 | `POST /v0/arrow/{ns}/adopt` | Sync | 201 |
-| `POST /v0/arrow/{ns}/open` | Sync | 200 |
 | `POST /v0/arrow/{ns}/manifest/validate` | Sync | 200 (valid) / 422 (invalid) |
 | `POST /v0/collection/{ns}/follow` | Sync | 201 |
 | `DELETE /v0/collection/{ns}/follow` | Sync | 200 |

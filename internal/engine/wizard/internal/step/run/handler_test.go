@@ -517,15 +517,3 @@ func TestHandler_Execute_NoWorkDir_IsRefused(t *testing.T) {
 	require.ErrorIs(t, err, steprun.ErrNoWorkDir)
 	assert.NoFileExists(t, marker)
 }
-
-func TestHandler_Execute_UIListenRemovesTheLeftoverSocket(t *testing.T) {
-	var events []models.Event
-	socket := filepath.Join(t.TempDir(), "x.sock")
-	require.NoError(t, os.WriteFile(socket, nil, 0o600))
-	vars := map[string]string{domain.VarArrowUIListen: socket}
-	s := domainstep.NewRunStep("chat", "echo hi", false, "5s", true).WithUI(domainstep.UIOptions{Title: "Chat"})
-
-	require.NoError(t, newTestHandler(t).Execute(t.Context(), uiRequest(vars, os.TempDir(), &events), s))
-
-	assert.NoFileExists(t, socket)
-}

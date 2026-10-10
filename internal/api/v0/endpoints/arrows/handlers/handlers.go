@@ -384,24 +384,3 @@ func (h *Handlers) Validate(c *gin.Context) {
 		libs.WriteQueryWithStatus(c, http.StatusUnprocessableEntity, dto)
 	}
 }
-
-// Open starts the installed arrow's desktop app.
-//
-// @Summary      Open arrow
-// @Description  Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened.
-// @Tags         arrows
-// @Param        ns   path  string  true  "Arrow namespace"
-// @Success      200  {object}  libs.MutationResponse
-// @Failure      404  {object}  libs.ErrResponse
-// @Failure      409  {object}  libs.ErrResponse  "Arrow has no app to open"
-// @Failure      500  {object}  libs.ErrResponse
-// @Router       /arrow/{ns}/open [post]
-func (h *Handlers) Open(c *gin.Context) {
-	ns := domain.Namespace(c.Param("ns"))
-	if err := h.svc.Open(c.Request.Context(), ns); err != nil {
-		status, msg := apierr.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg, string(ns), err)
-		return
-	}
-	libs.WriteMutationOK(c, http.StatusOK, string(ns))
-}

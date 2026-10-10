@@ -15,8 +15,6 @@ type Wizard struct {
 	ProcessAliveFn func(pid int) bool
 	PathStatusFn   func(ctx context.Context) (wizard.PathStatus, error)
 	SetupPathFn    func(ctx context.Context) (wizard.PathStatus, error)
-	LaunchableFn   func(ctx context.Context, workdir string) bool
-	LaunchFn       func(ctx context.Context, workdir string) error
 	// BlockStart, when non-nil, blocks Start until the channel is closed.
 	BlockStart chan struct{}
 }
@@ -76,26 +74,6 @@ func (m *Wizard) SetupPath(
 		return m.SetupPathFn(ctx)
 	}
 	return wizard.PathStatus{}, nil
-}
-
-func (m *Wizard) Launchable(
-	ctx context.Context,
-	workdir string,
-) bool {
-	if m.LaunchableFn != nil {
-		return m.LaunchableFn(ctx, workdir)
-	}
-	return false
-}
-
-func (m *Wizard) Launch(
-	ctx context.Context,
-	workdir string,
-) error {
-	if m.LaunchFn != nil {
-		return m.LaunchFn(ctx, workdir)
-	}
-	return nil
 }
 
 // doneExecution is an already-finished Execution used by the mock.

@@ -774,31 +774,3 @@ func TestResolveManifest_Refless_SecondPreviewReusesTheFiledManifest(t *testing.
 	assert.Equal(t, first.Namespace, second.Namespace)
 	assert.Equal(t, first.Resolved, second.Resolved)
 }
-
-func TestResolveInstall_ChoosesTheSnapshotSource(t *testing.T) {
-	testCases := []struct {
-		name      string
-		ns        domain.Namespace
-		opts      []store.InstallOption
-		wantFresh int
-		wantCache int
-	}{
-		{"refless install reads refs live", selectorBare, nil, 1, 0},
-		{"refless preview reads the cache", selectorBare, []store.InstallOption{store.Preview()}, 0, 1},
-		{"refless preview that asks for fresh reads live", selectorBare, []store.InstallOption{store.Preview(), store.Fresh()}, 1, 0},
-		{"pinned install reads the cache", selectorBare.WithRef("v1.2.0"), nil, 0, 1},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var fetched []commitFetch
-			m := selectorManifold(selectorSnapshot(), &fetched)
-			r := newTestReaderWithVaultManifold(t, nil, m)
-
-			_, _, err := r.ResolveInstall(context.Background(), tc.ns, tc.opts...)
-
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantFresh, m.FreshSnapshotCalls)
-			assert.Equal(t, tc.wantCache, m.SnapshotCalls)
-		})
-	}
-}

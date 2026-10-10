@@ -725,50 +725,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/arrow/{ns}/open": {
-            "post": {
-                "description": "Launches the installed arrow's desktop app, detached from the daemon. Only arrows whose detail reports openable can be opened.",
-                "tags": [
-                    "arrows"
-                ],
-                "summary": "Open arrow",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Arrow namespace",
-                        "name": "ns",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/libs.MutationResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/libs.ErrResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Arrow has no app to open",
-                        "schema": {
-                            "$ref": "#/definitions/libs.ErrResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/libs.ErrResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/arrow/{ns}/readme": {
             "get": {
                 "description": "Returns the prose surrounding the fenced manifest block when the arrow is delivered as ARROW.md. 404 if the arrow was delivered as arrow.yaml or carries no readme.",
@@ -2824,10 +2780,6 @@ const docTemplate = `{
                 "namespace": {
                     "type": "string"
                 },
-                "openable": {
-                    "description": "Openable is true when POST /arrow/{ns}/open can start the installed app.",
-                    "type": "boolean"
-                },
                 "origin": {
                     "type": "string"
                 },
@@ -3378,9 +3330,6 @@ const docTemplate = `{
                 },
                 "last_used_at": {
                     "type": "string"
-                },
-                "openable": {
-                    "type": "boolean"
                 },
                 "ref": {
                     "type": "string"
