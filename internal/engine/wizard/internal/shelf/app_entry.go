@@ -95,7 +95,7 @@ func appExecutable(
 	if strings.EqualFold(filepath.Ext(target), models.BundleExt) {
 		return bundleExecutable(target)
 	}
-	info, err := os.Stat(target)
+	info, err := os.Stat(target) // #nosec G703 -- target was checked against the arrow's own directories by appAllowed
 	if err != nil {
 		return "", err
 	}
