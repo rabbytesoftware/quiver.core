@@ -60,7 +60,13 @@ func (r *storeService) ResolveInstall(
 	}
 	o.refless = ns.Ref() == ""
 
-	identity, kind, snap, err := identify(ctx, ns, r.manifold.Snapshot)
+	take := r.manifold.Snapshot
+	if o.refless {
+		// Which channel a refless namespace follows is decided here, and a
+		// cached ref list up to a TTL old can still name the previous release.
+		take = r.manifold.FreshSnapshot
+	}
+	identity, kind, snap, err := identify(ctx, ns, take)
 	if err != nil {
 		return identity, nil, fmt.Errorf("reader resolve install %w", err)
 	}

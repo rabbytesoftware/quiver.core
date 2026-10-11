@@ -105,7 +105,7 @@ func (s *arrowService) markIfPreinstalled(
 	arrow *domain.Arrow,
 ) error {
 	steps := s.preinstalledSteps(arrow)
-	if len(steps) == 0 {
+	if len(steps) == 0 && !s.runsWithoutInstall(arrow) {
 		return nil
 	}
 
@@ -114,6 +114,13 @@ func (s *arrowService) markIfPreinstalled(
 		return fmt.Errorf("add: preinstalled check %s: %w", ns, err)
 	}
 	if catalogued {
+		return nil
+	}
+
+	if len(steps) == 0 {
+		if err := s.preinstalled.mark(ctx, ns); err != nil {
+			return fmt.Errorf("add: %w", err)
+		}
 		return nil
 	}
 
@@ -130,6 +137,19 @@ func (s *arrowService) markIfPreinstalled(
 	}
 
 	return nil
+}
+
+// runsWithoutInstall reports an arrow with an execute and no install for this
+// platform: there is nothing to install, so it is ready the moment it is added.
+func (s *arrowService) runsWithoutInstall(
+	arrow *domain.Arrow,
+) bool {
+	if !s.preinstalled.enabled() || arrow == nil {
+		return false
+	}
+
+	target, ok := arrow.Targets[s.preinstalled.os]
+	return ok && len(target.Lifecycle.Install) == 0 && len(target.Lifecycle.Execute) > 0
 }
 
 // preinstalledSteps returns the steps Add should probe with, or nothing at all

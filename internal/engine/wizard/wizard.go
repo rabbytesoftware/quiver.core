@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -463,7 +464,36 @@ func (w *wizard) executeStep(
 		return ErrUnknownStepType
 	}
 
-	return fn(ctx, stepRequest(req, emit), s)
+	sr := stepRequest(req, emit)
+	if err := w.provisionApp(ctx, &sr, s); err != nil {
+		return err
+	}
+	return fn(ctx, sr, s)
+}
+
+// provisionApp gives a run step that names ${ARROW_APP} the executable of the
+// app the arrow exposed. It fails the step, with a message saying why, when
+// there is none, instead of starting a command with an empty path.
+func (w *wizard) provisionApp(
+	ctx context.Context,
+	sr *wizstep.Request,
+	s domainstep.Step,
+) error {
+	run, ok := s.(domainstep.RunStep)
+	if !ok || !strings.Contains(run.Command.Resolve(sr.OSArch.String()), "${"+domain.VarArrowApp+"}") {
+		return nil
+	}
+	app, err := w.shelf.AppEntry(ctx, sr.WorkDir)
+	if err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+	vars := make(map[string]string, len(sr.Vars)+1)
+	for k, v := range sr.Vars {
+		vars[k] = v
+	}
+	vars[domain.VarArrowApp] = app
+	sr.Vars = vars
+	return nil
 }
 
 func stepRequest(

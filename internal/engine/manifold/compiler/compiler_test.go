@@ -103,3 +103,49 @@ func TestCompile_AmbiguousTarget_ReturnsError(t *testing.T) {
 		t.Fatal("expected error for ambiguous targets, got nil")
 	}
 }
+
+func TestCompile_DesktopExposeWithoutExecute_GetsStartStop(t *testing.T) {
+	manifest := &domain.Arrow{}
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{},
+			},
+			Expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "app", Path: domain.ExposeAuto}}},
+		},
+	}
+
+	if err := compiler.New().Compile(manifest, precompiled, v0.New().Selector()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for os, target := range manifest.Targets {
+		if len(target.Lifecycle.Execute) != 1 || len(target.Lifecycle.Stop) != 1 {
+			t.Errorf("%s: want one execute and one stop, got %d and %d", os, len(target.Lifecycle.Execute), len(target.Lifecycle.Stop))
+		}
+	}
+}
+
+func TestCompile_ExplicitExecuteWins(t *testing.T) {
+	manifest := &domain.Arrow{}
+	explicit := step.NewRunStep("mine", "./mine", false, "10s", true)
+	precompiled := map[string]models.PrecompiledTarget{
+		"*": {
+			Lifecycle: domain.TargetLifecycle{
+				Install:   step.StepList{step.NewRunStep("install", "echo ok", false, "10s", true)},
+				Uninstall: step.StepList{},
+				Execute:   step.StepList{explicit},
+			},
+			Expose: domain.Expose{Desktop: []domain.ExposeEntry{{Name: "app", Path: domain.ExposeAuto}}},
+		},
+	}
+
+	if err := compiler.New().Compile(manifest, precompiled, v0.New().Selector()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for os, target := range manifest.Targets {
+		if len(target.Lifecycle.Execute) != 1 || target.Lifecycle.Execute[0].Title() != explicit.Title() || len(target.Lifecycle.Stop) != 0 {
+			t.Errorf("%s: explicit execute was replaced", os)
+		}
+	}
+}

@@ -774,3 +774,28 @@ func TestResolveManifest_Refless_SecondPreviewReusesTheFiledManifest(t *testing.
 	assert.Equal(t, first.Namespace, second.Namespace)
 	assert.Equal(t, first.Resolved, second.Resolved)
 }
+
+func TestResolveInstall_ReflessReadsRefsLive(t *testing.T) {
+	testCases := []struct {
+		name      string
+		ns        domain.Namespace
+		wantFresh int
+		wantCache int
+	}{
+		{"refless follows the live refs", selectorBare, 1, 0},
+		{"a pinned ref reads the cached list", selectorBare.WithRef("v1.2.0"), 0, 1},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fetched []commitFetch
+			m := selectorManifold(selectorSnapshot(), &fetched)
+			r := newTestReaderWithVaultManifold(t, nil, m)
+
+			_, _, err := r.ResolveInstall(context.Background(), tc.ns)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantFresh, m.FreshSnapshotCalls)
+			assert.Equal(t, tc.wantCache, m.SnapshotCalls)
+		})
+	}
+}

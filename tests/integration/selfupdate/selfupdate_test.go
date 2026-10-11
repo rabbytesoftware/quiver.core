@@ -80,7 +80,6 @@ func (s *SelfUpdateSuite) TestSelfUpdate_SupervisedProcessSurvives_AcrossRestart
 	// --- the supervised process that must survive Core's own self-update ---
 	fixtureNS := kit.NSFor("quiver-test/self-update-fixture", "v1")
 	require.Equal(s.T(), http.StatusCreated, tc1.Add(fixtureNS))
-	require.Equal(s.T(), http.StatusAccepted, tc1.Install(fixtureNS, nil))
 	env1.WaitForState(s.T(), fixtureNS, domain.ArrowStateReady, 120*time.Second)
 	require.Equal(s.T(), http.StatusAccepted, tc1.Execute(fixtureNS, "execute", nil))
 	env1.WaitForState(s.T(), fixtureNS, domain.ArrowStateRunning, 120*time.Second)

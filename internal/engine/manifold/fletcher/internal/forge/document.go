@@ -1,6 +1,9 @@
 package forge
 
-import "github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
+import (
+	"github.com/rabbytesoftware/quiver.core/internal/domain"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/manifold/fletcher/internal/picker"
+)
 
 type document struct {
 	Schema   string            `yaml:"schema"`
@@ -37,6 +40,7 @@ func newDocument(
 			targets[string(platform)] = newTarget(name, file, platform, checksummed(pick, in.Unpinned))
 		}
 	}
+	addStartStop(name, targets)
 	return document{
 		Schema: schemaV0,
 		Metadata: metadata{
@@ -62,4 +66,24 @@ func checksummed(
 		pick.Asset.Digest = ""
 	}
 	return pick
+}
+
+// addStartStop gives every target a start and a stop when any of them exposes
+// an app, since a manifest cannot mix targets with and without an execute. A
+// target that placed no app still validates, and its start fails saying so.
+func addStartStop(
+	name string,
+	targets map[string]target,
+) {
+	hasApp := false
+	for _, t := range targets {
+		hasApp = hasApp || len(t.Expose.Desktop) > 0
+	}
+	if !hasApp {
+		return
+	}
+	for key, t := range targets {
+		t.Lifecycle.Execute, t.Lifecycle.Stop = startStopSteps(name, domain.OS(key).IsWindows())
+		targets[key] = t
+	}
 }

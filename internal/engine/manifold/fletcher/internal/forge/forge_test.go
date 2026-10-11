@@ -502,3 +502,43 @@ func TestRender_GitHubDesktopReleaseInstallsAnArchiveExposedAsCLIAndDesktop(t *t
 		assert.Equal(t, "Download "+file, target.Lifecycle.Install[0].Title(), os)
 	}
 }
+
+func TestRender_StartAndStopForEveryTargetOfAnArrowWithAnApp(t *testing.T) {
+	data, err := forge.Render(baseInput())
+	require.NoError(t, err)
+
+	arrow := parse(t, data)
+
+	require.Len(t, arrow.Targets, 6)
+	for os, target := range arrow.Targets {
+		start, ok := target.Lifecycle.Execute[0].(step.RunStep)
+		require.True(t, ok, os)
+		want := `exec "${ARROW_APP}"`
+		if os.IsWindows() {
+			want = `"${ARROW_APP}"`
+		}
+		assert.Equal(t, want, start.Command.Default, os)
+		require.Len(t, target.Lifecycle.Stop, 1, os)
+		stop, ok := target.Lifecycle.Stop[0].(step.SignalStep)
+		require.True(t, ok, os)
+		assert.Equal(t, step.SignalKindGraceful, stop.Signal.Default, os)
+		assert.False(t, stop.ExitOnFailure(), os)
+	}
+}
+
+func TestRender_NoStartWithoutAnApp(t *testing.T) {
+	in := baseInput()
+	in.Picks = map[domain.OS]picker.Pick{
+		domain.OSLinuxAMD64:   pickOf("tool-linux-x86_64.tar.gz", picker.FormatArchive),
+		domain.OSWindowsAMD64: pickOf("tool-windows-amd64.exe", picker.FormatBinary),
+	}
+	data, err := forge.Render(in)
+	require.NoError(t, err)
+
+	arrow := parse(t, data)
+
+	for os, target := range arrow.Targets {
+		assert.Empty(t, target.Lifecycle.Execute, os)
+		assert.Empty(t, target.Lifecycle.Stop, os)
+	}
+}

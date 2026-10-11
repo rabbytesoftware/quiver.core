@@ -297,8 +297,9 @@ advertisement (`git ls-remote`, in memory through go-git) folded into
 Channels, constraint matches, pins and commits are all derived from that one value, so a
 decision can never combine two inconsistent views of the remote. `Manifold.Snapshot` caches
 it per bare namespace for the manifold cache TTL (tied to `arrows.version_check_ttl`,
-default `1h`); `Manifold.FreshSnapshot` reads it live and refreshes the cache. Installs
-resolve through `Snapshot`; every version check and the update commit use `FreshSnapshot`.
+default `1h`); `Manifold.FreshSnapshot` reads it live and refreshes the cache. A refless
+resolve (its channel is chosen from the refs), every version check and the update commit use `FreshSnapshot`;
+an install with a pinned selector uses `Snapshot`.
 
 ### 5.2 Target and drift
 

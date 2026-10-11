@@ -43,6 +43,12 @@ type Shelf interface {
 	SetupPath(
 		ctx context.Context,
 	) (PathStatus, error)
+	// AppEntry returns the executable that starts the app the arrow's last
+	// install or update exposed as a desktop entry, or ErrNoApp.
+	AppEntry(
+		ctx context.Context,
+		workdir string,
+	) (string, error)
 }
 
 type shelf struct {
@@ -111,6 +117,9 @@ func (s *shelf) Apply(
 	}
 	if err := s.prune(ctx, req.Layout, models.NamespaceClaim(req.Bare), out.Locations()); err != nil {
 		return out, fmt.Errorf("shelf: apply %s: prune: %w", ns, err)
+	}
+	if err := s.recordApp(req.Workdir, out); err != nil {
+		return out, fmt.Errorf("shelf: apply %s: record app: %w", ns, err)
 	}
 	return out, nil
 }

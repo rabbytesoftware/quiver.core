@@ -2721,3 +2721,42 @@ func TestNew_RefreshedManifest_IsBroadcastAsNotUserInstalled(t *testing.T) {
 	assert.Equal(t, ns, hub.events[0].Namespace)
 	assert.False(t, hub.events[0].UserInstalled)
 }
+
+// An arrow with an execute and no install has nothing to install, so adding it
+// must leave it Ready: Start would otherwise be refused as "not installed".
+func TestArrowService_Add_ExecuteWithoutInstall_IsReady(t *testing.T) {
+	ctx := context.Background()
+	ns := testNs()
+	axArrow := newTestAsynxArrow(t)
+	t.Cleanup(func() { _ = axArrow.Shutdown(ctx) })
+	axRuntime := newTestAsynxRuntime(t)
+
+	arrow := &domain.Arrow{
+		Namespace: ns,
+		ArrowMeta: domain.ArrowMeta{Name: "Execute Only"},
+		Targets: map[domain.OS]domain.Target{
+			domain.CurrentOS(): {
+				Lifecycle: domain.TargetLifecycle{
+					Execute: domainStep.StepList{domainStep.NewRunStep("Run", "true", false, "10s", true)},
+				},
+			},
+		},
+	}
+	cat := arrowRepo.NewTestable(
+		resolvesTo(ns, arrow), axArrow, nil, nil,
+		arrowRepo.WithPreinstalledDetection(
+			domain.CurrentOS(),
+			func(_ context.Context, _ domain.Namespace, _ domainStep.StepList, _ map[string]string) error {
+				return errors.New("no probe expected")
+			},
+			runtimeRepo.MarkPreinstalled(axRuntime),
+			runtimeRepo.ForgetPreinstalled(axRuntime),
+		),
+	)
+
+	require.NoError(t, cat.Add(ctx, ns))
+
+	rt, err := axRuntime.Get(ctx, ns.String())
+	require.NoError(t, err)
+	assert.Equal(t, domain.ArrowStateReady, rt.State)
+}
