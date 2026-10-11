@@ -142,3 +142,40 @@ func TestV0Translator_DemoArrows(t *testing.T) {
 		})
 	}
 }
+
+const executeOnlyYAML = `
+schema: "arrow@v0"
+metadata:
+  name: char2cs.noinstall
+  description: Arrow with execute and stop but no install
+  license: MIT
+  maintainers:
+    - name: char2cs
+      email: me@char2cs.net
+targets:
+  "linux/*":
+    lifecycle:
+      execute:
+        - type: run
+          command: ./serve
+          title: Serving
+          timeout: 30s
+          exit_on_failure: true
+      stop:
+        - type: signal
+          signal: graceful
+          timeout: 30s
+          exit_on_failure: false
+`
+
+func TestIntegration_ExecuteWithoutInstallIsValid(t *testing.T) {
+	manifest, precompiled, err := v0.New().Parse([]byte(executeOnlyYAML))
+	require.NoError(t, err)
+	require.NoError(t, compiler.New().Compile(manifest, precompiled, v0.New().Selector()))
+	require.NoError(t, ruleset.New().ValidatePrecompile(manifest, precompiled))
+	require.NoError(t, ruleset.New().ValidateCompiled(manifest))
+
+	target := manifest.Targets[domain.OSLinuxAMD64]
+	assert.Empty(t, target.Lifecycle.Install)
+	assert.NotEmpty(t, target.Lifecycle.Execute)
+}
