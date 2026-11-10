@@ -1,4 +1,4 @@
-package sqlite
+package events
 
 import (
 	"context"
@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite/internal/entries"
 )
 
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
-	_, err := NewEventStore("/nonexistent-dir-quiver-test/db.sqlite")
+	_, err := New("/nonexistent-dir-quiver-test/db.sqlite")
 	assert.Error(t, err)
 }
 
@@ -38,7 +40,7 @@ func TestNewEventStore_ReadOnlyFileReturnsError(
 	require.NoError(t, sqlDB.Close())
 	require.NoError(t, os.Chmod(path, 0o444))
 
-	_, err = NewEventStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
 }
 
@@ -55,7 +57,7 @@ func TestNewEventStore_ConflictingSchemaReturnsError(
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = NewEventStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
 }
 
@@ -74,9 +76,9 @@ func cancelledCtx() context.Context {
 	return ctx
 }
 
-func newTestEventStore(t *testing.T) Store {
+func newTestEventStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewEventStore(":memory:")
+	s, err := New(":memory:")
 	require.NoError(t, err)
 	return s
 }
@@ -233,7 +235,7 @@ func TestEventStore_Append_DuplicateVersionIsAVersionConflict(t *testing.T) {
 
 	err := appendEvent(s, ctx, "agg-1", 1, []byte(`{"a":2}`))
 
-	assert.ErrorIs(t, err, ErrVersionConflict)
+	assert.ErrorIs(t, err, entries.ErrVersionConflict)
 	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 }
 
@@ -244,7 +246,7 @@ func TestEventStore_Append_StorageFailureIsNotAVersionConflict(t *testing.T) {
 	err := appendEvent(s, context.Background(), "agg-1", 1, []byte(`{"a":1}`))
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrVersionConflict)
+	assert.NotErrorIs(t, err, entries.ErrVersionConflict)
 }
 
 func TestEventStore_Append_StorageFailureIsNotReportedAsConflict(t *testing.T) {
@@ -291,4 +293,31 @@ func TestEventStore_ListAggregateIDs_EmptyReturnsEmpty(t *testing.T) {
 	ids, err := store.ListAggregateIDs(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, ids)
+}
+
+func poollessDB() *gorm.DB {
+	return &gorm.DB{Config: &gorm.Config{}, Statement: &gorm.Statement{}}
+}
+
+func TestStore_DB_ReturnsTheHandle(t *testing.T) {
+	s := newTestEventStore(t)
+
+	assert.NotNil(t, s.DB())
+}
+
+func TestStore_ListAggregateIDs_ContextCancelled(t *testing.T) {
+	s := newTestEventStore(t)
+
+	_, err := s.ListAggregateIDs(cancelledCtx())
+	require.Error(t, err)
+}
+
+func TestStore_Close_WithoutAPool_ReturnsError(t *testing.T) {
+	s := &Store{db: poollessDB()}
+
+	require.Error(t, s.Close())
+}
+
+func TestPrepare_WithoutAPool_ReturnsError(t *testing.T) {
+	require.Error(t, prepare(poollessDB()))
 }

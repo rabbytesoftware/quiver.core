@@ -1,4 +1,4 @@
-package sqlite
+package events
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTxTestStore(t *testing.T) Store {
+func newTxTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewEventStore(filepath.Join(t.TempDir(), "events.db"))
+	s, err := New(filepath.Join(t.TempDir(), "events.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	return s

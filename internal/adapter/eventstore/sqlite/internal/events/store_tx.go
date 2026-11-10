@@ -1,4 +1,4 @@
-package sqlite
+package events
 
 import (
 	"context"
@@ -6,16 +6,18 @@ import (
 
 	"github.com/char2cs/asynx/models"
 	"gorm.io/gorm"
+
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite/internal/entries"
 )
 
 // Atomically runs fn in one SQLite transaction, rolling back everything
 // written through its Tx when fn returns an error.
-func (s *eventStore) Atomically(
+func (s *Store) Atomically(
 	ctx context.Context,
 	fn func(tx models.Tx) error,
 ) error {
 	err := s.db.WithContext(ctx).Transaction(func(g *gorm.DB) error {
-		return fn(&eventTx{db: g})
+		return fn(&Tx{db: g})
 	})
 	if err != nil {
 		return fmt.Errorf("eventstore: atomically: %w", err)
@@ -25,11 +27,11 @@ func (s *eventStore) Atomically(
 
 // GetReceipt returns the receipt stored for commandID and whether there was
 // one.
-func (s *eventStore) GetReceipt(
+func (s *Store) GetReceipt(
 	ctx context.Context,
 	commandID string,
 ) (models.Receipt, bool, error) {
-	var e receiptEntry
+	var e entries.Receipt
 	res := s.db.WithContext(ctx).Where("command_id = ?", commandID).Limit(1).Find(&e)
 	if res.Error != nil {
 		return models.Receipt{}, false, fmt.Errorf("eventstore: get receipt: %w", res.Error)
@@ -48,11 +50,11 @@ func (s *eventStore) GetReceipt(
 
 // PendingDeliveries returns up to limit unacknowledged deliveries in enqueue
 // order.
-func (s *eventStore) PendingDeliveries(
+func (s *Store) PendingDeliveries(
 	ctx context.Context,
 	limit int,
 ) ([]models.Delivery, error) {
-	var entries []deliveryEntry
+	var entries []entries.Delivery
 	err := s.db.WithContext(ctx).Order("seq ASC").Limit(limit).Find(&entries).Error
 	if err != nil {
 		return nil, fmt.Errorf("eventstore: pending deliveries: %w", err)
@@ -66,14 +68,14 @@ func (s *eventStore) PendingDeliveries(
 
 // AckDelivery removes one delivery; acknowledging a missing one is not an
 // error.
-func (s *eventStore) AckDelivery(
+func (s *Store) AckDelivery(
 	ctx context.Context,
 	aggregateID string,
 	version int64,
 ) error {
 	err := s.db.WithContext(ctx).
 		Where("aggregate_id = ? AND version = ?", aggregateID, version).
-		Delete(&deliveryEntry{}).Error
+		Delete(&entries.Delivery{}).Error
 	if err != nil {
 		return fmt.Errorf("eventstore: ack delivery (%s, v%d): %w", aggregateID, version, err)
 	}
@@ -81,6 +83,6 @@ func (s *eventStore) AckDelivery(
 }
 
 // DB returns the events database handle; see Hosted.
-func (s *eventStore) DB() *gorm.DB {
+func (s *Store) DB() *gorm.DB {
 	return s.db
 }

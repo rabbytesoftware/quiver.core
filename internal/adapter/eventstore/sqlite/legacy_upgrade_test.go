@@ -2,14 +2,16 @@ package sqlite
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
+	glebarez "github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type counter struct {
@@ -35,14 +37,72 @@ func (c increment) EmitEvent(cur *counter) counter {
 	return next
 }
 
+const legacyEventsDDL = "CREATE TABLE `events` (`aggregate_id` text,`version` integer,`data` blob NOT NULL,PRIMARY KEY (`aggregate_id`,`version`))"
+
+const legacySnapshotsDDL = "CREATE TABLE `snapshots` (`aggregate_id` text,`version` integer NOT NULL,`data` blob NOT NULL,PRIMARY KEY (`aggregate_id`))"
+
+func legacyEvent(
+	id string,
+	version int,
+	patches string,
+) string {
+	return fmt.Sprintf(
+		`{"id":"%s-%d","event_name":"counter.incremented.%s","version":%d,"schema_version":1,`+
+			`"occurred_at":"2026-11-08T22:56:45Z","patches":[%s]}`,
+		id, version, id, version, patches,
+	)
+}
+
+func legacySnapshot(
+	id string,
+) string {
+	return fmt.Sprintf(`{"version":3,"schema_version":1,"state":{"name":"%s","count":6}}`, id)
+}
+
+func execAll(
+	t *testing.T,
+	path string,
+	statements ...[]any,
+) {
+	t.Helper()
+	db, err := gorm.Open(glebarez.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	for _, stmt := range statements {
+		require.NoError(t, db.Exec(stmt[0].(string), stmt[1:]...).Error)
+	}
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+}
+
+// copyLegacyFixture writes the databases an asynx v0.8.1 daemon leaves behind
+// (no receipts or deliveries tables): aggregates alpha and beta, each
+// incremented by 1, 2 and 3.
 func copyLegacyFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, name := range []string{"events.db", "snapshots.db"} {
-		data, err := os.ReadFile(filepath.Join("testdata", "asynx-v0.8.1", name))
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
+
+	events := [][]any{{legacyEventsDDL}}
+	snapshots := [][]any{{legacySnapshotsDDL}}
+	for _, id := range []string{"alpha", "beta"} {
+		first := `{"value":1,"op":"replace","path":"/count"},{"value":"` + id + `","op":"replace","path":"/name"}`
+		for version, patches := range []string{
+			first,
+			`{"value":3,"op":"replace","path":"/count"}`,
+			`{"value":6,"op":"replace","path":"/count"}`,
+		} {
+			events = append(events, []any{
+				"INSERT INTO events (aggregate_id, version, data) VALUES (?, ?, ?)",
+				"events:" + id, version + 1, []byte(legacyEvent(id, version+1, patches)),
+			})
+		}
+		snapshots = append(snapshots, []any{
+			"INSERT INTO snapshots (aggregate_id, version, data) VALUES (?, 3, ?)",
+			id, []byte(legacySnapshot(id)),
+		})
 	}
+	execAll(t, filepath.Join(dir, "events.db"), events...)
+	execAll(t, filepath.Join(dir, "snapshots.db"), snapshots...)
 	return dir
 }
 

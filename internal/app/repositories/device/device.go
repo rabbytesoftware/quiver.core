@@ -12,6 +12,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	devicecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/logged"
 	devicestore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
@@ -118,7 +119,7 @@ func (r *deviceRepo) registerTopic(
 		return err
 	}
 	projector := devicestore.NewProjector(r.store)
-	return bind.OnEvent(r.ax, topic, loggedProjection{projector: projector}.apply)
+	return bind.OnEvent(r.ax, topic, logged.Projection(projector))
 }
 
 func (r *deviceRepo) registerSyncTopic(
