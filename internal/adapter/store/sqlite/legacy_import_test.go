@@ -3,6 +3,7 @@ package sqlite
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,7 +93,13 @@ func TestImportLegacyFile_NothingToImport(t *testing.T) {
 	}{
 		{name: "empty path", path: ""},
 		{name: "missing file", path: filepath.Join(t.TempDir(), "absent.db")},
-		{name: "unreadable path", path: filepath.Join(notADir, "legacy.db"), wantErr: true},
+	}
+	if runtime.GOOS != "windows" {
+		testCases = append(testCases, struct {
+			name    string
+			path    string
+			wantErr bool
+		}{name: "unreadable path", path: filepath.Join(notADir, "legacy.db"), wantErr: true})
 	}
 
 	for _, tc := range testCases {

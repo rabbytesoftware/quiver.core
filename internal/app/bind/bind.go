@@ -1,10 +1,11 @@
 // Package bind lets repositories register asynx durable subscribers and sync
-// projections after the instance is built.
+// projections after the instance is built. Only its contract lives here; the
+// routing is under internal/.
 //
 // asynx accepts both only on its Builder, and Build already starts
 // redelivering what a crash left pending. The app container therefore builds
 // each instance with one catch-all durable subscriber and one catch-all sync
-// projection that forward to a Binder; repositories add their routes to it
+// projection that forward to a router; repositories add their routes to it
 // while the container is still wiring, and Ready releases the deliveries that
 // waited meanwhile.
 package bind
@@ -17,20 +18,23 @@ import (
 	"gorm.io/gorm"
 
 	eventstore "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind/internal/binder"
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind/internal/bound"
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind/internal/logged"
 )
 
 // Build finishes the builder with the two catch-all registrations that forward
-// to a new Binder, and pairs the resulting instance with it. The events store
+// to a new router, and pairs the resulting instance with it. The events store
 // must be the one the builder was given; when it can host read models
 // (eventstore.Hosted) the returned Bound exposes its database through Host.
 func Build[T any](
 	builder *asynx.Builder[T],
 	events asynxModels.Store,
 ) (Bound[T], error) {
-	binder := New[T]()
+	router := binder.New[T]()
 	ax, err := builder.
-		WithSubscriber(".*", binder.DispatchDurable).
-		WithSyncProjection(".*", binder.DispatchSync).
+		WithSubscriber(".*", router.DispatchDurable).
+		WithSyncProjection(".*", router.DispatchSync).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("bind: build: %w", err)
@@ -41,7 +45,7 @@ func Build[T any](
 	if ok {
 		db = hosted.DB()
 	}
-	return Wrap(ax, binder, db), nil
+	return bound.New(ax, router, db), nil
 }
 
 // Host returns the events database of ax, where its read model can live and
@@ -50,11 +54,11 @@ func Build[T any](
 func Host[T any](
 	ax asynx.Asynx[T],
 ) *gorm.DB {
-	bound, ok := ax.(Bound[T])
+	b, ok := ax.(Bound[T])
 	if !ok {
 		return nil
 	}
-	return bound.Host()
+	return b.Host()
 }
 
 // OnEvent registers h to receive every event matching pattern, which is what
@@ -69,11 +73,11 @@ func OnEvent[T any](
 	pattern string,
 	h asynxModels.DurableHandler[T],
 ) error {
-	bound, ok := ax.(Bound[T])
+	b, ok := ax.(Bound[T])
 	if ok {
-		return bound.Binder().Durable(pattern, h)
+		return b.Durable(pattern, h)
 	}
-	_, err := ax.Subscribe(pattern, loggedHandler[T]{handler: h}.handle)
+	_, err := ax.Subscribe(pattern, logged.Handler(h))
 	if err != nil {
 		return fmt.Errorf("bind: subscribe %s: %w", pattern, err)
 	}
@@ -88,11 +92,11 @@ func Projection[T any](
 	pattern string,
 	fn SyncFn[T],
 ) (bool, error) {
-	bound, ok := ax.(Bound[T])
+	b, ok := ax.(Bound[T])
 	if !ok {
 		return false, nil
 	}
-	err := bound.Binder().Sync(pattern, fn)
+	err := b.Sync(pattern, fn)
 	if err != nil {
 		return false, err
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -201,6 +202,9 @@ func TestHostedStore_LegacyImport_Errors(t *testing.T) {
 	})
 
 	t.Run("a path that cannot be stat'd fails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("windows reports a path under a file as not found")
+		}
 		es := openHost(t)
 		blocker := filepath.Join(t.TempDir(), "file")
 		require.NoError(t, os.WriteFile(blocker, nil, 0o600))

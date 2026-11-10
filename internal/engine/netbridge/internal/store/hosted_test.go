@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -140,6 +141,9 @@ func TestNewPortHosted_LegacyEdgeCases(t *testing.T) {
 	})
 
 	t.Run("unstatable path fails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("windows reports a path under a file as not found")
+		}
 		blocker := filepath.Join(t.TempDir(), "file")
 		require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 		_, err := NewPortHosted(hostedES(t).(eventstore.Hosted).DB(), filepath.Join(blocker, "x.db"))

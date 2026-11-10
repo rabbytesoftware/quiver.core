@@ -1,16 +1,8 @@
 package bind
 
-import (
-	"context"
-
-	asynxModels "github.com/char2cs/asynx/models"
-)
+import "github.com/rabbytesoftware/quiver.core/internal/app/bind/internal/binder"
 
 // SyncFn is the body of a sync projection: it runs inside the transaction that
 // stores the event, so everything it writes through tx commits or rolls back
 // with that event. See the asynx Builder's WithSyncProjection.
-type SyncFn[T any] func(
-	ctx context.Context,
-	tx asynxModels.Tx,
-	evt asynxModels.Event[T],
-) error
+type SyncFn[T any] = binder.SyncFn[T]

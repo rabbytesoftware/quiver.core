@@ -504,6 +504,9 @@ func TestOpenLegacyDeviceDB_AbsentFile_ReturnsNil(t *testing.T) {
 }
 
 func TestOpenLegacyDeviceDB_UnstatablePath_ReturnsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows reports a path under a file as not found")
+	}
 	blocker := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 
@@ -541,6 +544,9 @@ func TestRetireLegacyDeviceDB(t *testing.T) {
 }
 
 func TestRetireLegacyDeviceDB_FileGone_StillReleasesTheHandle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows cannot delete a file that is still open")
+	}
 	dir := t.TempDir()
 	db, err := adapterSqlite.OpenDB(filepath.Join(dir, legacyDeviceDBFile))
 	require.NoError(t, err)

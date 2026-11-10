@@ -1,4 +1,4 @@
-package bind
+package binder
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ func matcher(
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("bind: pattern %q: %w", pattern, err)
+		return nil, fmt.Errorf("binder: pattern %q: %w", pattern, err)
 	}
 	return re.MatchString, nil
 }
