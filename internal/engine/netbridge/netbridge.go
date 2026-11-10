@@ -96,8 +96,9 @@ func newNetbridge(
 	stratsCh <-chan []strategies.Strategy,
 	portStart int,
 	portEnd int,
+	project bool,
 ) (Netbridge, error) {
-	_, err := ax.Subscribe("port.*", projections.HandlePortEvent(readModel))
+	err := subscribeProjection(ax, readModel, project)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +111,18 @@ func newNetbridge(
 		portStart:  portStart,
 		portEnd:    portEnd,
 	}, nil
+}
+
+func subscribeProjection(
+	ax asynx.Asynx[ports.PortAllocation],
+	readModel store.PortStore,
+	project bool,
+) error {
+	if !project {
+		return nil
+	}
+	_, err := ax.Subscribe("port.*", projections.HandlePortEvent(readModel))
+	return err
 }
 
 // resolveStrategies returns the router-forwarding strategies discovery found.

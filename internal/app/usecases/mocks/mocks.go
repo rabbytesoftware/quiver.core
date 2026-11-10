@@ -68,6 +68,10 @@ type MockArrow struct {
 		ns domain.Namespace,
 		at time.Time,
 	) error
+	MarkUserInstalledFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	CheckInstalledVersionsFn func(
 		ctx context.Context,
 	)
@@ -289,6 +293,16 @@ func (m *MockArrow) MarkLastUsed(
 	return nil
 }
 
+func (m *MockArrow) MarkUserInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.MarkUserInstalledFn != nil {
+		return m.MarkUserInstalledFn(ctx, ns)
+	}
+	return nil
+}
+
 func (m *MockArrow) CheckVersionNow(
 	ctx context.Context,
 	ns domain.Namespace,
@@ -497,6 +511,10 @@ type MockRuntime struct {
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
+	OnRuntimeEndedDurableFn func(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
 	OnRuntimeBegunFn func(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
@@ -639,6 +657,15 @@ func (m *MockRuntime) OnRuntimeEnded(
 ) error {
 	if m.OnRuntimeEndedFn != nil {
 		return m.OnRuntimeEndedFn(fn)
+	}
+	return nil
+}
+
+func (m *MockRuntime) OnRuntimeEndedDurable(
+	fn func(ctx context.Context, rt domainRuntime.ArrowRuntime),
+) error {
+	if m.OnRuntimeEndedDurableFn != nil {
+		return m.OnRuntimeEndedDurableFn(fn)
 	}
 	return nil
 }

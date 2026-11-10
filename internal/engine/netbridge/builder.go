@@ -7,8 +7,10 @@ import (
 	"github.com/char2cs/asynx"
 	"github.com/char2cs/asynx/models"
 
+	eventstore "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/core/config"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/projections"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/strategies"
 )
@@ -110,30 +112,33 @@ func (b *Builder) Build(
 		return nil, fmt.Errorf("%w: %s", ErrBuildFailed, "missing SnapshotStore")
 	}
 
-	ax, err := asynx.New[ports.PortAllocation]().
-		WithEventStore(b.eventStore).
-		WithSnapshotStore(b.snapshotStore).
-		WithShardingOpts(asynx.ShardingOpts{
-			Shards:     8,
-			QueueDepth: 1000,
-		}).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrBuildFailed, err)
-	}
-
 	rm, owned, err := b.resolveStore()
 	if err != nil {
 		return nil, err
 	}
 
+	ab := asynx.New[ports.PortAllocation]().
+		WithEventStore(b.eventStore).
+		WithSnapshotStore(b.snapshotStore).
+		WithShardingOpts(asynx.ShardingOpts{
+			Shards:     8,
+			QueueDepth: 1000,
+		})
+	hosted, isHosted := rm.(store.HostedPortStore)
+	if isHosted {
+		ab = ab.WithSyncProjection("port.*", projections.SyncPortEvent(hosted))
+	}
+	ax, err := ab.Build()
+	if err != nil {
+		closeIfOwned(rm, owned)
+		return nil, fmt.Errorf("%w: %w", ErrBuildFailed, err)
+	}
+
 	portStart, portEnd := b.resolvePortRange()
 
-	nb, err := newNetbridge(ax, rm, b.discoverStrategies(ctx), portStart, portEnd)
+	nb, err := newNetbridge(ax, rm, b.discoverStrategies(ctx), portStart, portEnd, !isHosted)
 	if err != nil {
-		if owned {
-			_ = rm.Close()
-		}
+		closeIfOwned(rm, owned)
 		return nil, err
 	}
 	if svc, ok := nb.(*netbridgeService); ok {
@@ -193,15 +198,39 @@ func (b *Builder) resolveStore() (store.PortStore, bool, error) {
 	if b.readModel != nil {
 		return b.readModel, false, nil
 	}
-	if b.dbPath != "" {
-		rm, err := store.NewPortSQLite(b.dbPath)
-		if err != nil {
-			return nil, false, fmt.Errorf("%w: %w", ErrBuildFailed, err)
-		}
-		return rm, true, nil
+	if b.dbPath == "" {
+		return store.NewPortMemory(), false, nil
 	}
 
-	return store.NewPortMemory(), false, nil
+	hosted, ok := b.eventStore.(eventstore.Hosted)
+	if ok {
+		return b.openHostedStore(hosted)
+	}
+
+	rm, err := store.NewPortSQLite(b.dbPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrBuildFailed, err)
+	}
+	return rm, true, nil
+}
+
+func (b *Builder) openHostedStore(
+	hosted eventstore.Hosted,
+) (store.PortStore, bool, error) {
+	rm, err := store.NewPortHosted(hosted.DB(), b.dbPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrBuildFailed, err)
+	}
+	return rm, false, nil
+}
+
+func closeIfOwned(
+	rm store.PortStore,
+	owned bool,
+) {
+	if owned {
+		_ = rm.Close()
+	}
 }
 
 func (b *Builder) resolveForwarding() bool {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
+	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
 	"github.com/rabbytesoftware/quiver.core/internal/app/usecases"
 	ucmocks "github.com/rabbytesoftware/quiver.core/internal/app/usecases/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/core/paths"
@@ -60,6 +61,7 @@ func newTestStores(t *testing.T) adapter.Stores {
 func TestNewAsynx_Success_BuildsUsableInstance(t *testing.T) {
 	ax, err := newAsynx[domain.Arrow](newTestStores(t))
 	require.NoError(t, err)
+	ax.Ready()
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	ns := domain.Namespace("github.com/user/repo@v1")
@@ -87,6 +89,7 @@ func TestNewAsynx_CorruptionHook_FallsBackToColdReplay(t *testing.T) {
 	stores := newTestStores(t)
 	ax, err := newAsynx[domain.Arrow](stores)
 	require.NoError(t, err)
+	ax.Ready()
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	ns := domain.Namespace("github.com/user/corrupt@v1")
@@ -100,6 +103,7 @@ func TestNewAsynx_CorruptionHook_FallsBackToColdReplay(t *testing.T) {
 func TestNewAsynx_PanicHandler_RecoversSubscriberPanic(t *testing.T) {
 	ax, err := newAsynx[domain.Arrow](newTestStores(t))
 	require.NoError(t, err)
+	ax.Ready()
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	ns := domain.Namespace("github.com/user/panics@v1")
@@ -491,4 +495,67 @@ func TestWithVersionAndCommit_SetOptions(t *testing.T) {
 
 	assert.Equal(t, "26.5.1", cfg.version)
 	assert.Equal(t, "abc123", cfg.commit)
+}
+
+func TestOpenLegacyDeviceDB_AbsentFile_ReturnsNil(t *testing.T) {
+	db, err := openLegacyDeviceDB(t.TempDir())
+	require.NoError(t, err)
+	assert.Nil(t, db)
+}
+
+func TestOpenLegacyDeviceDB_UnstatablePath_ReturnsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows reports a path under a file as not found")
+	}
+	blocker := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+
+	_, err := openLegacyDeviceDB(filepath.Join(blocker, "store"))
+	require.Error(t, err)
+}
+
+func TestRetireLegacyDeviceDB(t *testing.T) {
+	testCases := []struct {
+		name         string
+		withFile     bool
+		wantMigrated bool
+	}{
+		{name: "no legacy database is a no-op"},
+		{name: "legacy database is closed and set aside", withFile: true, wantMigrated: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			var db *gormdb.DB
+			if tc.withFile {
+				var err error
+				db, err = adapterSqlite.OpenDB(filepath.Join(dir, legacyDeviceDBFile))
+				require.NoError(t, err)
+				require.NoError(t, db.Exec("CREATE TABLE t (id INTEGER)").Error)
+			}
+
+			assert.Nil(t, retireLegacyDeviceDB(db, dir))
+
+			_, err := os.Stat(filepath.Join(dir, legacyDeviceDBFile+".migrated"))
+			assert.Equal(t, tc.wantMigrated, err == nil)
+		})
+	}
+}
+
+func TestRetireLegacyDeviceDB_FileGone_StillReleasesTheHandle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows cannot delete a file that is still open")
+	}
+	dir := t.TempDir()
+	db, err := adapterSqlite.OpenDB(filepath.Join(dir, legacyDeviceDBFile))
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("CREATE TABLE t (id INTEGER)").Error)
+	require.NoError(t, os.Remove(filepath.Join(dir, legacyDeviceDBFile)))
+
+	assert.Nil(t, retireLegacyDeviceDB(db, dir))
+}
+
+func TestDiscardDB_Nil_IsANoOp(t *testing.T) {
+	assert.NotPanics(t, func() { discardDB(nil) })
 }

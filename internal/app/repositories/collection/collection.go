@@ -11,6 +11,7 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection/internal/commands"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/collection/internal/store"
@@ -71,6 +72,8 @@ type collectionService struct {
 	// asynx runs one goroutine per subscriber, so a second subscription on the
 	// same topic would race the read-model write. Callbacks are held here and
 	// invoked by the single projection instead, after the write has landed.
+	synced bool
+
 	callbacksMu   sync.RWMutex
 	followedFns   []func(ctx context.Context, q domain.Collection)
 	unfollowedFns []func(ctx context.Context, ns domain.Namespace)
@@ -82,11 +85,22 @@ func NewFromDBPath(
 	v vault.Vault,
 	m manifold.Manifold,
 ) (Collection, error) {
-	s, err := store.New(dbPath)
+	s, err := openStore(axCollection, dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("collection repository: open store: %w", err)
 	}
 	return New(axCollection, s, v, m)
+}
+
+func openStore(
+	ax asynx.Asynx[domain.Collection],
+	dbPath string,
+) (store.QuiverStore, error) {
+	host := bind.Host(ax)
+	if host == nil {
+		return store.New(dbPath)
+	}
+	return store.NewHosted(host, dbPath)
 }
 
 func New(
@@ -110,34 +124,62 @@ func New(
 }
 
 func (s *collectionService) registerProjections() error {
-	if _, err := s.axCollection.Subscribe("collection.followed", s.projectFollowed); err != nil {
+	err := s.registerSyncProjection()
+	if err != nil {
 		return err
 	}
 
-	if _, err := s.axCollection.OnForget(s.projectForgotten); err != nil {
+	err = bind.OnEvent(s.axCollection, "collection.followed", s.projectFollowed)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	_, err = s.axCollection.OnForget(s.projectForgotten)
+	return err
 }
 
-// projectFollowed is the only subscriber on collection.followed. It writes the
-// read model first and announces afterwards, so a client that is told a
-// collection is followed can always read it back. A write that failed is never
-// announced as success.
+func (s *collectionService) registerSyncProjection() error {
+	saver, ok := s.store.(store.TxSaver)
+	if !ok {
+		return nil
+	}
+	save := func(ctx context.Context, tx asynxModels.Tx, evt asynxModels.Event[domain.Collection]) error {
+		return saver.SaveTx(ctx, tx, evt.Aggregate)
+	}
+	synced, err := bind.Projection(s.axCollection, "collection.followed", save)
+	s.synced = synced
+	return err
+}
+
 func (s *collectionService) projectFollowed(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Collection],
-) {
-	if err := s.store.Save(ctx, evt.Aggregate); err != nil {
-		slog.ErrorContext(ctx, "follow: collection store save failed",
-			"namespace", evt.Aggregate.Namespace, "err", err)
-		return
+) error {
+	err := s.saveUnlessSynced(ctx, evt.Aggregate)
+	if err != nil {
+		return err
 	}
 
 	for _, fn := range s.followedCallbacks() {
 		fn(ctx, evt.Aggregate)
 	}
+	return nil
+}
+
+func (s *collectionService) saveUnlessSynced(
+	ctx context.Context,
+	coll domain.Collection,
+) error {
+	if s.synced {
+		return nil
+	}
+	err := s.store.Save(ctx, coll)
+	if err == nil {
+		return nil
+	}
+	slog.ErrorContext(ctx, "follow: collection store save failed",
+		"namespace", coll.Namespace, "err", err)
+	return fmt.Errorf("follow: save collection %s: %w", coll.Namespace, err)
 }
 
 // projectForgotten mirrors projectFollowed for removal: a delete that failed
@@ -209,7 +251,7 @@ func (s *collectionService) Unfollow(
 	}
 
 	if err := s.axCollection.Forget(ctx, ns.String()); err != nil {
-		return fmt.Errorf("unfollow quiver: %w", err)
+		return fmt.Errorf("unfollow quiver: %w", apperrors.FromForget(err))
 	}
 
 	if err := s.vault.DeleteCollection(ctx, ns); err != nil {

@@ -11,6 +11,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/google/uuid"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	runtimeinternal "github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/runtime/internal/assembler"
@@ -79,6 +80,12 @@ type Runtime interface {
 	) error
 
 	OnRuntimeEnded(fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	)) error
+	// OnRuntimeEndedDurable is OnRuntimeEnded delivered durably, for
+	// observers that only project the event outward.
+	OnRuntimeEndedDurable(fn func(
 		ctx context.Context,
 		rt domainRuntime.ArrowRuntime,
 	)) error
@@ -634,18 +641,24 @@ func (s *runtimeRepository) OnRuntimeEnded(fn func(
 	return err
 }
 
+// OnRuntimeEndedDurable is OnRuntimeEnded for observers that only project the
+// event outward (the hub): delivered durably, so a restart replays what was
+// still unacknowledged. The update bracket's reaction uses OnRuntimeEnded
+// instead, because settling an update twice is not harmless.
+func (s *runtimeRepository) OnRuntimeEndedDurable(fn func(
+	ctx context.Context,
+	rt domainRuntime.ArrowRuntime,
+),
+) error {
+	return s.onDurable("runtime.ended.*", fn)
+}
+
 func (s *runtimeRepository) OnRuntimeBegun(fn func(
 	ctx context.Context,
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.begun.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.begun.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeRecovered(fn func(
@@ -653,13 +666,7 @@ func (s *runtimeRepository) OnRuntimeRecovered(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.recovered.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.recovered.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeDetached(fn func(
@@ -667,13 +674,7 @@ func (s *runtimeRepository) OnRuntimeDetached(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.detached.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.detached.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimePIDRecorded(fn func(
@@ -681,13 +682,7 @@ func (s *runtimeRepository) OnRuntimePIDRecorded(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.pid_recorded.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.pid_recorded.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeSurfaceSet(fn func(
@@ -695,13 +690,7 @@ func (s *runtimeRepository) OnRuntimeSurfaceSet(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.surface_set.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.surface_set.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeOutdated(fn func(
@@ -709,13 +698,7 @@ func (s *runtimeRepository) OnRuntimeOutdated(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.outdated.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.outdated.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeOutdatedCleared(fn func(
@@ -723,13 +706,7 @@ func (s *runtimeRepository) OnRuntimeOutdatedCleared(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.outdated_cleared.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.outdated_cleared.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimeStepAdvanced(fn func(
@@ -737,13 +714,7 @@ func (s *runtimeRepository) OnRuntimeStepAdvanced(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.step_advanced.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.step_advanced.*", fn)
 }
 
 func (s *runtimeRepository) OnRuntimePreinstalled(fn func(
@@ -751,13 +722,7 @@ func (s *runtimeRepository) OnRuntimePreinstalled(fn func(
 	rt domainRuntime.ArrowRuntime,
 ),
 ) error {
-	_, err := s.axRuntime.Subscribe(asynx.Topic("runtime.preinstalled.*"), func(
-		ctx context.Context,
-		evt asynxModels.Event[domainRuntime.ArrowRuntime],
-	) {
-		fn(ctx, evt.Aggregate)
-	})
-	return err
+	return s.onDurable("runtime.preinstalled.*", fn)
 }
 
 func (s *runtimeRepository) GetState(
@@ -873,5 +838,21 @@ func (s *runtimeRepository) Forget(ctx context.Context, ns domain.Namespace) err
 	if !exists {
 		return nil
 	}
-	return s.axRuntime.Forget(ctx, ns.String())
+	return apperrors.FromForget(s.axRuntime.Forget(ctx, ns.String()))
+}
+
+func (s *runtimeRepository) onDurable(
+	topic string,
+	fn func(
+		ctx context.Context,
+		rt domainRuntime.ArrowRuntime,
+	),
+) error {
+	return bind.OnEvent(s.axRuntime, asynx.Topic(topic), func(
+		ctx context.Context,
+		evt asynxModels.Event[domainRuntime.ArrowRuntime],
+	) error {
+		fn(ctx, evt.Aggregate)
+		return nil
+	})
 }

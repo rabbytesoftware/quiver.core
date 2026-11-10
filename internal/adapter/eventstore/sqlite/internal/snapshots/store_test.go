@@ -1,4 +1,4 @@
-package sqlite
+package snapshots
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func newTestSnapshotStore(t *testing.T) SnapshotStore {
+func newTestSnapshotStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewSnapshotStore(":memory:")
+	s, err := New(":memory:")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	return s
@@ -122,7 +122,7 @@ func TestSnapshotStore_CancelledContext(t *testing.T) {
 }
 
 func TestNewSnapshotStore_InvalidPathReturnsError(t *testing.T) {
-	_, err := NewSnapshotStore(filepath.Join(t.TempDir(), "no-such-dir", "s.db"))
+	_, err := New(filepath.Join(t.TempDir(), "no-such-dir", "s.db"))
 	assert.Error(t, err)
 }
 
@@ -143,7 +143,7 @@ func TestNewSnapshotStore_ReadOnlyFileReturnsError(
 	require.NoError(t, sqlDB.Close())
 	require.NoError(t, os.Chmod(path, 0o444))
 
-	_, err = NewSnapshotStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
 }
 
@@ -160,6 +160,20 @@ func TestNewSnapshotStore_ConflictingSchemaReturnsError(
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = NewSnapshotStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
+}
+
+func poollessDB() *gorm.DB {
+	return &gorm.DB{Config: &gorm.Config{}, Statement: &gorm.Statement{}}
+}
+
+func TestStore_Close_WithoutAPool_ReturnsError(t *testing.T) {
+	s := &Store{db: poollessDB()}
+
+	require.Error(t, s.Close())
+}
+
+func TestPrepare_WithoutAPool_ReturnsError(t *testing.T) {
+	require.Error(t, prepare(poollessDB()))
 }

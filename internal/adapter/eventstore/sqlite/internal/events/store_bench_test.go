@@ -1,4 +1,4 @@
-package sqlite
+package events
 
 import (
 	"context"
@@ -13,12 +13,12 @@ func BenchmarkEventStore_Append(
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s, err := NewEventStore(":memory:")
+		s, err := New(":memory:")
 		if err != nil {
 			b.Fatal(err)
 		}
 		for v := int64(1); v <= 1000; v++ {
-			_ = s.Append(ctx, "agg-1", v, []byte("event-data"))
+			_ = appendEvent(s, ctx, "agg-1", v, []byte("event-data"))
 		}
 	}
 }
@@ -27,12 +27,12 @@ func BenchmarkEventStore_ReadFrom(
 	b *testing.B,
 ) {
 	ctx := context.Background()
-	s, err := NewEventStore(":memory:")
+	s, err := New(":memory:")
 	if err != nil {
 		b.Fatal(err)
 	}
 	for v := int64(1); v <= 1000; v++ {
-		_ = s.Append(ctx, "agg-1", v, []byte(fmt.Sprintf("event-%d", v)))
+		_ = appendEvent(s, ctx, "agg-1", v, []byte(fmt.Sprintf("event-%d", v)))
 	}
 
 	b.ResetTimer()

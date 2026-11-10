@@ -587,7 +587,7 @@ func (c *Container) RegisterHubProjections(hub apphub.WebSocketHub) error {
 		return fmt.Errorf("repositories: hub OnRuntimeBegun: %w", err)
 	}
 
-	if err := c.Runtime.OnRuntimeEnded(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
+	if err := c.Runtime.OnRuntimeEndedDurable(func(_ context.Context, rt domainRuntime.ArrowRuntime) {
 		hub.BroadcastArrowRuntime(rt)
 	}); err != nil {
 		return fmt.Errorf("repositories: hub OnRuntimeEnded: %w", err)

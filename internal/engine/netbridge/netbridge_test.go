@@ -485,7 +485,7 @@ func newNetbridgeWithDiscovery(
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	nb, err := newNetbridge(ax, store.NewPortMemory(), discovery, testEphemeralPortStart, testEphemeralPortEnd)
+	nb, err := newNetbridge(ax, store.NewPortMemory(), discovery, testEphemeralPortStart, testEphemeralPortEnd, true)
 	require.NoError(t, err)
 	impl, ok := nb.(*netbridgeService)
 	require.True(t, ok)

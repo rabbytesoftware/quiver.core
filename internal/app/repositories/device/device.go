@@ -3,15 +3,16 @@ package device
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	devicecmds "github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/commands"
+	"github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/logged"
 	devicestore "github.com/rabbytesoftware/quiver.core/internal/app/repositories/device/internal/store"
 	"github.com/rabbytesoftware/quiver.core/internal/domain/auth"
 )
@@ -70,7 +71,7 @@ func New(
 		return nil, fmt.Errorf("device repository: asynx instance is required")
 	}
 
-	st, err := devicestore.New(db)
+	st, err := openStore(db, ax)
 	if err != nil {
 		return nil, fmt.Errorf("device repository: store: %w", err)
 	}
@@ -83,9 +84,18 @@ func New(
 	return repo, nil
 }
 
-func (r *deviceRepo) registerProjections() error {
-	projector := devicestore.NewProjector(r.store)
+func openStore(
+	db *gormdb.DB,
+	ax asynx.Asynx[auth.Device],
+) (devicestore.Store, error) {
+	host := bind.Host(ax)
+	if host == nil {
+		return devicestore.New(db)
+	}
+	return devicestore.NewHosted(host, db)
+}
 
+func (r *deviceRepo) registerProjections() error {
 	topics := []string{
 		"auth.device.paired.*",
 		"auth.device.revoked.*",
@@ -93,16 +103,36 @@ func (r *deviceRepo) registerProjections() error {
 	}
 
 	for _, topic := range topics {
-		if _, err := r.ax.Subscribe(topic, func(ctx context.Context, evt asynxModels.Event[auth.Device]) {
-			if err := projector.Apply(ctx, evt.Aggregate); err != nil {
-				slog.ErrorContext(ctx, "device: projection failed", "device", evt.AggregateID, "err", err)
-			}
-		}); err != nil {
+		if err := r.registerTopic(topic); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (r *deviceRepo) registerTopic(
+	topic string,
+) error {
+	synced, err := r.registerSyncTopic(topic)
+	if err != nil || synced {
+		return err
+	}
+	projector := devicestore.NewProjector(r.store)
+	return bind.OnEvent(r.ax, topic, logged.Projection(projector))
+}
+
+func (r *deviceRepo) registerSyncTopic(
+	topic string,
+) (bool, error) {
+	txStore, ok := r.store.(devicestore.TxStore)
+	if !ok {
+		return false, nil
+	}
+	upsert := func(ctx context.Context, tx asynxModels.Tx, evt asynxModels.Event[auth.Device]) error {
+		return txStore.UpsertTx(ctx, tx, evt.Aggregate)
+	}
+	return bind.Projection(r.ax, topic, upsert)
 }
 
 func (r *deviceRepo) Pair(

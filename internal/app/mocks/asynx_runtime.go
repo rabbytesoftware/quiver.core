@@ -10,19 +10,22 @@ import (
 
 // AsynxRuntime is a mock for asynx.Asynx[domainRuntime.ArrowRuntime].
 type AsynxRuntime struct {
-	SendFn        func(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error)
-	SendWaitFn    func(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error)
-	ForgetFn      func(ctx context.Context, aggregateID string) error
-	OnForgetFn    func(fn asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error)
-	ShutdownFn    func(ctx context.Context) error
-	GetFn         func(ctx context.Context, aggregateID string) (domainRuntime.ArrowRuntime, error)
-	ExistsFn      func(ctx context.Context, aggregateID string) (bool, error)
-	PreloadFn     func(ctx context.Context, aggregateID string) error
-	SubscribeFn   func(pattern string, handler asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime], opts ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime]) (string, error)
-	UnsubscribeFn func(id string) error
-	ListenFn      func(pattern string, count int) (<-chan asynxModels.Event[domainRuntime.ArrowRuntime], func(), error)
-	ReplayFn      func(ctx context.Context, aggregateID string, fromVersion, toVersion int64, fn asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime]) error
-	WaitPublishFn func()
+	SendFn             func(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error)
+	SendWaitFn         func(ctx context.Context, cmd asynxModels.Command[domainRuntime.ArrowRuntime]) (asynxModels.Event[domainRuntime.ArrowRuntime], error)
+	ForgetFn           func(ctx context.Context, aggregateID string) error
+	OnForgetFn         func(fn asynxModels.ForgetHandler[domainRuntime.ArrowRuntime]) (string, error)
+	ShutdownFn         func(ctx context.Context) error
+	GetFn              func(ctx context.Context, aggregateID string) (domainRuntime.ArrowRuntime, error)
+	ExistsFn           func(ctx context.Context, aggregateID string) (bool, error)
+	PreloadFn          func(ctx context.Context, aggregateID string) error
+	SubscribeFn        func(pattern string, handler asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime], opts ...asynxModels.SubscriptionOpt[domainRuntime.ArrowRuntime]) (string, error)
+	UnsubscribeFn      func(id string) error
+	ListenFn           func(pattern string, count int) (<-chan asynxModels.Event[domainRuntime.ArrowRuntime], func(), error)
+	ReplayFn           func(ctx context.Context, aggregateID string, fromVersion, toVersion int64, fn asynxModels.ProjectionHandler[domainRuntime.ArrowRuntime]) error
+	WaitPublishFn      func()
+	PausedAggregatesFn func() []string
+	InspectDeliveryFn  func(aggregateID string) asynxModels.DeliveryStatus
+	ResumeDeliveriesFn func(ctx context.Context) error
 }
 
 func (m *AsynxRuntime) Send(
@@ -165,4 +168,25 @@ func (m *AsynxRuntime) WaitPublish() {
 	if m.WaitPublishFn != nil {
 		m.WaitPublishFn()
 	}
+}
+
+func (m *AsynxRuntime) PausedAggregates() []string {
+	if m.PausedAggregatesFn != nil {
+		return m.PausedAggregatesFn()
+	}
+	return nil
+}
+
+func (m *AsynxRuntime) InspectDelivery(aggregateID string) asynxModels.DeliveryStatus {
+	if m.InspectDeliveryFn != nil {
+		return m.InspectDeliveryFn(aggregateID)
+	}
+	return asynxModels.DeliveryStatus{}
+}
+
+func (m *AsynxRuntime) ResumeDeliveries(ctx context.Context) error {
+	if m.ResumeDeliveriesFn != nil {
+		return m.ResumeDeliveriesFn(ctx)
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-package sqlite
+package events
 
 import (
 	"context"
@@ -14,10 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite/internal/entries"
 )
 
 func TestNewEventStore_InvalidPath_ReturnsError(t *testing.T) {
-	_, err := NewEventStore("/nonexistent-dir-quiver-test/db.sqlite")
+	_, err := New("/nonexistent-dir-quiver-test/db.sqlite")
 	assert.Error(t, err)
 }
 
@@ -38,7 +40,7 @@ func TestNewEventStore_ReadOnlyFileReturnsError(
 	require.NoError(t, sqlDB.Close())
 	require.NoError(t, os.Chmod(path, 0o444))
 
-	_, err = NewEventStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
 }
 
@@ -55,16 +57,16 @@ func TestNewEventStore_ConflictingSchemaReturnsError(
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = NewEventStore(path)
+	_, err = New(path)
 	assert.Error(t, err)
 }
 
 func TestDelete_ContextCancelled_ReturnsError(t *testing.T) {
 	es := newTestEventStore(t)
 	ctx := context.Background()
-	require.NoError(t, es.Append(ctx, "agg-cancel", 0, []byte("data")))
+	require.NoError(t, appendEvent(es, ctx, "agg-cancel", 0, []byte("data")))
 
-	err := es.Delete(cancelledCtx(), "agg-cancel")
+	err := deleteStream(es, cancelledCtx(), "agg-cancel")
 	assert.Error(t, err)
 }
 
@@ -74,9 +76,9 @@ func cancelledCtx() context.Context {
 	return ctx
 }
 
-func newTestEventStore(t *testing.T) Store {
+func newTestEventStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := NewEventStore(":memory:")
+	s, err := New(":memory:")
 	require.NoError(t, err)
 	return s
 }
@@ -87,7 +89,7 @@ func TestEventStore_Append_Success(
 	s := newTestEventStore(t)
 	ctx := context.Background()
 
-	err := s.Append(ctx, "agg-1", 1, []byte("event1"))
+	err := appendEvent(s, ctx, "agg-1", 1, []byte("event1"))
 	require.NoError(t, err)
 
 	blobs, err := s.ReadFrom(ctx, "agg-1", 1)
@@ -102,9 +104,9 @@ func TestEventStore_Append_VersionConflict(
 	s := newTestEventStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("first")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 1, []byte("first")))
 
-	err := s.Append(ctx, "agg-1", 1, []byte("duplicate"))
+	err := appendEvent(s, ctx, "agg-1", 1, []byte("duplicate"))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, models.ErrPipelineFailed))
 }
@@ -113,7 +115,7 @@ func TestEventStore_Append_ContextCancelled(
 	t *testing.T,
 ) {
 	s := newTestEventStore(t)
-	err := s.Append(cancelledCtx(), "agg-1", 1, []byte("data"))
+	err := appendEvent(s, cancelledCtx(), "agg-1", 1, []byte("data"))
 	assert.Error(t, err)
 }
 
@@ -123,9 +125,9 @@ func TestEventStore_ReadFrom_Success(
 	s := newTestEventStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
-	require.NoError(t, s.Append(ctx, "agg-1", 3, []byte("e3")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 1, []byte("e1")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 2, []byte("e2")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 3, []byte("e3")))
 
 	blobs, err := s.ReadFrom(ctx, "agg-1", 2)
 	require.NoError(t, err)
@@ -158,7 +160,7 @@ func TestEventStore_ReadRange_Success(
 	ctx := context.Background()
 
 	for i := int64(1); i <= 5; i++ {
-		require.NoError(t, s.Append(ctx, "agg-1", i, []byte("data")))
+		require.NoError(t, appendEvent(s, ctx, "agg-1", i, []byte("data")))
 	}
 
 	blobs, err := s.ReadRange(ctx, "agg-1", 1, 3)
@@ -172,8 +174,8 @@ func TestEventStore_ReadRange_TruncatesCount(
 	s := newTestEventStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, s.Append(ctx, "agg-1", 2, []byte("e2")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 1, []byte("e1")))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 2, []byte("e2")))
 
 	blobs, err := s.ReadRange(ctx, "agg-1", 1, 100)
 	require.NoError(t, err)
@@ -192,11 +194,11 @@ func TestDelete_RemovesAllEntriesForAggregate(t *testing.T) {
 	es := newTestEventStore(t)
 
 	ctx := context.Background()
-	require.NoError(t, es.Append(ctx, "agg-1", 0, []byte("e0")))
-	require.NoError(t, es.Append(ctx, "agg-1", 1, []byte("e1")))
-	require.NoError(t, es.Append(ctx, "agg-2", 0, []byte("e0")))
+	require.NoError(t, appendEvent(es, ctx, "agg-1", 0, []byte("e0")))
+	require.NoError(t, appendEvent(es, ctx, "agg-1", 1, []byte("e1")))
+	require.NoError(t, appendEvent(es, ctx, "agg-2", 0, []byte("e0")))
 
-	require.NoError(t, es.Delete(ctx, "agg-1"))
+	require.NoError(t, deleteStream(es, ctx, "agg-1"))
 
 	entries, err := es.ReadFrom(ctx, "agg-1", 0)
 	require.NoError(t, err)
@@ -210,7 +212,7 @@ func TestDelete_RemovesAllEntriesForAggregate(t *testing.T) {
 func TestDelete_NonExistentAggregate_IsIdempotent(t *testing.T) {
 	es := newTestEventStore(t)
 
-	err := es.Delete(context.Background(), "does-not-exist")
+	err := deleteStream(es, context.Background(), "does-not-exist")
 	assert.NoError(t, err)
 }
 
@@ -218,9 +220,9 @@ func TestEventStore_Append_DuplicateVersionReturnsPipelineFailed(t *testing.T) {
 	s := newTestEventStore(t)
 	ctx := context.Background()
 
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte(`{"a":1}`)))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 1, []byte(`{"a":1}`)))
 
-	err := s.Append(ctx, "agg-1", 1, []byte(`{"a":2}`))
+	err := appendEvent(s, ctx, "agg-1", 1, []byte(`{"a":2}`))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 	assert.Contains(t, err.Error(), "version conflict")
@@ -229,11 +231,11 @@ func TestEventStore_Append_DuplicateVersionReturnsPipelineFailed(t *testing.T) {
 func TestEventStore_Append_DuplicateVersionIsAVersionConflict(t *testing.T) {
 	s := newTestEventStore(t)
 	ctx := context.Background()
-	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte(`{"a":1}`)))
+	require.NoError(t, appendEvent(s, ctx, "agg-1", 1, []byte(`{"a":1}`)))
 
-	err := s.Append(ctx, "agg-1", 1, []byte(`{"a":2}`))
+	err := appendEvent(s, ctx, "agg-1", 1, []byte(`{"a":2}`))
 
-	assert.ErrorIs(t, err, ErrVersionConflict)
+	assert.ErrorIs(t, err, entries.ErrVersionConflict)
 	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 }
 
@@ -241,17 +243,17 @@ func TestEventStore_Append_StorageFailureIsNotAVersionConflict(t *testing.T) {
 	s := newTestEventStore(t)
 	require.NoError(t, s.Close())
 
-	err := s.Append(context.Background(), "agg-1", 1, []byte(`{"a":1}`))
+	err := appendEvent(s, context.Background(), "agg-1", 1, []byte(`{"a":1}`))
 
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrVersionConflict)
+	assert.NotErrorIs(t, err, entries.ErrVersionConflict)
 }
 
 func TestEventStore_Append_StorageFailureIsNotReportedAsConflict(t *testing.T) {
 	s := newTestEventStore(t)
 	require.NoError(t, s.Close())
 
-	err := s.Append(context.Background(), "agg-1", 1, []byte(`{"a":1}`))
+	err := appendEvent(s, context.Background(), "agg-1", 1, []byte(`{"a":1}`))
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, models.ErrPipelineFailed)
 	assert.NotContains(t, err.Error(), "version conflict")
@@ -263,10 +265,10 @@ func TestEventStore_ListAggregateIDs_StripsPrefixAndDedupes(t *testing.T) {
 
 	// asynx writes event rows as "events:"+id and snapshot rows as "snapshots:"+id
 	// into the same table. Simulate both for two aggregates.
-	require.NoError(t, store.Append(ctx, "events:github.com/u/a@v1", 1, []byte(`{}`)))
-	require.NoError(t, store.Append(ctx, "events:github.com/u/a@v1", 2, []byte(`{}`)))
-	require.NoError(t, store.Append(ctx, "snapshots:github.com/u/a@v1", 2, []byte(`{}`)))
-	require.NoError(t, store.Append(ctx, "events:github.com/u/b@main", 1, []byte(`{}`)))
+	require.NoError(t, appendEvent(store, ctx, "events:github.com/u/a@v1", 1, []byte(`{}`)))
+	require.NoError(t, appendEvent(store, ctx, "events:github.com/u/a@v1", 2, []byte(`{}`)))
+	require.NoError(t, appendEvent(store, ctx, "snapshots:github.com/u/a@v1", 2, []byte(`{}`)))
+	require.NoError(t, appendEvent(store, ctx, "events:github.com/u/b@main", 1, []byte(`{}`)))
 
 	ids, err := store.ListAggregateIDs(ctx)
 	require.NoError(t, err)
@@ -291,4 +293,31 @@ func TestEventStore_ListAggregateIDs_EmptyReturnsEmpty(t *testing.T) {
 	ids, err := store.ListAggregateIDs(context.Background())
 	require.NoError(t, err)
 	assert.Empty(t, ids)
+}
+
+func poollessDB() *gorm.DB {
+	return &gorm.DB{Config: &gorm.Config{}, Statement: &gorm.Statement{}}
+}
+
+func TestStore_DB_ReturnsTheHandle(t *testing.T) {
+	s := newTestEventStore(t)
+
+	assert.NotNil(t, s.DB())
+}
+
+func TestStore_ListAggregateIDs_ContextCancelled(t *testing.T) {
+	s := newTestEventStore(t)
+
+	_, err := s.ListAggregateIDs(cancelledCtx())
+	require.Error(t, err)
+}
+
+func TestStore_Close_WithoutAPool_ReturnsError(t *testing.T) {
+	s := &Store{db: poollessDB()}
+
+	require.Error(t, s.Close())
+}
+
+func TestPrepare_WithoutAPool_ReturnsError(t *testing.T) {
+	require.Error(t, prepare(poollessDB()))
 }

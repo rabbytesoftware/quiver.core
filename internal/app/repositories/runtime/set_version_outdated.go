@@ -35,15 +35,7 @@ func SetVersionOutdated(
 			return err
 		}
 
-		if _, sendErr := axRuntime.SendWait(ctx, cmd); sendErr != nil {
-			if errors.Is(sendErr, asynxModels.ErrValidation) ||
-				errors.Is(sendErr, asynxModels.ErrPipelineFailed) {
-				return fmt.Errorf("set version outdated %s: %w", ns, apperrors.ErrStateViolation)
-			}
-			return fmt.Errorf("set version outdated %s: %w", ns, sendErr)
-		}
-
-		return nil
+		return sendVersionOutdated(ctx, axRuntime, cmd, ns)
 	}
 }
 
@@ -76,4 +68,39 @@ func versionOutdatedCommand(
 	}
 
 	return runtimecmds.ClearVersionOutdated{Namespace: ns}, nil
+}
+
+func sendVersionOutdated(
+	ctx context.Context,
+	axRuntime asynx.Asynx[domainRuntime.ArrowRuntime],
+	cmd asynxModels.Command[domainRuntime.ArrowRuntime],
+	ns domain.Namespace,
+) error {
+	sendCtx, release := outsideHandler(ctx)
+	defer release()
+	_, err := axRuntime.SendWait(sendCtx, cmd)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynxModels.ErrValidation) ||
+		errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("set version outdated %s: %w", ns, apperrors.ErrStateViolation)
+	}
+	return fmt.Errorf("set version outdated %s: %w", ns, err)
+}
+
+func outsideHandler(
+	ctx context.Context,
+) (context.Context, context.CancelFunc) {
+	fresh, cancel := context.WithCancel(context.Background())
+	deadline, ok := ctx.Deadline()
+	if ok {
+		cancel()
+		fresh, cancel = context.WithDeadline(context.Background(), deadline)
+	}
+	stop := context.AfterFunc(ctx, cancel)
+	return fresh, func() {
+		stop()
+		cancel()
+	}
 }

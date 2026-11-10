@@ -2,6 +2,7 @@ package projections
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/rabbytesoftware/quiver.core/internal/domain/netbridge"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/mocks"
 	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/ports"
+	"github.com/rabbytesoftware/quiver.core/internal/engine/netbridge/internal/store"
 )
 
 func TestHandlePortEvent_Allocated(t *testing.T) {
@@ -92,4 +94,56 @@ func TestHandlePortEvent_UnknownEvent(t *testing.T) {
 	saved, err := rm.FindByPort(context.Background(), 7070)
 	assert.NoError(t, err)
 	assert.Nil(t, saved)
+}
+
+type stubHostedStore struct {
+	store.HostedPortStore
+	saved   []ports.PortAllocation
+	deleted []int
+	err     error
+}
+
+func (s *stubHostedStore) SaveTx(_ context.Context, _ asynxModels.Tx, a ports.PortAllocation) error {
+	s.saved = append(s.saved, a)
+	return s.err
+}
+
+func (s *stubHostedStore) DeleteTx(_ context.Context, _ asynxModels.Tx, port int) error {
+	s.deleted = append(s.deleted, port)
+	return s.err
+}
+
+func TestSyncPortEvent(t *testing.T) {
+	boom := errors.New("boom")
+	testCases := []struct {
+		name        string
+		event       string
+		storeErr    error
+		wantSaved   int
+		wantDeleted int
+		wantErr     error
+	}{
+		{name: "allocated saves", event: "port.Allocated", wantSaved: 1},
+		{name: "deallocated deletes the previous port", event: "port.Deallocated", wantDeleted: 1},
+		{name: "other event ignored", event: "port.Other"},
+		{name: "store error aborts", event: "port.Allocated", storeErr: boom, wantSaved: 1, wantErr: boom},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &stubHostedStore{err: tc.storeErr}
+			err := SyncPortEvent(st)(context.Background(), nil, asynxModels.Event[ports.PortAllocation]{
+				EventName:         tc.event,
+				Aggregate:         ports.PortAllocation{Port: 7},
+				PreviousAggregate: ports.PortAllocation{Port: 7},
+			})
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Len(t, st.saved, tc.wantSaved)
+			assert.Len(t, st.deleted, tc.wantDeleted)
+		})
+	}
 }

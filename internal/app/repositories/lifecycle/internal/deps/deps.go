@@ -89,6 +89,10 @@ func (d *deps) Install(
 		return false, fmt.Errorf("install: %w", apperrors.ErrNotFound)
 	}
 
+	if err := d.arrow.MarkUserInstalled(ctx, ns); err != nil {
+		return false, fmt.Errorf("install: %w", err)
+	}
+
 	state, err := d.runtime.GetState(ctx, ns)
 	if err != nil {
 		return false, fmt.Errorf("install: get state: %w", err)

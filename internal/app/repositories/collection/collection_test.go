@@ -627,7 +627,12 @@ func (f *failingAxQuiver) Unsubscribe(_ string) error                { return ni
 func (f *failingAxQuiver) Replay(_ context.Context, _ string, _, _ int64, _ asynxModels.ProjectionHandler[domain.Collection]) error {
 	return nil
 }
-func (f *failingAxQuiver) WaitPublish()                             {}
+func (f *failingAxQuiver) WaitPublish()               {}
+func (f *failingAxQuiver) PausedAggregates() []string { return nil }
+func (f *failingAxQuiver) InspectDelivery(_ string) asynxModels.DeliveryStatus {
+	return asynxModels.DeliveryStatus{}
+}
+func (f *failingAxQuiver) ResumeDeliveries(_ context.Context) error { return nil }
 func (f *failingAxQuiver) Forget(_ context.Context, _ string) error { return f.forgetErr }
 func (f *failingAxQuiver) OnForget(_ asynxModels.ForgetHandler[domain.Collection]) (string, error) {
 	if f.onForgetErr != nil {
