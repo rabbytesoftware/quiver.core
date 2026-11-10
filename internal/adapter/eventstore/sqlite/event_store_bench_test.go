@@ -18,7 +18,7 @@ func BenchmarkEventStore_Append(
 			b.Fatal(err)
 		}
 		for v := int64(1); v <= 1000; v++ {
-			_ = s.Append(ctx, "agg-1", v, []byte("event-data"))
+			_ = appendEvent(s, ctx, "agg-1", v, []byte("event-data"))
 		}
 	}
 }
@@ -32,7 +32,7 @@ func BenchmarkEventStore_ReadFrom(
 		b.Fatal(err)
 	}
 	for v := int64(1); v <= 1000; v++ {
-		_ = s.Append(ctx, "agg-1", v, []byte(fmt.Sprintf("event-%d", v)))
+		_ = appendEvent(s, ctx, "agg-1", v, []byte(fmt.Sprintf("event-%d", v)))
 	}
 
 	b.ResetTimer()

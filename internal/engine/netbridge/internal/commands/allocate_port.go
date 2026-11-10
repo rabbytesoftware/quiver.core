@@ -29,7 +29,7 @@ func (c AllocatePort) EventName() string {
 }
 
 // ShouldSnapshot is true even though ports churn with every execution. Under
-// asynx v0.8 a snapshot is a single upserted row, not an appended one, so
+// asynx v1 a snapshot is a single upserted row, not an appended one, so
 // snapshotting each allocation costs O(1) per write instead of making every
 // later read replay the port's whole allocate/deallocate history.
 func (c AllocatePort) ShouldSnapshot() bool {

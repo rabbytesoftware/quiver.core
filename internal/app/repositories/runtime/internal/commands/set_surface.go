@@ -21,7 +21,7 @@ func (c SetSurface) EventName() string {
 	return "runtime.surface_set." + c.Namespace.String()
 }
 
-// ShouldSnapshot: the snapshot is a single upserted row under asynx v0.8.
+// ShouldSnapshot: the snapshot is a single upserted row under asynx v1.
 func (c SetSurface) ShouldSnapshot() bool {
 	return true
 }

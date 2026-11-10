@@ -27,7 +27,7 @@ Event names use dot notation: `aggregate.action`. Several runtime commands share
 
 `ShouldSnapshot()` controls whether Asynx writes a snapshot row after applying the event. Snapshots speed up replay by giving projections a fast-forward starting point. The current policy is:
 
-- **Snapshot on every command.** `ShouldSnapshot()` returns `true` unconditionally. Under asynx v0.8 a snapshot is one row upserted per aggregate (O(1) read, constant storage), so there is no cost tier left to optimise for — high-frequency commands such as step advances, PID records and port allocations snapshot too (see AGENTS.md §4.3).
+- **Snapshot on every command.** `ShouldSnapshot()` returns `true` unconditionally. Under asynx v1 a snapshot is one row upserted per aggregate (O(1) read, constant storage), so there is no cost tier left to optimise for — high-frequency commands such as step advances, PID records and port allocations snapshot too (see AGENTS.md §4.3).
 The command flow is shown below; the `ShouldSnapshot` branch always takes `yes` today.
 
 ```mermaid

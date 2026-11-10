@@ -337,7 +337,7 @@ func (f *failingSnapshots) Put(
 	return f.SnapshotStore.Put(ctx, aggregateID, version, data)
 }
 
-func TestSendRetryingConflicts_DoesNotResendAfterACommittedAppend(t *testing.T) {
+func TestSendRetryingConflicts_SnapshotFailureAfterACommittedAppendDoesNotFailOrResend(t *testing.T) {
 	es, err := sqlite.NewEventStore(":memory:")
 	require.NoError(t, err)
 	inner, err := sqlite.NewSnapshotStore(":memory:")
@@ -358,12 +358,11 @@ func TestSendRetryingConflicts_DoesNotResendAfterACommittedAppend(t *testing.T) 
 		Namespace: probeNs, ExecutionID: testExecutionID, Outcome: domainRuntime.ExecutionOutcomeSuccess,
 	})
 
-	require.ErrorIs(t, err, asynxModels.ErrPipelineFailed)
-	assert.NotErrorIs(t, err, sqlite.ErrVersionConflict)
+	require.NoError(t, err, "asynx v1 reports a snapshot write failure to the handler, never from Send")
 	assert.Equal(t, 1, ax.sendsOf("commands.EndExecution"))
 	rt, err := ax.Get(t.Context(), probeNs.String())
 	require.NoError(t, err)
-	assert.Nil(t, rt.Execution, "the end committed although Send reported a failure")
+	assert.Nil(t, rt.Execution, "the committed end must be visible")
 }
 
 func TestSendRetryingConflicts_PlainPipelineFailureIsNotRetried(t *testing.T) {

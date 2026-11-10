@@ -10,19 +10,22 @@ import (
 
 // AsynxDevice is a mock for asynx.Asynx[auth.Device].
 type AsynxDevice struct {
-	SendFn        func(ctx context.Context, cmd asynxModels.Command[auth.Device]) (asynxModels.Event[auth.Device], error)
-	SendWaitFn    func(ctx context.Context, cmd asynxModels.Command[auth.Device]) (asynxModels.Event[auth.Device], error)
-	ForgetFn      func(ctx context.Context, aggregateID string) error
-	OnForgetFn    func(fn asynxModels.ForgetHandler[auth.Device]) (string, error)
-	ShutdownFn    func(ctx context.Context) error
-	GetFn         func(ctx context.Context, aggregateID string) (auth.Device, error)
-	ExistsFn      func(ctx context.Context, aggregateID string) (bool, error)
-	PreloadFn     func(ctx context.Context, aggregateID string) error
-	SubscribeFn   func(pattern string, handler asynxModels.ProjectionHandler[auth.Device], opts ...asynxModels.SubscriptionOpt[auth.Device]) (string, error)
-	UnsubscribeFn func(id string) error
-	ListenFn      func(pattern string, count int) (<-chan asynxModels.Event[auth.Device], func(), error)
-	ReplayFn      func(ctx context.Context, aggregateID string, fromVersion, toVersion int64, fn asynxModels.ProjectionHandler[auth.Device]) error
-	WaitPublishFn func()
+	SendFn             func(ctx context.Context, cmd asynxModels.Command[auth.Device]) (asynxModels.Event[auth.Device], error)
+	SendWaitFn         func(ctx context.Context, cmd asynxModels.Command[auth.Device]) (asynxModels.Event[auth.Device], error)
+	ForgetFn           func(ctx context.Context, aggregateID string) error
+	OnForgetFn         func(fn asynxModels.ForgetHandler[auth.Device]) (string, error)
+	ShutdownFn         func(ctx context.Context) error
+	GetFn              func(ctx context.Context, aggregateID string) (auth.Device, error)
+	ExistsFn           func(ctx context.Context, aggregateID string) (bool, error)
+	PreloadFn          func(ctx context.Context, aggregateID string) error
+	SubscribeFn        func(pattern string, handler asynxModels.ProjectionHandler[auth.Device], opts ...asynxModels.SubscriptionOpt[auth.Device]) (string, error)
+	UnsubscribeFn      func(id string) error
+	ListenFn           func(pattern string, count int) (<-chan asynxModels.Event[auth.Device], func(), error)
+	ReplayFn           func(ctx context.Context, aggregateID string, fromVersion, toVersion int64, fn asynxModels.ProjectionHandler[auth.Device]) error
+	WaitPublishFn      func()
+	PausedAggregatesFn func() []string
+	InspectDeliveryFn  func(aggregateID string) asynxModels.DeliveryStatus
+	ResumeDeliveriesFn func(ctx context.Context) error
 }
 
 func (m *AsynxDevice) Send(
@@ -165,4 +168,25 @@ func (m *AsynxDevice) WaitPublish() {
 	if m.WaitPublishFn != nil {
 		m.WaitPublishFn()
 	}
+}
+
+func (m *AsynxDevice) PausedAggregates() []string {
+	if m.PausedAggregatesFn != nil {
+		return m.PausedAggregatesFn()
+	}
+	return nil
+}
+
+func (m *AsynxDevice) InspectDelivery(aggregateID string) asynxModels.DeliveryStatus {
+	if m.InspectDeliveryFn != nil {
+		return m.InspectDeliveryFn(aggregateID)
+	}
+	return asynxModels.DeliveryStatus{}
+}
+
+func (m *AsynxDevice) ResumeDeliveries(ctx context.Context) error {
+	if m.ResumeDeliveriesFn != nil {
+		return m.ResumeDeliveriesFn(ctx)
+	}
+	return nil
 }

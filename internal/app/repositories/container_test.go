@@ -1038,7 +1038,7 @@ func TestRegisterHubProjections_PropagatesRegistrationErrors(t *testing.T) {
 		case "begun":
 			m.OnRuntimeBegunFn = fail
 		case "ended":
-			m.OnRuntimeEndedFn = fail
+			m.OnRuntimeEndedDurableFn = fail
 		case "recovered":
 			m.OnRuntimeRecoveredFn = fail
 		case "detached":
@@ -1126,7 +1126,7 @@ func TestRegisterHubProjections_RegisteredHooksBroadcast(t *testing.T) {
 
 	runtimeMock := &ucmocks.MockRuntime{
 		OnRuntimeBegunFn:           captureRuntime,
-		OnRuntimeEndedFn:           captureRuntime,
+		OnRuntimeEndedDurableFn:    captureRuntime,
 		OnRuntimeRecoveredFn:       captureRuntime,
 		OnRuntimeDetachedFn:        captureRuntime,
 		OnRuntimeSurfaceSetFn:      captureRuntime,

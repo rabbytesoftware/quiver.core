@@ -20,7 +20,7 @@ func (c ClearSurface) EventName() string {
 	return "runtime.surface_cleared." + c.Namespace.String()
 }
 
-// ShouldSnapshot: the snapshot is a single upserted row under asynx v0.8.
+// ShouldSnapshot: the snapshot is a single upserted row under asynx v1.
 func (c ClearSurface) ShouldSnapshot() bool {
 	return true
 }

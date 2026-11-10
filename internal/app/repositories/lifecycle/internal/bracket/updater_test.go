@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -966,6 +967,53 @@ func TestRuntimeUpdate_TargetsAddEachOther_NeverWaitOnEachOther(t *testing.T) {
 			}
 			assert.Len(t, rows.updates, tc.wantUpdates)
 			assert.Empty(t, rows.installs, fmt.Sprintf("installed rows are never installed again: %v", rows.installs))
+		})
+	}
+}
+
+// A settling that lands within the grace period no longer refuses the next
+// update: the client that saw ready a moment early simply waits for it.
+func TestRuntimeExecute_Update_WaitsForASettlingThatLands(t *testing.T) {
+	target := rollingTarget()
+	f := newBracketFixture(domain.ArrowStateReady, &target)
+	uc := f.usecase()
+	require.True(t, uc.commits.Begin(rollingRow))
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		uc.commits.Done(rollingRow)
+	}()
+
+	require.NoError(t, uc.Execute(context.Background(), rollingRow, domain.MethodUpdate, nil))
+	assert.NotEmpty(t, f.log.all(), "the update ran once the settling landed")
+}
+
+func TestUpdater_AwaitSettled(t *testing.T) {
+	testCases := []struct {
+		name      string
+		settling  bool
+		cancelled bool
+		want      bool
+	}{
+		{name: "not settling returns at once", want: true},
+		{name: "a cancelled caller gives up", settling: true, cancelled: true, want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := rollingTarget()
+			f := newBracketFixture(domain.ArrowStateReady, &target)
+			uc := f.usecase()
+			if tc.settling {
+				require.True(t, uc.commits.Begin(rollingRow))
+				defer uc.commits.Done(rollingRow)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			if tc.cancelled {
+				cancel()
+			}
+			defer cancel()
+
+			assert.Equal(t, tc.want, uc.updater.(*updater).awaitSettled(ctx, rollingRow))
 		})
 	}
 }

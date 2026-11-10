@@ -16,6 +16,7 @@ import (
 	"github.com/rabbytesoftware/quiver.core/internal/adapter"
 	eventstoreSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/eventstore/sqlite"
 	adapterSqlite "github.com/rabbytesoftware/quiver.core/internal/adapter/store/sqlite"
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	"github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/repositories"
 	"github.com/rabbytesoftware/quiver.core/internal/app/selfarrow"
@@ -174,6 +175,9 @@ func (c *Container) closeDeviceDB() error {
 // discardDB releases a read-model handle opened by a New that failed afterwards,
 // so a half-built container never leaves a SQLite file open with no owner.
 func discardDB(db *gormdb.DB) {
+	if db == nil {
+		return
+	}
 	if err := adapterSqlite.CloseDB(db); err != nil {
 		slog.Warn("app container: close db after failed construction", "err", err)
 	}
@@ -319,6 +323,8 @@ func New(
 		return nil, fmt.Errorf("app container: repositories: %w", err)
 	}
 
+	deviceDB = retireLegacyDeviceDB(deviceDB, storePath)
+
 	if err := repos.RegisterHubProjections(h); err != nil {
 		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: hub projections: %w", err)
@@ -329,6 +335,12 @@ func New(
 		discardRepos(repos, db, deviceDB)
 		return nil, fmt.Errorf("app container: usecases: %w", err)
 	}
+
+	axArrow.Ready()
+	axRuntime.Ready()
+	axCollection.Ready()
+	axPairingCode.Ready()
+	axDevice.Ready()
 
 	container := assemble(cfg, uc, h, repos, db, deviceDB)
 	container.Surface = usecases.NewSurfaceUsecase(uc.Runtime, engines.Surface)
@@ -413,7 +425,7 @@ func listRuntimeAggregates(
 func newAuthStores(
 	adapters *adapter.Container,
 	storePath string,
-) (asynx.Asynx[authdomain.PairingCode], asynx.Asynx[authdomain.Device], *gormdb.DB, error) {
+) (bind.Bound[authdomain.PairingCode], bind.Bound[authdomain.Device], *gormdb.DB, error) {
 	axPairingCode, err := newAsynx[authdomain.PairingCode](adapters.PairingCode)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("app container: asynx pairingcode: %w", err)
@@ -424,9 +436,9 @@ func newAuthStores(
 		return nil, nil, nil, fmt.Errorf("app container: asynx device: %w", err)
 	}
 
-	deviceDB, err := adapterSqlite.OpenDB(filepath.Join(storePath, "device_store.db"))
+	deviceDB, err := openLegacyDeviceDB(storePath)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("app container: open device db: %w", err)
+		return nil, nil, nil, err
 	}
 
 	return axPairingCode, axDevice, deviceDB, nil
@@ -455,8 +467,20 @@ func newAuthStores(
 // actual fix is to make the forget-cascade non-blocking.
 func newAsynx[T any](
 	s adapter.Stores,
-) (asynx.Asynx[T], error) {
-	return asynx.New[T]().
+) (bind.Bound[T], error) {
+	onDeliveryError := func(ctx context.Context, evt asynxModels.Event[T], err error, attempt int) {
+		slog.ErrorContext(ctx, "asynx durable delivery failed",
+			"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version,
+			"attempt", attempt, "err", err)
+	}
+	onSnapshotError := func(ctx context.Context, evt asynxModels.Event[T], err error) {
+		slog.WarnContext(ctx, "asynx snapshot write failed; the next read replays further",
+			"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
+	}
+
+	return bind.Build(asynx.New[T]().
+		WithDeliveryErrorHandler(onDeliveryError).
+		WithSnapshotErrorHandler(onSnapshotError).
 		WithEventStore(s.Events).
 		WithSnapshotStore(s.Snapshots).
 		WithShardingOpts(asynx.ShardingOpts{
@@ -473,6 +497,41 @@ func newAsynx[T any](
 		WithPublishErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error) {
 			slog.ErrorContext(ctx, "asynx publish failed; event is durable but was not delivered",
 				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
-		}).
-		Build()
+		}), s.Events)
+}
+
+const legacyDeviceDBFile = "device_store.db"
+
+func openLegacyDeviceDB(
+	storePath string,
+) (*gormdb.DB, error) {
+	path := filepath.Join(storePath, legacyDeviceDBFile)
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("app container: stat device db: %w", err)
+	}
+	db, err := adapterSqlite.OpenDB(path)
+	if err != nil {
+		return nil, fmt.Errorf("app container: open device db: %w", err)
+	}
+	return db, nil
+}
+
+func retireLegacyDeviceDB(
+	db *gormdb.DB,
+	storePath string,
+) *gormdb.DB {
+	if db == nil {
+		return nil
+	}
+	err := adapterSqlite.CloseDB(db)
+	if err != nil {
+		slog.WarnContext(context.Background(), "app container: close legacy device db", "err", err)
+		return nil
+	}
+	adapterSqlite.SetAsideLegacyFile(filepath.Join(storePath, legacyDeviceDBFile))
+	return nil
 }

@@ -14,6 +14,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 	gormdb "gorm.io/gorm"
 
+	"github.com/rabbytesoftware/quiver.core/internal/app/bind"
 	apperrors "github.com/rabbytesoftware/quiver.core/internal/app/errors"
 	apphub "github.com/rabbytesoftware/quiver.core/internal/app/hub"
 	"github.com/rabbytesoftware/quiver.core/internal/app/models"
@@ -137,6 +138,13 @@ type Arrow interface {
 	) error
 	// MarkUninstalled clears the stamp MarkInstalled recorded.
 	MarkUninstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
+	// MarkUserInstalled records that the user asked for ns themselves, so the
+	// orphan clean-up of a parent's uninstall leaves it alone. A no-op when it
+	// already is.
+	MarkUserInstalled(
 		ctx context.Context,
 		ns domain.Namespace,
 	) error
@@ -300,7 +308,7 @@ func WithVersionCheckInterval(
 func (s *arrowService) registerProjections() error {
 	topics := []struct {
 		topic   string
-		project asynxModels.ProjectionHandler[domain.Arrow]
+		project asynxModels.DurableHandler[domain.Arrow]
 	}{
 		{"arrow.added.*", s.projectAdded},
 		{"arrow.advanced.*", s.projectUpdated},
@@ -313,7 +321,7 @@ func (s *arrowService) registerProjections() error {
 	}
 
 	for _, t := range topics {
-		if _, err := s.axArrow.Subscribe(asynx.Topic(t.topic), t.project); err != nil {
+		if err := bind.OnEvent(s.axArrow, asynx.Topic(t.topic), t.project); err != nil {
 			return fmt.Errorf("catalog projection: subscribe %s: %w", t.topic, err)
 		}
 	}
@@ -344,7 +352,7 @@ func (s *arrowService) project(
 	ctx context.Context,
 	arrow domain.Arrow,
 	react func(ctx context.Context, arrow domain.Arrow),
-) {
+) error {
 	if react != nil {
 		react(ctx, arrow)
 	}
@@ -352,24 +360,25 @@ func (s *arrowService) project(
 	if err := s.store.Project(ctx, arrow); err != nil {
 		slog.ErrorContext(ctx, "catalog projection: write read model",
 			"ns", arrow.Namespace, "err", err)
-		return
+		return fmt.Errorf("catalog projection: write read model %s: %w", arrow.Namespace, err)
 	}
 
 	s.broadcast(apphub.ArrowEvent{Kind: apphub.CatalogUpserted, Arrow: arrow})
+	return nil
 }
 
 func (s *arrowService) projectAdded(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, s.runAdded)
+) error {
+	return s.project(ctx, evt.Aggregate, s.runAdded)
 }
 
 func (s *arrowService) projectUpdated(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, s.runUpdated)
+) error {
+	return s.project(ctx, evt.Aggregate, s.runUpdated)
 }
 
 // projectInstallStamp carries the installed-ref stamp into the read model — set
@@ -378,8 +387,8 @@ func (s *arrowService) projectUpdated(
 func (s *arrowService) projectInstallStamp(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, nil)
+) error {
+	return s.project(ctx, evt.Aggregate, nil)
 }
 
 // projectVersionCheck carries the available stamp into the read model. Nothing derived hangs off it, so there is no reaction to run
@@ -387,8 +396,8 @@ func (s *arrowService) projectInstallStamp(
 func (s *arrowService) projectVersionCheck(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, nil)
+) error {
+	return s.project(ctx, evt.Aggregate, nil)
 }
 
 // projectUsage carries the user-installed flag and the last-used stamp into
@@ -396,8 +405,8 @@ func (s *arrowService) projectVersionCheck(
 func (s *arrowService) projectUsage(
 	ctx context.Context,
 	evt asynxModels.Event[domain.Arrow],
-) {
-	s.project(ctx, evt.Aggregate, nil)
+) error {
+	return s.project(ctx, evt.Aggregate, nil)
 }
 
 // projectForgotten mirrors project. The read-model row goes first: an arrow is
@@ -801,7 +810,7 @@ func (s *arrowService) Remove(
 		return fmt.Errorf("remove: %w", apperrors.ErrNotFound)
 	}
 
-	return s.axArrow.Forget(ctx, ns.String())
+	return apperrors.FromForget(s.axArrow.Forget(ctx, ns.String()))
 }
 
 func (s *arrowService) ValidateManifest(
@@ -843,6 +852,28 @@ func (s *arrowService) MarkUninstalled(
 	return err
 }
 
+func (s *arrowService) MarkUserInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	current, err := s.axArrow.Get(ctx, ns.String())
+	if err != nil {
+		return fmt.Errorf("mark user installed %s: %w", ns, advance.MapGetErr(err))
+	}
+	if current.UserInstalled {
+		return nil
+	}
+	_, err = s.axArrow.SendWait(ctx, arrowcmds.SetUserInstalled{Namespace: ns})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, asynxModels.ErrValidation) ||
+		errors.Is(err, asynxModels.ErrPipelineFailed) {
+		return fmt.Errorf("mark user installed %s: %w", ns, apperrors.ErrStateViolation)
+	}
+	return fmt.Errorf("mark user installed %s: %w", ns, err)
+}
+
 // MarkLastUsed stays on Send for the same reason MarkInstalled does: it is
 // sent from the same runtime projection, so waiting here would close the same
 // circular wait.
@@ -862,7 +893,7 @@ func (s *arrowService) Forget(
 	ctx context.Context,
 	ns domain.Namespace,
 ) error {
-	return s.axArrow.Forget(ctx, ns.String())
+	return apperrors.FromForget(s.axArrow.Forget(ctx, ns.String()))
 }
 
 func (s *arrowService) Shutdown(ctx context.Context) error {

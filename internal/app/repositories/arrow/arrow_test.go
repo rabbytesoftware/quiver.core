@@ -2760,3 +2760,43 @@ func TestArrowService_Add_ExecuteWithoutInstall_IsReady(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.ArrowStateReady, rt.State)
 }
+
+func TestMarkUserInstalled(t *testing.T) {
+	testCases := []struct {
+		name          string
+		seed          bool
+		alreadyOwned  bool
+		wantErr       bool
+		wantUserOwned bool
+	}{
+		{name: "a dependency row becomes the user's", seed: true, wantUserOwned: true},
+		{name: "an already owned row is left alone", seed: true, alreadyOwned: true, wantUserOwned: true},
+		{name: "an unknown arrow is an error", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			axArrow := newTestAsynxArrow(t)
+			cat := arrowRepo.NewTestable(&arrowStoreMocks.MockCQRS{}, axArrow, nil, nil)
+			ns := testNs()
+			if tc.seed {
+				seedDependencyRow(t, axArrow, ns)
+			}
+			if tc.alreadyOwned {
+				_, err := axArrow.SendWait(context.Background(), arrowcmds.SetUserInstalled{Namespace: ns})
+				require.NoError(t, err)
+			}
+
+			err := cat.MarkUserInstalled(context.Background(), ns)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			got, err := axArrow.Get(context.Background(), ns.String())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantUserOwned, got.UserInstalled)
+		})
+	}
+}

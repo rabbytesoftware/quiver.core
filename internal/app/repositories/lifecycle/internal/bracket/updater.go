@@ -123,7 +123,7 @@ func (u *updater) executeUpdate(
 		return false, fmt.Errorf("update: %w", err)
 	}
 	defer closeBracket()
-	if u.settler.Settling(ns) {
+	if !u.awaitSettled(ctx, ns) {
 		return false, fmt.Errorf("update: previous update of %s not settled: %w", ns, apperrors.ErrStateViolation)
 	}
 
@@ -225,4 +225,40 @@ func (u *updater) updateBegan(
 	defer cancel()
 	state, err := u.runtime.GetState(readCtx, ns)
 	return err == nil && state == domain.ArrowStateUpdating
+}
+
+const (
+	settleGrace = time.Second
+	settlePoll  = 10 * time.Millisecond
+)
+
+func (u *updater) awaitSettled(
+	ctx context.Context,
+	ns domain.Namespace,
+) bool {
+	if !u.settler.Settling(ns) {
+		return true
+	}
+	graceCtx, cancel := context.WithTimeout(ctx, settleGrace)
+	defer cancel()
+	tick := time.NewTicker(settlePoll)
+	defer tick.Stop()
+
+	waiting := true
+	for waiting && u.settler.Settling(ns) {
+		waiting = awaitTick(graceCtx, tick.C)
+	}
+	return !u.settler.Settling(ns)
+}
+
+func awaitTick(
+	ctx context.Context,
+	tick <-chan time.Time,
+) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-tick:
+		return true
+	}
 }

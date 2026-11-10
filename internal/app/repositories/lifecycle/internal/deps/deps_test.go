@@ -2009,3 +2009,34 @@ func TestStopIfRunning(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeInstall_MarksTheArrowUserInstalledFirst(t *testing.T) {
+	var marked domain.Namespace
+	a := &mocks.MockArrow{
+		ExistsFn: func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		MarkUserInstalledFn: func(_ context.Context, ns domain.Namespace) error {
+			marked = ns
+			return nil
+		},
+	}
+	uc := newUC(a, &mocks.MockRuntime{}, &mocks.MockGraph{})
+
+	_, _ = uc.Install(context.Background(), "test/arrow@v1", nil)
+
+	if marked != "test/arrow@v1" {
+		t.Fatalf("expected test/arrow@v1 to be marked user-installed, got %q", marked)
+	}
+}
+
+func TestRuntimeInstall_MarkUserInstalledError(t *testing.T) {
+	expected := errors.New("mark error")
+	a := &mocks.MockArrow{
+		ExistsFn:            func(_ context.Context, _ domain.Namespace) (bool, error) { return true, nil },
+		MarkUserInstalledFn: func(_ context.Context, _ domain.Namespace) error { return expected },
+	}
+	uc := newUC(a, &mocks.MockRuntime{}, &mocks.MockGraph{})
+
+	if _, err := uc.Install(context.Background(), "test/arrow@v1", nil); !errors.Is(err, expected) {
+		t.Fatalf("expected %v, got %v", expected, err)
+	}
+}

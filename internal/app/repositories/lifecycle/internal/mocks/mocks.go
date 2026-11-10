@@ -39,6 +39,10 @@ type MockArrow struct {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.Namespace, error)
+	MarkUserInstalledFn func(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	AdvanceFn func(
 		ctx context.Context,
 		ns domain.Namespace,
@@ -118,6 +122,16 @@ func (m *MockArrow) AddDependency(
 		return m.AddDependencyFn(ctx, ns)
 	}
 	return ns, nil
+}
+
+func (m *MockArrow) MarkUserInstalled(
+	ctx context.Context,
+	ns domain.Namespace,
+) error {
+	if m.MarkUserInstalledFn != nil {
+		return m.MarkUserInstalledFn(ctx, ns)
+	}
+	return nil
 }
 
 func (m *MockArrow) Advance(

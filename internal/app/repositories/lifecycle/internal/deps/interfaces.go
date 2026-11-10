@@ -25,6 +25,10 @@ type Arrow interface {
 		ctx context.Context,
 		ns domain.Namespace,
 	) (domain.Namespace, error)
+	MarkUserInstalled(
+		ctx context.Context,
+		ns domain.Namespace,
+	) error
 	CheckAvailable(
 		ctx context.Context,
 		ns domain.Namespace,

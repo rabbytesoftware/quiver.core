@@ -2,11 +2,9 @@ package sqlite
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/char2cs/asynx/models"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -55,30 +53,10 @@ func prepareEventDB(db *gorm.DB) error {
 		return fmt.Errorf("eventstore: busy_timeout: %w", err)
 	}
 
-	if err := db.AutoMigrate(&eventEntry{}); err != nil {
+	if err := db.AutoMigrate(&eventEntry{}, &receiptEntry{}, &deliveryEntry{}); err != nil {
 		return fmt.Errorf("eventstore: migrate: %w", err)
 	}
 
-	return nil
-}
-
-func (s *eventStore) Append(
-	ctx context.Context,
-	aggregateID string,
-	version int64,
-	data []byte,
-) error {
-	result := s.db.WithContext(ctx).Create(&eventEntry{
-		AggregateID: aggregateID,
-		Version:     version,
-		Data:        data,
-	})
-	if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
-		return fmt.Errorf("%w: %w (%s, v%d)", models.ErrPipelineFailed, ErrVersionConflict, aggregateID, version)
-	}
-	if result.Error != nil {
-		return fmt.Errorf("eventstore: append (%s, v%d): %w", aggregateID, version, result.Error)
-	}
 	return nil
 }
 
@@ -124,19 +102,6 @@ func (s *eventStore) ReadRange(
 		result[i] = e.Data
 	}
 	return result, nil
-}
-
-func (s *eventStore) Delete(
-	ctx context.Context,
-	aggregateID string,
-) error {
-	result := s.db.WithContext(ctx).
-		Where("aggregate_id = ?", aggregateID).
-		Delete(&eventEntry{})
-	if result.Error != nil {
-		return fmt.Errorf("eventstore: delete: %w", result.Error)
-	}
-	return nil
 }
 
 // Close closes the underlying database connection, releasing its file handle.

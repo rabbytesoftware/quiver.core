@@ -155,7 +155,7 @@ Every command struct must implement five methods. Read any file under `internal/
 
 - `AggregateID() string` — returns `namespace.String()`, identifies the aggregate instance
 - `EventName() string` — format: `aggregate.action.<namespace>` (e.g. `arrow.added.github.com/u/r@v1`)
-- `ShouldSnapshot() bool` — whether to write a snapshot row after this event; see §4.3 (under asynx v0.8 this is unconditionally `true`)
+- `ShouldSnapshot() bool` — whether to write a snapshot row after this event; see §4.3 (under asynx v1 this is unconditionally `true`)
 - `Validate(current *T) error` — pure; receives current aggregate state (nil = doesn't exist yet); returns `asynxModels.ErrValidation` wrapped in context
 - `EmitEvent(current *T) T` — pure; returns next aggregate value; no I/O, no logging
 
@@ -169,9 +169,27 @@ Subscriber patterns use wildcards:
 
 ### 4.3 Snapshot policy
 
-A snapshot is a single upserted row keyed by `aggregate_id` (asynx v0.8) — O(1) read, constant storage, not an appended row that every future read must scan past. There is no cost tier to optimize for anymore: `ShouldSnapshot()` returns `true` unconditionally, including on high-frequency commands (`AdvanceStep`, `RecordPID`, `AllocatePort`, `DeallocatePort`).
+A snapshot is a single upserted row keyed by `aggregate_id` (asynx v1) — O(1) read, constant storage, not an appended row that every future read must scan past. There is no cost tier to optimize for anymore: `ShouldSnapshot()` returns `true` unconditionally, including on high-frequency commands (`AdvanceStep`, `RecordPID`, `AllocatePort`, `DeallocatePort`).
 
 The reader's own auto-snapshot only fires `if result.DidUpcast` (on warm and cold path alike) — it never writes a snapshot on a plain read. With no upcasters registered and `schemaVersion` at 1, that path never triggers here. The only thing that ever writes a snapshot row is a command whose `ShouldSnapshot()` is `true`.
+
+### 4.3.1 Event store schema (asynx v1)
+
+asynx v1 needs its store to commit the event, receipt and delivery entry in one transaction, so the events database (`events.db`, `internal/adapter/eventstore/sqlite`) holds three tables: `events` (unchanged since v0.8 — stream ids are still `events:<aggregate>`), `receipts` and `deliveries`. The last two are created by `AutoMigrate` next to `events`; opening a database written by v0.8 only adds them, so an upgrade needs no data migration and a v0.8 binary still reads the file afterwards. `testdata/asynx-v0.8.1` holds real v0.8.1 databases and `legacy_upgrade_test.go` boots v1 over copies of them. A change to the store must keep `storetest.Run` and `storetest.RunSnapshots` green (`conformance_test.go`).
+
+Behaviours to know: a snapshot write failure no longer fails `Send` (it reaches the `WithSnapshotErrorHandler` hook only); same-aggregate commands no longer race into `ErrPipelineFailed` inside one process, so the retry layers (`sendRetryingConflicts`, `advance` write attempts, `BeginStop`) only cover a second process on the same store; `Forget` on an aggregate already being forgotten fails with `ErrForgetInProgress`, which `apperrors.FromForget` maps to `ErrStateViolation`.
+
+### 4.3.2 Read models: sync projections and durable subscribers
+
+asynx v1 lets a read model commit **in the event's own transaction** (`WithSyncProjection`) and lets a subscriber be **durable** (`WithSubscriber`: retried with backoff, redelivered after a restart, ordered per aggregate, at-least-once). Both exist only on the Builder, and `Build()` starts redelivering at once, so `internal/app/bind` does the late binding: `bind.Build` finishes a Builder with one catch-all durable subscriber and one catch-all sync projection that forward to a `Binder`; repositories add routes while the container wires, and `app.New` calls `Ready()` on every instance when it is done (deliveries wait for it).
+
+- `bind.OnEvent(ax, pattern, handler)` — a durable route on an app-container instance, a logged plain `Subscribe` on any other `asynx.Asynx` (tests). `pattern` is what `Subscribe` takes (wrap globs in `asynx.Topic`). A handler must be idempotent on `(AggregateID, Version)` and returns an error to be retried; the aggregate's later events wait behind it. Never use it for a reaction that must not run twice (`runtime.begun`, the update bracket's `runtime.ended`, which keep plain `Subscribe`).
+- `bind.Projection(ax, pattern, fn)` — a sync route; `fn` writes through `eventstore.TxSession(ctx, db, tx)`, never through the pinned single connection directly (that deadlocks). It reports false on an instance that cannot host one, and the repository keeps a durable path.
+- Hosted read models: **collections** (`collection.db`), **devices** (`device.db`) and **netbridge ports** (`netbridge.db`) keep their table in the aggregate's own events database (`bind.Host(ax)`, `eventstore.Hosted`). The row is readable the moment `Send` returns and a failed write drops the event. Rows an earlier release kept in `store/collections.db`, `store/device_store.db` and `store/netbridge_ports.db` are copied in on first boot (existing rows win) and the old file is kept as `<name>.migrated`; a downgrade to a release without hosted read models therefore starts with empty versions of them until that file is renamed back.
+- The **arrow catalog** stays in `store/arrows.db` and is fed by a durable (not sync) route: its projection runs the dependency-graph reaction first, which reads the catalog and the manifest (network), so it cannot run inside a transaction holding the events database's one connection, and the row must not become readable before its edges exist (`arrowService.project`). A failed read-model write is now retried instead of dropped.
+- Hub broadcasts and cross-repository callbacks (`OnRuntimeXxx` except `OnRuntimeEnded`, `OnCollectionFollowed`) are durable. `OnRuntimeEndedDurable` is the hub's; `OnRuntimeEnded` stays plain for the update bracket.
+- Delivery failures reach `WithDeliveryErrorHandler` (logged with the attempt); an aggregate that exhausts its attempts is parked and redelivered by the next boot.
+- A `SendWait` from a context derived from a handler's, to the aggregate that handler is handling, fails with `ErrSendWaitFromHandler`. `runtime.SetVersionOutdated` sends from `outsideHandler(ctx)` for that reason; only the integration suite catches the class (`make test-integration`).
 
 ### 4.4 Aggregate removal
 
@@ -225,7 +243,7 @@ Cross-repository reactions wire in `repositories/container.go` via a `wireCallba
 
 ### 5.5 Hub broadcast registration
 
-WebSocket broadcasts are registered in `repositories/container.go → RegisterHubProjections`. Pattern: subscribe to an `OnRuntimeXxx` callback, call `hub.BroadcastXxx(data)` inside. Never call broadcasts from usecases.
+WebSocket broadcasts are registered in `repositories/container.go → RegisterHubProjections`. Pattern: subscribe to an `OnRuntimeXxx` callback (durable, see §4.3.2), call `hub.BroadcastXxx(data)` inside. Never call broadcasts from usecases.
 
 ### 5.6 Container struct pattern
 
@@ -436,7 +454,7 @@ Any Asynx projection fires a hub broadcast → Hub fans out to all Subscribers (
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `github.com/char2cs/asynx` | v0.8.x | Event sourcing kernel |
+| `github.com/char2cs/asynx` | v1.1.x | Event sourcing kernel |
 | `github.com/gin-gonic/gin` | v1.12.x | HTTP framework |
 | `github.com/glebarez/sqlite` | v1.11.x | SQLite (CGo-free) |
 | `github.com/gorilla/websocket` | v1.5.x | WebSocket |
