@@ -28,7 +28,7 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.2
